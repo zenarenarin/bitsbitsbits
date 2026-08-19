@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "Neon Orbit Pinball",
+  "description": "A neon synthwave pinball table — charge the plunger, work the flippers, and chase bumper combos for the leaderboard.",
+  "tags": ["arcade", "pinball"],
+  "permissions": ["haptics", "backgroundMusic"],
+  "dependencies": ["three@0.164.1"],
+  "memory": {
+    "records": {
+      "score": {
+        "label": "High Score",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": ["daily", "weekly", "all_time"],
+        "scopes": ["following", "global"],
+        "dedupe": "best_per_user"
+      }
+    }
+  }
+}
