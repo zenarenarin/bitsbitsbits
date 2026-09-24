@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "Filament",
+  "description": "A single point of light drifts through dark space, leaving a glowing thread behind it. Never touch your own past. The trail you leave is the score and the artwork.",
+  "tags": ["arcade", "art", "generative", "minimal", "ambient"],
+  "permissions": ["haptics", "backgroundMusic", "storage"],
+  "dependencies": [],
+  "onboarding": {
+    "kind": "immersive",
+    "version": 1
+  },
+  "memory": {
+    "records": {
+      "survival": {
+        "label": "Longest Drift",
+        "valueType": "duration_ms",
+        "order": "desc",
+        "format": "timer",
+        "periods": ["daily", "weekly", "all_time"],
+        "scopes": ["following", "global"],
+        "dedupe": "best_per_user",
+        "dimensions": {
+          "level": ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"]
+        }
+      }
+    }
+  },
+  "tuning": {
+    "schemaVersion": 1,
+    "groups": {
+      "gameplay": { "label": "Gameplay" },
+      "visual": { "label": "Visual" },
+      "audio": { "label": "Audio" }
+    },
+    "knobs": {
+      "base_speed": { "label": "Starting speed", "type": "number", "default": 62, "min": 36, "max": 120, "step": 2, "group": "gameplay", "intent": "feel", "apply": "restart" },
+      "acceleration": { "label": "Acceleration (% per second)", "type": "number", "default": 1.2, "min": 0, "max": 4, "step": 0.1, "group": "gameplay", "intent": "difficulty", "apply": "restart" },
+      "turn_rate": { "label": "Turn rate", "type": "number", "default": 3, "min": 1.6, "max": 5, "step": 0.1, "group": "gameplay", "intent": "feel", "apply": "restart" },
+      "arena_shrink": { "label": "Space closing in", "type": "number", "default": 0.22, "min": 0, "max": 0.5, "step": 0.01, "group": "gameplay", "intent": "difficulty", "apply": "restart" },
+      "trail_glow": { "label": "Trail glow", "type": "number", "default": 1, "min": 0.3, "max": 2, "step": 0.1, "group": "visual", "intent": "visual", "apply": "restart" },
+      "particle_density": { "label": "Ambient particles", "type": "number", "default": 1, "min": 0, "max": 1.6, "step": 0.1, "group": "visual", "intent": "visual", "apply": "live" },
+      "grain": { "label": "Film grain", "type": "number", "default": 0.07, "min": 0, "max": 0.2, "step": 0.01, "group": "visual", "intent": "visual", "apply": "live" },
+      "music_volume": { "label": "Ambient music volume", "type": "number", "default": 0.3, "min": 0, "max": 1, "step": 0.05, "group": "audio", "intent": "audio", "apply": "restart" }
+    }
+  }
+}
