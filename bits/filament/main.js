@@ -105,11 +105,33 @@ window.plethoraBit = {
 .fl-pause .fl-bars{display:inline-block;width:9px;height:14px;border-left:1px solid #ece9e2;border-right:1px solid #ece9e2}
 .fl-pause i{display:block;font-style:normal;font-size:8.5px;letter-spacing:.4em;margin-right:-.4em;opacity:.45;margin-top:16px}
 .fl-paused .fl-pause{opacity:.8}
+.fl .fl-ranks2{display:block;margin:20px auto 0;padding:10px 16px;font-size:9px;opacity:.45;pointer-events:none}
+.fl-hint.on .fl-ranks2{pointer-events:auto}
+.fl-lb{position:absolute;inset:0;background:rgba(3,3,5,.84);opacity:0;pointer-events:none;transition:opacity .6s ease;display:flex;align-items:center;justify-content:center}
+.fl-lb.on{opacity:1;pointer-events:auto}
+.fl .fl-lb button{pointer-events:none;margin:0}
+.fl .fl-lb.on button{pointer-events:auto}
+.fl-lb-in{width:min(320px,84%)}
+.fl-lb-h{display:flex;justify-content:space-between;font-size:10px}
+.fl-lb-h span:last-child{opacity:.45}
+.fl-lb-tabs{margin-top:22px;display:flex;gap:26px}
+.fl .fl-lb-tabs button{padding:8px 0;font-size:9px;opacity:.38;border-bottom:1px solid transparent}
+.fl .fl-lb-tabs button.on{opacity:.95;border-bottom-color:rgba(236,233,226,.6)}
+.fl-lb-list{list-style:none;padding:0;margin:16px 0 28px;min-height:120px}
+.fl-lb-list li{display:flex;gap:14px;padding:10px 0;border-bottom:1px solid rgba(236,233,226,.08);font-size:10.5px;text-transform:none;letter-spacing:.06em}
+.fl-lb-list .r{opacity:.4;width:2.4em}
+.fl-lb-list .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fl-lb-list .v{opacity:.8}
+.fl-lb-list li.me{color:#fff}
+.fl-lb-list li.me .n::after{content:"  \\00b7  you";opacity:.45}
+.fl-lb-list li.gap{border:0;justify-content:center;opacity:.35;padding:4px 0}
+.fl-lb-list li.msg{border:0;justify-content:center;opacity:.45;text-transform:uppercase;letter-spacing:.2em;font-size:9px;padding-top:40px}
+.fl .fl-lb-close{padding:10px 0;font-size:9.5px;opacity:.7}
 </style>
 <button class="fl-tl" type="button" aria-label="level"><span class="fl-lv">01 / 12</span><small class="fl-lvsub">&nbsp;</small></button>
 <div class="fl-tc"><span class="fl-k">TRACE</span><span class="fl-pct">0%</span></div>
 <div class="fl-tr"><div><span class="fl-k">TIME</span><span class="fl-time">00:00</span></div><small class="fl-sub">&nbsp;</small></div>
-<div class="fl-hint"><b>FILAMENT</b><p class="fl-rules">the light never stops moving<br>drag anywhere to steer it<br>never touch your own trail<br>or the edge of the space<br><span>tap once to pause</span></p><button class="fl-start" type="button">START</button></div>
+<div class="fl-hint"><b>FILAMENT</b><p class="fl-rules">the light never stops moving<br>drag anywhere to steer it<br>never touch your own trail<br>or the edge of the space<br><span>tap once to pause</span></p><button class="fl-start" type="button">START</button><button class="fl-ranks2" type="button">RANKS</button></div>
 <div class="fl-pause"><span class="fl-bars"></span><i>touch to continue</i></div>
 <div class="fl-end">
   <div class="fl-stats">
@@ -121,15 +143,24 @@ window.plethoraBit = {
   <div class="fl-acts">
     <button class="fl-again" type="button">AGAIN</button>
     <button class="fl-sec fl-retrace" type="button">RETRACE</button>
+    <button class="fl-sec fl-ranks" type="button">RANKS</button>
   </div>
-</div>`;
+</div>
+<div class="fl-lb" aria-hidden="true"><div class="fl-lb-in">
+  <div class="fl-lb-h"><span>LONGEST DRIFT</span><span class="fl-lb-lv">LEVEL 01</span></div>
+  <div class="fl-lb-tabs"><button class="on" type="button" data-scope="global">GLOBAL</button><button type="button" data-scope="following">FOLLOWING</button></div>
+  <ol class="fl-lb-list"></ol>
+  <button class="fl-lb-close" type="button">CLOSE</button>
+</div></div>`;
     const $ = sel => hud.querySelector(sel);
     const el = {
       lvBtn: $(".fl-tl"), lv: $(".fl-lv"), lvSub: $(".fl-lvsub"),
       time: $(".fl-time"), sub: $(".fl-sub"), pct: $(".fl-pct"),
       hint: $(".fl-hint"), pause: $(".fl-pause"), start: $(".fl-start"),
       vTime: $(".fl-v-time"), vDist: $(".fl-v-dist"), vTrace: $(".fl-v-trace"), vNote: $(".fl-v-note"),
-      again: $(".fl-again"), retrace: $(".fl-retrace")
+      again: $(".fl-again"), retrace: $(".fl-retrace"), ranks: $(".fl-ranks"), ranks2: $(".fl-ranks2"),
+      lb: $(".fl-lb"), lbLv: $(".fl-lb-lv"), lbList: $(".fl-lb-list"), lbClose: $(".fl-lb-close"),
+      lbTabs: Array.from(hud.querySelectorAll(".fl-lb-tabs button"))
     };
 
     // ------------------------------------------------------------------ layout
@@ -392,9 +423,14 @@ window.plethoraBit = {
       const a = P.pal[i], b = P.pal[(i + 1) % 3];
       return (a + angDelta(a * Math.PI / 180, b * Math.PI / 180) * 180 / Math.PI * e + 360) % 360;
     }
+    // The whole palette also drifts very slowly around the colour wheel as a run goes on.
+    const DRIFT = 1.1; // degrees per second
+    function sceneT() {
+      return S.mode === "ready" || !run ? S.clock * 0.3 : run.t;
+    }
     function trailColor(t, P, alpha) {
       const k = 1 - Math.exp(-t / 42);
-      const h = paletteHue(t, P);
+      const h = (paletteHue(t, P) + t * DRIFT) % 360;
       const s = P.sat + 10 * k;
       const l = 82 - 12 * k;
       return `hsla(${h.toFixed(1)},${s.toFixed(1)}%,${l.toFixed(1)}%,${alpha})`;
@@ -641,7 +677,7 @@ window.plethoraBit = {
       const notes = [];
       notes.push("BEST " + (L.best / 1000).toFixed(1) + " SEC");
       if (L.opened) notes.push(lvlLabel(L.opened) + " OPENS");
-      el.vNote.textContent = notes.join("   ·   ");
+      el.vNote.textContent = notes.join("   \u00b7   ");
       setEndNumbers(animated ? 0 : 1);
       hud.classList.add("fl-show");
       revealTimers.forEach(clearTimeoutSafe);
@@ -654,7 +690,7 @@ window.plethoraBit = {
         if (animated && L.opened) {
           try {
             if (ctx.pulse && ctx.pulse.complete) {
-              ctx.pulse.complete({ timeMs: L.ms, level: L.level, text: "Filament " + lvlLabel(L.opened) + " opened · " + L.secs.toFixed(1) + " sec" });
+              ctx.pulse.complete({ timeMs: L.ms, level: L.level, text: "Filament " + lvlLabel(L.opened) + " opened \u00b7 " + L.secs.toFixed(1) + " sec" });
             }
           } catch (e) { /* optional */ }
           haptic("success");
@@ -674,13 +710,13 @@ window.plethoraBit = {
     }
 
     function again() {
-      if (S.mode !== "end") return;
+      if (S.mode !== "end" || lb.open) return;
       if (last && last.opened) S.level = last.opened;
       toReady();
     }
 
     function retrace() {
-      if (S.mode !== "end" || !run) return;
+      if (S.mode !== "end" || !run || lb.open) return;
       S.mode = "retrace";
       S.retraceAt = S.clock;
       S.retraceDur = clamp(run.t / 3, 2.6, 7.5);
@@ -701,9 +737,104 @@ window.plethoraBit = {
 
     ctx.input.activate(el.again, () => again());
     ctx.input.activate(el.retrace, () => retrace());
+
+    // ------------------------------------------------------------ leaderboard
+    const lb = { open: false, scope: "global", level: 1, req: 0 };
+    function openRanks() {
+      if (S.mode !== "end" && S.mode !== "ready") return;
+      lb.open = true;
+      lb.level = S.mode === "end" && last ? last.level : S.level;
+      el.lbLv.textContent = "LEVEL " + lvlLabel(lb.level);
+      el.lb.classList.add("on");
+      el.lb.setAttribute("aria-hidden", "false");
+      loadRanks();
+      try { ctx.platform.interact({ type: "ranks" }); } catch (e) { /* optional */ }
+    }
+    function closeRanks() {
+      lb.open = false;
+      lb.req++;
+      el.lb.classList.remove("on");
+      el.lb.setAttribute("aria-hidden", "true");
+    }
+    function lbRow(cls, cells) {
+      const li = hud.ownerDocument.createElement("li");
+      if (cls) li.className = cls;
+      for (const [c, text] of cells) {
+        const span = hud.ownerDocument.createElement("span");
+        if (c) span.className = c;
+        span.textContent = text;
+        li.appendChild(span);
+      }
+      el.lbList.appendChild(li);
+    }
+    function entryOf(e, i) {
+      if (!e || typeof e !== "object") return null;
+      const u = e.user || e.profile || e.player || {};
+      const value = Number(e.value ?? e.score ?? e.valueMs ?? e.best ?? 0);
+      return {
+        rank: Number(e.rank ?? e.position ?? e.place ?? i + 1),
+        name: String(e.displayName || e.display_name || e.username || e.handle || e.name ||
+          u.displayName || u.display_name || u.username || u.handle || u.name || "player"),
+        text: e.label || e.formattedValue || (value / 1000).toFixed(1) + " sec",
+        me: !!(e.isViewer || e.is_viewer || e.isMe || e.isCurrentUser || e.viewer === true || e.self)
+      };
+    }
+    function parseBoard(res) {
+      if (!res) return null;
+      const d = !Array.isArray(res) && res.data && typeof res.data === "object" ? res.data : res;
+      const arr = Array.isArray(d) ? d : (d.entries || d.rows || d.items || d.records || d.leaderboard || d.ranks || []);
+      const rows = (Array.isArray(arr) ? arr : []).slice(0, 10).map(entryOf).filter(Boolean);
+      const mine = !Array.isArray(d) ? (d.viewerEntry || d.viewer_entry || d.me || d.self || (typeof d.viewer === "object" ? d.viewer : null)) : null;
+      let me = null;
+      if (mine && !rows.some(r => r.me)) {
+        me = entryOf(mine, rows.length);
+        if (me) me.me = true;
+      }
+      return { rows, me };
+    }
+    async function loadRanks() {
+      const id = ++lb.req;
+      el.lbTabs.forEach(b => b.classList.toggle("on", b.getAttribute("data-scope") === lb.scope));
+      el.lbList.textContent = "";
+      lbRow("msg", [[null, "\u00b7  \u00b7  \u00b7"]]);
+      let res = null;
+      try {
+        const rec = ctx.memory && ctx.memory.record ? ctx.memory.record("survival") : null;
+        if (rec && rec.leaderboard) {
+          res = await rec.leaderboard({ scope: lb.scope, period: "all_time", dimensions: { level: lvlLabel(lb.level) } });
+        }
+      } catch (e) {
+        res = null;
+      }
+      if (id !== lb.req) return;
+      const board = parseBoard(res);
+      el.lbList.textContent = "";
+      if (!board) {
+        lbRow("msg", [[null, "ranks unavailable here"]]);
+        return;
+      }
+      if (!board.rows.length) {
+        lbRow("msg", [[null, "no drifts recorded yet"]]);
+        return;
+      }
+      for (const r of board.rows) lbRow(r.me ? "me" : "", [["r", pad2(r.rank)], ["n", r.name], ["v", r.text]]);
+      if (board.me) {
+        lbRow("gap", [[null, "\u00b7"]]);
+        lbRow("me", [["r", pad2(board.me.rank)], ["n", board.me.name], ["v", board.me.text]]);
+      }
+    }
+    ctx.input.activate(el.ranks, () => openRanks());
+    ctx.input.activate(el.ranks2, () => openRanks());
+    ctx.input.activate(el.lbClose, () => closeRanks());
+    el.lbTabs.forEach(b => ctx.input.activate(b, () => {
+      const sc = b.getAttribute("data-scope");
+      if (sc === lb.scope) return;
+      lb.scope = sc;
+      loadRanks();
+    }));
     ctx.input.activate(el.lvBtn, () => cycleLevel());
     ctx.input.activate(el.start, () => {
-      if (S.mode !== "ready") return;
+      if (S.mode !== "ready" || lb.open) return;
       onGesture();
       startRun();
     });
@@ -791,7 +922,7 @@ window.plethoraBit = {
       const count = 150;
       const hx = run.x, hy = run.y;
       const live = S.mode === "playing" || S.mode === "resuming";
-      g.fillStyle = trailColor(0, run.P, 1);
+      g.fillStyle = trailColor(sceneT(), run.P, 1);
       for (let i = 0; i < count; i++) {
         const a = (i / count) * TAU;
         const x = Math.cos(a) * rx, y = Math.sin(a) * ry;
@@ -802,7 +933,7 @@ window.plethoraBit = {
         g.fillRect(CX + x - 0.6 * U, CY + y - 0.6 * U, 1.2 * U, 1.2 * U);
       }
       g.globalAlpha = 0.035;
-      g.strokeStyle = trailColor(0, run.P, 1);
+      g.strokeStyle = trailColor(sceneT(), run.P, 1);
       g.lineWidth = 1;
       g.beginPath();
       g.ellipse(CX, CY, rx, ry, 0, 0, TAU);
@@ -812,7 +943,7 @@ window.plethoraBit = {
 
     function drawWells(now) {
       if (!run.wells.length) return;
-      g.strokeStyle = trailColor(20, run.P, 1);
+      g.strokeStyle = trailColor(sceneT() + 20, run.P, 1);
       g.lineWidth = 0.6;
       for (const w of run.wells) {
         if (S.mode === "ready") wellPos(w, 0, 1);
@@ -824,7 +955,7 @@ window.plethoraBit = {
           g.stroke();
         }
         g.globalAlpha = 0.35;
-        g.fillStyle = trailColor(20, run.P, 1);
+        g.fillStyle = trailColor(sceneT() + 20, run.P, 1);
         g.beginPath();
         g.arc(CX + w.x, CY + w.y, 1.1 * U, 0, TAU);
         g.fill();
@@ -841,7 +972,7 @@ window.plethoraBit = {
       else if (S.mode === "end" || S.mode === "retrace") flow = Math.min(0.35, (S.clock - (S.endAt || S.clock)) * 0.2);
       else if (S.mode === "paused") flow = 0.15;
       const hx = run ? run.x : 0, hy = run ? run.y : 0;
-      g.fillStyle = trailColor(10, run.P, 1);
+      g.fillStyle = trailColor(sceneT() + 10, run.P, 1);
       for (let i = 0; i < n; i++) {
         const p = particles[i];
         const a = Math.sin(p.x * 0.006 + now * 0.05) + Math.cos(p.y * 0.005 - now * 0.04) + p.ph;
@@ -882,9 +1013,10 @@ window.plethoraBit = {
       const R = (S.mode === "ready" ? 30 : 22) * U * breath * (1 + near * 0.5);
       const x = CX + hx, y = CY + hy;
       const gr = g.createRadialGradient(x, y, 0, x, y, R);
-      gr.addColorStop(0, trailColor(run.t, P, 0.5 * intensity));
-      gr.addColorStop(0.25, trailColor(run.t, P, 0.16 * intensity));
-      gr.addColorStop(1, trailColor(run.t, P, 0));
+      const ht = sceneT();
+      gr.addColorStop(0, trailColor(ht, P, 0.5 * intensity));
+      gr.addColorStop(0.25, trailColor(ht, P, 0.16 * intensity));
+      gr.addColorStop(1, trailColor(ht, P, 0));
       g.fillStyle = gr;
       g.beginPath();
       g.arc(x, y, R, 0, TAU);
@@ -982,6 +1114,17 @@ window.plethoraBit = {
       g.globalCompositeOperation = "source-over";
       g.globalAlpha = 1;
       g.drawImage(bgBuf, 0, 0, W, H);
+      {
+        // a faint colour wash that follows the drifting palette
+        const T = sceneT(), P = run.P;
+        const h = (paletteHue(T + 8, P) + T * DRIFT) % 360;
+        const a = S.mode === "ready" ? 0.05 : 0.05 + 0.03 * Math.min(1, run.t / 20);
+        const wash = g.createRadialGradient(CX, CY, 0, CX, CY, Math.max(W, H) * 0.8);
+        wash.addColorStop(0, `hsla(${h.toFixed(1)},${P.sat}%,38%,${a})`);
+        wash.addColorStop(1, `hsla(${h.toFixed(1)},${P.sat}%,38%,0)`);
+        g.fillStyle = wash;
+        g.fillRect(0, 0, W, H);
+      }
 
       drawParticles(dt, now);
       drawRings(now);
