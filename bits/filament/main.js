@@ -13,9 +13,12 @@ window.plethoraBit = {
     const TAU = Math.PI * 2;
     const LEVELS = 12;
     const STORE_KEY = "filament.v1";
-    // One restrained tint per level: ivory, ice, amber, lavender, sea glass, rose…
-    const HUES = [40, 205, 28, 262, 168, 345, 215, 48, 288, 188, 14, 0];
-    const SATS = [20, 26, 30, 22, 24, 26, 30, 34, 26, 30, 36, 0];
+    // Three hues per level; the trail slowly drifts between them.
+    const PALETTES = [
+      [38, 340, 280], [190, 225, 275], [25, 48, 350], [265, 305, 200],
+      [160, 188, 95], [340, 20, 290], [210, 172, 250], [48, 15, 330],
+      [290, 322, 230], [185, 140, 210], [10, 36, 320], [0, 120, 240]
+    ];
     const WELLS = [0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 3, 4];
 
     const tn = (id, fallback) => {
@@ -180,7 +183,8 @@ window.plethoraBit = {
       grainPat = g.createPattern(c, "repeat");
     }
 
-    function buildBackground(hue, sat) {
+    function buildBackground(P) {
+      const hue = P.hue, sat = P.sat;
       bgBuf = makeBuffer(W * pxr, H * pxr);
       const b = bgBuf.getContext("2d");
       b.setTransform(pxr, 0, 0, pxr, 0, 0);
@@ -197,7 +201,7 @@ window.plethoraBit = {
       for (let i = 0; i < 6; i++) {
         const x = W * (0.1 + r() * 0.8), y = H * (0.1 + r() * 0.8);
         const rad = Math.max(W, H) * (0.25 + r() * 0.4);
-        const h = hue + (r() - 0.5) * 60;
+        const h = P.pal[i % 3] + (r() - 0.5) * 24;
         gr = b.createRadialGradient(x, y, 0, x, y, rad);
         gr.addColorStop(0, `hsla(${h},${20 + sat}%,55%,${0.028 + r() * 0.02})`);
         gr.addColorStop(1, `hsla(${h},${20 + sat}%,55%,0)`);
@@ -241,8 +245,10 @@ window.plethoraBit = {
         shrink: clamp(tn("arena_shrink", 0.22) * (1 + 0.9 * t), 0, 0.6),
         breathe: L >= 3 ? 0.012 + 0.02 * t : 0,
         target: 15 + L * 3,
-        hue: HUES[L - 1],
-        sat: SATS[L - 1],
+        pal: PALETTES[L - 1],
+        hue: PALETTES[L - 1][0],
+        sat: L === 12 ? 70 : 62,
+        cycle: L === 12 ? 7 : 16,
         glow: tn("trail_glow", 1)
       };
     }
@@ -301,7 +307,7 @@ window.plethoraBit = {
       addPoint(0, 0);
       clearTrail();
       steer.target = null;
-      if (bgHueBuilt !== P.hue * 1000 + P.sat) buildBackground(P.hue, P.sat);
+      if (bgHueBuilt !== P.hue * 1000 + P.sat) buildBackground(P);
     }
 
     function clearTrail() {
@@ -379,11 +385,18 @@ window.plethoraBit = {
       return best;
     }
 
+    function paletteHue(t, P) {
+      const ph = ((t / P.cycle) % 3 + 3) % 3;
+      const i = Math.floor(ph), f = ph - i;
+      const e = f * f * (3 - 2 * f);
+      const a = P.pal[i], b = P.pal[(i + 1) % 3];
+      return (a + angDelta(a * Math.PI / 180, b * Math.PI / 180) * 180 / Math.PI * e + 360) % 360;
+    }
     function trailColor(t, P, alpha) {
       const k = 1 - Math.exp(-t / 42);
-      const h = P.hue + (P.sat ? 46 * k : 0);
-      const s = P.sat ? P.sat + 18 * k : 0;
-      const l = 91 - 20 * k;
+      const h = paletteHue(t, P);
+      const s = P.sat + 10 * k;
+      const l = 82 - 12 * k;
       return `hsla(${h.toFixed(1)},${s.toFixed(1)}%,${l.toFixed(1)}%,${alpha})`;
     }
 
@@ -941,11 +954,11 @@ window.plethoraBit = {
         } else {
           pause();
           run.drawn = 1;
-          buildBackground(run.P.hue, run.P.sat);
+          buildBackground(run.P);
           drawPending(run.xs.length, true);
         }
       }
-      if (bgHueBuilt !== run.P.hue * 1000 + run.P.sat) buildBackground(run.P.hue, run.P.sat);
+      if (bgHueBuilt !== run.P.hue * 1000 + run.P.sat) buildBackground(run.P);
 
       // retrace playback redraws the path at an accelerated pace
       let headX = run.x, headY = run.y, headI = 1;
