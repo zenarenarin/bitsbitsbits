@@ -75,12 +75,15 @@ window.plethoraBit = {
 .fl-k{opacity:.45;margin-right:.7em}
 .fl-dim .fl-tl,.fl-dim .fl-tr{opacity:.2}
 .fl-glow .fl-tl{opacity:1;text-shadow:0 0 12px rgba(255,248,230,.7)}
-.fl-hint{position:absolute;left:0;right:0;text-align:center;transition:opacity 2.4s ease;opacity:0}
-.fl-hint b{display:block;font-weight:400;letter-spacing:.62em;margin-right:-.62em;font-size:10px;opacity:.7}
-.fl-hint i{display:block;font-style:normal;text-transform:none;letter-spacing:.14em;font-size:10px;opacity:.36;margin-top:14px;transition:opacity 2.4s ease}
-.fl-hint em{display:block;font-style:normal;letter-spacing:.4em;margin-right:-.4em;font-size:8.5px;opacity:0;margin-top:10px;transition:opacity 3s ease}
+.fl-hint{position:absolute;left:0;right:0;text-align:center;transition:opacity 1.2s ease;opacity:0}
+.fl-hint b{display:block;font-weight:400;letter-spacing:.62em;margin-right:-.62em;font-size:10px;opacity:.75}
+.fl-rules{margin:18px auto 26px;text-transform:none;letter-spacing:.06em;font-size:11px;line-height:2.05;opacity:.6}
+.fl-rules span{opacity:.55}
+.fl-hint.brief b,.fl-hint.brief .fl-rules{display:none}
+.fl .fl-start{padding:13px 38px;margin:0;border:1px solid rgba(236,233,226,.4);border-radius:0;letter-spacing:.5em;font-size:10.5px;text-indent:.5em;transition:border-color .4s ease,background .4s ease;pointer-events:none}
+.fl .fl-start:active{background:rgba(236,233,226,.1);border-color:rgba(236,233,226,.8)}
 .fl-hint.on{opacity:1}
-.fl-hint.whisper em{opacity:.3}
+.fl-hint.on .fl-start{pointer-events:auto}
 .fl-end{position:absolute;left:calc(var(--sl) + 22px);right:calc(var(--sr) + 22px);bottom:calc(var(--sb) + 58px);display:flex;justify-content:space-between;align-items:flex-end;pointer-events:none}
 .fl-stats div{opacity:0;transform:translateY(6px);transition:opacity 1.4s ease,transform 1.4s ease}
 .fl-stats .fl-big{font-size:24px;letter-spacing:.05em;line-height:1.1;margin-bottom:8px}
@@ -101,7 +104,7 @@ window.plethoraBit = {
 </style>
 <button class="fl-tl" type="button" aria-label="level"><span class="fl-lv">01 / 12</span><small class="fl-lvsub">&nbsp;</small></button>
 <div class="fl-tr"><div><span class="fl-k">TIME</span><span class="fl-time">00:00</span></div><small class="fl-sub">&nbsp;</small></div>
-<div class="fl-hint"><b>FILAMENT</b><i>the light remembers</i><em>touch</em></div>
+<div class="fl-hint"><b>FILAMENT</b><p class="fl-rules">the light never stops moving<br>drag anywhere to steer it<br>never touch your own trail<br>or the edge of the space<br><span>tap once to pause</span></p><button class="fl-start" type="button">START</button></div>
 <div class="fl-pause"><span class="fl-bars"></span><i>touch to continue</i></div>
 <div class="fl-end">
   <div class="fl-stats">
@@ -119,7 +122,7 @@ window.plethoraBit = {
     const el = {
       lvBtn: $(".fl-tl"), lv: $(".fl-lv"), lvSub: $(".fl-lvsub"),
       time: $(".fl-time"), sub: $(".fl-sub"),
-      hint: $(".fl-hint"), pause: $(".fl-pause"),
+      hint: $(".fl-hint"), pause: $(".fl-pause"), start: $(".fl-start"),
       vTime: $(".fl-v-time"), vDist: $(".fl-v-dist"), vTrace: $(".fl-v-trace"), vNote: $(".fl-v-note"),
       again: $(".fl-again"), retrace: $(".fl-retrace")
     };
@@ -144,7 +147,7 @@ window.plethoraBit = {
       CY = top + (H - top - bottom) / 2;
       RX = Math.max(60, W / 2 - 16 - Math.max(sl, sr));
       RY = Math.max(60, (H - top - bottom) / 2);
-      el.hint.style.top = Math.round(CY + 58 * U) + "px";
+      el.hint.style.top = Math.round(CY + 44 * U) + "px";
       el.pause.style.top = Math.round(st + 70) + "px";
     }
 
@@ -571,10 +574,13 @@ window.plethoraBit = {
     }
 
     // ---------------------------------------------------------------- flow
+    let sessionRuns = 0;
     function startRun() {
-      S.mode = "playing";
+      S.mode = "resuming";
+      S.resumeAt = S.clock;
+      sessionRuns += 1;
       hud.classList.remove("fl-show", "fl-live", "fl-paused");
-      el.hint.classList.remove("on", "whisper");
+      el.hint.classList.remove("on");
       haptic("light");
       try { ctx.platform.interact({ type: "start", level: S.level }); } catch (e) { /* optional */ }
       try { score.set(0, { reason: "run_start" }); } catch (e) { /* optional */ }
@@ -677,6 +683,11 @@ window.plethoraBit = {
     ctx.input.activate(el.again, () => again());
     ctx.input.activate(el.retrace, () => retrace());
     ctx.input.activate(el.lvBtn, () => cycleLevel());
+    ctx.input.activate(el.start, () => {
+      if (S.mode !== "ready") return;
+      onGesture();
+      startRun();
+    });
 
     // --------------------------------------------------------------- services
     const score = ctx.game.score({ initial: 0, min: 0 });
@@ -1024,11 +1035,10 @@ window.plethoraBit = {
         g.restore();
       }
 
-      // idle whisper on the very first screen
-      if (S.mode === "ready") {
-        const idle = now - S.readyAt;
-        if (idle > 0.6 && S.runs === 0) el.hint.classList.add("on");
-        if (idle > 7 && S.runs === 0) el.hint.classList.add("whisper");
+      // instructions + START on the first screen; just START between runs
+      if (S.mode === "ready" && now - S.readyAt > 0.4) {
+        el.hint.classList.toggle("brief", sessionRuns > 0);
+        el.hint.classList.add("on");
       }
 
       if (S.mode === "playing" && run.t > 1.6) hud.classList.add("fl-dim");
@@ -1049,10 +1059,7 @@ window.plethoraBit = {
         steer.touchT = t;
         steer.moved = 0;
         steer.startTouch = false;
-        if (S.mode === "ready") {
-          startRun();
-          steer.startTouch = true;
-        } else if (S.mode === "paused") {
+        if (S.mode === "paused") {
           resume();
           steer.startTouch = true;
         } else if (S.mode === "retrace") {
