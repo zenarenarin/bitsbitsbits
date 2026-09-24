@@ -68,12 +68,13 @@ window.plethoraBit = {
 .fl{font-family:"Space Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#ece9e2;text-transform:uppercase;letter-spacing:.2em;font-size:10px;line-height:1.5;-webkit-font-smoothing:antialiased;user-select:none;-webkit-user-select:none}
 .fl *{box-sizing:border-box}
 .fl button{pointer-events:auto;background:none;border:0;color:inherit;font:inherit;letter-spacing:inherit;text-transform:inherit;padding:14px 14px;margin:-14px -14px;cursor:pointer;-webkit-tap-highlight-color:transparent;outline:none}
-.fl-tl,.fl-tr{position:absolute;top:calc(var(--st) + 18px);opacity:.62;transition:opacity 1.8s ease}
+.fl-tl,.fl-tr,.fl-tc{position:absolute;top:calc(var(--st) + 18px);opacity:.62;transition:opacity 1.8s ease}
 .fl-tl{left:calc(var(--sl) + 22px)}
 .fl-tr{right:calc(var(--sr) + 22px);text-align:right}
 .fl-tl small,.fl-tr small{display:block;font-size:8.5px;opacity:.5;margin-top:3px;letter-spacing:.24em}
 .fl-k{opacity:.45;margin-right:.7em}
-.fl-dim .fl-tl,.fl-dim .fl-tr{opacity:.2}
+.fl-tc{left:0;right:0;text-align:center;pointer-events:none}
+.fl-dim .fl-tl,.fl-dim .fl-tr,.fl-dim .fl-tc{opacity:.2}
 .fl-glow .fl-tl{opacity:1;text-shadow:0 0 12px rgba(255,248,230,.7)}
 .fl-hint{position:absolute;left:0;right:0;text-align:center;transition:opacity 1.2s ease;opacity:0}
 .fl-hint b{display:block;font-weight:400;letter-spacing:.62em;margin-right:-.62em;font-size:10px;opacity:.75}
@@ -103,6 +104,7 @@ window.plethoraBit = {
 .fl-paused .fl-pause{opacity:.8}
 </style>
 <button class="fl-tl" type="button" aria-label="level"><span class="fl-lv">01 / 12</span><small class="fl-lvsub">&nbsp;</small></button>
+<div class="fl-tc"><span class="fl-k">TRACE</span><span class="fl-pct">0%</span></div>
 <div class="fl-tr"><div><span class="fl-k">TIME</span><span class="fl-time">00:00</span></div><small class="fl-sub">&nbsp;</small></div>
 <div class="fl-hint"><b>FILAMENT</b><p class="fl-rules">the light never stops moving<br>drag anywhere to steer it<br>never touch your own trail<br>or the edge of the space<br><span>tap once to pause</span></p><button class="fl-start" type="button">START</button></div>
 <div class="fl-pause"><span class="fl-bars"></span><i>touch to continue</i></div>
@@ -121,7 +123,7 @@ window.plethoraBit = {
     const $ = sel => hud.querySelector(sel);
     const el = {
       lvBtn: $(".fl-tl"), lv: $(".fl-lv"), lvSub: $(".fl-lvsub"),
-      time: $(".fl-time"), sub: $(".fl-sub"),
+      time: $(".fl-time"), sub: $(".fl-sub"), pct: $(".fl-pct"),
       hint: $(".fl-hint"), pause: $(".fl-pause"), start: $(".fl-start"),
       vTime: $(".fl-v-time"), vDist: $(".fl-v-dist"), vTrace: $(".fl-v-trace"), vNote: $(".fl-v-note"),
       again: $(".fl-again"), retrace: $(".fl-retrace")
@@ -340,6 +342,10 @@ window.plethoraBit = {
       for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) run.cells.add((cx + dx) * 1000 + cy + dy);
     }
 
+    function traceNow() {
+      return Math.min(100, Math.round((run.cells.size / run.cellTotal) * 100));
+    }
+
     function segDist(px, py, i) {
       const ax = run.xs[i - 1], ay = run.ys[i - 1];
       const bx = run.xs[i], by = run.ys[i];
@@ -542,7 +548,7 @@ window.plethoraBit = {
       const secs = run.t;
       const ms = Math.round(secs * 1000);
       const meters = Math.round(run.len / U / 6);
-      const trace = Math.min(100, Math.round((run.cells.size / run.cellTotal) * 100));
+      const trace = traceNow();
       const prevBest = S.best[S.level] || 0;
       const isBest = ms > prevBest;
       if (isBest) S.best[S.level] = ms;
@@ -756,10 +762,12 @@ window.plethoraBit = {
       const best = S.best[S.level];
       if (S.mode === "ready") {
         el.time.textContent = "00:00";
+        el.pct.textContent = "0%";
         el.sub.innerHTML = best ? "BEST " + (best / 1000).toFixed(1) : "&nbsp;";
       } else if (run) {
         el.time.textContent = fmtClock(run.t);
         el.sub.textContent = Math.round(run.len / U / 6) + " M";
+        el.pct.textContent = traceNow() + "%";
       }
     }
 
