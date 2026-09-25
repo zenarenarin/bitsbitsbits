@@ -171,7 +171,19 @@ window.plethoraBit = {
     }
 
     // ------------------------------------------------------------ environment
-    const E = { t: 0, alpha: 1, res: 0, chaos: 0, sync: 0, flash: 0, q: 1 };
+    const E = { t: 0, alpha: 1, res: 0, chaos: 0, sync: 0, flash: 0, q: 1, view: 0 };
+    // while results show, the artwork glides down and shrinks slightly to leave the top band free
+    const viewScale = () => 1 - 0.15 * E.view;
+    const viewDy = () => 0.075 * H * E.view;
+    function pushView() {
+      g.save();
+      if (E.view < 0.001) return;
+      const k = viewScale();
+      g.translate(cx, cy + viewDy());
+      g.scale(k, k);
+      g.translate(-cx, -cy);
+    }
+    const viewPt = p => ({ ...p, x: cx + (p.x - cx) * viewScale(), y: cy + viewDy() + (p.y - cy) * viewScale() });
     function dot(x, y, r, a, ck) {
       a *= E.alpha;
       if (a < 0.004 || r <= 0) return;
@@ -2033,10 +2045,16 @@ window.plethoraBit = {
       ".pi-skip{position:absolute;left:12px;opacity:0;transition:opacity 1.5s ease}" +
       ".pi-name{display:block;font-family:'Space Mono',ui-monospace,monospace;font-style:normal;font-size:9px;letter-spacing:0.3em;text-transform:uppercase;opacity:0.5;margin-bottom:10px}" +
       ".pi-res{position:absolute;left:0;right:0;display:flex;flex-direction:column;align-items:center;opacity:0;transition:opacity 1.4s ease;pointer-events:none}" +
+      ".pi-head{font-size:9px;letter-spacing:0.26em;color:rgba(255,228,196,0.85);margin-bottom:12px}" +
+      ".pi-mets{display:flex;gap:18px;justify-content:center;opacity:0;transition:opacity 1s ease}" +
+      ".pi-m{display:flex;flex-direction:column;align-items:center;gap:4px}" +
+      ".pi-m span{font-size:8px;letter-spacing:0.2em;opacity:0.6}" +
+      ".pi-m b{font-weight:400;font-size:11px;color:rgba(255,238,214,0.92)}" +
+      ".pi-m.t b{font-size:13px;color:rgba(255,226,190,1)}" +
       ".pi-row{display:flex;justify-content:space-between;width:190px;line-height:2.1;opacity:0;transition:opacity 1s ease}" +
       ".pi-row b{font-weight:400;color:rgba(255,238,214,0.9)}" +
       ".pi-row.t{margin-top:12px;border-top:1px solid rgba(236,232,224,0.12);padding-top:8px}" +
-      ".pi-btns{display:flex;gap:44px;margin-top:26px;opacity:0;transition:opacity 1s ease}" +
+      ".pi-btns{display:flex;gap:44px;margin-top:8px;opacity:0;transition:opacity 1s ease}" +
       ".pi-btn{appearance:none;-webkit-appearance:none;background:none;border:0;color:rgba(236,232,224,0.72);font:inherit;letter-spacing:inherit;" +
       "text-transform:inherit;padding:14px 6px;cursor:pointer;pointer-events:auto}" +
       ".pi-btn:active{color:#fff}" +
@@ -2071,7 +2089,7 @@ window.plethoraBit = {
       hudTL.style.cssText = "top:" + (top + 18) + "px;left:20px";
       hudTR.style.cssText = "top:" + (top + 18) + "px;right:20px;text-align:right";
       hudWord.style.top = Math.max(top + 64, H * 0.12) + "px";
-      hudRes.style.bottom = Math.max(bot + 40, H * 0.08) + "px";
+      hudRes.style.top = Math.max(top + 46, H * 0.06) + "px";
       hudBig.style.top = cy + 0.14 * S + "px";
       hudTitle.style.top = H * 0.6 + "px";
       hudSkip.style.bottom = Math.max(bot + 10, 14) + "px";
@@ -2203,6 +2221,8 @@ window.plethoraBit = {
 
     function beginTransition(fromPts, idx, keepStats) {
       measure();
+      if (E.view > 0.001) fromPts = fromPts.map(viewPt);
+      E.view = 0;
       const nr = ROOMS[idx]();
       nr.init();
       nr.update(1 / 60);
@@ -2285,19 +2305,17 @@ window.plethoraBit = {
       const { vals, taste } = computeMetrics();
       tastes[roomIdx] = taste;
       hudRes.innerHTML = "";
-      const head = el("pi-row", hudRes);
-      head.style.cssText = "justify-content:center;width:auto;opacity:1;margin-bottom:10px;color:rgba(255,228,196,0.9)";
-      head.textContent = "room complete. you found the sweet spot";
-      const rows = [];
+      const head = el("pi-head", hudRes);
+      head.textContent = "room complete";
+      const mets = el("pi-mets", hudRes);
+      const rows = [mets];
       for (const m of room.metrics) {
         if (m === "taste") continue;
-        const r = el("pi-row", hudRes);
-        r.innerHTML = "<span>" + m + "</span><b>" + pct(vals[m]) + "</b>";
-        rows.push(r);
+        const c = el("pi-m", mets);
+        c.innerHTML = "<span>" + m + "</span><b>" + pct(vals[m]) + "</b>";
       }
-      const tr = el("pi-row t", hudRes);
-      tr.innerHTML = "<span>taste</span><b>" + pct(taste) + "</b>";
-      rows.push(tr);
+      const tc = el("pi-m t", mets);
+      tc.innerHTML = "<span>taste</span><b>" + pct(taste) + "</b>";
       const btns = el("pi-btns", hudRes);
       const again = document.createElement("button");
       again.className = "pi-btn";
@@ -2322,8 +2340,8 @@ window.plethoraBit = {
       hudRes.style.opacity = "1";
       resultTimers.forEach(t => clearTimeout(t));
       resultTimers = [];
-      rows.forEach((r, i) => resultTimers.push(ctx.timeout(() => (r.style.opacity = "1"), 300 + i * 450)));
-      resultTimers.push(ctx.timeout(() => (btns.style.opacity = "1"), 500 + rows.length * 450));
+      resultTimers.push(ctx.timeout(() => (mets.style.opacity = "1"), 700));
+      resultTimers.push(ctx.timeout(() => (btns.style.opacity = "1"), 1500));
     }
     function hideResult() {
       hudRes.style.opacity = "0";
@@ -2422,10 +2440,12 @@ window.plethoraBit = {
       const vals = tastes.filter(Boolean);
       const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0.8;
       hudRes.innerHTML = "";
-      const r1 = el("pi-row", hudRes);
-      r1.innerHTML = "<span>rooms</span><b>" + vals.length + " / " + COUNT + "</b>";
-      const r2 = el("pi-row t", hudRes);
-      r2.innerHTML = "<span>taste</span><b>" + pct(avg) + "</b>";
+      const head = el("pi-head", hudRes);
+      head.textContent = "imperfect. the gallery is complete";
+      hudBig.style.opacity = "0";
+      const r1 = el("pi-mets", hudRes);
+      r1.innerHTML = '<div class="pi-m"><span>rooms</span><b>' + vals.length + " / " + COUNT + '</b></div><div class="pi-m t"><span>taste</span><b>' + pct(avg) + "</b></div>";
+      const r2 = r1;
       const btns = el("pi-btns", hudRes);
       const again = document.createElement("button");
       again.className = "pi-btn";
@@ -2520,6 +2540,7 @@ window.plethoraBit = {
       }
 
       // word fade
+      if (wordShown && state !== "play") wordShown = false;
       if (wordShown) {
         wordTimer += dt;
         if (wordTimer > 9) {
@@ -2625,6 +2646,8 @@ window.plethoraBit = {
         E.res += (0.1 - E.res) * Math.min(1, dt);
       }
       E.flash = Math.max(0, E.flash - dt * 0.8);
+      const viewTarget = state === "result" || state === "end" ? 1 : 0;
+      if (state !== "trans") E.view += (viewTarget - E.view) * Math.min(1, dt * 1.6);
       audioUpdate(active);
     }
     function render() {
@@ -2656,7 +2679,9 @@ window.plethoraBit = {
 
       if (state === "end" && room) {
         E.alpha = 1;
+        pushView();
         room.draw();
+        g.restore();
       } else if (state === "title" || state === "end") {
         const b = 0.55 + 0.35 * Math.sin(E.t * 1.2);
         E.alpha = 1;
@@ -2680,7 +2705,9 @@ window.plethoraBit = {
         drawFinale();
       } else if (room) {
         E.alpha = 1;
+        pushView();
         room.draw();
+        g.restore();
       }
       if (E.flash > 0 && room && state !== "finale") {
         const rad = (1 - E.flash) * 0.9 * S + 20;
