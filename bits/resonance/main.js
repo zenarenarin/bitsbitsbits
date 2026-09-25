@@ -233,10 +233,12 @@ const FLICK_AMP = 2.6;
 const LEVELS = [
   { // 1. a single touch makes a wave
     reveal: 2.0, budget: 9, threshold: 0.86,
+    hint: "touch where the light began", tip: "a single wave spreads evenly from where you touch. find its centre",
     solution: [{ t: 0, type: "pulse", x: 0.36, y: 0.42, s: PULSE_SOFT }]
   },
   { // 2. two waves meet
     reveal: 2.0, budget: 10, threshold: 0.82,
+    hint: "two waves. where they meet, light stays", tip: "waves that start together meet exactly halfway between them",
     solution: [
       { t: 0, type: "pulse", x: 0.28, y: 0.34, s: PULSE_SOFT },
       { t: 0, type: "pulse", x: 0.7, y: 0.58, s: PULSE_SOFT }
@@ -244,6 +246,7 @@ const LEVELS = [
   },
   { // 3. timing bends the meeting line
     reveal: 2.0, budget: 11, threshold: 0.76,
+    hint: "timing bends the meeting line", tip: "touch in order, a breath apart. a later wave pulls the line toward itself",
     solution: [
       { t: 0, type: "pulse", x: 0.24, y: 0.3, s: PULSE_SOFT },
       { t: 0.45, type: "pulse", x: 0.74, y: 0.38, s: PULSE_SOFT },
@@ -252,6 +255,7 @@ const LEVELS = [
   },
   { // 4. a pressed wave is heavier
     reveal: 1.9, budget: 11, threshold: 0.9,
+    hint: "press longer for a heavier wave", tip: "watch light gather under your finger before you let go. one wave is heavy, one is light",
     solution: [
       { t: 0, type: "pulse", x: 0.66, y: 0.3, s: PULSE_STRONG },
       { t: 0.25, type: "pulse", x: 0.3, y: 0.62, s: PULSE_SOFT }
@@ -259,6 +263,7 @@ const LEVELS = [
   },
   { // 5. a moving source
     reveal: 1.9, budget: 12, threshold: 0.8,
+    hint: "hold and drag. the source moves", tip: "hold until it sings, then draw a slow straight line",
     solution: [{
       t: 0, type: "hold", dur: 1.3,
       track: [[0, 0.22, 0.72], [1.3, 0.72, 0.5]]
@@ -266,11 +271,13 @@ const LEVELS = [
   },
   { // 6. a field that never stops singing
     reveal: 1.8, budget: 12, threshold: 0.64,
+    hint: "something is already singing. hold to sing with it", tip: "keep still. the stripes shift as your source moves",
     fixed: [{ x: 0.64, y: 0.28 }],
     solution: [{ t: 0, type: "hold", dur: 1.8, track: [[0, 0.34, 0.58]] }]
   },
   { // 7. darkness that pushes back
     reveal: 1.8, budget: 12, threshold: 0.62,
+    hint: "darkness reflects. only the gaps let light through", tip: "hold still above the barrier, a little left of centre",
     walls: [
       { type: "rect", x0: 0, y0: 0.47, x1: 0.31, y1: 0.495 },
       { type: "rect", x0: 0.41, y0: 0.47, x1: 0.59, y1: 0.495 },
@@ -280,6 +287,7 @@ const LEVELS = [
   },
   { // 8. two formations at once
     reveal: 1.8, budget: 13, threshold: 0.76,
+    hint: "two formations at once", tip: "make one pair of waves in each half, one pair right after the other",
     regions: [
       { type: "rect", x0: 0, y0: 0, x1: 1, y1: 0.5 },
       { type: "rect", x0: 0, y0: 0.5, x1: 1, y1: 1 }
@@ -293,6 +301,7 @@ const LEVELS = [
   },
   { // 9. only four touches
     reveal: 1.6, budget: 8, threshold: 0.9, maxActions: 4,
+    hint: "only four touches", tip: "three waves together, the lowest one heavier",
     solution: [
       { t: 0, type: "pulse", x: 0.3, y: 0.42, s: PULSE_SOFT },
       { t: 0, type: "pulse", x: 0.7, y: 0.42, s: PULSE_SOFT },
@@ -301,6 +310,7 @@ const LEVELS = [
   },
   { // 10. the formation is gone almost at once
     reveal: 0.75, budget: 11, threshold: 0.88,
+    hint: "look quickly", tip: "three waves in a row, left to right. the middle one is heavy",
     solution: [
       { t: 0, type: "pulse", x: 0.22, y: 0.52, s: PULSE_SOFT },
       { t: 0.25, type: "pulse", x: 0.54, y: 0.26, s: PULSE_STRONG },
@@ -309,6 +319,7 @@ const LEVELS = [
   },
   { // 11. a body in the field
     reveal: 1.2, budget: 13, threshold: 0.84,
+    hint: "light bends around the body", tip: "hold on the left and draw slowly downward",
     walls: [{ type: "circle", x: 0.52, y: 0.5, r: 0.13 }],
     solution: [{
       t: 0, type: "hold", dur: 1.4,
@@ -317,6 +328,7 @@ const LEVELS = [
   },
   { // 12. everything the field has taught
     reveal: 0.9, budget: 10, threshold: 0.76, maxActions: 4,
+    hint: "everything the field has taught", tip: "three waves in order: left, then heavy right, then low",
     fixed: [{ x: 0.5, y: 0.14 }],
     walls: [{ type: "segment", x0: 0.12, y0: 0.62, x1: 0.5, y1: 0.5, w: 0.018 }],
     solution: [
@@ -1067,7 +1079,7 @@ window.plethoraBit = {
     };
     const level = {
       def: null, target: null, masks: null, energyUsed: 0, actions: 0, playTime: 0,
-      peak: 0, expoNorm: 1, centroid: [0.5, 0.5], lastActionAt: 0, baseEnergy: 0
+      peak: 0, expoNorm: 1, centroid: [0.5, 0.5], lastActionAt: 0, baseEnergy: 0, tipShown: false
     };
     const display = { match: 0, shown: -1, energyShown: "", levelShown: "" };
     const input = { pointers: new Map(), pinch: { active: false, x: 0.5, y: 0.5, force: 0, d0: 0 }, c2Mul: 1 };
@@ -1141,15 +1153,23 @@ window.plethoraBit = {
       resetAttempt();
       setMode("reveal");
       showCenter("");
+      hideHint();
       audio.reveal();
     }
 
-    function beginPlay() { setMode("play"); }
+    // the level's new idea on a first attempt; the deeper tip after a loss
+    function beginPlay() {
+      setMode("play");
+      level.tipShown = state.fails > 0;
+      if (state.fails === 0) showHint(level.def.hint, 7, true);
+      else showHint(state.fails >= 2 ? level.def.tip + " · the starting points were marked" : level.def.tip, 9, true);
+    }
 
     function spend(cost) {
       level.energyUsed += cost;
       level.actions++;
       level.lastActionAt = level.playTime;
+      if (hint.dismissOnAction) hint.until = Math.min(hint.until, state.clock + 1.6);
     }
 
     function winLevel() {
@@ -1444,6 +1464,13 @@ window.plethoraBit = {
 .rs-btn{pointer-events:auto;display:block;margin:0 auto;background:none;border:0;color:inherit;font:inherit;font-size:10px;
   letter-spacing:.38em;text-transform:uppercase;opacity:.55;padding:16px 36px;min-width:180px;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .rs-btn:active{opacity:.95}
+.rs-hint{position:absolute;left:24px;right:24px;text-align:center;font-size:10px;letter-spacing:.22em;line-height:1.9;
+  text-transform:lowercase;opacity:0;transition:opacity 1.4s ease}
+.rs-hint.on{opacity:.46}
+.rs-help{pointer-events:auto;position:absolute;left:8px;background:none;border:0;color:inherit;font:inherit;font-size:11px;
+  opacity:.28;width:44px;height:44px;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:opacity 1.2s ease}
+.rs-help:active{opacity:.8}
+.rs-tip{font-size:9px;letter-spacing:.2em;opacity:.38;margin:14px auto 0;max-width:280px;line-height:1.9;text-transform:lowercase}
 .rs-title{position:absolute;left:0;right:0;top:64%;text-align:center;font-size:10px;letter-spacing:.8em;text-indent:.8em;opacity:0;transition:opacity 2.4s ease}
 </style>
 <div class="rs-ui">
@@ -1451,13 +1478,36 @@ window.plethoraBit = {
   <div class="rs-tr" style="opacity:0"><div class="rs-k">resonance</div><div class="rs-v rs-res">0%</div><div class="rs-e"><span class="rs-en"></span></div></div>
   <div class="rs-center"></div>
   <div class="rs-title">RESONANCE</div>
+  <div class="rs-hint"></div>
+  <button class="rs-help" aria-label="how to play" style="opacity:0">?</button>
 </div>`;
     }
     const $ = sel => ui.querySelector(sel);
     const elTL = $(".rs-tl"), elTR = $(".rs-tr"), elLevel = $(".rs-level"), elRes = $(".rs-res"), elEn = $(".rs-en");
     const elDots = $(".rs-dots"), elCenter = $(".rs-center"), elTitle = $(".rs-title");
+    const elHint = $(".rs-hint"), elHelp = $(".rs-help");
     const sa = ctx.safeArea || { top: 0 };
     elTL.style.paddingTop = elTR.style.paddingTop = (Math.max(18, (sa.top || 0) + 14)) + "px";
+    elHint.style.bottom = (Math.max(0, sa.bottom || 0) + 64) + "px";
+    elHelp.style.top = (Math.max(18, (sa.top || 0) + 14) + 64) + "px";
+
+    // ---- hints: one quiet line, never more than one at a time
+    const hint = { text: "", until: 0, dismissOnAction: false };
+    function showHint(text, seconds, dismissOnAction) {
+      hint.text = text; hint.until = state.clock + seconds; hint.dismissOnAction = !!dismissOnAction;
+      elHint.textContent = text;
+      elHint.classList.add("on");
+    }
+    function hideHint() {
+      if (!hint.text) return;
+      hint.text = ""; elHint.classList.remove("on");
+    }
+    function onboardingActive() {
+      try { return !!(ctx.onboarding && ctx.onboarding.state && ctx.onboarding.state().active); } catch (e) { return false; }
+    }
+    ctx.input.activate(elHelp, () => {
+      try { if (ctx.onboarding && ctx.onboarding.replay) ctx.onboarding.replay(); } catch (e) {}
+    });
 
     function showCenter(html, low) {
       elCenter.innerHTML = html;
@@ -1479,6 +1529,9 @@ window.plethoraBit = {
       const playing = state.mode === "play" || state.mode === "reveal" || state.mode === "resonance";
       const visible = playing ? "1" : "0";
       if (elTL.style.opacity !== visible) { elTL.style.opacity = visible; elTR.style.opacity = visible; }
+      const helpOn = (state.mode === "play" || state.mode === "reveal") && ctx.onboarding && ctx.onboarding.replay ? "0.28" : "0";
+      if (elHelp.style.opacity !== helpOn) { elHelp.style.opacity = helpOn; elHelp.style.pointerEvents = helpOn === "0" ? "none" : "auto"; }
+      if (hint.text && !(playing || state.mode === "prelude")) hideHint();
       const lv = pad2(state.levelIndex + 1) + " / " + LEVELS.length;
       if (display.levelShown !== lv) { display.levelShown = lv; elLevel.textContent = lv; }
       const thr = level.def ? threshold() : 1;
@@ -1513,8 +1566,14 @@ window.plethoraBit = {
       while (state.simAcc >= 1 && n < 6) { stepField(field); state.simAcc -= 1; n++; }
 
       const m = state.mode;
+      if (hint.text && state.clock > hint.until) hideHint();
       if (m === "prelude") {
-        if (state.preludeTouched >= 0 && state.clock - state.preludeTouched > 3.2 && input.pointers.size === 0 && fieldCalm()) {
+        if (state.preludeTouched < 0 && state.clock > 6 && !hint.text && !state.preludeHinted && !onboardingActive()) {
+          state.preludeHinted = true;
+          showHint("touch the dark", 8, false);
+        }
+        if (state.preludeTouched >= 0 && hint.text) hideHint();
+        if (state.preludeTouched >= 0 && state.clock - state.preludeTouched > 3.2 && input.pointers.size === 0 && fieldCalm() && !onboardingActive()) {
           elTitle.style.opacity = "0";
           prepareLevel(state.levelIndex);
           beginReveal();
@@ -1531,6 +1590,10 @@ window.plethoraBit = {
           level.peak = Math.max(level.peak, s);
           audio.setMatch(display.match);
           if (s >= threshold()) { level.peak = s; winLevel(); return; }
+        }
+        if (!level.tipShown && level.playTime > 20 && level.peak < threshold() * 0.75 && input.pointers.size === 0) {
+          level.tipShown = true;
+          showHint(level.def.tip, 9, false);
         }
         const exhausted = actionsLeft() <= 0 || energyLeft() < 0.5;
         if (exhausted && input.pointers.size === 0 && field.emitters.length === 0 &&
@@ -1603,7 +1666,8 @@ window.plethoraBit = {
         if (t > 1.2 && !state.shownLost) {
           state.shownLost = true;
           showCenter(
-            '<div class="rs-line on">resonance lost</div><div class="rs-gap"></div>' +
+            '<div class="rs-line on">resonance lost</div>' +
+            '<div class="rs-tip">' + level.def.tip + '</div><div class="rs-gap"></div>' +
             '<button class="rs-btn" data-act="retrace">retrace</button>' +
             '<button class="rs-btn" data-act="again">again</button>'
           );
@@ -1662,6 +1726,19 @@ window.plethoraBit = {
       for (const p of input.pointers.values()) {
         if (p.mode === "press") put(p.x, p.y, 0.25 + p.charge * 0.9, false);
         else if (p.mode === "emit") put(p.ex, p.ey, 0.9, true);
+      }
+      // after two losses the reveal quietly marks where the waves begin
+      if (state.mode === "reveal" && state.fails >= 2 && level.def) {
+        const glow = 0.3 + 0.1 * Math.sin(state.clock * 3);
+        for (const a of level.def.solution) {
+          if (a.type === "hold") {
+            const first = a.track[0], last = a.track[a.track.length - 1];
+            put(first[1], first[2], glow, true);
+            if (last !== first) put(last[1], last[2], glow * 0.6, false);
+          } else {
+            put(a.x, a.y, glow * (a.s > 1.3 ? 1.5 : 1), false);
+          }
+        }
       }
       if (state.mode === "prelude") {
         const breathe = 0.16 + 0.07 * Math.sin(state.clock * 1.3);
