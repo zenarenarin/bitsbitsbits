@@ -87,22 +87,22 @@ function setWalls(f, shapes) {
   }
 }
 
-function insideShape(s, nx, ny, gw, gh) {
-  if (s.type === "rect") return nx >= s.x0 && nx <= s.x1 && ny >= s.y0 && ny <= s.y1;
-  if (s.type === "circle") {
+function insideShape(shape, nx, ny, gw, gh) {
+  if (shape.type === "rect") return nx >= shape.x0 && nx <= shape.x1 && ny >= shape.y0 && ny <= shape.y1;
+  if (shape.type === "circle") {
     // radius is a fraction of the screen width so circles stay round
-    const dx = (nx - s.x) * (gw - 1), dy = (ny - s.y) * (gh - 1);
-    const r = s.r * (gw - 1);
+    const dx = (nx - shape.x) * (gw - 1), dy = (ny - shape.y) * (gh - 1);
+    const r = shape.r * (gw - 1);
     return dx * dx + dy * dy <= r * r;
   }
-  if (s.type === "segment") {
-    const ax = s.x0 * (gw - 1), ay = s.y0 * (gh - 1);
-    const bx = s.x1 * (gw - 1), by = s.y1 * (gh - 1);
+  if (shape.type === "segment") {
+    const ax = shape.x0 * (gw - 1), ay = shape.y0 * (gh - 1);
+    const bx = shape.x1 * (gw - 1), by = shape.y1 * (gh - 1);
     const px = nx * (gw - 1), py = ny * (gh - 1);
     const vx = bx - ax, vy = by - ay;
     const t = Math.max(0, Math.min(1, ((px - ax) * vx + (py - ay) * vy) / (vx * vx + vy * vy)));
     const dx = px - (ax + vx * t), dy = py - (ay + vy * t);
-    return dx * dx + dy * dy <= s.w * s.w * (gw - 1) * (gw - 1);
+    return dx * dx + dy * dy <= shape.w * shape.w * (gw - 1) * (gw - 1);
   }
   return false;
 }
@@ -261,13 +261,13 @@ const LEVELS = [
     reveal: 1.9, budget: 12, threshold: 0.8,
     solution: [{
       t: 0, type: "hold", dur: 1.3,
-      path: [[0, 0.22, 0.72], [1.3, 0.72, 0.5]]
+      track: [[0, 0.22, 0.72], [1.3, 0.72, 0.5]]
     }]
   },
   { // 6. a field that never stops singing
     reveal: 1.8, budget: 12, threshold: 0.64,
     fixed: [{ x: 0.64, y: 0.28 }],
-    solution: [{ t: 0, type: "hold", dur: 1.8, path: [[0, 0.34, 0.58]] }]
+    solution: [{ t: 0, type: "hold", dur: 1.8, track: [[0, 0.34, 0.58]] }]
   },
   { // 7. darkness that pushes back
     reveal: 1.8, budget: 12, threshold: 0.62,
@@ -276,7 +276,7 @@ const LEVELS = [
       { type: "rect", x0: 0.41, y0: 0.47, x1: 0.59, y1: 0.495 },
       { type: "rect", x0: 0.69, y0: 0.47, x1: 1, y1: 0.495 }
     ],
-    solution: [{ t: 0, type: "hold", dur: 1.8, path: [[0, 0.43, 0.34]] }]
+    solution: [{ t: 0, type: "hold", dur: 1.8, track: [[0, 0.43, 0.34]] }]
   },
   { // 8. two formations at once
     reveal: 1.8, budget: 13, threshold: 0.76,
@@ -312,7 +312,7 @@ const LEVELS = [
     walls: [{ type: "circle", x: 0.52, y: 0.5, r: 0.13 }],
     solution: [{
       t: 0, type: "hold", dur: 1.4,
-      path: [[0, 0.2, 0.28], [1.4, 0.26, 0.74]]
+      track: [[0, 0.2, 0.28], [1.4, 0.26, 0.74]]
     }]
   },
   { // 12. everything the field has taught
@@ -328,15 +328,15 @@ const LEVELS = [
 ];
 
 function holdPoint(a, tRel) {
-  const p = a.path;
-  if (p.length === 1 || tRel <= p[0][0]) return [p[0][1], p[0][2]];
-  for (let k = 1; k < p.length; k++) {
-    if (tRel <= p[k][0]) {
-      const u = (tRel - p[k - 1][0]) / (p[k][0] - p[k - 1][0]);
-      return [p[k - 1][1] + (p[k][1] - p[k - 1][1]) * u, p[k - 1][2] + (p[k][2] - p[k - 1][2]) * u];
+  const pts = a.track;
+  if (pts.length === 1 || tRel <= pts[0][0]) return [pts[0][1], pts[0][2]];
+  for (let k = 1; k < pts.length; k++) {
+    if (tRel <= pts[k][0]) {
+      const u = (tRel - pts[k - 1][0]) / (pts[k][0] - pts[k - 1][0]);
+      return [pts[k - 1][1] + (pts[k][1] - pts[k - 1][1]) * u, pts[k - 1][2] + (pts[k][2] - pts[k - 1][2]) * u];
     }
   }
-  const last = p[p.length - 1];
+  const last = pts[pts.length - 1];
   return [last[1], last[2]];
 }
 
@@ -551,8 +551,6 @@ vec2 gridUv(vec2 uv) { return (vec2(uv.x, 1.0 - uv.y) * (uGrid - 1.0) + 0.5) / u
 float hAt(vec2 g) { return decodeH(texture2D(uField, g).r); }
 float vAt(vec2 g) { return decodeH(texture2D(uField, g).a); }
 
-// Cubic B-spline reconstruction from four bilinear taps: exposure reads as
-// soft round light instead of blocky texels.
 vec4 smoothSample(sampler2D t, vec2 g) {
   vec2 st = g * uGrid - 0.5;
   vec2 i = floor(st), f = st - i;
@@ -607,14 +605,10 @@ void main() {
                    hAt(g - vec2(0.0, tx.y)) - hAt(g + vec2(0.0, tx.y)));
   float gm = length(grad);
   vec2 dir = gm > 1e-5 ? grad / gm : vec2(0.0);
-  // wavefronts are where the field is moving; the slow 2D tail stays dark.
-  // dispersion: each channel sees the front a little ahead or behind
   float v = vAt(g);
   float vr = vAt(g + vec2(dir.x, -dir.y) * tx * 1.5);
   float vb = vAt(g - vec2(dir.x, -dir.y) * tx * 1.5);
   vec3 crest = pow(abs(vec3(vr, v, vb)), vec3(1.6));
-  // high-pass the exposure: thin ridges (where waves met) stay bright, broad
-  // smooth glows around sources fall back into atmosphere
   float expoRaw = smoothSample(uField, g).g;
   float expo = ridge(uField, g, expoRaw, 1);
   float wall = F.b;
@@ -626,17 +620,14 @@ void main() {
   L.g += max(crest.b - crest.g, 0.0) * 0.6;
   L += vec3(0.02, 0.04, 0.16) * abs(h) * 0.12;
 
-  // interference exposure: the formation the player is drawing
   float ex = pow(expo, 2.4);
   L += spectral(0.7 + expo * 0.5 + uWarmth * 0.3) * ex * 1.4;
   L += vec3(0.04, 0.07, 0.26) * expoRaw * expoRaw * 0.1;
 
-  // ghost of the target formation
   float tgRaw = smoothSample(uTarget, g).r;
   float tg = ridge(uTarget, g, tgRaw, 0);
   L += uGhostTint * (pow(tg, 1.8) * 1.1 + tgRaw * tgRaw * 0.1) * uGhost;
 
-  // touch cores and persistent sources
   vec2 p = vec2(uv.x * uAspect, uv.y);
   for (int i = 0; i < ${MAX_CORES}; i++) {
     vec4 c = uCores[i];
@@ -649,14 +640,12 @@ void main() {
     L += spectral(0.5 + s * 0.4) * s * exp(-d2 / (0.0009 + 0.0022 * s)) * 0.3;
   }
 
-  // the resonance wave
   if (uRing.w > 0.0) {
     vec2 d = p - vec2(uRing.x * uAspect, uRing.y);
     float rr = length(d) - uRing.z;
     L += vec3(1.0, 0.93, 0.86) * uRing.w * (exp(-rr * rr / 0.0003) * 0.5 + exp(-rr * rr / 0.006) * 0.12);
   }
 
-  // repulsive zones are pure darkness with a faint, energy-lit rim
   float wn = texture2D(uField, g + vec2(tx.x, 0.0)).b + texture2D(uField, g - vec2(tx.x, 0.0)).b +
              texture2D(uField, g + vec2(0.0, tx.y)).b + texture2D(uField, g - vec2(0.0, tx.y)).b;
   float rim = clamp(wn * 0.25 - wall, 0.0, 1.0) + clamp(wall - wn * 0.25, 0.0, 1.0);
@@ -764,12 +753,12 @@ void main() {
   gl_FragColor = vec4(max(col, 0.0), 1.0);
 }`;
 
-function compile(gl, type, src) {
-  const s = gl.createShader(type);
-  gl.shaderSource(s, src);
-  gl.compileShader(s);
-  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error("shader: " + gl.getShaderInfoLog(s));
-  return s;
+function compile(gl, type, glsl) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, glsl);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error("shader: " + gl.getShaderInfoLog(shader));
+  return shader;
 }
 
 function program(gl, vs, fs, attribs) {
@@ -1434,7 +1423,7 @@ window.plethoraBit = {
     function buildUi(root) {
       root.innerHTML = `
 <style>
-.rs-ui{position:absolute;inset:0;pointer-events:none;color:#dfe4ff;font-family:"Space Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+.rs-ui{position:absolute;inset:0;pointer-events:none;color:#dfe4ff;font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,"Roboto Mono",monospace;
   -webkit-font-smoothing:antialiased;letter-spacing:.08em;user-select:none;-webkit-user-select:none}
 .rs-tl,.rs-tr{position:absolute;top:0;padding:18px 20px;transition:opacity 1.2s ease}
 .rs-tl{left:0}.rs-tr{right:0;text-align:right}
@@ -1808,7 +1797,6 @@ window.plethoraBit = {
     ctx.game.loop({ fixedHz: 60, maxSubsteps: 4, fixedUpdate: fixedTick, render: (alpha, s) => render(Math.min(0.1, (s && s.dtMs ? s.dtMs : 16.7) / 1000)) });
     render(1 / 60);
     ctx.timeout(() => { if (state.mode === "prelude") elTitle.style.opacity = "0.3"; }, 400);
-    ctx.loadFont && ctx.loadFont("Space Mono", "space-mono", "1.0.0", { weight: "400" }).catch(() => {});
     if (ctx.markVisualReady) ctx.markVisualReady("field");
     ctx.platform.ready();
   }
