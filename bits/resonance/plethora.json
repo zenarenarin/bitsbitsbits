@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "Resonance",
+  "description": "A black field of luminous matter that answers touch with real waves. Recall a fleeting formation of light and recreate it by making waves interfere.",
+  "tags": ["puzzle", "physics", "generative-art", "light", "touch", "sound"],
+  "permissions": ["audio", "haptics"],
+  "dependencies": [],
+  "onboarding": {
+    "kind": "immersive",
+    "version": 1
+  },
+  "memory": {
+    "records": {
+      "total": {
+        "label": "Resonance",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": ["daily", "weekly", "all_time"],
+        "scopes": ["global", "following"],
+        "dedupe": "best_per_user"
+      }
+    }
+  },
+  "game": {
+    "progress": {
+      "main": {
+        "label": "Resonance run",
+        "stateSchemaVersion": 1,
+        "ttlDays": 60
+      }
+    }
+  },
+  "tuning": {
+    "schemaVersion": 1,
+    "groups": {
+      "gameplay": { "label": "Gameplay" },
+      "visual": { "label": "Light" },
+      "audio": { "label": "Sound" }
+    },
+    "knobs": {
+      "tolerance": { "label": "Match tolerance (negative is easier)", "type": "number", "default": 0, "min": -0.2, "max": 0.1, "step": 0.01, "group": "gameplay", "intent": "difficulty", "apply": "live" },
+      "reveal_scale": { "label": "Formation reveal length", "type": "number", "default": 1, "min": 0.5, "max": 2, "step": 0.05, "group": "gameplay", "intent": "difficulty", "apply": "live" },
+      "wave_speed": { "label": "Wave speed", "type": "number", "default": 1, "min": 0.7, "max": 1.3, "step": 0.05, "group": "gameplay", "intent": "feel", "apply": "restart" },
+      "particle_density": { "label": "Particle density", "type": "number", "default": 1, "min": 0.3, "max": 1.6, "step": 0.1, "group": "visual", "intent": "visual", "apply": "restart" },
+      "trail_persistence": { "label": "Trail persistence", "type": "number", "default": 0.6, "min": 0, "max": 0.9, "step": 0.05, "group": "visual", "intent": "visual", "apply": "live" },
+      "bloom_strength": { "label": "Bloom and haze", "type": "number", "default": 1, "min": 0, "max": 2, "step": 0.05, "group": "visual", "intent": "visual", "apply": "live" },
+      "chromatic_aberration": { "label": "Spectral fringe", "type": "number", "default": 1, "min": 0, "max": 2.5, "step": 0.05, "group": "visual", "intent": "visual", "apply": "live" },
+      "grain": { "label": "Film grain", "type": "number", "default": 1, "min": 0, "max": 2, "step": 0.05, "group": "visual", "intent": "visual", "apply": "live" },
+      "exposure": { "label": "Exposure", "type": "number", "default": 1, "min": 0.5, "max": 1.8, "step": 0.05, "group": "visual", "intent": "visual", "apply": "live" },
+      "audio_volume": { "label": "Volume", "type": "number", "default": 0.7, "min": 0, "max": 1, "step": 0.05, "group": "audio", "intent": "audio", "apply": "live" }
+    }
+  }
+}
