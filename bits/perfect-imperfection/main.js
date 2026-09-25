@@ -266,7 +266,7 @@ window.plethoraBit = {
       }
       AU.ac = ac;
       const master = ac.createGain();
-      master.gain.value = 0.75;
+      master.gain.value = 0.5;
       const comp = ac.createDynamicsCompressor();
       comp.threshold.value = -18;
       comp.ratio.value = 3;
@@ -301,14 +301,13 @@ window.plethoraBit = {
       drone.connect(bus);
       drone.connect(verb);
       const o1 = ac.createOscillator();
-      o1.frequency.value = 49;
+      o1.frequency.value = 196;
       const o2 = ac.createOscillator();
-      o2.frequency.value = 73.5;
+      o2.frequency.value = 293.7;
       const o3 = ac.createOscillator();
-      o3.type = "triangle";
-      o3.frequency.value = 98.2;
+      o3.frequency.value = 392.4;
       const g3 = ac.createGain();
-      g3.gain.value = 0.25;
+      g3.gain.value = 0.35;
       o1.connect(lp);
       o2.connect(lp);
       o3.connect(g3);
@@ -354,11 +353,12 @@ window.plethoraBit = {
       const ac = AU.ac;
       if (!ac) return;
       const now = ac.currentTime;
-      const target = inTitle ? 0.02 : 0.025 + 0.085 * E.res + (active ? 0.02 : 0) + E.flash * 0.05;
-      AU.drone.gain.setTargetAtTime(target, now, 0.4);
-      AU.lp.frequency.setTargetAtTime(150 + 1100 * E.res + 500 * E.flash, now, 0.5);
-      AU.o2.detune.setTargetAtTime(E.chaos * 45, now, 0.3);
-      AU.noiseG.gain.setTargetAtTime(E.chaos * 0.06, now, 0.25);
+      // silence at rest: the chord only breathes in while a finger is down
+      const target = active ? 0.006 + 0.012 * E.res : 0;
+      AU.drone.gain.setTargetAtTime(target, now, active ? 0.35 : 0.6);
+      AU.lp.frequency.setTargetAtTime(420 + 900 * E.res, now, 0.5);
+      AU.o2.detune.setTargetAtTime(E.chaos * 30, now, 0.3);
+      AU.noiseG.gain.setTargetAtTime(active ? E.chaos * 0.012 : 0, now, 0.25);
     }
     function tone(f, amp, dur, bright, when) {
       const ac = AU.ac;
@@ -399,7 +399,7 @@ window.plethoraBit = {
       bp.Q.value = 9;
       const e = ac.createGain();
       e.gain.setValueAtTime(0.0001, t0);
-      e.gain.exponentialRampToValueAtTime(amp || 0.05, t0 + 0.004);
+      e.gain.exponentialRampToValueAtTime((amp || 0.05) * 0.5, t0 + 0.004);
       e.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.07);
       s.connect(bp);
       bp.connect(e);
@@ -410,8 +410,8 @@ window.plethoraBit = {
     }
     function soundResolve() {
       const seq = [0, 3, 5, 7, 9, 12];
-      seq.forEach((n, i) => tone(noteHz(n + 2), 0.05, 5.5 - i * 0.4, 0.8, i * 0.11));
-      tone(noteHz(-5), 0.09, 7, 0.3, 0);
+      seq.forEach((n, i) => tone(noteHz(n + 2), 0.035, 5 - i * 0.4, 0.6, i * 0.11));
+      tone(noteHz(0), 0.03, 6, 0.2, 0);
     }
     function soundDissipate() {
       const ac = AU.ac;
@@ -425,7 +425,7 @@ window.plethoraBit = {
       lp.frequency.exponentialRampToValueAtTime(70, t0 + 1.6);
       const e = ac.createGain();
       e.gain.setValueAtTime(0.0001, t0);
-      e.gain.exponentialRampToValueAtTime(0.22, t0 + 0.03);
+      e.gain.exponentialRampToValueAtTime(0.09, t0 + 0.03);
       e.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.8);
       s.connect(lp);
       lp.connect(e);
@@ -437,7 +437,7 @@ window.plethoraBit = {
       o.frequency.setValueAtTime(330, t0);
       o.frequency.exponentialRampToValueAtTime(40, t0 + 1.4);
       const oe = ac.createGain();
-      oe.gain.setValueAtTime(0.05, t0);
+      oe.gain.setValueAtTime(0.02, t0);
       oe.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.5);
       o.connect(oe);
       oe.connect(AU.verb);
@@ -2635,7 +2635,7 @@ window.plethoraBit = {
           finaleStep = 3;
           hudBig.textContent = "imperfect.";
           hudBig.style.opacity = "1";
-          tone(noteHz(-5), 0.1, 8, 0.6);
+          tone(noteHz(0), 0.04, 7, 0.4);
           soundResolve();
         }
         if (st > 15.5) showEnd();
