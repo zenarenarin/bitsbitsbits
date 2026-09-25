@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "A Perfect Imperfection",
+  "description": "Fifteen luminous rooms. Each begins perfect. Disturb it, and learn when to stop.",
+  "tags": [
+    "art",
+    "puzzle",
+    "generative",
+    "light",
+    "minimal",
+    "experimental"
+  ],
+  "permissions": [
+    "audio",
+    "haptics"
+  ],
+  "dependencies": [],
+  "game": {
+    "progress": {
+      "main": {
+        "label": "Gallery room",
+        "stateSchemaVersion": 1,
+        "ttlDays": 90
+      }
+    }
+  },
+  "onboarding": {
+    "kind": "immersive",
+    "version": 1
+  }
+}
