@@ -28,7 +28,7 @@
   },
   "onboarding": {
     "kind": "briefing",
-    "version": 2,
+    "version": 3,
     "pages": [
       {
         "title": "Break it, a little",
@@ -36,7 +36,7 @@
       },
       {
         "title": "Find the sweet spot",
-        "body": "Too little and it stays lifeless. Too much and it falls apart and resets. The gauge under each instruction shows where you are: aim for the glowing middle."
+        "body": "Too little and it stays lifeless. Too much and it falls apart and resets. There is no meter: watch the light. It warms, brightens and starts to breathe as you get close."
       },
       {
         "title": "Let it settle",

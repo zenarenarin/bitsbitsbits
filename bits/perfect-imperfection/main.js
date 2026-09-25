@@ -19,8 +19,6 @@ window.plethoraBit = {
       return t * t * (3 - 2 * t);
     };
     const bell = (x, m, w) => Math.exp(-((x - m) / w) * ((x - m) / w));
-    // gauge: -1 too perfect .. 0 sweet spot .. +1 too much
-    const gz = (x, m, hi) => (x < m ? -clamp((m - x) / m, 0, 1) : clamp((x - m) / (hi - m), 0, 1));
     const easeIO = t => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
     const angDiff = (a, b) => {
       let d = (a - b) % TAU;
@@ -524,7 +522,6 @@ window.plethoraBit = {
         }
       };
       o.evaluate = () => ({ r: bell(a, 0.085, 0.034), c: sstep(0.19, 0.33, a) });
-      o.gauge = () => gz(a, 0.085, 0.3);
       o.draw = () => {
         const pts = [];
         for (const n of nodes) pts.push(n.x, n.y);
@@ -617,7 +614,6 @@ window.plethoraBit = {
         }
       };
       o.evaluate = () => ({ r: bell(energy, 3.4, 1.3) * sstep(0.08, 0.2, spread), c: sstep(6.8, 9.6, energy) });
-      o.gauge = () => (drops.length > 1 && spread < 0.08 ? -0.5 : gz(energy, 3.4, 9.6));
       o.draw = () => {
         for (let j = 0; j <= rows; j++) {
           for (let i = 0; i <= cols; i++) {
@@ -694,7 +690,6 @@ window.plethoraBit = {
         D = Math.sqrt(sum / M) / R;
       };
       o.evaluate = () => ({ r: bell(D, 0.055, 0.024), c: sstep(0.15, 0.26, D) });
-      o.gauge = () => gz(D, 0.055, 0.26);
       function ringPts(extra, k) {
         const pts = [];
         for (let i = 0; i < M; i++) {
@@ -758,7 +753,6 @@ window.plethoraBit = {
         }
       };
       o.evaluate = () => ({ r: rLive, c: touched ? 1 : 0 });
-      o.gauge = () => (!P.down ? -1 : dLive > 19 ? -clamp((dLive - 19) / (0.4 * S), 0, 1) : clamp((19 - dLive) / 10, 0, 1));
       o.draw = () => {
         const fx = P.down ? P.x : pt.x, fy = P.down ? P.y : pt.y;
         for (const m of motes) {
@@ -920,7 +914,6 @@ window.plethoraBit = {
         const a = Math.abs(th);
         return { r: bell(a, 0.33, 0.08) * sstep(0.5, 0.15, Math.abs(w)), c: slideOff || a > 0.85 ? 1 : sstep(0.46, 0.85, a) * 0.95 };
       };
-      o.gauge = () => gz(Math.abs(th), 0.33, 0.85);
       o.draw = () => {
         const c = Math.cos(th), s = Math.sin(th);
         const ax = cx - (L / 2) * c, ay = by - (L / 2) * s, bx2 = cx + (L / 2) * c, byy = by + (L / 2) * s;
@@ -1038,12 +1031,11 @@ window.plethoraBit = {
           }
         }
       };
-      o.gauge = () => (touching || judging ? gz(I, 0.55, 2.1) : -1);
       o.cue = () => {
         if (judging) return r >= o.need ? "yes. watch the wave" : I > 0.9 ? "too long. try a shorter press" : "too short. press a little longer";
         if (!touching) return null;
         if (I > 0.9) return "too long";
-        return bell(I, 0.55, 0.3) >= o.need ? "now. let go" : "keep pressing...";
+        return bell(I, 0.55, 0.3) >= o.need ? "now. let go" : "";
       };
       o.evaluate = () => {
         if (judging) return { r: r * sstep(0, 0.6, judgeT), c: 0, verdict };
@@ -1588,7 +1580,6 @@ window.plethoraBit = {
         }
       };
       o.dbg = () => ({ tauStar, tau });
-      o.gauge = () => null;
       const count = t => Math.floor(Math.min(1, t / tauStar) * 420 + Math.max(0, t - tauStar) * 260);
       o.update = dt => {
         if (holding) {
@@ -1691,7 +1682,6 @@ window.plethoraBit = {
       };
       o.evaluate = () => ({ r: bell(a, 0.72, 0.28) * sstep(0.22, 0.45, cover), c: sstep(1.55, 2.3, a) });
       o.dbg = () => ({ a, cover });
-      o.gauge = () => (a > 0.4 && cover < 0.3 ? -0.4 : gz(a, 0.72, 2.3));
       function pos(i, j) {
         const k = j * cols + i;
         const m = Math.hypot(dx[k], dy[k]) / sp;
@@ -1789,7 +1779,6 @@ window.plethoraBit = {
       };
       o.evaluate = () => ({ r: bell(D, 0.56, 0.13), c: sstep(0.95, 1.4, D) });
       o.dbg = () => ({ D });
-      o.gauge = () => gz(D, 0.56, 1.4);
       function curve(phase, shift) {
         const pts = [];
         const Rr = 0.34 * S;
@@ -2040,11 +2029,6 @@ window.plethoraBit = {
       "text-transform:none;letter-spacing:0.02em;font-size:19px;line-height:1.3;color:rgba(244,238,228,0.92);transition:opacity 1.2s ease;opacity:0;padding:0 26px}" +
       ".pi-goal{display:block;margin:10px auto 0;max-width:300px;font-family:'Space Mono',ui-monospace,monospace;font-style:normal;font-size:10.5px;line-height:1.55;" +
       "letter-spacing:0.04em;text-transform:none;color:rgba(236,232,224,0.66)}" +
-      ".pi-gauge{position:absolute;left:50%;width:210px;margin-left:-105px;height:34px;opacity:0;transition:opacity 0.8s ease}" +
-      ".pi-gauge .ln{position:absolute;left:0;right:0;top:8px;height:1px;background:rgba(236,232,224,0.22)}" +
-      ".pi-gauge .zn{position:absolute;left:42%;width:16%;top:5px;height:7px;border-left:1px solid rgba(255,214,170,0.55);border-right:1px solid rgba(255,214,170,0.55)}" +
-      ".pi-gauge .mk{position:absolute;top:4px;width:9px;height:9px;margin-left:-4.5px;border-radius:50%;background:#dfe6ff;box-shadow:0 0 10px rgba(200,215,255,0.9)}" +
-      ".pi-gauge .lb{position:absolute;top:18px;font-size:8.5px;letter-spacing:0.18em;opacity:0.6}" +
       ".pi-status{position:absolute;left:0;right:0;text-align:center;font-size:10px;letter-spacing:0.2em;opacity:0;transition:opacity 0.6s ease;color:rgba(255,228,196,0.85)}" +
       ".pi-skip{position:absolute;left:12px;opacity:0;transition:opacity 1.5s ease}" +
       ".pi-name{display:block;font-family:'Space Mono',ui-monospace,monospace;font-style:normal;font-size:9px;letter-spacing:0.3em;text-transform:uppercase;opacity:0.5;margin-bottom:10px}" +
@@ -2075,10 +2059,6 @@ window.plethoraBit = {
     const hudRes = el("pi-res");
     const hudBig = el("pi-big");
     const hudTitle = el("pi-title");
-    const hudGauge = el("pi-gauge");
-    hudGauge.innerHTML = '<div class="ln"></div><div class="zn"></div><div class="mk"></div>' +
-      '<span class="lb" style="left:0">too perfect</span><span class="lb" style="right:0">too much</span>';
-    const gaugeMk = hudGauge.querySelector(".mk");
     const hudStatus = el("pi-status");
     const hudSkip = el("pi-skip");
     const skipBtn = document.createElement("button");
@@ -2150,11 +2130,10 @@ window.plethoraBit = {
       gl.textContent = r.goal;
       hudWord.appendChild(gl);
       hudWord.style.opacity = "1";
-      // gauge and status sit under the instructions
+      // status cue sits under the instructions
       ctx.timeout(() => {
         const bottom = hudWord.offsetTop + hudWord.offsetHeight;
-        hudGauge.style.top = bottom + 14 + "px";
-        hudStatus.style.top = bottom + 50 + "px";
+        hudStatus.style.top = bottom + 18 + "px";
       }, 30);
       wordShown = true;
       wordTimer = 0;
@@ -2176,7 +2155,7 @@ window.plethoraBit = {
       return (i >= 0 ? "0" + (i + 1) + " \u2014 " : "") + c;
     }
 
-    let guideShown = false, lastStatus = "", gaugeVal = -1;
+    let guideShown = false, lastStatus = "";
     function statusText(ev) {
       if (room.cue) {
         const c = room.cue();
@@ -2188,22 +2167,10 @@ window.plethoraBit = {
       }
       if (sustain > 0.05) return room.holdOk ? "hold it there... it is settling" : "yes. let it settle";
       if (ev.r >= room.need && P.down && !room.holdOk) return "that's it. let go";
-      if (ev.c > 0.35) return "too much. it is falling apart";
-      if (room.gauge && room.gauge() === null) return P.down ? "keep holding..." : "";
-      if (ev.r > 0.45) return "closer";
-      if (!stats.actions) return "";
-      return gaugeVal > 0.35 ? "too much" : gaugeVal < -0.35 ? "still too perfect" : "getting there";
+      if (ev.c > 0.35) return "too much";
+      return "";
     }
     function updateGuide(ev) {
-      let gv = room.gauge ? room.gauge() : room.tapOnly ? null : -(1 - ev.r) + ev.c;
-      const showG = gv !== null && gv !== undefined;
-      if (showG) {
-        gaugeVal += (clamp(gv, -1, 1) - gaugeVal) * 0.25;
-        gaugeMk.style.left = (50 + gaugeVal * 48).toFixed(1) + "%";
-        const near = Math.abs(gaugeVal) < 0.12;
-        gaugeMk.style.background = near ? "#ffd9a8" : gaugeVal > 0.4 ? "#ff9d8a" : "#dfe6ff";
-      }
-      hudGauge.style.opacity = showG ? "0.9" : "0";
       const tx = statusText(ev);
       if (tx !== lastStatus) {
         lastStatus = tx;
@@ -2217,7 +2184,6 @@ window.plethoraBit = {
     function hideGuide() {
       if (!guideShown) return;
       guideShown = false;
-      hudGauge.style.opacity = "0";
       hudStatus.style.opacity = "0";
       hudSkip.style.opacity = "0";
       hudSkip.style.pointerEvents = "none";
@@ -2271,7 +2237,6 @@ window.plethoraBit = {
       st = 0;
       stats.collapses++;
       hideGuide();
-      hudGauge.style.opacity = "0";
       hudStatus.textContent = roomIdx === 3 ? "you touched it. try again, closer but not on it" : "too much. it fell apart. try again, gentler";
       lastStatus = hudStatus.textContent;
       hudStatus.style.opacity = "1";
@@ -2600,7 +2565,6 @@ window.plethoraBit = {
         E.res += (0.75 - E.res) * Math.min(1, dt);
       } else if (state === "trans") {
         hideGuide();
-        gaugeVal = -1;
         const dur = 2.6;
         const u = st / dur;
         E.sync = Math.max(0, E.sync - dt * 1.5);
