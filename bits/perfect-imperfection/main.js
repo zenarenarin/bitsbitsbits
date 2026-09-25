@@ -19,6 +19,8 @@ window.plethoraBit = {
       return t * t * (3 - 2 * t);
     };
     const bell = (x, m, w) => Math.exp(-((x - m) / w) * ((x - m) / w));
+    // gauge: -1 too perfect .. 0 sweet spot .. +1 too much
+    const gz = (x, m, hi) => (x < m ? -clamp((m - x) / m, 0, 1) : clamp((x - m) / (hi - m), 0, 1));
     const easeIO = t => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
     const angDiff = (a, b) => {
       let d = (a - b) % TAU;
@@ -448,7 +450,7 @@ window.plethoraBit = {
     // r: resonance 0..1 (how close to the hidden sweet spot). c: chaos 0..1 (1 = collapse).
 
     function R_symmetry() {
-      const o = { name: "break the symmetry", chapter: "disturb", word: "make it better.", ideal: 1, need: 0.8, sustain: 1.2, metrics: ["imperfection", "restraint", "intuition"] };
+      const o = { name: "break the symmetry", chapter: "disturb", how: "Drag one light out of the circle.", goal: "Break the symmetry, only slightly. Let go when it starts to breathe.", ideal: 1, need: 0.8, sustain: 1.2, metrics: ["imperfection", "restraint", "intuition"] };
       let nodes = [], grab = -1, R = 0, a = 0;
       o.init = () => {
         const N = 30;
@@ -522,6 +524,7 @@ window.plethoraBit = {
         }
       };
       o.evaluate = () => ({ r: bell(a, 0.085, 0.034), c: sstep(0.19, 0.33, a) });
+      o.gauge = () => gz(a, 0.085, 0.3);
       o.draw = () => {
         const pts = [];
         for (const n of nodes) pts.push(n.x, n.y);
@@ -556,7 +559,7 @@ window.plethoraBit = {
     }
 
     function R_drops() {
-      const o = { name: "one drop too many", chapter: "disturb", word: "wake the surface.", ideal: 4, need: 0.8, sustain: 1.4, metrics: ["imperfection", "restraint", "balance"] };
+      const o = { name: "one drop too many", chapter: "disturb", how: "Tap the surface to drop light into it.", goal: "A few spread-out ripples make it alive. Too many drown it.", ideal: 4, need: 0.8, sustain: 1.4, metrics: ["imperfection", "restraint", "balance"] };
       let drops = [], cols = 0, rows = 0, sx = 0, sy = 0, energy = 0, spread = 0;
       const TAUD = 11;
       o.init = () => {
@@ -614,6 +617,7 @@ window.plethoraBit = {
         }
       };
       o.evaluate = () => ({ r: bell(energy, 3.4, 1.3) * sstep(0.08, 0.2, spread), c: sstep(6.8, 9.6, energy) });
+      o.gauge = () => (drops.length > 1 && spread < 0.08 ? -0.5 : gz(energy, 3.4, 9.6));
       o.draw = () => {
         for (let j = 0; j <= rows; j++) {
           for (let i = 0; i <= cols; i++) {
@@ -641,7 +645,7 @@ window.plethoraBit = {
     }
 
     function R_circle() {
-      const o = { name: "break the circle", chapter: "restrain", word: "make it human.", ideal: 2, need: 0.8, sustain: 1.3, metrics: ["imperfection", "restraint", "balance"] };
+      const o = { name: "break the circle", chapter: "restrain", how: "Drag the edge of the circle outward or inward.", goal: "Make it feel hand-drawn, not broken. Let go when it warms.", ideal: 2, need: 0.8, sustain: 1.3, metrics: ["imperfection", "restraint", "balance"] };
       const M = 120;
       let off, vel, rest, R = 0, grabbing = false, D = 0;
       o.init = () => {
@@ -690,6 +694,7 @@ window.plethoraBit = {
         D = Math.sqrt(sum / M) / R;
       };
       o.evaluate = () => ({ r: bell(D, 0.055, 0.024), c: sstep(0.15, 0.26, D) });
+      o.gauge = () => gz(D, 0.055, 0.26);
       function ringPts(extra, k) {
         const pts = [];
         for (let i = 0; i < M; i++) {
@@ -721,7 +726,7 @@ window.plethoraBit = {
     }
 
     function R_center() {
-      const o = { name: "miss the center", chapter: "restrain", word: "don't.", ideal: 1, need: 0.78, sustain: 1.4, holdOk: true, metrics: ["precision", "restraint", "risk"] };
+      const o = { name: "miss the center", chapter: "restrain", how: "Press and hold near the point. Do not touch it.", goal: "Get as close as you dare. Touching it collapses everything.", ideal: 1, need: 0.78, sustain: 1.4, holdOk: true, metrics: ["precision", "restraint", "risk"] };
       let motes = [], pt = { x: 0, y: 0 }, touched = false, dLive = 1e9, rLive = 0, prox = 0;
       o.init = () => {
         motes = [];
@@ -753,6 +758,7 @@ window.plethoraBit = {
         }
       };
       o.evaluate = () => ({ r: rLive, c: touched ? 1 : 0 });
+      o.gauge = () => (!P.down ? -1 : dLive > 19 ? -clamp((dLive - 19) / (0.4 * S), 0, 1) : clamp((19 - dLive) / 10, 0, 1));
       o.draw = () => {
         const fx = P.down ? P.x : pt.x, fy = P.down ? P.y : pt.y;
         for (const m of motes) {
@@ -791,7 +797,7 @@ window.plethoraBit = {
     }
 
     function R_colour() {
-      const o = { name: "the wrong colour", chapter: "balance", word: "make the wrong colour feel right.", ideal: 1, need: 0.8, sustain: 1.2, metrics: ["composition", "restraint", "intuition"] };
+      const o = { name: "the wrong colour", chapter: "balance", how: "Drag the orange light somewhere new.", goal: "Find the spot where the odd colour balances the picture.", ideal: 1, need: 0.8, sustain: 1.2, metrics: ["composition", "restraint", "intuition"] };
       let mass = [], dust = [], M = { x: 0, y: 0 }, Pi = { x: 0, y: 0 }, orb = null, grab = false, r = 0, c = 0;
       o.init = () => {
         const qx = rand() < 0.5 ? 1 : 2, qy = rand() < 0.5 ? 1 : 2;
@@ -865,7 +871,7 @@ window.plethoraBit = {
     }
 
     function R_balance() {
-      const o = { name: "balance", chapter: "balance", word: "make it look like it is about to fall.", ideal: 3, need: 0.78, sustain: 1.8, metrics: ["tension", "restraint", "risk"] };
+      const o = { name: "balance", chapter: "balance", how: "Tap left or right to drop weight on the beam.", goal: "Tilt it until it looks about to fall, but does not.", ideal: 3, need: 0.78, sustain: 1.8, metrics: ["tension", "restraint", "risk"] };
       let th = 0, w = 0, L = 0, by = 0, top = 0, masses = [], falling = [], slideOff = false;
       o.init = () => {
         L = 0.68 * S;
@@ -914,6 +920,7 @@ window.plethoraBit = {
         const a = Math.abs(th);
         return { r: bell(a, 0.33, 0.08) * sstep(0.5, 0.15, Math.abs(w)), c: slideOff || a > 0.85 ? 1 : sstep(0.46, 0.85, a) * 0.95 };
       };
+      o.gauge = () => gz(Math.abs(th), 0.33, 0.85);
       o.draw = () => {
         const c = Math.cos(th), s = Math.sin(th);
         const ax = cx - (L / 2) * c, ay = by - (L / 2) * s, bx2 = cx + (L / 2) * c, byy = by + (L / 2) * s;
@@ -948,7 +955,7 @@ window.plethoraBit = {
     }
 
     function R_flow() {
-      const o = { name: "interrupt the flow", chapter: "interrupt", word: "interrupt it.", ideal: 1, need: 0.72, sustain: 0.2, metrics: ["imperfection", "restraint", "intuition"], tapOnly: true };
+      const o = { name: "interrupt the flow", chapter: "interrupt", how: "Press into the stream, then let go.", goal: "A short press makes a graceful wave. Too long turns to chaos.", ideal: 1, need: 0.72, sustain: 0.2, metrics: ["imperfection", "restraint", "intuition"], tapOnly: true };
       let parts = [], waves = [], I = 0, judging = false, judgeT = 0, lanes = 11, hb = 0, touching = false, verdict = null, r = 0, fx = 0, fy = 0;
       o.init = () => {
         hb = 0.2 * S;
@@ -978,7 +985,7 @@ window.plethoraBit = {
           waves.push({ x0: fx, t0: E.t, A, turb: sstep(0.95, 1.6, I) });
           judging = true;
           judgeT = 0;
-          r = bell(I, 0.55, 0.22);
+          r = bell(I, 0.55, 0.3);
           tone(noteHz(r > 0.7 ? 5 : 0), 0.06, 3, 0.8);
         }
       };
@@ -1031,9 +1038,16 @@ window.plethoraBit = {
           }
         }
       };
+      o.gauge = () => (touching || judging ? gz(I, 0.55, 2.1) : -1);
+      o.cue = () => {
+        if (judging) return r >= o.need ? "yes. watch the wave" : I > 0.9 ? "too long. try a shorter press" : "too short. press a little longer";
+        if (!touching) return null;
+        if (I > 0.9) return "too long";
+        return bell(I, 0.55, 0.3) >= o.need ? "now. let go" : "keep pressing...";
+      };
       o.evaluate = () => {
         if (judging) return { r: r * sstep(0, 0.6, judgeT), c: 0, verdict };
-        return { r: touching ? bell(I, 0.55, 0.22) * 0.55 : 0, c: sstep(1.4, 2.1, I) };
+        return { r: touching ? bell(I, 0.55, 0.3) * 0.55 : 0, c: sstep(1.4, 2.1, I) };
       };
       o.draw = () => {
         for (const p of parts) {
@@ -1048,7 +1062,7 @@ window.plethoraBit = {
     }
 
     function R_rhythm() {
-      const o = { name: "break the rhythm", chapter: "interrupt", word: "make it musical.", ideal: 4, need: 0.74, sustain: 2.6, metrics: ["cadence", "restraint", "intuition"] };
+      const o = { name: "break the rhythm", chapter: "interrupt", how: "Drag dots sideways to change the beat. Drag up to accent one.", goal: "Break the even beat into a pattern that repeats.", ideal: 4, need: 0.74, sustain: 2.6, metrics: ["cadence", "restraint", "intuition"] };
       const N = 8, STEPS = 16, BAR = 2.4;
       let dots = [], x0 = 0, x1 = 0, step = 0, grab = -1, lastPh = 0, r = 0, c = 0, flashes = [];
       o.init = () => {
@@ -1175,7 +1189,7 @@ window.plethoraBit = {
     }
 
     function R_remove() {
-      const o = { name: "remove one", chapter: "observe", word: "remove one.", ideal: 1, need: 0.9, sustain: 0.1, tapOnly: true, metrics: ["observation", "restraint", "intuition"] };
+      const o = { name: "remove one", chapter: "observe", how: "One light is slightly different. Tap it.", goal: "Watch its colour, pulse and spacing. Wrong taps unsettle the field.", ideal: 1, need: 0.9, sustain: 0.1, tapOnly: true, metrics: ["observation", "restraint", "intuition"] };
       let pts = [], odd = -1, traits = [], sp = 0, wrongs = 0, found = false, gone = [];
       o.init = () => {
         sp = S * 0.105;
@@ -1277,7 +1291,7 @@ window.plethoraBit = {
     }
 
     function R_perfect() {
-      const o = { name: "find the imperfection", chapter: "observe", word: "one of these is perfect.", ideal: 1, need: 0.9, sustain: 0.1, tapOnly: true, metrics: ["observation", "restraint", "intuition"] };
+      const o = { name: "find the imperfection", chapter: "observe", how: "Every shape is flawed except one. Tap the perfect one.", goal: "Compare the petals closely. Wrong taps dissolve that shape.", ideal: 1, need: 0.9, sustain: 0.1, tapOnly: true, metrics: ["observation", "restraint", "intuition"] };
       let shapes = [], wrongs = 0, found = -1, fade = 0, foundT = 0;
       o.init = () => {
         shapes = [];
@@ -1376,7 +1390,7 @@ window.plethoraBit = {
     }
 
     function R_piece() {
-      const o = { name: "the missing piece", chapter: "trust", word: "\u00b7", ideal: 1, need: 0.9, sustain: 0.1, tapOnly: true, metrics: ["observation", "restraint", "intuition"] };
+      const o = { name: "the missing piece", chapter: "trust", how: "Drag the fragment that fits into the gap in the ring.", goal: "Only one matches the curve and the length exactly.", ideal: 1, need: 0.9, sustain: 0.1, tapOnly: true, metrics: ["observation", "restraint", "intuition"] };
       let rings = [], gap = null, frags = [], grab = -1, wrongs = 0, found = false, R2 = 0;
       o.init = () => {
         const R1 = 0.15 * S;
@@ -1541,7 +1555,7 @@ window.plethoraBit = {
     }
 
     function R_moment() {
-      const o = { name: "stop at the right moment", chapter: "trust", word: "hold.", ideal: 1, need: 0.62, sustain: 0.1, tapOnly: true, metrics: ["timing", "restraint", "intuition"] };
+      const o = { name: "stop at the right moment", chapter: "trust", how: "Press and hold. The form grows while you hold.", goal: "Let go at its most beautiful moment, when the spirals are sharpest.", ideal: 1, need: 0.62, sustain: 0.1, tapOnly: true, metrics: ["timing", "restraint", "intuition"] };
       let tau = 0, tauStar = 3, holding = false, state = "grow", verdict = null, frozenR = 0, retreat = 0;
       const GA = Math.PI * (3 - Math.sqrt(5));
       o.init = () => {
@@ -1574,6 +1588,7 @@ window.plethoraBit = {
         }
       };
       o.dbg = () => ({ tauStar, tau });
+      o.gauge = () => null;
       const count = t => Math.floor(Math.min(1, t / tauStar) * 420 + Math.max(0, t - tauStar) * 260);
       o.update = dt => {
         if (holding) {
@@ -1629,7 +1644,7 @@ window.plethoraBit = {
     }
 
     function R_grid() {
-      const o = { name: "ruin the grid", chapter: "imperfect", word: "make it organic.", ideal: 3, need: 0.78, sustain: 1.5, metrics: ["imperfection", "restraint", "balance"] };
+      const o = { name: "ruin the grid", chapter: "imperfect", how: "Drag across the grid to bend it.", goal: "Several strokes make it organic. Too many tear it apart.", ideal: 3, need: 0.78, sustain: 1.5, metrics: ["imperfection", "restraint", "balance"] };
       let cols = 0, rows = 0, sp = 0, ox = 0, oy = 0, dx, dy, a = 0, cover = 0, lastX = 0, lastY = 0;
       o.init = () => {
         cols = 12;
@@ -1676,6 +1691,7 @@ window.plethoraBit = {
       };
       o.evaluate = () => ({ r: bell(a, 0.72, 0.28) * sstep(0.22, 0.45, cover), c: sstep(1.55, 2.3, a) });
       o.dbg = () => ({ a, cover });
+      o.gauge = () => (a > 0.4 && cover < 0.3 ? -0.4 : gz(a, 0.72, 2.3));
       function pos(i, j) {
         const k = j * cols + i;
         const m = Math.hypot(dx[k], dy[k]) / sp;
@@ -1733,7 +1749,7 @@ window.plethoraBit = {
     }
 
     function R_worse() {
-      const o = { name: "make it worse", chapter: "imperfect", word: "make it worse.", ideal: 3, need: 0.8, sustain: 1.5, metrics: ["damage", "restraint", "risk"] };
+      const o = { name: "make it worse", chapter: "imperfect", how: "Drag across the curve to damage it.", goal: "Damage it until it becomes expressive, then stop.", ideal: 3, need: 0.8, sustain: 1.5, metrics: ["damage", "restraint", "risk"] };
       let bruises = [], D = 0, cur = null, travel = 0, lx = 0, ly = 0;
       const NP = 360;
       o.init = () => {
@@ -1773,6 +1789,7 @@ window.plethoraBit = {
       };
       o.evaluate = () => ({ r: bell(D, 0.56, 0.13), c: sstep(0.95, 1.4, D) });
       o.dbg = () => ({ D });
+      o.gauge = () => gz(D, 0.56, 1.4);
       function curve(phase, shift) {
         const pts = [];
         const Rr = 0.34 * S;
@@ -1820,7 +1837,7 @@ window.plethoraBit = {
     }
 
     function R_taste() {
-      const o = { name: "taste", chapter: "taste", word: "", ideal: 4, need: 0.72, sustain: 2.2, metrics: ["imperfection", "restraint", "taste"] };
+      const o = { name: "taste", chapter: "taste", how: "Use everything you have learned.", goal: "Nudge a light, move the orange orb, remove the flickering light, touch the stream. When it all feels right, let go.", ideal: 4, need: 0.72, sustain: 2.2, metrics: ["imperfection", "restraint", "taste"] };
       let ring = [], R = 0, odd = -1, oddGone = false, orb = null, grabRing = -1, grabOrb = false, parts = [], waves = [], flowI = 0, flowTouch = false, flowScore = 0, bandY = 0;
       let sRing = 0, sOrb = 0, sFlow = 0, sOdd = 0, coh = 0, spots = [];
       o.init = () => {
@@ -2020,7 +2037,16 @@ window.plethoraBit = {
       ".pi-res,.pi-big,.pi-word,.pi-title{text-shadow:0 0 14px #000,0 0 4px #000}" +
       ".pi-tl,.pi-tr{position:absolute;top:0;opacity:0.55;transition:opacity 1.2s}" +
       ".pi-word{position:absolute;left:0;right:0;text-align:center;font-family:'Cormorant Garamond',Georgia,serif;font-style:italic;font-weight:300;" +
-      "text-transform:none;letter-spacing:0.04em;font-size:22px;color:rgba(240,234,224,0.8);transition:opacity 2.2s ease;opacity:0;padding:0 28px}" +
+      "text-transform:none;letter-spacing:0.02em;font-size:19px;line-height:1.3;color:rgba(244,238,228,0.92);transition:opacity 1.2s ease;opacity:0;padding:0 26px}" +
+      ".pi-goal{display:block;margin:10px auto 0;max-width:300px;font-family:'Space Mono',ui-monospace,monospace;font-style:normal;font-size:10.5px;line-height:1.55;" +
+      "letter-spacing:0.04em;text-transform:none;color:rgba(236,232,224,0.66)}" +
+      ".pi-gauge{position:absolute;left:50%;width:210px;margin-left:-105px;height:34px;opacity:0;transition:opacity 0.8s ease}" +
+      ".pi-gauge .ln{position:absolute;left:0;right:0;top:8px;height:1px;background:rgba(236,232,224,0.22)}" +
+      ".pi-gauge .zn{position:absolute;left:42%;width:16%;top:5px;height:7px;border-left:1px solid rgba(255,214,170,0.55);border-right:1px solid rgba(255,214,170,0.55)}" +
+      ".pi-gauge .mk{position:absolute;top:4px;width:9px;height:9px;margin-left:-4.5px;border-radius:50%;background:#dfe6ff;box-shadow:0 0 10px rgba(200,215,255,0.9)}" +
+      ".pi-gauge .lb{position:absolute;top:18px;font-size:8.5px;letter-spacing:0.18em;opacity:0.6}" +
+      ".pi-status{position:absolute;left:0;right:0;text-align:center;font-size:10px;letter-spacing:0.2em;opacity:0;transition:opacity 0.6s ease;color:rgba(255,228,196,0.85)}" +
+      ".pi-skip{position:absolute;left:12px;opacity:0;transition:opacity 1.5s ease}" +
       ".pi-name{display:block;font-family:'Space Mono',ui-monospace,monospace;font-style:normal;font-size:9px;letter-spacing:0.3em;text-transform:uppercase;opacity:0.5;margin-bottom:10px}" +
       ".pi-res{position:absolute;left:0;right:0;display:flex;flex-direction:column;align-items:center;opacity:0;transition:opacity 1.4s ease;pointer-events:none}" +
       ".pi-row{display:flex;justify-content:space-between;width:190px;line-height:2.1;opacity:0;transition:opacity 1s ease}" +
@@ -2034,7 +2060,8 @@ window.plethoraBit = {
       "font-size:40px;letter-spacing:0.08em;text-transform:none;color:rgba(255,244,230,0.92);opacity:0;transition:opacity 2s ease}" +
       ".pi-title{position:absolute;left:0;right:0;text-align:center;opacity:0;transition:opacity 2s ease}" +
       ".pi-title .h{font-family:'Cormorant Garamond',Georgia,serif;font-style:italic;font-weight:300;font-size:26px;letter-spacing:0.05em;text-transform:none;color:rgba(248,240,228,0.9)}" +
-      ".pi-title .s{margin-top:14px;opacity:0.5}";
+      ".pi-title .s{margin-top:14px}" +
+      ".pi-title .p{margin:16px auto 0;max-width:290px;font-size:10.5px;line-height:1.7;letter-spacing:0.05em;text-transform:none;opacity:0.72}";
     hud.appendChild(css);
     const el = (cls, parent) => {
       const d = document.createElement("div");
@@ -2048,6 +2075,16 @@ window.plethoraBit = {
     const hudRes = el("pi-res");
     const hudBig = el("pi-big");
     const hudTitle = el("pi-title");
+    const hudGauge = el("pi-gauge");
+    hudGauge.innerHTML = '<div class="ln"></div><div class="zn"></div><div class="mk"></div>' +
+      '<span class="lb" style="left:0">too perfect</span><span class="lb" style="right:0">too much</span>';
+    const gaugeMk = hudGauge.querySelector(".mk");
+    const hudStatus = el("pi-status");
+    const hudSkip = el("pi-skip");
+    const skipBtn = document.createElement("button");
+    skipBtn.className = "pi-btn";
+    skipBtn.textContent = "skip room";
+    hudSkip.appendChild(skipBtn);
     function layoutHud() {
       const top = (ctx.safeArea && ctx.safeArea.top) || 0;
       const bot = (ctx.safeArea && ctx.safeArea.bottom) || 0;
@@ -2056,7 +2093,8 @@ window.plethoraBit = {
       hudWord.style.top = Math.max(top + 64, H * 0.12) + "px";
       hudRes.style.bottom = Math.max(bot + 40, H * 0.08) + "px";
       hudBig.style.top = cy + 0.14 * S + "px";
-      hudTitle.style.top = H * 0.64 + "px";
+      hudTitle.style.top = H * 0.6 + "px";
+      hudSkip.style.bottom = Math.max(bot + 10, 14) + "px";
     }
     layoutHud();
 
@@ -2106,8 +2144,18 @@ window.plethoraBit = {
       n.className = "pi-name";
       n.textContent = r.name;
       hudWord.appendChild(n);
-      if (r.word) hudWord.appendChild(document.createTextNode(r.word));
+      hudWord.appendChild(document.createTextNode(r.how));
+      const gl = document.createElement("span");
+      gl.className = "pi-goal";
+      gl.textContent = r.goal;
+      hudWord.appendChild(gl);
       hudWord.style.opacity = "1";
+      // gauge and status sit under the instructions
+      ctx.timeout(() => {
+        const bottom = hudWord.offsetTop + hudWord.offsetHeight;
+        hudGauge.style.top = bottom + 14 + "px";
+        hudStatus.style.top = bottom + 50 + "px";
+      }, 30);
       wordShown = true;
       wordTimer = 0;
     }
@@ -2127,6 +2175,65 @@ window.plethoraBit = {
       const i = order.indexOf(c);
       return (i >= 0 ? "0" + (i + 1) + " \u2014 " : "") + c;
     }
+
+    let guideShown = false, lastStatus = "", gaugeVal = -1;
+    function statusText(ev) {
+      if (room.cue) {
+        const c = room.cue();
+        if (c !== null) return c;
+      }
+      if (room.tapOnly) {
+        if (ev.c > 0.2) return "not that one";
+        return "";
+      }
+      if (sustain > 0.05) return room.holdOk ? "hold it there... it is settling" : "yes. let it settle";
+      if (ev.r >= room.need && P.down && !room.holdOk) return "that's it. let go";
+      if (ev.c > 0.35) return "too much. it is falling apart";
+      if (room.gauge && room.gauge() === null) return P.down ? "keep holding..." : "";
+      if (ev.r > 0.45) return "closer";
+      if (!stats.actions) return "";
+      return gaugeVal > 0.35 ? "too much" : gaugeVal < -0.35 ? "still too perfect" : "getting there";
+    }
+    function updateGuide(ev) {
+      let gv = room.gauge ? room.gauge() : room.tapOnly ? null : -(1 - ev.r) + ev.c;
+      const showG = gv !== null && gv !== undefined;
+      if (showG) {
+        gaugeVal += (clamp(gv, -1, 1) - gaugeVal) * 0.25;
+        gaugeMk.style.left = (50 + gaugeVal * 48).toFixed(1) + "%";
+        const near = Math.abs(gaugeVal) < 0.12;
+        gaugeMk.style.background = near ? "#ffd9a8" : gaugeVal > 0.4 ? "#ff9d8a" : "#dfe6ff";
+      }
+      hudGauge.style.opacity = showG ? "0.9" : "0";
+      const tx = statusText(ev);
+      if (tx !== lastStatus) {
+        lastStatus = tx;
+        hudStatus.textContent = tx;
+      }
+      hudStatus.style.opacity = tx ? "1" : "0";
+      hudSkip.style.opacity = stats.t > 45 ? "0.8" : "0";
+      hudSkip.style.pointerEvents = stats.t > 45 ? "auto" : "none";
+      guideShown = true;
+    }
+    function hideGuide() {
+      if (!guideShown) return;
+      guideShown = false;
+      hudGauge.style.opacity = "0";
+      hudStatus.style.opacity = "0";
+      hudSkip.style.opacity = "0";
+      hudSkip.style.pointerEvents = "none";
+    }
+    ctx.input.activate(skipBtn, () => {
+      if (state !== "play" || stats.t <= 45) return;
+      ctx.platform.interact({ type: "skip", room: roomIdx + 1 });
+      hideGuide();
+      if (roomIdx >= COUNT - 1) {
+        startFinale();
+        return;
+      }
+      const next = roomIdx + 1;
+      saveProgress(next);
+      beginTransition(room.points(), next, false);
+    });
 
     function beginTransition(fromPts, idx, keepStats) {
       measure();
@@ -2163,6 +2270,12 @@ window.plethoraBit = {
       state = "collapse";
       st = 0;
       stats.collapses++;
+      hideGuide();
+      hudGauge.style.opacity = "0";
+      hudStatus.textContent = roomIdx === 3 ? "you touched it. try again, closer but not on it" : "too much. it fell apart. try again, gentler";
+      lastStatus = hudStatus.textContent;
+      hudStatus.style.opacity = "1";
+      guideShown = true;
       soundDissipate();
       haptic("warning");
       const pts = samplePts(room.points(), Math.round(170 * E.q));
@@ -2207,6 +2320,9 @@ window.plethoraBit = {
       const { vals, taste } = computeMetrics();
       tastes[roomIdx] = taste;
       hudRes.innerHTML = "";
+      const head = el("pi-row", hudRes);
+      head.style.cssText = "justify-content:center;width:auto;opacity:1;margin-bottom:10px;color:rgba(255,228,196,0.9)";
+      head.textContent = "room complete. you found the sweet spot";
       const rows = [];
       for (const m of room.metrics) {
         if (m === "taste") continue;
@@ -2285,6 +2401,8 @@ window.plethoraBit = {
       hudTitle.innerHTML = "";
       const h = el("h", hudTitle);
       h.textContent = "a perfect imperfection";
+      const pr = el("p", hudTitle);
+      pr.innerHTML = "Every room starts perfect.<br>Your job: disturb it, just enough to make it feel alive.<br>Too little stays lifeless. Too much falls apart.<br>When it is right, the room glows, settles, and opens the next.";
       const s = el("s", hudTitle);
       const btnWrap = el("pi-btns", s);
       btnWrap.style.cssText = "justify-content:center;opacity:1;margin-top:10px";
@@ -2439,8 +2557,8 @@ window.plethoraBit = {
       // word fade
       if (wordShown) {
         wordTimer += dt;
-        if (wordTimer > 7) {
-          hudWord.style.opacity = "0.22";
+        if (wordTimer > 9) {
+          hudWord.style.opacity = "0.72";
           wordShown = false;
         }
       }
@@ -2451,6 +2569,7 @@ window.plethoraBit = {
         stats.t += dt;
         const ev = room.evaluate();
         lastR = ev.r;
+        updateGuide(ev);
         stats.peakR = Math.max(stats.peakR, ev.r);
         stats.maxC = Math.max(stats.maxC, ev.c < 1 ? ev.c : 0);
         E.res += (ev.r - E.res) * Math.min(1, dt * 2.5);
@@ -2470,6 +2589,7 @@ window.plethoraBit = {
           if (sustain >= room.sustain && !room.tapOnly) resolve(ev.r);
         }
       } else if (state === "resolve") {
+        hideGuide();
         E.sync = Math.min(1, E.sync + dt * 1.2);
         room.update(dt * lerp(1, 0.12, E.sync));
         E.res += (1 - E.res) * Math.min(1, dt * 2);
@@ -2479,6 +2599,8 @@ window.plethoraBit = {
         room.update(dt * 0.12);
         E.res += (0.75 - E.res) * Math.min(1, dt);
       } else if (state === "trans") {
+        hideGuide();
+        gaugeVal = -1;
         const dur = 2.6;
         const u = st / dur;
         E.sync = Math.max(0, E.sync - dt * 1.5);
@@ -2511,6 +2633,7 @@ window.plethoraBit = {
           beginTransition(debris.map(d => ({ x: d.x, y: d.y, b: d.b * 0.6, ck: d.ck })), roomIdx, true);
         }
       } else if (state === "finale") {
+        hideGuide();
         E.sync = Math.min(1, E.sync + dt * 0.6);
         E.res += (1 - E.res) * Math.min(1, dt);
         room.update(dt * (1 - E.sync) + 0.0001);

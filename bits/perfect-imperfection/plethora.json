@@ -27,7 +27,21 @@
     }
   },
   "onboarding": {
-    "kind": "immersive",
-    "version": 1
+    "kind": "briefing",
+    "version": 2,
+    "pages": [
+      {
+        "title": "Break it, a little",
+        "body": "Every room starts perfect: a symmetrical, still, flawless arrangement of light. Your job is to disturb it just enough to make it feel alive."
+      },
+      {
+        "title": "Find the sweet spot",
+        "body": "Too little and it stays lifeless. Too much and it falls apart and resets. The gauge under each instruction shows where you are: aim for the glowing middle."
+      },
+      {
+        "title": "Let it settle",
+        "body": "When it is right, the room warms, glows and settles on its own. Then choose continue for the next room. Each room tells you what to do at the top."
+      }
+    ]
   }
 }
