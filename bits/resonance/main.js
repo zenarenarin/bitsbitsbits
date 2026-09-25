@@ -577,6 +577,22 @@ vec4 smoothSample(sampler2D t, vec2 g) {
          (texture2D(t, vec2(c0.x, c1.y)) * s0.x + texture2D(t, vec2(c1.x, c1.y)) * s1.x) * s1.y;
 }
 
+// restrained cyclic palette: teal, cyan, violet, magenta, ember
+vec3 palette(float t) {
+  t = fract(t) * 5.0;
+  vec3 teal = vec3(0.06, 0.52, 0.6);
+  vec3 cyan = vec3(0.34, 0.78, 1.0);
+  vec3 violet = vec3(0.46, 0.32, 1.0);
+  vec3 magenta = vec3(0.98, 0.3, 0.62);
+  vec3 ember = vec3(1.0, 0.5, 0.2);
+  vec3 c = mix(teal, cyan, smoothstep(0.0, 1.0, t));
+  c = mix(c, violet, smoothstep(1.0, 2.0, t));
+  c = mix(c, magenta, smoothstep(2.0, 3.0, t));
+  c = mix(c, ember, smoothstep(3.0, 4.0, t));
+  c = mix(c, teal, smoothstep(4.0, 5.0, t));
+  return c;
+}
+
 vec3 spectral(float t) {
   vec3 deep = vec3(0.03, 0.06, 0.26);
   vec3 violet = vec3(0.22, 0.2, 0.9);
@@ -626,19 +642,33 @@ void main() {
   float wall = F.b;
 
   float energy = crest.g * 1.6 + expo * 0.9;
-  vec3 L = spectral(0.3 + energy * 0.8 + uWarmth * 0.35) * crest.g * 3.2;
-  L.r += max(crest.r - crest.g, 0.0) * 1.6;
-  L.b += max(crest.b - crest.g, 0.0) * 2.0;
-  L.g += max(crest.b - crest.g, 0.0) * 0.6;
-  L += vec3(0.02, 0.04, 0.16) * abs(h) * 0.12;
+  // slow drift of hue across the frame: formations read as ribbons of colour
+  float drift = uv.y * 0.35 - uv.x * 0.18 + uTime * 0.012;
+  // iridescent fronts: hue follows the direction the wave travels
+  float ang = atan(dir.y, dir.x) / 6.2832;
+  // fronts cool as they travel: hot ember and magenta near the touch, then
+  // violet, then teal as they weaken
+  float heat = clamp(crest.g * 2.2, 0.0, 1.0);
+  float hp = 0.12 + ang * 0.55 + heat * 0.22 + drift * 0.18 + uWarmth * 0.1;
+  vec3 frontCol = mix(palette(hp), vec3(1.0, 0.9, 0.8), smoothstep(1.0, 1.8, energy) * 0.35);
+  vec3 L = frontCol * crest.g * 3.4;
+  // prismatic fringes on either side of each front
+  L += palette(hp + 0.22) * max(crest.r - crest.g, 0.0) * 1.5;
+  L += palette(hp - 0.2) * max(crest.b - crest.g, 0.0) * 1.5;
+  L += vec3(0.01, 0.05, 0.08) * abs(h) * 0.14;
 
+  // the formation: white-hot filaments inside warm pink and ember halos
   float ex = pow(expo, 2.4);
-  L += spectral(0.7 + expo * 0.5 + uWarmth * 0.3) * ex * 1.4;
-  L += vec3(0.04, 0.07, 0.26) * expoRaw * expoRaw * 0.1;
+  vec3 halo = mix(vec3(1.0, 0.36, 0.5), vec3(1.0, 0.52, 0.2), 0.5 + 0.5 * sin(drift * 9.0 + uv.x * 4.0));
+  L += vec3(1.0, 0.92, 0.82) * ex * 1.25;
+  L += halo * pow(expo, 2.0) * 0.8;
+  L += palette(drift + 0.1) * expoRaw * expoRaw * 0.1;
 
   float tgRaw = smoothSample(uTarget, g).r;
   float tg = ridge(uTarget, g, tgRaw, 0);
-  L += uGhostTint * (pow(tg, 1.8) * 1.1 + tgRaw * tgRaw * 0.1) * uGhost;
+  vec3 ghostCol = uGhostTint * mix(vec3(0.25, 0.7, 1.0), vec3(0.95, 0.92, 1.0), smoothstep(0.4, 1.0, tg));
+  L += ghostCol * (pow(tg, 1.8) * 1.15 + tgRaw * tgRaw * 0.12) * uGhost;
+  L += vec3(0.5, 0.25, 0.9) * tgRaw * tgRaw * 0.1 * uGhost;
 
   vec2 p = vec2(uv.x * uAspect, uv.y);
   for (int i = 0; i < ${MAX_CORES}; i++) {
@@ -648,8 +678,8 @@ void main() {
     float d2 = dot(d, d);
     float s = c.z;
     float sing = c.w > 0.5 ? 0.75 + 0.25 * sin(uTime * 11.0 + float(i)) : 1.0;
-    L += vec3(1.0, 0.95, 0.9) * s * sing * exp(-d2 / 0.000035) * 2.2;
-    L += spectral(0.5 + s * 0.4) * s * exp(-d2 / (0.0009 + 0.0022 * s)) * 0.3;
+    L += vec3(1.0, 0.94, 0.86) * s * sing * exp(-d2 / 0.000035) * 2.2;
+    L += mix(vec3(1.0, 0.42, 0.45), vec3(1.0, 0.6, 0.25), s * 0.5) * s * exp(-d2 / (0.0009 + 0.0022 * s)) * 0.34;
   }
 
   if (uRing.w > 0.0) {
@@ -662,7 +692,7 @@ void main() {
              texture2D(uField, g + vec2(0.0, tx.y)).b + texture2D(uField, g - vec2(0.0, tx.y)).b;
   float rim = clamp(wn * 0.25 - wall, 0.0, 1.0) + clamp(wall - wn * 0.25, 0.0, 1.0);
   L *= 1.0 - wall;
-  L += vec3(0.16, 0.14, 0.42) * rim * (0.05 + energy * 0.8);
+  L += mix(vec3(0.1, 0.3, 0.4), vec3(1.0, 0.45, 0.3), clamp(energy, 0.0, 1.0)) * rim * (0.05 + energy * 0.8);
 
   L *= uGain;
   if (uChaos > 0.0) L *= 1.0 - uChaos * 0.55 * hash(uv * 311.0 + uTime);
@@ -676,10 +706,12 @@ attribute vec4 aData;
 uniform float uSize;
 varying float vB;
 varying float vT;
+varying float vH;
 void main() {
   gl_Position = vec4(aData.x * 2.0 - 1.0, 1.0 - aData.y * 2.0, 0.0, 1.0);
   vB = aData.z;
   vT = fract(aData.w);
+  vH = floor(aData.w) / 32.0;
   gl_PointSize = uSize * (0.8 + min(aData.z, 2.0) * 0.9);
 }`;
 
@@ -687,18 +719,24 @@ const FRAG_PARTICLE = `
 precision highp float;
 varying float vB;
 varying float vT;
+varying float vH;
 uniform float uScale;
 uniform float uPoint;
+vec3 palette(float t) {
+  t = fract(t) * 5.0;
+  vec3 c = mix(vec3(0.06, 0.52, 0.6), vec3(0.34, 0.78, 1.0), smoothstep(0.0, 1.0, t));
+  c = mix(c, vec3(0.46, 0.32, 1.0), smoothstep(1.0, 2.0, t));
+  c = mix(c, vec3(0.98, 0.3, 0.62), smoothstep(2.0, 3.0, t));
+  c = mix(c, vec3(1.0, 0.5, 0.2), smoothstep(3.0, 4.0, t));
+  return mix(c, vec3(0.06, 0.52, 0.6), smoothstep(4.0, 5.0, t));
+}
 void main() {
   float a = 1.0;
   if (uPoint > 0.5) {
     vec2 q = gl_PointCoord - 0.5;
-    a = exp(-dot(q, q) * 14.0);
+    a = exp(-dot(q, q) * 12.0);
   }
-  vec3 cool = vec3(0.34, 0.5, 1.0);
-  vec3 warm = vec3(1.0, 0.9, 0.8);
-  vec3 c = mix(cool, warm, smoothstep(0.1, 0.9, vT));
-  c = mix(c, vec3(1.0, 0.55, 0.7), smoothstep(0.92, 1.0, vT) * 0.5);
+  vec3 c = mix(palette(vH) * 0.85 + 0.12, vec3(1.0, 0.92, 0.82), smoothstep(0.35, 0.95, vT));
   gl_FragColor = vec4(c * vB * a * uScale, 1.0);
 }`;
 
@@ -755,9 +793,11 @@ void main() {
   vec3 b1 = vec3(texture2D(uBloom1, uv + ca * 2.0).r, texture2D(uBloom1, uv).g, texture2D(uBloom1, uv - ca * 2.0).b);
   vec3 b2 = texture2D(uBloom2, uv).rgb;
   col = (col + b1 * uBloom * 0.9 + b2 * uBloom * 1.1) / uHdr;
-  col *= uExposure;
-  col = vec3(1.0) - exp(-col * 1.15);
-  col = pow(col, vec3(0.95, 0.97, 1.0));
+  col *= uExposure * 0.9;
+  col = clamp((col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14), 0.0, 1.0);
+  float gl = dot(col, vec3(0.3, 0.55, 0.15));
+  col = mix(vec3(gl), col, 1.32);
+  col = max(col, 0.0);
   col *= 1.0 - smoothstep(0.12, 0.62, r2) * 0.55;
   float l = dot(col, vec3(0.3, 0.55, 0.15));
   float n = hash(uv * uRes + fract(uTime * 7.13) * 517.0) - 0.5;
@@ -957,15 +997,29 @@ window.plethoraBit = {
         x: new Float32Array(N), y: new Float32Array(N),
         vx: new Float32Array(N), vy: new Float32Array(N),
         seed: new Float32Array(N),
+        hue: new Float32Array(N),
+        age: new Float32Array(N), life: new Float32Array(N),
+        glow: new Float32Array(N),
         verts: new Float32Array(N * 4 * 3),
         streakOffset: N * 4      // points first, then head/tail line pairs
       };
       for (let i = 0; i < N; i++) {
-        P.x[i] = 1 + Math.random() * (gw - 3);
-        P.y[i] = 1 + Math.random() * (gh - 3);
         P.seed[i] = Math.random();
+        respawn(P, i);
+        P.age[i] = Math.random() * P.life[i]; // stagger so they never fade together
       }
       return P;
+    }
+
+    function respawn(P, i) {
+      P.x[i] = 1 + Math.random() * (gw - 3);
+      P.y[i] = 1 + Math.random() * (gh - 3);
+      P.vx[i] = 0; P.vy[i] = 0;
+      P.age[i] = 0;
+      P.life[i] = 7 + Math.random() * 12;
+      P.glow[i] = 0;
+      // hue is tied to place, so neighbouring dust shares a colour family
+      P.hue[i] = (P.x[i] / gw * 0.35 + P.y[i] / gh * 0.55 + Math.random() * 0.18) % 1;
     }
 
     let wallPushX = null, wallPushY = null;
@@ -990,60 +1044,88 @@ window.plethoraBit = {
       }
     }
 
+    // Smooth, continuous dust: forces come from the interpolated wave slope and
+    // a slowly evolving divergence-free current, so nothing jitters or pops.
     function updateParticles(dt, t) {
       const P = particles;
-      const { h, wall } = field;
+      const { h, hp, wall, expo } = field;
       const hang = state.hang;
       const expoNorm = level.expoNorm;
       const vis = 0.42 + 0.58 * Math.min(1, display.match * 1.1) + state.bloomBoost * 0.3;
       const ampBoost = 0.7 + display.match * 0.5 + state.bloomBoost * 0.3;
-      const damp = Math.exp(-dt * 2.4);
-      const K = 650;
+      const follow = 1 - Math.exp(-dt * 1.6);     // how quickly dust settles into the current
+      const damp = Math.exp(-dt * 1.2);
+      const K = 420;
       const pinch = input.pinch;
-      const trail = 0.045 + state.bloomBoost * 0.03;
+      const trail = 0.085 + state.bloomBoost * 0.04;
       const verts = P.verts;
       const invW = 1 / (gw - 1), invH = 1 / (gh - 1);
+      const glowUp = 1 - Math.exp(-dt * 7), glowDown = 1 - Math.exp(-dt * 2.2);
+      const tc = t * 0.07, scatter = state.scatter;
+      const cx = level.centroid[0] * (gw - 1), cy = level.centroid[1] * (gh - 1);
       let o = 0;
       for (let i = 0; i < P.N; i++) {
         let x = P.x[i], y = P.y[i];
-        const xi = Math.min(gw - 2, Math.max(1, x | 0)), yi = Math.min(gh - 2, Math.max(1, y | 0));
+        // bilinear sample of height, speed and slope (central differences at corners)
+        const xf = Math.min(gw - 3, Math.max(1, x)), yf = Math.min(gh - 3, Math.max(1, y));
+        const xi = xf | 0, yi = yf | 0, fx = xf - xi, fy = yf - yi;
         const k = yi * gw + xi;
-        const hc = h[k];
-        const dhx = (h[k + 1] - h[k - 1]) * 0.5, dhy = (h[k + gw] - h[k - gw]) * 0.5;
-        const sd = P.seed[i] * 6.283;
-        let ax = -dhx * K + Math.sin(y * 0.09 + t * 0.23 + sd) * 1.6;
-        let ay = -dhy * K + Math.cos(x * 0.11 - t * 0.19 + sd) * 1.6 - 0.4;
+        const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
+        const k10 = k + 1, k01 = k + gw, k11 = k + gw + 1;
+        const hc = h[k] * w00 + h[k10] * w10 + h[k01] * w01 + h[k11] * w11;
+        const vel = (h[k] - hp[k]) * w00 + (h[k10] - hp[k10]) * w10 + (h[k01] - hp[k01]) * w01 + (h[k11] - hp[k11]) * w11;
+        const dhx = ((h[k + 1] - h[k - 1]) * w00 + (h[k10 + 1] - h[k10 - 1]) * w10 +
+                     (h[k01 + 1] - h[k01 - 1]) * w01 + (h[k11 + 1] - h[k11 - 1]) * w11) * 0.5;
+        const dhy = ((h[k + gw] - h[k - gw]) * w00 + (h[k10 + gw] - h[k10 - gw]) * w10 +
+                     (h[k01 + gw] - h[k01 - gw]) * w01 + (h[k11 + gw] - h[k11 - gw]) * w11) * 0.5;
+        // curl of a slowly drifting stream function: a gentle flowing current
+        const sx = x * 0.045, sy = y * 0.045;
+        const fxv = Math.cos(sy * 1.3 + tc) * 1.3 + Math.cos((sx + sy) * 0.9 - tc * 1.3) * 0.9;
+        const fyv = -Math.cos(sx * 1.1 - tc * 0.8) * 1.3 - Math.cos((sx + sy) * 0.9 - tc * 1.3) * 0.9 - 0.25;
+        let vx = P.vx[i], vy = P.vy[i];
+        let ax = -dhx * K, ay = -dhy * K;
+        const am = Math.sqrt(ax * ax + ay * ay);
+        if (am > 90) { ax *= 90 / am; ay *= 90 / am; }
         if (pinch.active) {
           const px = pinch.x * (gw - 1) - x, py = pinch.y * (gh - 1) - y;
-          const dd = Math.sqrt(px * px + py * py) + 6;
-          const f = pinch.force * 900 / dd;
+          const dd = Math.sqrt(px * px + py * py) + 8;
+          const f = pinch.force * 420 / dd;
           ax += px / dd * f; ay += py / dd * f;
         }
-        if (wallPushX) { ax += wallPushX[k] * 900; ay += wallPushY[k] * 900; }
-        if (state.scatter > 0) { ax += (Math.random() - 0.5) * 900 * state.scatter; ay += (Math.random() - 0.5) * 900 * state.scatter; }
-        let vx = P.vx[i] * damp + ax * dt, vy = P.vy[i] * damp + ay * dt;
+        if (wallPushX) { ax += wallPushX[k] * 500; ay += wallPushY[k] * 500; }
+        if (scatter > 0) { // the field loses coherence: dust drifts outward and swirls
+          const ox = x - cx, oy = y - cy, od = Math.sqrt(ox * ox + oy * oy) + 4;
+          ax += (ox / od * 30 + fyv * 20) * scatter; ay += (oy / od * 30 - fxv * 20) * scatter;
+        }
+        vx = vx * damp + ax * dt; vy = vy * damp + ay * dt;
+        vx += (fxv - vx) * follow * 0.35; vy += (fyv - vy) * follow * 0.35;
         P.vx[i] = vx; P.vy[i] = vy;
         x += vx * dt * hang; y += vy * dt * hang;
-        if (x < 1 || y < 1 || x > gw - 2 || y > gh - 2 || wall[k] || Math.random() < 0.0012) {
-          x = 1 + Math.random() * (gw - 3); y = 1 + Math.random() * (gh - 3);
-          P.vx[i] = 0; P.vy[i] = 0; vx = 0; vy = 0;
-        }
+        // soft wrap at the edges instead of teleporting in view
+        if (x < 1) x += gw - 3; else if (x > gw - 2) x -= gw - 3;
+        if (y < 1) y += gh - 3; else if (y > gh - 2) y -= gh - 3;
+        let age = P.age[i] + dt * (0.35 + 0.65 * hang);
+        if (age > P.life[i] || wall[k]) { respawn(P, i); x = P.x[i]; y = P.y[i]; age = 0; vx = 0; vy = 0; }
+        P.age[i] = age;
         P.x[i] = x; P.y[i] = y;
-        const ex = Math.min(1, Math.sqrt(field.expo[k]) * expoNorm);
+        const life = P.life[i];
+        const fade = Math.min(1, age / 1.2) * Math.min(1, (life - age) / 1.6);
+        const ex = Math.min(1, Math.sqrt(expo[k]) * expoNorm);
         const speed = Math.sqrt(vx * vx + vy * vy);
-        const motion = Math.abs(hc - field.hp[k]) * 2.5;
-        const energy = Math.min(1.2, motion + ex * ex * 0.35 + speed * 0.01);
-        let b = (0.05 + energy * 1.4) * ampBoost;
-        if (P.seed[i] > vis) b *= 0.08;
-        const temp = Math.min(0.999, energy * 0.7 + state.warmth * 0.4);
+        const energy = Math.min(1.2, Math.abs(vel) * 2.2 + Math.abs(hc) * 0.25 + ex * ex * 0.35 + speed * 0.006);
+        const g0 = P.glow[i];
+        const g1 = g0 + (energy - g0) * (energy > g0 ? glowUp : glowDown);
+        P.glow[i] = g1;
+        let b = (0.05 + g1 * 1.4) * ampBoost * fade;
+        b *= Math.max(0.08, Math.min(1, (vis - P.seed[i]) * 8 + 0.5));
+        const temp = Math.min(0.999, g1 * 0.75 + state.warmth * 0.3);
+        const w = Math.floor(P.hue[i] * 32) + temp;
         const nx = x * invW, ny = y * invH;
-        // head point
-        verts[o++] = nx; verts[o++] = ny; verts[o++] = b; verts[o++] = temp;
-        // streak: head to tail
-        const L = P.streakOffset;
-        verts[L + i * 8] = nx; verts[L + i * 8 + 1] = ny; verts[L + i * 8 + 2] = b * 0.8; verts[L + i * 8 + 3] = temp;
-        verts[L + i * 8 + 4] = nx - vx * trail * invW * hang; verts[L + i * 8 + 5] = ny - vy * trail * invH * hang;
-        verts[L + i * 8 + 6] = 0; verts[L + i * 8 + 7] = temp;
+        verts[o++] = nx; verts[o++] = ny; verts[o++] = b; verts[o++] = w;
+        const L = P.streakOffset + i * 8;
+        verts[L] = nx; verts[L + 1] = ny; verts[L + 2] = b * 0.8; verts[L + 3] = w;
+        verts[L + 4] = nx - vx * trail * invW * hang; verts[L + 5] = ny - vy * trail * invH * hang;
+        verts[L + 6] = 0; verts[L + 7] = w;
       }
     }
 
@@ -1455,6 +1537,7 @@ window.plethoraBit = {
 .rs-dots i.u{opacity:.08}
 .rs-center{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);text-align:center;transition:opacity .9s ease}
 .rs-center.low{top:76%}
+.rs-line,.rs-hint,.rs-tip,.rs-btn{text-shadow:0 0 10px #000,0 0 22px #000,0 0 3px #000}
 .rs-line{font-size:10px;letter-spacing:.3em;text-transform:uppercase;opacity:0;margin:9px 0;transition:opacity 1.1s ease}
 .rs-line.on{opacity:.62}
 .rs-line b{font-weight:400;opacity:.5;margin-right:1.4em}
@@ -1531,7 +1614,7 @@ window.plethoraBit = {
       if (elTL.style.opacity !== visible) { elTL.style.opacity = visible; elTR.style.opacity = visible; }
       const helpOn = (state.mode === "play" || state.mode === "reveal") && ctx.onboarding && ctx.onboarding.replay ? "0.28" : "0";
       if (elHelp.style.opacity !== helpOn) { elHelp.style.opacity = helpOn; elHelp.style.pointerEvents = helpOn === "0" ? "none" : "auto"; }
-      if (hint.text && !(playing || state.mode === "prelude")) hideHint();
+      if (hint.text && !(state.mode === "play" || state.mode === "reveal" || state.mode === "prelude")) hideHint();
       const lv = pad2(state.levelIndex + 1) + " / " + LEVELS.length;
       if (display.levelShown !== lv) { display.levelShown = lv; elLevel.textContent = lv; }
       const thr = level.def ? threshold() : 1;
@@ -1619,12 +1702,12 @@ window.plethoraBit = {
         const dur = level.def.reveal * cfg.revealScale;
         const fin = ease(0.1, 0.5), fout = 1 - ease(dur + 0.25, dur + 0.9);
         ghost = 1.6 * fin * fout;
-        state.ghostTint = [0.6, 0.68, 1.0];
+        state.ghostTint = [1.0, 1.0, 1.0];
       } else if (m === "play") {
         const mm = display.match;
         ghost = Math.pow(mm, 3) * 0.55;
         warmth = mm * mm * 0.6;
-        state.ghostTint = [0.55, 0.65, 1.0];
+        state.ghostTint = [0.9, 0.95, 1.0];
         const lowEnergy = level.def && (energyLeft() < 0.5 || actionsLeft() <= 0);
         if (lowEnergy) gain = 0.85;
       } else if (m === "resonance") {
@@ -1811,10 +1894,10 @@ window.plethoraBit = {
       gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 0, 0);
       const pScale = (1 - persist) * HDR * state.gain * cfg.exposure;
       gl.uniform1f(progPart.u.uSize, Math.max(1, sceneW / W) * 1.1);
-      gl.uniform1f(progPart.u.uScale, pScale * 1.3);
+      gl.uniform1f(progPart.u.uScale, pScale * 1.7);
       gl.uniform1f(progPart.u.uPoint, 1);
       gl.drawArrays(gl.POINTS, 0, P.N);
-      gl.uniform1f(progPart.u.uScale, pScale * 1.1);
+      gl.uniform1f(progPart.u.uScale, pScale * 1.4);
       gl.uniform1f(progPart.u.uPoint, 0);
       gl.drawArrays(gl.LINES, P.N, P.N * 2);
       gl.disable(gl.BLEND);
