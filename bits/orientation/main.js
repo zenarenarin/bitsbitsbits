@@ -115,38 +115,38 @@ window.plethoraBit = {
     };
     const LEVELS = [
       {
-        name: "TILT", hint: "Drag around the disc to turn it. Tip the line so the light rolls into the ring.",
-        hue: [140, 205, 255], hold: 1.35, key: 0,
+        name: "TILT", hint: "Drag around the disc to turn it. Keep the line pointing down — lean it too far and the light falls.",
+        hue: [140, 205, 255], hold: 0.85, key: 0,
         build: () => [makeStrand(trace([["S", 440]], O), { final: true })]
       },
       {
         name: "CURVE", hint: "Keep turning as the line bends, so it always leads downhill.",
-        hue: [110, 235, 220], hold: 1.15, key: 2,
+        hue: [110, 235, 220], hold: 0.78, key: 2,
         build: () => [makeStrand(trace([["S", 90], ["A", 140, 120], ["A", 140, -150], ["S", 90]], O), { final: true })]
       },
       {
-        name: "BRAKE", hint: "Too fast and a tight bend flings you off. Tip it uphill to slow down first.",
-        hue: [255, 196, 120], hold: 1.0, key: 4,
-        build: () => [makeStrand(trace([["S", 260], ["A", 70, 110], ["S", 170], ["A", 65, -140], ["S", 150], ["A", 70, 110], ["S", 110]], O), { final: true })]
+        name: "ZIGZAG", hint: "Quick reversals. Start turning before each bend arrives.",
+        hue: [255, 196, 120], hold: 0.75, key: 4,
+        build: () => [makeStrand(trace([["S", 110], ["A", 85, 120], ["A", 85, -150], ["A", 85, 150], ["A", 85, -130], ["S", 100]], O), { final: true })]
       },
       {
         name: "MOMENTUM", hint: "The disc is heavy now. Let go early — it keeps spinning.",
-        hue: [200, 165, 255], hold: 1.05, key: 7, inertia: 2.6, zeta: 0.45, spinDamp: 0.55,
+        hue: [200, 165, 255], hold: 0.72, key: 7, inertia: 2.6, zeta: 0.45, spinDamp: 0.55,
         build: () => [makeStrand(trace([["S", 90], ["A", 130, 100], ["S", 50], ["A", 120, -160], ["S", 50], ["A", 130, 130], ["S", 90]], O), { final: true })]
       },
       {
-        name: "SPIRAL", hint: "Wind all the way in. Keep the disc turning, and ease off as it tightens.",
-        hue: [120, 240, 175], hold: 1.05, key: 9,
+        name: "SPIRAL", hint: "Wind all the way in. You must keep the disc turning the whole way.",
+        hue: [120, 240, 175], hold: 0.72, key: 9,
         build: () => [makeStrand(spiral(300, 95, 1.75), { final: true })]
       },
       {
         name: "GAP", hint: "The line breaks. Build speed first — momentum carries you across.",
-        hue: [255, 160, 175], hold: 1.0, key: 11,
+        hue: [255, 160, 175], hold: 0.7, key: 11,
         build: () => [makeStrand(trace([["S", 150], ["A", 170, 60], ["S", 190, [70, 125]], ["A", 150, -120], ["S", 210, [80, 150]], ["S", 60]], O), { final: true })]
       },
       {
         name: "FORK", hint: "Lean before the split to choose. One branch fades into nothing.",
-        hue: [175, 205, 255], hold: 1.0, key: 14,
+        hue: [175, 205, 255], hold: 0.7, key: 14,
         build() {
           const t0 = trace([["S", 110], ["A", 180, 35], ["S", 60]], O);
           const a = trace([["A", 200, -45], ["S", 150]], t0.end);
@@ -160,12 +160,12 @@ window.plethoraBit = {
       },
       {
         name: "MEMORY", hint: "Study it now. A few seconds after you start, the line disappears.",
-        hue: [225, 240, 150], hold: 1.0, key: 16, memory: true,
+        hue: [225, 240, 150], hold: 0.68, key: 16, memory: true,
         build: () => [makeStrand(trace([["S", 80], ["A", 140, 90], ["A", 120, -140], ["S", 70], ["A", 140, 150], ["A", 130, -110], ["S", 90]], O), { final: true })]
       },
       {
         name: "DEPTH", hint: "It passes behind itself. Stay on your own strand at each crossing.",
-        hue: [150, 220, 255], hold: 1.0, key: 19, depth: true, skew: 0.35,
+        hue: [150, 220, 255], hold: 0.68, key: 19, depth: true, skew: 0.35,
         build() {
           const X = [], Y = [], Z = [], K = 105, t0 = 0.55, span = TAU - 0.5;
           for (let i = 0; i <= 1600; i++) {
@@ -177,12 +177,12 @@ window.plethoraBit = {
       },
       {
         name: "DRIFT", hint: "The disc turns by itself now. Fight it to hold the line.",
-        hue: [255, 175, 115], hold: 1.0, key: 21, auto: 1.1, skew: 0.6, spinDamp: 1.6,
+        hue: [255, 175, 115], hold: 0.66, key: 21, auto: 1.1, skew: 0.6, spinDamp: 1.6,
         build: () => [makeStrand(trace([["S", 90], ["A", 150, 80], ["A", 140, -130], ["S", 60], ["A", 150, 120], ["A", 140, -90], ["S", 80]], O), { final: true })]
       },
       {
         name: "SYMMETRY", hint: "Go all the way around the rim. Watch the rotation count.",
-        hue: [205, 175, 255], hold: 1.0, key: 23, symmetric: true, skew: 0.8,
+        hue: [205, 175, 255], hold: 0.66, key: 23, symmetric: true, skew: 0.8,
         build() {
           const X = [], Y = [];
           for (let i = 0; i <= 2400; i++) { const p = (TAU * i) / 2400, r = 250 + 12 * Math.cos(6 * p); X.push(r * Math.cos(p)); Y.push(r * Math.sin(p)); }
@@ -190,7 +190,7 @@ window.plethoraBit = {
         }
       },
       {
-        name: "NO UP", hint: "No grid. No rim. No down. Trust what you've learned.", hue: [236, 238, 250], hold: 1.0, key: 12, auto: 0.45,
+        name: "NO UP", hint: "No grid. No rim. No down. Trust what you've learned.", hue: [236, 238, 250], hold: 0.65, key: 12, auto: 0.45,
         noShadow: true, noGrid: true, final: true,
         build() {
           const r = rng(7331), cmds = [["S", 80]];
@@ -258,7 +258,7 @@ window.plethoraBit = {
           <div style="margin:32px auto 0;max-width:300px;text-align:left;font-size:11px;line-height:1.75;letter-spacing:0.06em;text-transform:none;opacity:0.9">
             <div style="margin-bottom:12px"><span style="color:#fff">◐&nbsp; The world is a disc.</span> Drag your finger around it to turn it, like a dial. You never touch the ball.</div>
             <div style="margin-bottom:12px"><span style="color:#fff">↓&nbsp; Gravity always pulls straight down the screen.</span> Turn the disc so the glowing line leads downhill and the ball rolls along it.</div>
-            <div style="margin-bottom:12px"><span style="color:#fff">◌&nbsp; Reach the ring</span> without falling off. Too fast into a bend and you fly off — tip uphill to brake.</div>
+            <div style="margin-bottom:12px"><span style="color:#fff">◌&nbsp; The line only grips so much.</span> Let it lean too far from straight down, or hit a bend too fast, and the ball falls off. Reach the ring.</div>
             <div><span style="color:#fff">✦&nbsp; Collect the sparks</span> and beat the par time for three stars.</div>
           </div>
           <div data-k="tbtns" style="margin-top:32px"></div>
@@ -449,7 +449,7 @@ window.plethoraBit = {
         x: st.x[0] + t.x * 6, y: st.y[0] + t.y * 6, vx: 0, vy: 0, strand: 0, idx: 1, s: 6, d: 0, z: st.z[0],
         offT: 0, sink: 0, inGap: false, fade: 1, scale: 1, align: 1, strain: 0, alignHold: 0, tx: t.x, ty: t.y, kappa: 0, cent: 0, slipWhy: ""
       });
-      world.th0 = -Math.atan2(t.y, t.x);
+      world.th0 = Math.PI / 2 - 1.2 - Math.atan2(t.y, t.x);
       if (snapWorld) { world.th = world.th0; world.om = 0; world.finger = world.th; world.thNear = world.th * 0.99; world.thFar = world.th * 0.96; }
       for (const sp of sparks) sp.got = false;
       sparksGot = 0; litSet = new Set();
@@ -512,13 +512,12 @@ window.plethoraBit = {
       const vt = ball.vx * tx + ball.vy * ty, vn = ball.vx * nx + ball.vy * ny;
       if (beforeStart && vt < 0) { ball.vx -= vt * tx * 1.3; ball.vy -= vt * ty * 1.3; }
       if (grooved) {
-        const cradle = st.id === 0 && ball.s < 40 ? 3 : 1;
-        const fmax = lv.hold * HOLD * G * cradle;
+        const fmax = lv.hold * HOLD * G;
         const f = -fmax * (d / WG) * Math.exp(0.5 - (d * d) / (2 * WG * WG));
         ax += nx * f; ay += ny * f;
         const near = Math.exp(-(d * d) / (2 * 196));
         ax -= nx * vn * 12 * near; ay -= ny * vn * 12 * near;
-        const drag = (0.1 * vt + (G / 36000) * vt * Math.abs(vt)) * near;
+        const drag = (0.1 * vt + (G / 13000) * vt * Math.abs(vt)) * near;
         ax -= tx * drag; ay -= ty * drag;
       } else { ax -= ball.vx * 0.1; ay -= ball.vy * 0.1; }
       ball.vx += ax * dt; ball.vy += ay * dt;
@@ -538,8 +537,8 @@ window.plethoraBit = {
       if (slipping) {
         if (ball.offT === 0) {
           if (st.dead || (pastEnd && !st.final)) ball.slipWhy = "That branch fades into nothing. Lean the other way before the split.";
-          else if (ball.cent > lv.hold * HOLD * G * 0.6) ball.slipWhy = "Too fast into the curve. Tilt uphill to brake first.";
-          else ball.slipWhy = "Tilted too far. Keep the line pointing downhill.";
+          else if (ball.cent > lv.hold * HOLD * G * 0.6) ball.slipWhy = "Too fast into the bend. Start turning earlier so gravity helps you round it.";
+          else ball.slipWhy = "The line leaned too far from straight down. Keep it inside the fan under the ball.";
         }
         ball.offT += dt;
       } else ball.offT = 0;
@@ -1163,12 +1162,28 @@ window.plethoraBit = {
           g.beginPath(); g.moveTo(bx - mx * 2, by - my * 2); g.lineTo(bx, by); g.stroke();
         }
       }
-      // plumb line: which way is down, right where it matters
+      // tolerance fan: straight down, plus how far the line may lean before the grip gives way
       if (!lv.noShadow && (status === "play" || status === "ready")) {
-        g.strokeStyle = "rgb(235,240,250)"; g.lineWidth = 1; g.setLineDash([2, 4]);
-        g.globalAlpha = 0.45 * vis;
-        g.beginPath(); g.moveTo(bx, by + core * 2.5); g.lineTo(bx, by + core * 2.5 + 30); g.stroke(); g.setLineDash([]);
-        g.beginPath(); g.moveTo(bx - 3, by + core * 2.5 + 26); g.lineTo(bx, by + core * 2.5 + 30); g.lineTo(bx + 3, by + core * 2.5 + 26); g.stroke();
+        const A = Math.asin(Math.min(0.99, lv.hold * HOLD));
+        const stx = cosT * ball.tx - sinT * ball.ty, sty = sinT * ball.tx + cosT * ball.ty;
+        const lean = Math.acos(clamp(Math.abs(sty), 0, 1));
+        const warn = smooth(A * 0.65, A, lean), R0 = core * 2.5, R1 = 44;
+        const col = mix3([235, 240, 250], [255, 150, 70], warn);
+        g.globalCompositeOperation = "lighter";
+        g.fillStyle = rgb(col); g.globalAlpha = (0.07 + 0.16 * warn) * vis;
+        g.beginPath(); g.moveTo(bx, by);
+        g.arc(bx, by, R1, Math.PI / 2 - A, Math.PI / 2 + A); g.closePath(); g.fill();
+        g.strokeStyle = rgb(col); g.lineWidth = 1; g.globalAlpha = (0.3 + 0.4 * warn) * vis;
+        g.beginPath();
+        g.moveTo(bx + Math.cos(Math.PI / 2 - A) * R0, by + Math.sin(Math.PI / 2 - A) * R0); g.lineTo(bx + Math.cos(Math.PI / 2 - A) * R1, by + Math.sin(Math.PI / 2 - A) * R1);
+        g.moveTo(bx + Math.cos(Math.PI / 2 + A) * R0, by + Math.sin(Math.PI / 2 + A) * R0); g.lineTo(bx + Math.cos(Math.PI / 2 + A) * R1, by + Math.sin(Math.PI / 2 + A) * R1);
+        g.stroke();
+        g.setLineDash([2, 4]); g.globalAlpha = 0.5 * vis;
+        g.beginPath(); g.moveTo(bx, by + R0); g.lineTo(bx, by + R1); g.stroke(); g.setLineDash([]);
+        // the line's own direction through the ball, drawn across the fan
+        const sgn = sty >= 0 ? 1 : -1;
+        g.strokeStyle = rgb(warn > 0.99 ? [255, 120, 60] : [255, 255, 255]); g.lineWidth = 1.6; g.globalAlpha = 0.8 * vis;
+        g.beginPath(); g.moveTo(bx + stx * sgn * R0, by + sty * sgn * R0); g.lineTo(bx + stx * sgn * (R1 + 4), by + sty * sgn * (R1 + 4)); g.stroke();
       }
       g.globalAlpha = 0.6 * vis; sprite(SPR_WHITE, bx, by, core * 8);
       g.globalAlpha = 0.95 * vis; sprite(SPR_WHITE, bx, by, core * 3);
