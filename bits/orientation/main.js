@@ -254,60 +254,83 @@ window.plethoraBit = {
 
     // ---------- layout & pre-rendered atmosphere ----------
     let W = ctx.width || 390, H = ctx.height || 780, cx = W / 2, cy = H / 2, MIN = Math.min(W, H), DIAG = Math.hypot(W, H);
-    const off = (w, h) => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; };
-    let bgCanvas = null;
-
-    function buildBackground() {
-      const s = Math.min(1, 600 / Math.max(W, H));
-      const bw = Math.max(2, Math.round(W * s)), bh = Math.max(2, Math.round(H * s));
-      bgCanvas = off(bw, bh);
-      const b = bgCanvas.getContext("2d");
-      b.fillStyle = "#040507"; b.fillRect(0, 0, bw, bh);
-      let gr = b.createRadialGradient(bw * 0.5, bh * 0.46, 0, bw * 0.5, bh * 0.5, Math.hypot(bw, bh) * 0.62);
-      gr.addColorStop(0, "rgba(15,18,24,1)"); gr.addColorStop(0.45, "rgba(8,10,13,1)"); gr.addColorStop(1, "rgba(1,1,2,1)");
-      b.fillStyle = gr; b.fillRect(0, 0, bw, bh);
-      // faint tonal variation baked in
-      const r = rng(99);
-      b.globalCompositeOperation = "lighter";
-      for (let i = 0; i < 5; i++) {
-        const x = r() * bw, y = r() * bh, rad = (0.3 + r() * 0.5) * Math.max(bw, bh);
-        gr = b.createRadialGradient(x, y, 0, x, y, rad);
-        gr.addColorStop(0, `rgba(${10 + r() * 6},${12 + r() * 6},${16 + r() * 8},0.3)`); gr.addColorStop(1, "rgba(0,0,0,0)");
-        b.fillStyle = gr; b.fillRect(0, 0, bw, bh);
+    // Sprites are radial light profiles rasterised into ImageData -> ImageBitmap (no extra canvases).
+    // Until a bitmap is ready (or where createImageBitmap is missing) they draw as live gradients.
+    function rasterStops(stops, size) {
+      const img = new ImageData(size, size), d = img.data, h = size / 2;
+      for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+        const t = Math.min(1, Math.hypot(x + 0.5 - h, y + 0.5 - h) / h);
+        let k = 0; while (k < stops.length - 2 && t > stops[k + 1][0]) k++;
+        const [p0, c0] = stops[k], [p1, c1] = stops[k + 1], u = clamp((t - p0) / (p1 - p0 || 1), 0, 1);
+        const i = (y * size + x) * 4;
+        d[i] = lerp(c0[0], c1[0], u); d[i + 1] = lerp(c0[1], c1[1], u); d[i + 2] = lerp(c0[2], c1[2], u); d[i + 3] = lerp(c0[3], c1[3], u) * 255;
       }
-      b.globalCompositeOperation = "source-over";
+      return img;
     }
+    const canBitmap = typeof createImageBitmap === "function" && typeof ImageData === "function";
+    function makeSprite(stops, size) {
+      const sp = { img: null, stops, css: stops.map(([p, c]) => [p, `rgba(${c[0]},${c[1]},${c[2]},${c[3]})`]) };
+      if (canBitmap) { try { createImageBitmap(rasterStops(stops, size)).then((b) => { sp.img = b; }).catch(() => {}); } catch (e) {} }
+      return sp;
+    }
+    function sprite(sp, x, y, size) {
+      if (size <= 0) return;
+      if (sp.img) { g.drawImage(sp.img, x - size / 2, y - size / 2, size, size); return; }
+      const gr = g.createRadialGradient(x, y, 0, x, y, size / 2);
+      for (const [p, c] of sp.css) gr.addColorStop(p, c);
+      g.fillStyle = gr; g.fillRect(x - size / 2, y - size / 2, size, size);
+    }
+    const blob = (r, g2, b2) => makeSprite([[0, [r, g2, b2, 1]], [0.35, [r, g2, b2, 0.45]], [0.7, [r, g2, b2, 0.1]], [1, [r, g2, b2, 0]]], 128);
+    const SPR_COOL = blob(92, 118, 150), SPR_TEAL = blob(80, 128, 132), SPR_WARM = blob(150, 122, 98);
+    const SPR_WHITE = blob(235, 242, 255), SPR_DARK = blob(0, 0, 0);
+    const SPR_RING = makeSprite([
+      [0, [120, 140, 170, 0.25]], [0.3, [80, 100, 130, 0]], [0.56, [90, 115, 150, 0]], [0.66, [90, 115, 150, 0.5]],
+      [0.78, [90, 115, 150, 0]], [0.9, [70, 90, 120, 0.22]], [1, [0, 0, 0, 0]]
+    ], 256);
 
-    function blobSprite(r, g2, b2) {
-      const c = off(128, 128), x = c.getContext("2d");
-      const gr = x.createRadialGradient(64, 64, 0, 64, 64, 64);
-      gr.addColorStop(0, `rgba(${r},${g2},${b2},1)`); gr.addColorStop(0.35, `rgba(${r},${g2},${b2},0.45)`);
-      gr.addColorStop(0.7, `rgba(${r},${g2},${b2},0.1)`); gr.addColorStop(1, `rgba(${r},${g2},${b2},0)`);
-      x.fillStyle = gr; x.fillRect(0, 0, 128, 128);
-      return c;
-    }
-    const SPR_COOL = blobSprite(92, 118, 150), SPR_TEAL = blobSprite(80, 128, 132), SPR_WARM = blobSprite(150, 122, 98);
-    const SPR_WHITE = blobSprite(235, 242, 255), SPR_DARK = blobSprite(0, 0, 0);
-    const SPR_RING = (() => {
-      const c = off(256, 256), x = c.getContext("2d");
-      const gr = x.createRadialGradient(128, 128, 0, 128, 128, 128);
-      gr.addColorStop(0, "rgba(120,140,170,0.25)"); gr.addColorStop(0.3, "rgba(80,100,130,0)");
-      gr.addColorStop(0.56, "rgba(90,115,150,0)"); gr.addColorStop(0.66, "rgba(90,115,150,0.5)");
-      gr.addColorStop(0.78, "rgba(90,115,150,0)"); gr.addColorStop(0.9, "rgba(70,90,120,0.22)"); gr.addColorStop(1, "rgba(0,0,0,0)");
-      x.fillStyle = gr; x.fillRect(0, 0, 256, 256);
-      return c;
-    })();
-    const GRAIN_TILE = (() => {
-      const c = off(128, 128), x = c.getContext("2d"), img = x.createImageData(128, 128), r = rng(5);
-      for (let i = 0; i < img.data.length; i += 4) {
-        const v = r() * 255;
-        img.data[i] = v; img.data[i + 1] = v; img.data[i + 2] = v; img.data[i + 3] = r() < 0.5 ? 255 : 0;
-      }
-      x.putImageData(img, 0, 0);
-      return c;
-    })();
     let grainPattern = null;
-    try { grainPattern = g.createPattern(GRAIN_TILE, "repeat"); } catch (e) { grainPattern = null; }
+    if (canBitmap) {
+      try {
+        const img = new ImageData(128, 128), r = rng(5);
+        for (let i = 0; i < img.data.length; i += 4) {
+          const v = r() * 255;
+          img.data[i] = v; img.data[i + 1] = v; img.data[i + 2] = v; img.data[i + 3] = r() < 0.5 ? 255 : 0;
+        }
+        createImageBitmap(img).then((b) => { try { grainPattern = g.createPattern(b, "repeat"); } catch (e) {} }).catch(() => {});
+      } catch (e) {}
+    }
+
+    // The dark room: a low-resolution field of light falloff and tonal drift, upscaled smoothly.
+    let bgImg = null, bgToken = 0;
+    function buildBackground() {
+      if (!canBitmap) return;
+      const tok = ++bgToken;
+      const bw = 90, bh = Math.max(2, Math.round((90 * H) / Math.max(1, W)));
+      const img = new ImageData(bw, bh), d = img.data, r = rng(99);
+      const blobs = [];
+      for (let i = 0; i < 5; i++) blobs.push({ x: r() * bw, y: r() * bh, rad: (0.3 + r() * 0.5) * Math.max(bw, bh), c: [10 + r() * 6, 12 + r() * 6, 16 + r() * 8] });
+      const R = Math.hypot(bw, bh) * 0.62;
+      for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+        const t = Math.min(1, Math.hypot(x - bw * 0.5, y - bh * 0.47) / R);
+        let cr, cg, cb;
+        if (t < 0.45) { const u = t / 0.45; cr = lerp(15, 8, u); cg = lerp(18, 10, u); cb = lerp(24, 13, u); }
+        else { const u = (t - 0.45) / 0.55; cr = lerp(8, 1, u); cg = lerp(10, 1, u); cb = lerp(13, 2, u); }
+        for (const b of blobs) {
+          const q = Math.max(0, 1 - Math.hypot(x - b.x, y - b.y) / b.rad) * 0.3;
+          cr += b.c[0] * q; cg += b.c[1] * q; cb += b.c[2] * q;
+        }
+        const i = (y * bw + x) * 4;
+        d[i] = cr; d[i + 1] = cg; d[i + 2] = cb; d[i + 3] = 255;
+      }
+      try { createImageBitmap(img).then((b) => { if (tok === bgToken) bgImg = b; }).catch(() => {}); } catch (e) {}
+    }
+    function drawBackground() {
+      g.globalCompositeOperation = "source-over"; g.globalAlpha = 1;
+      if (bgImg) { g.imageSmoothingEnabled = true; g.drawImage(bgImg, 0, 0, W, H); return; }
+      const gr = g.createRadialGradient(cx, H * 0.47, 0, cx, H * 0.47, DIAG * 0.62);
+      gr.addColorStop(0, "rgb(15,18,24)"); gr.addColorStop(0.45, "rgb(8,10,13)"); gr.addColorStop(1, "rgb(1,1,2)");
+      g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    }
 
     ctx.onResize((info) => {
       W = info.width || W; H = info.height || H;
@@ -761,15 +784,13 @@ window.plethoraBit = {
     const PATH_CORE = "rgb(226,236,248)", PATH_HALO = "rgb(150,182,220)", PATH_FIELD = "rgb(98,130,172)";
 
     function drawAtmosphere(t) {
-      g.globalCompositeOperation = "source-over";
-      g.globalAlpha = 1;
-      g.drawImage(bgCanvas, 0, 0, W, H);
+      drawBackground();
       g.globalCompositeOperation = "lighter";
       const hz = HAZE * (status === "aligned" ? 0.8 : 1);
       if (lv.symmetric) {
         const s = DIAG * 0.95;
-        g.globalAlpha = 0.16 * hz; g.drawImage(SPR_RING, cx - s / 2, cy - s / 2, s, s);
-        const s2 = MIN * 1.25; g.globalAlpha = 0.1 * hz; g.drawImage(SPR_RING, cx - s2 / 2, cy - s2 / 2, s2, s2);
+        g.globalAlpha = 0.16 * hz; sprite(SPR_RING, cx, cy, s);
+        const s2 = MIN * 1.25; g.globalAlpha = 0.1 * hz; sprite(SPR_RING, cx, cy, s2);
       }
       const nb = quality ? haze.length : Math.min(3, haze.length);
       for (let i = 0; i < nb; i++) {
@@ -777,7 +798,7 @@ window.plethoraBit = {
         const a = h.a + (lv.final ? t * h.drift * 2 : world.thFar) + Math.sin(t * 0.05 + h.ph) * 0.1;
         const x = cx + Math.cos(a) * h.rad, y = cy + Math.sin(a) * h.rad;
         g.globalAlpha = h.alpha * hz * (0.8 + 0.2 * Math.sin(t * 0.11 + h.ph));
-        g.drawImage(h.spr, x - h.size / 2, y - h.size / 2, h.size, h.size);
+        sprite(h.spr, x, y, h.size);
       }
       // horizon: a faint luminous band of denser air
       if (lv.horizon !== "none") {
@@ -794,7 +815,7 @@ window.plethoraBit = {
       // optical haze: a slow bloom trailing the ball
       const hs = MIN * 0.9;
       g.globalAlpha = 0.05 * HAZE * pathAlpha;
-      g.drawImage(SPR_COOL, hazeX - hs / 2, hazeY - hs / 2, hs, hs);
+      sprite(SPR_COOL, hazeX, hazeY, hs);
     }
     let hazeX = 0, hazeY = 0;
 
@@ -918,7 +939,7 @@ window.plethoraBit = {
           if (st.segGap[i] !== st.segGap[i + 1]) {
             const k = st.segGap[i] ? i + 1 : i + 1;
             const s = 16; g.globalAlpha = 0.18 * pathAlpha * lit;
-            g.drawImage(SPR_WHITE, st.sx[k] - s / 2, st.sy[k] - s / 2, s, s);
+            sprite(SPR_WHITE, st.sx[k], st.sy[k], s);
           }
         }
       }
@@ -969,19 +990,19 @@ window.plethoraBit = {
           project(h.x, h.y, h.z);
           const s = core * 5 * (0.6 + f * 0.4);
           g.globalAlpha = amt * 0.07 * f * vis;
-          g.drawImage(SPR_WHITE, P.x - s / 2, P.y - s / 2, s, s);
+          sprite(SPR_WHITE, P.x, P.y, s);
         }
         cosT = saveC; sinT = saveS;
         // projected future: a faint premonition along the velocity
         project(ball.x + ball.vx * 0.3, ball.y + ball.vy * 0.3, ball.z);
         const s = core * 4; g.globalAlpha = amt * 0.05 * vis;
-        g.drawImage(SPR_WHITE, P.x - s / 2, P.y - s / 2, s, s);
+        sprite(SPR_WHITE, P.x, P.y, s);
       }
 
       // outer halo
       g.globalCompositeOperation = "lighter";
       let s = core * 26 * (1 + ball.instab * 0.3);
-      g.globalAlpha = 0.07 * vis; g.drawImage(SPR_COOL, bx - s / 2, by - s / 2, s, s);
+      g.globalAlpha = 0.07 * vis; sprite(SPR_COOL, bx, by, s);
       // the shadow: cast along gravity — until, later, it isn't
       if (!lv.noShadow) {
         const skew = (lv.skew || 0) * (0.55 + 0.45 * Math.sin(t * 0.21)) + (lv.skew || 0) * 0.35 * noise1(t * 0.3);
@@ -989,7 +1010,7 @@ window.plethoraBit = {
         const sx = bx + Math.sin(-skew) * sd, sy = by + Math.cos(skew) * sd;
         g.globalCompositeOperation = "source-over";
         s = core * 7; g.globalAlpha = 0.55 * vis;
-        g.drawImage(SPR_DARK, sx - s / 2, sy - s / 2, s, s);
+        sprite(SPR_DARK, sx, sy, s);
         g.globalCompositeOperation = "lighter";
       }
       // motion smear
@@ -1002,8 +1023,8 @@ window.plethoraBit = {
         }
       }
       // inner glow + core
-      s = core * 7.5; g.globalAlpha = 0.45 * vis; g.drawImage(SPR_WHITE, bx - s / 2, by - s / 2, s, s);
-      s = core * 2.6; g.globalAlpha = 0.9 * vis; g.drawImage(SPR_WHITE, bx - s / 2, by - s / 2, s, s);
+      s = core * 7.5; g.globalAlpha = 0.45 * vis; sprite(SPR_WHITE, bx, by, s);
+      s = core * 2.6; g.globalAlpha = 0.9 * vis; sprite(SPR_WHITE, bx, by, s);
       g.globalAlpha = vis; g.fillStyle = "rgb(250,252,255)";
       g.beginPath(); g.arc(bx, by, core * 0.55, 0, TAU); g.fill();
       prevBX = bx; prevBY = by; haveBPrev = true;
@@ -1026,7 +1047,7 @@ window.plethoraBit = {
       }
       const bu = smooth(0.1, 0.9, T);
       const bx = lerp(frag.bFrom.x, frag.bTo.x, bu), by = lerp(frag.bFrom.y, frag.bTo.y, bu);
-      const s = 9; g.globalAlpha = 0.8; g.drawImage(SPR_WHITE, bx - s / 2, by - s / 2, s, s);
+      const s = 9; g.globalAlpha = 0.8; sprite(SPR_WHITE, bx, by, s);
       g.globalAlpha = 1; g.fillStyle = "rgb(250,252,255)"; g.beginPath(); g.arc(bx, by, 1.4, 0, TAU); g.fill();
     }
 
