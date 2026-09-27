@@ -107,65 +107,67 @@ window.plethoraBit = {
     function link(S, parent, children) { for (const c of children) { S[parent].next.push(c); S[c].parent = parent; } }
     const O = { x: 0, y: 0, h: 0 };
 
-    // Each world: geometry, the rules that govern it, its light, and one line of guidance.
+    // Each world is a disc you turn. Geometry, rules, light, and one line of guidance.
+    const spiral = (r0, r1, turns, n = 2000) => {
+      const X = [], Y = [];
+      for (let i = 0; i <= n; i++) { const u = i / n, r = lerp(r0, r1, u), p = turns * TAU * u; X.push(r * Math.cos(p)); Y.push(r * Math.sin(p)); }
+      return resample(X, Y, null);
+    };
     const LEVELS = [
       {
-        name: "STRAIGHT", hint: "Drag left or right to tilt the world. Roll the light to the ring.",
-        hue: [140, 205, 255], hold: 1.35, horizon: "world", key: 0,
-        build: () => [makeStrand(trace([["S", 820]], O), { final: true })]
+        name: "TILT", hint: "Drag around the disc to turn it. Tip the line so the light rolls into the ring.",
+        hue: [140, 205, 255], hold: 1.35, key: 0,
+        build: () => [makeStrand(trace([["S", 440]], O), { final: true })]
       },
       {
-        name: "CURVE", hint: "Turn with the line. Keep it pointing down.",
-        hue: [110, 235, 220], hold: 1.12, horizon: "world", key: 2,
-        build: () => [makeStrand(trace([["S", 150], ["A", 260, 80], ["A", 240, -110], ["A", 260, 90], ["S", 200]], O), { final: true })]
+        name: "CURVE", hint: "Keep turning as the line bends, so it always leads downhill.",
+        hue: [110, 235, 220], hold: 1.15, key: 2,
+        build: () => [makeStrand(trace([["S", 90], ["A", 140, 120], ["A", 140, -150], ["S", 90]], O), { final: true })]
       },
       {
-        name: "BRAKE", hint: "Too fast and the curve throws you off. Tilt back to slow down.",
-        hue: [255, 196, 120], hold: 1.0, horizon: "world", key: 4,
-        build: () => [makeStrand(trace([["S", 380], ["A", 95, 100], ["S", 240], ["A", 90, -130], ["S", 220], ["A", 100, 110], ["S", 160]], O), { final: true })]
+        name: "BRAKE", hint: "Too fast and a tight bend flings you off. Tip it uphill to slow down first.",
+        hue: [255, 196, 120], hold: 1.0, key: 4,
+        build: () => [makeStrand(trace([["S", 260], ["A", 70, 110], ["S", 170], ["A", 65, -140], ["S", 150], ["A", 70, 110], ["S", 110]], O), { final: true })]
       },
       {
-        name: "MOMENTUM", hint: "The world is heavy now. Let go early — it keeps turning.",
-        hue: [200, 165, 255], hold: 1.05, horizon: "world", key: 7, inertia: 2.6, zeta: 0.45, spinDamp: 0.55,
-        build: () => [makeStrand(trace([["S", 140], ["A", 220, 90], ["S", 80], ["A", 200, -150], ["S", 80], ["A", 230, 120], ["S", 160]], O), { final: true })]
+        name: "MOMENTUM", hint: "The disc is heavy now. Let go early — it keeps spinning.",
+        hue: [200, 165, 255], hold: 1.05, key: 7, inertia: 2.6, zeta: 0.45, spinDamp: 0.55,
+        build: () => [makeStrand(trace([["S", 90], ["A", 130, 100], ["S", 50], ["A", 120, -160], ["S", 50], ["A", 130, 130], ["S", 90]], O), { final: true })]
       },
       {
-        name: "LOOP", hint: "All the way around. Keep turning with it.",
-        hue: [120, 240, 175], hold: 1.05, horizon: "world", key: 9,
-        build: () => [makeStrand(trace([["S", 180], ["A", 220, 180], ["A", 170, 180], ["S", 120], ["A", 220, -90], ["S", 200]], O), { final: true })]
+        name: "SPIRAL", hint: "Wind all the way in. Keep the disc turning, and ease off as it tightens.",
+        hue: [120, 240, 175], hold: 1.05, key: 9,
+        build: () => [makeStrand(spiral(300, 95, 1.75), { final: true })]
       },
       {
-        name: "GAP", hint: "The line breaks. Build speed — momentum carries you across.",
-        hue: [255, 160, 175], hold: 1.0, horizon: "world", key: 11,
-        build: () => [makeStrand(trace([
-          ["S", 200], ["A", 280, 45], ["S", 200, [70, 130]], ["A", 260, -80],
-          ["S", 240, [80, 160]], ["A", 300, 50], ["S", 260, [90, 185]], ["S", 140]
-        ], O), { final: true })]
+        name: "GAP", hint: "The line breaks. Build speed first — momentum carries you across.",
+        hue: [255, 160, 175], hold: 1.0, key: 11,
+        build: () => [makeStrand(trace([["S", 150], ["A", 170, 60], ["S", 190, [70, 125]], ["A", 150, -120], ["S", 210, [80, 150]], ["S", 60]], O), { final: true })]
       },
       {
         name: "FORK", hint: "Lean before the split to choose. One branch fades into nothing.",
-        hue: [175, 205, 255], hold: 1.0, horizon: "world", key: 14,
+        hue: [175, 205, 255], hold: 1.0, key: 14,
         build() {
-          const t0 = trace([["S", 170], ["A", 260, 40], ["S", 120]], O);
-          const a = trace([["A", 300, -42], ["S", 260]], t0.end);
-          const b = trace([["A", 300, 42], ["S", 150], ["A", 250, -70], ["S", 110]], t0.end);
-          const c = trace([["A", 300, 42], ["S", 230]], b.end);
-          const d = trace([["A", 300, -42], ["S", 120], ["A", 260, 60], ["S", 220]], b.end);
+          const t0 = trace([["S", 110], ["A", 180, 35], ["S", 60]], O);
+          const a = trace([["A", 200, -45], ["S", 150]], t0.end);
+          const b = trace([["A", 200, 45], ["S", 70], ["A", 170, -70], ["S", 50]], t0.end);
+          const c = trace([["A", 200, 45], ["S", 130]], b.end);
+          const d = trace([["A", 200, -45], ["S", 60], ["A", 170, 60], ["S", 90]], b.end);
           const S = [makeStrand(t0), makeStrand(a, { dead: true }), makeStrand(b), makeStrand(c, { dead: true }), makeStrand(d, { final: true })];
           link(S, 0, [1, 2]); link(S, 2, [3, 4]);
           return S;
         }
       },
       {
-        name: "MEMORY", hint: "Study it. After a few seconds the line disappears.",
-        hue: [225, 240, 150], hold: 1.0, horizon: "world", key: 16, memory: true, flicker: 0.25,
-        build: () => [makeStrand(trace([["S", 130], ["A", 240, 80], ["A", 210, -125], ["S", 140], ["A", 250, 140], ["S", 70], ["A", 230, -105], ["S", 220]], O), { final: true })]
+        name: "MEMORY", hint: "Study it now. A few seconds after you start, the line disappears.",
+        hue: [225, 240, 150], hold: 1.0, key: 16, memory: true,
+        build: () => [makeStrand(trace([["S", 80], ["A", 140, 90], ["A", 120, -140], ["S", 70], ["A", 140, 150], ["A", 130, -110], ["S", 90]], O), { final: true })]
       },
       {
-        name: "DEPTH", hint: "It passes behind itself. Stay on your own strand.",
-        hue: [150, 220, 255], hold: 1.0, horizon: "stable", key: 19, depth: true, skew: 0.35, farK: 2.2,
+        name: "DEPTH", hint: "It passes behind itself. Stay on your own strand at each crossing.",
+        hue: [150, 220, 255], hold: 1.0, key: 19, depth: true, skew: 0.35,
         build() {
-          const X = [], Y = [], Z = [], K = 180, t0 = 0.55, span = TAU - 0.5;
+          const X = [], Y = [], Z = [], K = 105, t0 = 0.55, span = TAU - 0.5;
           for (let i = 0; i <= 1600; i++) {
             const t = t0 + (span * i) / 1600;
             X.push(K * (Math.sin(t) + 2 * Math.sin(2 * t))); Y.push(K * (Math.cos(t) - 2 * Math.cos(2 * t))); Z.push(-Math.sin(3 * t));
@@ -174,32 +176,27 @@ window.plethoraBit = {
         }
       },
       {
-        name: "DRIFT", hint: "The world turns by itself now. Hold it steady.",
-        hue: [255, 175, 115], hold: 1.0, horizon: "stable", key: 21, auto: 1.1, skew: 0.6, farK: 1.2, spinDamp: 1.6,
-        build: () => [makeStrand(trace([["S", 150], ["A", 280, 70], ["A", 260, -120], ["S", 100], ["A", 280, 100], ["A", 250, -80], ["S", 120], ["A", 300, 60], ["S", 200]], O), { final: true })]
+        name: "DRIFT", hint: "The disc turns by itself now. Fight it to hold the line.",
+        hue: [255, 175, 115], hold: 1.0, key: 21, auto: 1.1, skew: 0.6, spinDamp: 1.6,
+        build: () => [makeStrand(trace([["S", 90], ["A", 150, 80], ["A", 140, -130], ["S", 60], ["A", 150, 120], ["A", 140, -90], ["S", 80]], O), { final: true })]
       },
       {
-        name: "SYMMETRY", hint: "Go all the way around. Watch the rotation count.",
-        hue: [205, 175, 255], hold: 1.0, horizon: "none", key: 23, fixedCam: true, symmetric: true, skew: 0.8, farK: 1.4,
-        rose: { R: 250, A: 12, k: 6 },
+        name: "SYMMETRY", hint: "Go all the way around the rim. Watch the rotation count.",
+        hue: [205, 175, 255], hold: 1.0, key: 23, symmetric: true, skew: 0.8,
         build() {
-          const X = [], Y = [], { R, A, k } = this.rose;
-          for (let i = 0; i <= 2400; i++) { const p = (TAU * i) / 2400, r = R + A * Math.cos(k * p); X.push(r * Math.cos(p)); Y.push(r * Math.sin(p)); }
+          const X = [], Y = [];
+          for (let i = 0; i <= 2400; i++) { const p = (TAU * i) / 2400, r = 250 + 12 * Math.cos(6 * p); X.push(r * Math.cos(p)); Y.push(r * Math.sin(p)); }
           return [makeStrand(resample(X, Y, null), { final: true })];
         }
       },
       {
-        name: "NO UP", hint: "", hue: [236, 238, 250], hold: 1.0, horizon: "none", key: 12, auto: 0.45,
-        noShadow: true, noMotes: true, farK: 0.9, flicker: 0.2, final: true,
+        name: "NO UP", hint: "No grid. No rim. No down. Trust what you've learned.", hue: [236, 238, 250], hold: 1.0, key: 12, auto: 0.45,
+        noShadow: true, noGrid: true, final: true,
         build() {
-          const r = rng(7331), cmds = [["S", 160]];
+          const r = rng(7331), cmds = [["S", 80]];
           let sign = 1;
-          for (let i = 0; i < 9; i++) {
-            cmds.push(["A", 260 + r() * 150, sign * (45 + r() * 65)]);
-            if (r() < 0.5) cmds.push(["S", 60 + r() * 120]);
-            sign = -sign;
-          }
-          cmds.push(["S", 200]);
+          for (let i = 0; i < 6; i++) { cmds.push(["A", 110 + r() * 60, sign * (60 + r() * 60)]); if (r() < 0.4) cmds.push(["S", 30 + r() * 50]); sign = -sign; }
+          cmds.push(["S", 80]);
           return [makeStrand(trace(cmds, O), { final: true })];
         }
       }
@@ -234,7 +231,7 @@ window.plethoraBit = {
           <div data-k="bar" style="height:1px;width:0%;background:rgba(255,255,255,0.85);box-shadow:0 0 6px rgba(255,255,255,0.8)"></div>
         </div>
       </div>
-      <div data-k="card" class="or-fade" style="position:absolute;left:24px;right:24px;top:17%;text-align:center;opacity:0;pointer-events:none">
+      <div data-k="card" class="or-fade" style="position:absolute;left:24px;right:24px;top:calc(var(--top,20px) + 58px);text-align:center;opacity:0;pointer-events:none">
         <div data-k="cnum" style="font-size:11px;letter-spacing:0.5em;opacity:0.6;padding-left:0.5em">WORLD 01</div>
         <div data-k="cname" style="font-size:26px;letter-spacing:0.42em;margin-top:10px;color:#fff;padding-left:0.42em">STRAIGHT</div>
         <div data-k="chint" style="font-size:11px;letter-spacing:0.12em;line-height:1.7;margin-top:14px;text-transform:none;opacity:0.85"></div>
@@ -244,7 +241,7 @@ window.plethoraBit = {
           <div style="position:absolute;left:50%;top:9px;width:120px;margin-left:-60px;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.35),transparent)"></div>
           <div style="position:absolute;left:50%;top:0;margin-left:-9px;width:18px;height:18px;border-radius:50%;border:1px solid rgba(255,255,255,.8);animation:or-sway 2.2s ease-in-out infinite"></div>
         </div>
-        <div style="font-size:9px;letter-spacing:0.4em;opacity:0.7;margin-top:6px;padding-left:0.4em">DRAG TO TILT</div>
+        <div style="font-size:9px;letter-spacing:0.4em;opacity:0.7;margin-top:6px;padding-left:0.4em">DRAG AROUND TO TURN THE DISC</div>
       </div>
       <div data-k="dlg" class="or-fade" style="position:absolute;inset:0;opacity:0;pointer-events:none;background:radial-gradient(ellipse 80% 42% at 50% 44%,rgba(2,3,5,0.82),rgba(2,3,5,0.35) 70%,rgba(2,3,5,0.15))">
        <div style="position:absolute;left:16px;right:16px;top:30%;text-align:center">
@@ -257,11 +254,11 @@ window.plethoraBit = {
       <div data-k="title" class="or-fade" style="position:absolute;inset:0;background:radial-gradient(ellipse at 50% 42%,rgba(6,8,12,0.55),rgba(0,0,0,0.9));pointer-events:auto;opacity:1">
         <div style="position:absolute;left:24px;right:24px;top:14%;text-align:center">
           <div style="font-size:26px;letter-spacing:0.5em;color:#fff;padding-left:0.5em;text-shadow:0 0 24px rgba(160,210,255,0.55)">ORIENTATION</div>
-          <div style="font-size:11px;letter-spacing:0.2em;margin-top:14px;opacity:0.7;text-transform:none">Tilt the world. Guide the light.</div>
+          <div style="font-size:11px;letter-spacing:0.2em;margin-top:14px;opacity:0.7;text-transform:none">Turn the world. Guide the light.</div>
           <div style="margin:32px auto 0;max-width:300px;text-align:left;font-size:11px;line-height:1.75;letter-spacing:0.06em;text-transform:none;opacity:0.9">
-            <div style="margin-bottom:12px"><span style="color:#fff">◐&nbsp; Drag left or right</span> to rotate the whole world. You never move the ball.</div>
-            <div style="margin-bottom:12px"><span style="color:#fff">↓&nbsp; Gravity always pulls down.</span> Point the line downhill and the ball rolls along it.</div>
-            <div style="margin-bottom:12px"><span style="color:#fff">◌&nbsp; Reach the ring</span> without slipping off. Tilt uphill to brake before tight curves.</div>
+            <div style="margin-bottom:12px"><span style="color:#fff">◐&nbsp; The world is a disc.</span> Drag your finger around it to turn it, like a dial. You never touch the ball.</div>
+            <div style="margin-bottom:12px"><span style="color:#fff">↓&nbsp; Gravity always pulls straight down the screen.</span> Turn the disc so the glowing line leads downhill and the ball rolls along it.</div>
+            <div style="margin-bottom:12px"><span style="color:#fff">◌&nbsp; Reach the ring</span> without falling off. Too fast into a bend and you fly off — tip uphill to brake.</div>
             <div><span style="color:#fff">✦&nbsp; Collect the sparks</span> and beat the par time for three stars.</div>
           </div>
           <div data-k="tbtns" style="margin-top:32px"></div>
@@ -353,16 +350,15 @@ window.plethoraBit = {
     }, { immediate: true });
 
     // ---------- state ----------
-    const world = { th: 0, om: 0, finger: 0, dragging: false, thNear: 0, thFar: 0, th0: 0, lastPX: 0 };
-    const cam = { x: 0, y: 0 };
-    const ball = {
+    const world = { th: 0, om: 0, finger: 0, dragging: false, thNear: 0, thFar: 0, th0: 0, lastPX: 0, lastPY: 0 };
+        const ball = {
       x: 0, y: 0, vx: 0, vy: 0, z: 0, strand: 0, idx: 0, s: 0, d: 0, tx: 1, ty: 0, kappa: 0,
       offT: 0, sink: 0, inGap: false, align: 1, strain: 0, alignHold: 0, fade: 1, scale: 1, slipWhy: ""
     };
     let lvIndex = 0, lv = LEVELS[0], strands = [], status = "title", statusT = 0, globalT = 0;
     let attempts = 0, alignAccum = 0, alignSamples = 0, pathAlpha = 1, lit = 1, memVis = 1, playT = 0;
     let routeLen = 1, sparks = [], sparksGot = 0, endPt = { x: 0, y: 0, z: 0 }, litSet = new Set();
-    let haze = [], motes = [], fallers = [], ghosts = [], curGhost = [], ghostTimer = 0;
+    let haze = [], ghosts = [], curGhost = [], ghostTimer = 0;
     const history = []; let histTimer = 0;
     const particles = []; for (let i = 0; i < 160; i++) particles.push({ life: 0 });
     const rings = [];
@@ -370,34 +366,39 @@ window.plethoraBit = {
     let speedSm = 0, hazeX = 0, hazeY = 0, dragHintSeen = false, result = null;
     let unlocked = 0; const stars = new Array(NLEV).fill(0);
 
+    let DR = 300, grid = [];
     function setupAtmosphere() {
       const r = rng(1000 + lvIndex * 17), sp = levelSprites(lvIndex);
       haze = [];
-      if (!lv.symmetric) for (let i = 0; i < 7; i++) haze.push({
-        a: r() * TAU, rad: (0.12 + r() * 0.55) * DIAG, size: (0.55 + r() * 0.8) * DIAG,
-        spr: r() < 0.55 ? sp.haze : sp.haze2, alpha: 0.07 + r() * 0.08, drift: (r() - 0.5) * 0.04, ph: r() * TAU
+      for (let i = 0; i < 6; i++) haze.push({
+        a: r() * TAU, rad: (0.15 + r() * 0.5) * DIAG, size: (0.55 + r() * 0.8) * DIAG,
+        spr: r() < 0.55 ? sp.haze : sp.haze2, alpha: 0.06 + r() * 0.07, ph: r() * TAU
       });
-      motes = [];
-      if (!lv.symmetric) for (let i = 0; i < 46; i++) motes.push({ a: r() * TAU, rad: Math.sqrt(r()) * 0.75 * DIAG, depth: 0.2 + r() * 0.8, tw: r() * TAU, sz: 0.5 + r() * 1 });
-      fallers = [];
-      if (!lv.noMotes && lvIndex < 9) for (let i = 0; i < 28; i++) fallers.push({ x: r(), y: r(), v: 0.012 + r() * 0.03, sz: 0.6 + r() * 0.9, a: 0.05 + r() * 0.12 });
+      // the plate's own markings: a dot lattice that turns with the world
+      grid = [];
+      if (!lv.noGrid) {
+        const gs = DR / 7;
+        for (let gx = -DR; gx <= DR; gx += gs) for (let gy = -DR; gy <= DR; gy += gs) {
+          const d = Math.hypot(gx, gy);
+          if (d < DR * 0.97) grid.push(gx, gy, d / DR);
+        }
+      }
     }
 
-    // ---------- projection: the world pivots around the ball ----------
+    // ---------- projection: the whole world is a disc turning about its centre ----------
     const P = { x: 0, y: 0, k: 1 };
     let cosT = 1, sinT = 0, SC = 1, parX = 0, parY = 0, ancX = 0, ancY = 0;
-    function baseScale() { return lv.fixedCam ? (MIN * 0.41) / (lv.rose.R + lv.rose.A) : MIN / 470; }
     function beginProjection() {
       cosT = Math.cos(world.th); sinT = Math.sin(world.th);
-      SC = baseScale() * (lv.fixedCam ? 1 : 1 - 0.16 * speedSm);
-      ancX = cx; ancY = lv.fixedCam ? cy : H * 0.4;
-      if (lv.depth) { parX = 16 * Math.cos(world.thFar * 1.3 + 0.7) - world.om * 4; parY = 16 * Math.sin(world.thFar * 1.3 + 0.7); }
+      SC = Math.min(W * 0.46, H * 0.34) / DR;
+      ancX = cx; ancY = H * 0.52;
+      if (lv.depth) { parX = 10 * Math.cos(world.thFar * 1.3 + 0.7) - world.om * 3; parY = 10 * Math.sin(world.thFar * 1.3 + 0.7); }
       else { parX = 0; parY = 0; }
     }
     function project(x, y, z) {
-      const dx = x - cam.x, dy = y - cam.y, k = SC / (1 + 0.24 * z);
-      P.x = ancX + (cosT * dx - sinT * dy) * k + z * parX;
-      P.y = ancY + (sinT * dx + cosT * dy) * k + z * parY;
+      const k = SC / (1 + 0.2 * z);
+      P.x = ancX + (cosT * x - sinT * y) * k + z * parX;
+      P.y = ancY + (sinT * x + cosT * y) * k + z * parY;
       P.k = k;
       return P;
     }
@@ -411,16 +412,25 @@ window.plethoraBit = {
       lvIndex = clamp(i, 0, NLEV - 1); lv = LEVELS[lvIndex];
       strands = lv.build();
       strands.forEach((s, k) => { s.id = k; });
+      // centre the geometry on the disc
+      let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
+      for (const q of strands) for (let k = 0; k < q.n; k++) {
+        minx = Math.min(minx, q.x[k]); maxx = Math.max(maxx, q.x[k]); miny = Math.min(miny, q.y[k]); maxy = Math.max(maxy, q.y[k]);
+      }
+      const ox = (minx + maxx) / 2, oy = (miny + maxy) / 2;
+      let rmax = 0;
+      for (const q of strands) for (let k = 0; k < q.n; k++) { q.x[k] -= ox; q.y[k] -= oy; rmax = Math.max(rmax, Math.hypot(q.x[k], q.y[k])); }
+      DR = rmax + 34;
       routeLen = 0;
       let st = strands[0];
       for (;;) { routeLen += st.len; const nx = st.next.map((k) => strands[k]).find((q) => !q.dead); if (!nx) break; st = nx; }
       const fin = strands.find((q) => q.final);
       endPt = { x: fin.x[fin.n - 1], y: fin.y[fin.n - 1], z: fin.z[fin.n - 1] };
-      // sparks: every ~210 units along living strands, never inside gaps
+      // sparks along living strands, never inside gaps
       sparks = [];
       for (const q of strands) {
         if (q.dead) continue;
-        for (let s = q.id === 0 ? 150 : 90; s < q.len - 60; s += 210) {
+        for (let s = q.id === 0 ? 110 : 70; s < q.len - 50; s += 150) {
           const k = Math.round(s / STEP);
           if (q.segGap[k] || q.segGap[Math.max(0, k - 3)] || q.segGap[Math.min(q.n - 1, k + 3)]) continue;
           sparks.push({ x: q.x[k], y: q.y[k], z: q.z[k], got: false, ph: s * 0.1 });
@@ -441,7 +451,6 @@ window.plethoraBit = {
       });
       world.th0 = -Math.atan2(t.y, t.x);
       if (snapWorld) { world.th = world.th0; world.om = 0; world.finger = world.th; world.thNear = world.th * 0.99; world.thFar = world.th * 0.96; }
-      if (lv.fixedCam) { cam.x = 0; cam.y = 0; } else { cam.x = ball.x; cam.y = ball.y; }
       for (const sp of sparks) sp.got = false;
       sparksGot = 0; litSet = new Set();
       history.length = 0; curGhost = []; haveBPrev = false;
@@ -827,7 +836,7 @@ window.plethoraBit = {
       }
       el.bar.style.width = (status === "result" || status === "aligned" ? 100 : status === "ready" ? 0 : pr * 100).toFixed(1) + "%";
       const rot = Math.round((spinTotal * 180) / Math.PI);
-      el.meta.textContent = lv.symmetric ? "ROTATION " + rot + "°" : "GRIP " + (status === "play" ? Math.round(clamp(1 - ball.strain, 0, 1) * 100) + "%" : "—");
+      el.meta.textContent = "TURNED " + rot + "°";
     }
 
     // ---------- input ----------
@@ -835,14 +844,19 @@ window.plethoraBit = {
     let steerOverride = false, lastInteract = -10;
     function readInput() {
       if (steerOverride) return;
-      const down = !!input.down, px = input.x;
+      const down = !!input.down, px = input.x, py = input.y;
       if (status === "failing" && statusT > 0.65 && (input.pressed || input.tap)) { retry(); return; }
       if (down && !world.dragging) {
-        world.dragging = true; world.finger = world.th; world.lastPX = px;
+        world.dragging = true; world.finger = world.th; world.lastPX = px; world.lastPY = py;
         if (status === "ready") beginAttempt();
       } else if (down) {
-        const dphi = (px - world.lastPX) * (2.5 / W) * SENS;
-        world.finger += dphi; world.lastPX = px;
+        // grab and turn: the finger's angle around the disc centre drives the disc;
+        // close to the centre, where angles are unstable, a sideways drag turns it instead
+        const a0 = Math.atan2(world.lastPY - ancY, world.lastPX - ancX), a1 = Math.atan2(py - ancY, px - ancX);
+        let da = a1 - a0; da -= TAU * Math.round(da / TAU);
+        const r = Math.hypot(px - ancX, py - ancY), w = smooth(24, 80, r);
+        const dphi = (w * da + (1 - w) * (px - world.lastPX) * (2.5 / W)) * SENS;
+        world.finger += dphi; world.lastPX = px; world.lastPY = py;
         if (Math.abs(dphi) > 0.002 && status === "play" && globalT - lastInteract > 2) { lastInteract = globalT; try { ctx.platform.interact({ type: "rotate" }); } catch (e) {} }
       } else world.dragging = false;
     }
@@ -905,49 +919,58 @@ window.plethoraBit = {
       g.globalCompositeOperation = "source-over"; g.globalAlpha = 1;
       if (bgImg) { g.imageSmoothingEnabled = true; g.drawImage(bgImg, 0, 0, W, H); }
       else {
-        const gr = g.createRadialGradient(cx, H * 0.45, 0, cx, H * 0.45, DIAG * 0.62);
+        const gr = g.createRadialGradient(cx, H * 0.5, 0, cx, H * 0.5, DIAG * 0.62);
         gr.addColorStop(0, "rgb(17,20,27)"); gr.addColorStop(0.45, "rgb(9,11,15)"); gr.addColorStop(1, "rgb(1,1,2)");
         g.fillStyle = gr; g.fillRect(0, 0, W, H);
       }
       g.globalCompositeOperation = "lighter";
-      if (lv.symmetric) {
-        g.globalAlpha = 0.16 * HAZE; sprite(SPR_RING, cx, cy, DIAG * 0.95);
-        g.globalAlpha = 0.1 * HAZE; sprite(SPR_RING, cx, cy, MIN * 1.25);
-      }
       const nb = quality ? haze.length : Math.min(3, haze.length);
       for (let i = 0; i < nb; i++) {
-        const h = haze[i];
-        const a = h.a + (lv.final ? t * h.drift * 2 : world.thFar) + Math.sin(t * 0.05 + h.ph) * 0.1;
+        const h = haze[i], a = h.a + world.thFar * 0.5 + Math.sin(t * 0.05 + h.ph) * 0.1;
         g.globalAlpha = h.alpha * HAZE * (0.8 + 0.2 * Math.sin(t * 0.11 + h.ph));
         sprite(h.spr, cx + Math.cos(a) * h.rad, cy + Math.sin(a) * h.rad, h.size);
       }
-      if (lv.horizon !== "none") {
-        const ang = lv.horizon === "world" ? world.thFar : 0;
-        g.save(); g.translate(cx, cy + (lv.horizon === "stable" ? MIN * 0.1 : 0)); g.rotate(ang);
-        const bh = MIN * 0.5, gr = g.createLinearGradient(0, -bh, 0, bh);
-        gr.addColorStop(0, "rgba(90,110,135,0)"); gr.addColorStop(0.47, "rgba(96,116,142,0.07)");
-        gr.addColorStop(0.5, "rgba(130,150,172,0.11)"); gr.addColorStop(0.56, "rgba(40,50,64,0.05)"); gr.addColorStop(1, "rgba(0,0,0,0)");
-        g.globalAlpha = HAZE; g.fillStyle = gr; g.fillRect(-DIAG, -bh, DIAG * 2, bh * 2);
-        g.globalAlpha = 0.07 * HAZE; g.fillStyle = "rgb(170,186,205)"; g.fillRect(-DIAG, -0.25, DIAG * 2, 0.5);
-        g.restore();
-      }
-      g.globalAlpha = 0.09 * HAZE * pathAlpha; sprite(levelSprites(lvIndex).haze, hazeX, hazeY, MIN * 1.1);
-      // falling dust: the room's gravity, always straight down
-      g.fillStyle = "rgb(210,222,240)";
-      for (const f of fallers) { g.globalAlpha = f.a * HAZE; g.fillRect(f.x * W, f.y * H, f.sz, f.sz * 3.5); }
     }
 
-    function drawMotes(t) {
-      if (!quality || !motes.length) return;
-      g.globalCompositeOperation = "lighter"; g.fillStyle = "rgb(200,214,232)";
-      const csx = cam.x * SC, csy = cam.y * SC;
-      for (const m of motes) {
-        const a = m.a + world.thNear * (0.9 + m.depth * 0.1);
-        let x = cx + Math.cos(a) * m.rad, y = cy + Math.sin(a) * m.rad;
-        x = ((x - csx * m.depth * 0.25 * cosT + csy * m.depth * 0.25 * sinT) % W + W) % W;
-        y = ((y - csx * m.depth * 0.25 * sinT - csy * m.depth * 0.25 * cosT) % H + H) % H;
-        g.globalAlpha = (0.05 + 0.1 * m.depth) * (0.6 + 0.4 * Math.sin(t * 0.7 + m.tw)) * HAZE;
-        g.fillRect(x, y, m.sz, m.sz);
+    // The plate: a disc of faint light with a dot lattice and a ticked rim, all turning with the world.
+    function drawDisc(t) {
+      if (lv.noGrid) return;
+      const R = DR * SC, hue = lv.hue;
+      g.globalCompositeOperation = "lighter";
+      const gr = g.createRadialGradient(ancX, ancY, R * 0.1, ancX, ancY, R);
+      gr.addColorStop(0, rgb(mix3(hue, [0, 0, 0], 0.9), 0.5)); gr.addColorStop(0.85, rgb(mix3(hue, [0, 0, 0], 0.93), 0.35)); gr.addColorStop(1, "rgba(0,0,0,0)");
+      g.globalAlpha = pathAlpha; g.fillStyle = gr;
+      g.beginPath(); g.arc(ancX, ancY, R, 0, TAU); g.fill();
+      // lattice
+      g.fillStyle = rgb(mix3(hue, [255, 255, 255], 0.5));
+      for (let i = 0; i < grid.length; i += 3) {
+        project(grid[i], grid[i + 1], 0);
+        g.globalAlpha = (0.22 - 0.12 * grid[i + 2]) * pathAlpha;
+        g.fillRect(P.x - 0.9, P.y - 0.9, 1.8, 1.8);
+      }
+      // rim with ticks; four long marks make every degree of turn visible
+      g.strokeStyle = rgb(mix3(hue, [255, 255, 255], 0.4)); g.lineWidth = 1;
+      g.globalAlpha = 0.35 * pathAlpha;
+      g.beginPath(); g.arc(ancX, ancY, R, 0, TAU); g.stroke();
+      g.beginPath();
+      for (let k = 0; k < 72; k++) {
+        const a = world.th + (k / 72) * TAU, big = k % 18 === 0, mid = k % 6 === 0;
+        const l = big ? 14 : mid ? 8 : 4, ca = Math.cos(a), sa = Math.sin(a);
+        g.moveTo(ancX + ca * R, ancY + sa * R); g.lineTo(ancX + ca * (R + l), ancY + sa * (R + l));
+      }
+      g.globalAlpha = 0.5 * pathAlpha; g.stroke();
+      // a single bright notch marks the disc's own "north" so rotation is always legible
+      const na = world.th - Math.PI / 2;
+      g.globalAlpha = 0.9 * pathAlpha; g.fillStyle = rgb(mix3(hue, [255, 255, 255], 0.6));
+      g.beginPath(); g.arc(ancX + Math.cos(na) * (R + 20), ancY + Math.sin(na) * (R + 20), 2.6, 0, TAU); g.fill();
+      // gravity: fixed to the room, never turns
+      const gy = ancY + R + 34;
+      if (gy < H - 40) {
+        g.globalAlpha = 0.6; g.strokeStyle = "rgb(230,236,245)"; g.lineWidth = 1.2;
+        const bob = Math.sin(t * 3) * 2;
+        g.beginPath(); g.moveTo(ancX - 7, gy - 4 + bob); g.lineTo(ancX, gy + 3 + bob); g.lineTo(ancX + 7, gy - 4 + bob); g.stroke();
+        g.globalAlpha = 0.3;
+        g.beginPath(); g.moveTo(ancX - 7, gy - 11 + bob); g.lineTo(ancX, gy - 4 + bob); g.lineTo(ancX + 7, gy - 11 + bob); g.stroke();
       }
     }
 
@@ -982,8 +1005,8 @@ window.plethoraBit = {
       g.globalCompositeOperation = "lighter"; g.lineCap = "butt"; g.lineJoin = "round";
       const speedN = clamp(Math.hypot(ball.vx, ball.vy) / 190, 0, 1);
       const strain = clamp(ball.strain, 0, 1.2);
-      const coreW = clamp(1.1 * (1 + 0.4 * speedN + 0.5 * strain) * (status === "result" ? 1.3 : 1), 0.8, 3);
-      const haloW = 5 + 3.5 * strain + 1.5 * speedN, fieldW = 20 + 8 * strain;
+      const coreW = clamp(1.7 * (1 + 0.3 * speedN + 0.5 * strain) * (status === "result" ? 1.3 : 1), 0.8, 3);
+      const haloW = 7 + 3.5 * strain + 1.5 * speedN, fieldW = 22 + 8 * strain;
       const shake = status === "play" ? clamp((ball.strain - 0.6) * 1.6, 0, 1) : 0;
       const hue = lv.hue;
       const litAll = status === "aligned" || status === "result";
@@ -997,7 +1020,7 @@ window.plethoraBit = {
             const ds = st.s[i] - ball.s, fall = Math.exp(-(ds * ds) / (70 * 70));
             if (fall > 0.02) {
               const tn = tangentAt(st, i), nxs = -(sinT * tn.x + cosT * tn.y), nys = cosT * tn.x - sinT * tn.y;
-              const amp = shake * shake * 2.2 * fall * Math.sin(t * 41 + st.s[i] * 0.23) + shake * fall * Math.sin(t * 13 - st.s[i] * 0.05);
+              const amp = shake * shake * 1.4 * fall * Math.sin(t * 41 + st.s[i] * 0.23) + shake * fall * Math.sin(t * 13 - st.s[i] * 0.05);
               sx += nxs * amp; sy += nys * amp;
             }
           }
@@ -1076,16 +1099,6 @@ window.plethoraBit = {
       g.beginPath(); g.arc(P.x, P.y, R, 0, TAU); g.stroke();
       g.globalAlpha = 0.35 * pathAlpha; g.setLineDash([2, 5]); g.lineWidth = 1;
       g.beginPath(); g.arc(P.x, P.y, R + 9, t * 0.8, t * 0.8 + TAU); g.stroke(); g.setLineDash([]);
-      // off-screen: a small chevron at the edge pointing toward the ring
-      if ((P.x < 10 || P.x > W - 10 || P.y < 10 || P.y > H - 10) && !lv.noUi && (status === "play" || status === "ready")) {
-        const a = Math.atan2(P.y - ancY, P.x - ancX);
-        const m = 22, ex = clamp(ancX + Math.cos(a) * DIAG, m, W - m), ey = clamp(ancY + Math.sin(a) * DIAG, m + 60, H - m - 60);
-        g.save(); g.translate(ex, ey); g.rotate(a);
-        g.globalAlpha = 0.55 + 0.25 * pulse; g.strokeStyle = rgb(hue); g.lineWidth = 1.2;
-        g.beginPath(); g.moveTo(-5, -5); g.lineTo(2, 0); g.lineTo(-5, 5); g.stroke();
-        g.beginPath(); g.arc(-12, 0, 2.2, 0, TAU); g.stroke();
-        g.restore();
-      }
     }
 
     function drawParticles(dt) {
@@ -1116,7 +1129,7 @@ window.plethoraBit = {
       const speed = Math.hypot(ball.vx, ball.vy), w = Math.abs(world.om);
       const vis = ball.fade * (1 - ball.sink * 0.85);
       if (vis <= 0.005) { prevBX = bx; prevBY = by; return; }
-      const core = clamp(MIN / 130, 2.6, 4.2) * k * ball.scale * (1 - ball.sink * 0.5);
+      const core = clamp(MIN / 100, 3.2, 5) * k * ball.scale * (1 - ball.sink * 0.5);
       const strain = clamp(ball.strain, 0, 1);
       const sp = levelSprites(lvIndex);
 
@@ -1142,11 +1155,6 @@ window.plethoraBit = {
         sprite(SPR_DARK, bx + Math.sin(-skew) * sd, by + Math.cos(skew) * sd, core * 7);
         g.globalCompositeOperation = "lighter";
       }
-      // anamorphic streak
-      const sl = core * (14 + speed * 0.06);
-      const gr = g.createLinearGradient(bx - sl, by, bx + sl, by);
-      gr.addColorStop(0, "rgba(255,255,255,0)"); gr.addColorStop(0.5, rgb(mix3(lv.hue, [255, 255, 255], 0.6), 0.5)); gr.addColorStop(1, "rgba(255,255,255,0)");
-      g.globalAlpha = 0.5 * vis; g.fillStyle = gr; g.fillRect(bx - sl, by - 0.6, sl * 2, 1.2);
       if (haveBPrev && speed > 30) {
         const mx = bx - prevBX, my = by - prevBY, ml = Math.hypot(mx, my);
         if (ml > 0.5 && ml < 60) {
@@ -1154,6 +1162,13 @@ window.plethoraBit = {
           g.globalAlpha = clamp(speed / 240, 0, 0.6) * vis; g.lineWidth = core * 1.1;
           g.beginPath(); g.moveTo(bx - mx * 2, by - my * 2); g.lineTo(bx, by); g.stroke();
         }
+      }
+      // plumb line: which way is down, right where it matters
+      if (!lv.noShadow && (status === "play" || status === "ready")) {
+        g.strokeStyle = "rgb(235,240,250)"; g.lineWidth = 1; g.setLineDash([2, 4]);
+        g.globalAlpha = 0.45 * vis;
+        g.beginPath(); g.moveTo(bx, by + core * 2.5); g.lineTo(bx, by + core * 2.5 + 30); g.stroke(); g.setLineDash([]);
+        g.beginPath(); g.moveTo(bx - 3, by + core * 2.5 + 26); g.lineTo(bx, by + core * 2.5 + 30); g.lineTo(bx + 3, by + core * 2.5 + 26); g.stroke();
       }
       g.globalAlpha = 0.6 * vis; sprite(SPR_WHITE, bx, by, core * 8);
       g.globalAlpha = 0.95 * vis; sprite(SPR_WHITE, bx, by, core * 3);
@@ -1215,10 +1230,6 @@ window.plethoraBit = {
       world.thNear += (world.th * 0.99 - world.thNear) * damp(14, dt);
       world.thFar += (world.th * 0.96 - world.thFar) * damp(lv.farK || 3, dt);
       speedSm += (clamp(Math.hypot(ball.vx, ball.vy) / 190, 0, 1) * (status === "play" ? 1 : 0) - speedSm) * damp(1.5, dt);
-      if (!lv.fixedCam && status !== "failing" && status !== "transition") {
-        const k = status === "ready" ? 12 : 9;
-        cam.x += (ball.x - cam.x) * damp(k, dt); cam.y += (ball.y - cam.y) * damp(k, dt);
-      }
       if (status === "failing") pathAlpha = Math.max(0.3, pathAlpha - dt / 0.6);
       else if (status === "transition") pathAlpha = smooth(0.55, 1, statusT / 1.0);
       else pathAlpha = Math.min(1, pathAlpha + dt / 0.35);
@@ -1228,7 +1239,6 @@ window.plethoraBit = {
         memVis += (target - memVis) * damp(4, dt);
       } else memVis = 1;
       if (status === "transition" && statusT > 1.0) { frag = null; enterReady(); }
-      for (const f of fallers) { f.y += f.v * dt; if (f.y > 1.02) { f.y = -0.02; f.x = Math.random(); } }
 
       histTimer += dt;
       if (histTimer > 0.035) { histTimer = 0; history.push({ x: ball.x, y: ball.y, z: ball.z, th: world.th }); if (history.length > 22) history.shift(); }
@@ -1253,12 +1263,12 @@ window.plethoraBit = {
       project(ball.x, ball.y, ball.z);
       hazeX += (P.x - hazeX) * damp(0.8, dt); hazeY += (P.y - hazeY) * damp(0.8, dt);
       drawAtmosphere(t);
+      drawDisc(t);
       drawGhosts();
       if (status === "transition") drawTransition();
       if (status !== "transition" || statusT > 0.55) { drawPaths(t); drawGoalAndSparks(t); }
       drawParticles(dt);
       drawBall(t);
-      drawMotes(t);
       drawGrain();
       g.globalAlpha = 1; g.globalCompositeOperation = "source-over";
     }
