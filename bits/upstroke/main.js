@@ -73,6 +73,7 @@ window.plethoraBit = {
 
     // ---------- state ----------
     const WALL = 5;
+    const EDGE_HIT = 1.5;  // the line dies when its core touches a side edge
     const line = { x: 0, dir: 1, vx: 0, turnFrom: 0, turnT: -1 };
     let bars = [];
     let trail = [];        // { x, alt, t, turn }
@@ -148,11 +149,16 @@ window.plethoraBit = {
     function pushSingle(p, dt, shiftScale, wScale, drift) {
       const reach = reachN(dt, p.k * shiftScale);
       let c = lastC + rand(-1, 1) * reach;
-      if (c < 0.08) c = 0.16 - c;
-      if (c > 0.92) c = 1.84 - c;
-      c = clamp(c, 0.08, 0.92);
-      const w = Math.max(minGapN(), p.gap * (wScale || rand(0.92, 1.18)));
+      if (c < 0.1) c = 0.2 - c;
+      if (c > 0.9) c = 1.8 - c;
+      c = clamp(c, 0.1, 0.9);
+      const w = Math.max(minGapN(), p.gap * (wScale || rand(0.9, 1.18)));
       lastC = c;
+      // a drifting gap must never slide into a (lethal) side edge
+      if (drift) {
+        drift.amp = Math.min(drift.amp, c - w / 2 - 0.04, 0.96 - c - w / 2);
+        if (drift.amp < 0.03) drift = null;
+      }
       queue.push({ dt, gaps: [{ l: c - w / 2, r: c + w / 2 }], drift: drift || null });
     }
     function refill(d) {
@@ -165,10 +171,10 @@ window.plethoraBit = {
           const s = rand(0.3, 0.62);
           if (Math.random() < 0.5) { // solid on the left, open to the right
             queue.push({ dt: p.spawnDt, gaps: [{ l: s, r: 2 }] });
-            lastC = clamp(Math.max(lastC, s + 0.1), s + 0.1, 0.92);
+            lastC = clamp(Math.max(lastC, s + 0.1), s + 0.1, 0.9);
           } else {
             queue.push({ dt: p.spawnDt, gaps: [{ l: -1, r: 1 - s }] });
-            lastC = clamp(Math.min(lastC, 1 - s - 0.1), 0.08, 1 - s - 0.1);
+            lastC = clamp(Math.min(lastC, 1 - s - 0.1), 0.1, 1 - s - 0.1);
           }
           return;
         }
@@ -185,7 +191,7 @@ window.plethoraBit = {
         let sgn = lastC > 0.5 ? -1 : 1;
         for (let i = 0; i < n; i++) {
           const reach = reachN(dt, p.k * 0.95);
-          let c = clamp(lastC + sgn * reach * rand(0.75, 1), 0.08, 0.92);
+          let c = clamp(lastC + sgn * reach * rand(0.75, 1), 0.1, 0.9);
           const w = Math.max(minGapN(), p.gap * 1.08);
           queue.push({ dt, gaps: [{ l: c - w / 2, r: c + w / 2 }] });
           lastC = c; sgn = -sgn;
@@ -198,7 +204,7 @@ window.plethoraBit = {
           const reach = reachN(dt, p.k * 0.6);
           let c = lastC + sgn * reach;
           if (c < 0.1 || c > 0.9) { sgn = -sgn; c = lastC + sgn * reach; }
-          c = clamp(c, 0.08, 0.92);
+          c = clamp(c, 0.1, 0.9);
           const w = Math.max(minGapN(), p.gap);
           queue.push({ dt, gaps: [{ l: c - w / 2, r: c + w / 2 }] });
           lastC = c;
@@ -212,7 +218,7 @@ window.plethoraBit = {
         const dt = p.spawnDt;
         const reach = reachN(dt, p.k);
         const near = clamp(lastC + rand(-0.3, 0.3) * reach, 0.1, 0.9);
-        const far = near < 0.5 ? clamp(near + rand(0.35, 0.55), 0.1, 0.92) : clamp(near - rand(0.35, 0.55), 0.08, 0.9);
+        const far = near < 0.5 ? clamp(near + rand(0.35, 0.55), 0.1, 0.9) : clamp(near - rand(0.35, 0.55), 0.1, 0.9);
         const wn = Math.max(minGapN(), p.gap * 0.85), wf = Math.max(minGapN(), p.gap * 1.3);
         const gaps = [{ l: near - wn / 2, r: near + wn / 2 }, { l: far - wf / 2, r: far + wf / 2 }].sort((a, b) => a.l - b.l);
         if (gaps[0].r < gaps[1].l - 0.04) {
@@ -222,7 +228,7 @@ window.plethoraBit = {
       } else { // gate: an island in the middle, then a centred gap
         const a = rand(0.26, 0.38), b = rand(0.62, 0.74);
         queue.push({ dt: p.spawnDt, gaps: [{ l: -1, r: a }, { l: b, r: 2 }] });
-        lastC = lastC < 0.5 ? clamp(Math.min(lastC, a - 0.07), 0.08, 0.4) : clamp(Math.max(lastC, b + 0.07), 0.6, 0.92);
+        lastC = lastC < 0.5 ? clamp(Math.min(lastC, a - 0.07), 0.1, 0.4) : clamp(Math.max(lastC, b + 0.07), 0.6, 0.9);
         pushSingle(p, p.spawnDt * 0.9, 0.9);
       }
       // breathing room after a sequence
@@ -299,6 +305,7 @@ window.plethoraBit = {
     function die(hitX, bar) {
       mode = "over";
       deadAt = clock;
+      hintAlpha = 0;
       overT = 0;
       shake = 1;
       if (bar) bar.flash = 1;
@@ -402,8 +409,11 @@ window.plethoraBit = {
         if (s >= 1) line.turnT = -1;
       } else line.vx = target;
       line.x += line.vx * dt;
-      if (line.x < WALL) { line.x = 2 * WALL - line.x; line.vx = Math.abs(line.vx); line.dir = 1; wallKick(); }
-      if (line.x > W - WALL) { line.x = 2 * (W - WALL) - line.x; line.vx = -Math.abs(line.vx); line.dir = -1; wallKick(); }
+      // the side edges are lethal in play; outside play the line just bounces
+      if (mode !== "play") {
+        if (line.x < WALL) { line.x = 2 * WALL - line.x; line.vx = Math.abs(line.vx); line.dir = 1; wallKick(); }
+        if (line.x > W - WALL) { line.x = 2 * (W - WALL) - line.x; line.vx = -Math.abs(line.vx); line.dir = -1; wallKick(); }
+      }
       altitude += cfg.climb * U * dt;
       trail.push({ x: line.x, alt: altitude, t: clock, turn: false });
       // drop points that have scrolled off the bottom
@@ -437,7 +447,9 @@ window.plethoraBit = {
 
       if (mode === "attract") {
         autoFlipIn -= dt;
-        if (autoFlipIn <= 0) { line.dir = -line.dir; line.turnFrom = line.vx; line.turnT = 0; autoFlipIn = rand(0.35, 1.25); if (trail.length) trail[trail.length - 1].turn = true; }
+        // the demo line keeps to the middle so the first tap never aims it at an edge
+        const edgeTurn = (line.dir < 0 && line.x < W * 0.3) || (line.dir > 0 && line.x > W * 0.7);
+        if (autoFlipIn <= 0 || edgeTurn) { line.dir = -line.dir; line.turnFrom = line.vx; line.turnT = 0; autoFlipIn = rand(0.35, 1.25); if (trail.length) trail[trail.length - 1].turn = true; }
         stepLine(dt);
         return;
       }
@@ -456,6 +468,11 @@ window.plethoraBit = {
       }
 
       stepLine(dt);
+      if (line.x <= EDGE_HIT || line.x >= W - EDGE_HIT) {
+        line.x = clamp(line.x, EDGE_HIT, W - EDGE_HIT);
+        die(line.x, null);
+        return;
+      }
       score.set(Math.floor((altitude - runStartAlt) / unit));
       curD = d;
       const tier = Math.floor(score.value / TIER_STEP);
@@ -574,6 +591,25 @@ window.plethoraBit = {
       g.textBaseline = "bottom";
       g.fillText("BEST", W - 10, y - 4);
       g.restore();
+    }
+
+    // side edges: faint danger rails that flare as the tip drifts toward them
+    function drawEdges() {
+      const rgb = hexToRgb(cfg.barColor);
+      const reach = Math.max(40, W * 0.18);
+      for (const side of [0, 1]) {
+        const d = side ? W - line.x : line.x;
+        const near = clamp(1 - d / reach, 0, 1);
+        const ex = side ? W : 0;
+        const glowW = 10 + near * 26;
+        const grad = g.createLinearGradient(ex, 0, side ? W - glowW : glowW, 0);
+        grad.addColorStop(0, rgba(rgb, 0.1 + near * 0.35));
+        grad.addColorStop(1, rgba(rgb, 0));
+        g.fillStyle = grad;
+        g.fillRect(side ? W - glowW : 0, 0, glowW, H);
+        g.fillStyle = rgba(rgb, 0.35 + near * 0.55);
+        g.fillRect(side ? W - 1.5 : 0, 0, 1.5, H);
+      }
     }
 
     function drawBars() {
@@ -819,6 +855,7 @@ window.plethoraBit = {
       const rgb = lineRgb();
       drawTrail(rgb);
       drawBars();
+      drawEdges();
       drawTip();
       drawParts();
       g.restore();
