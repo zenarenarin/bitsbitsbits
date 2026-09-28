@@ -83,10 +83,10 @@
       "turn_smoothing_ms": {
         "label": "Turn arc duration (ms)",
         "type": "number",
-        "default": 200,
-        "min": 60,
-        "max": 400,
-        "step": 10,
+        "default": 400,
+        "min": 120,
+        "max": 800,
+        "step": 20,
         "group": "feel",
         "intent": "feel",
         "apply": "live"
@@ -183,7 +183,7 @@
           "climb_speed": 0.45,
           "starting_gap": 0.56,
           "hit_margin": 3.5,
-          "turn_smoothing_ms": 240
+          "turn_smoothing_ms": 480
         }
       },
       "sharp": {
@@ -191,7 +191,7 @@
         "values": {
           "climb_speed": 0.7,
           "turn_speed": 0.8,
-          "turn_smoothing_ms": 120,
+          "turn_smoothing_ms": 240,
           "starting_gap": 0.36,
           "hit_margin": 1
         }

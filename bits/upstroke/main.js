@@ -33,7 +33,7 @@ window.plethoraBit = {
       const t = ctx.tune;
       cfg.climb = t.number("climb_speed") ?? 0.55;
       cfg.turn = t.number("turn_speed") ?? 0.62;
-      cfg.smoothMs = t.number("turn_smoothing_ms") ?? 200;
+      cfg.smoothMs = t.number("turn_smoothing_ms") ?? 400;
       cfg.startGap = t.percent("starting_gap") ?? 0.46;
       cfg.margin = t.number("hit_margin") ?? 2;
       cfg.lineColor = t.color("line_color") ?? "#8ff6ff";
@@ -141,6 +141,9 @@ window.plethoraBit = {
       };
     }
     const minGapN = () => Math.max(40 / W, 0.07);
+    // path gaps keep this far (fraction of width) from the lethal edges, leaving
+    // room for the wide turn arc to swing back without touching them
+    const EDGE_C = 0.16;
     function reachN(dt, k) {
       return (cfg.turn * U * Math.max(0.12, dt - cfg.smoothMs / 2000) * k) / W;
     }
@@ -149,9 +152,9 @@ window.plethoraBit = {
     function pushSingle(p, dt, shiftScale, wScale, drift) {
       const reach = reachN(dt, p.k * shiftScale);
       let c = lastC + rand(-1, 1) * reach;
-      if (c < 0.1) c = 0.2 - c;
-      if (c > 0.9) c = 1.8 - c;
-      c = clamp(c, 0.1, 0.9);
+      if (c < EDGE_C) c = 2 * EDGE_C - c;
+      if (c > 1 - EDGE_C) c = 2 * (1 - EDGE_C) - c;
+      c = clamp(c, EDGE_C, 1 - EDGE_C);
       const w = Math.max(minGapN(), p.gap * (wScale || rand(0.9, 1.18)));
       lastC = c;
       // a drifting gap must never slide into a (lethal) side edge
@@ -171,10 +174,10 @@ window.plethoraBit = {
           const s = rand(0.3, 0.62);
           if (Math.random() < 0.5) { // solid on the left, open to the right
             queue.push({ dt: p.spawnDt, gaps: [{ l: s, r: 2 }] });
-            lastC = clamp(Math.max(lastC, s + 0.1), s + 0.1, 0.9);
+            lastC = clamp(Math.max(lastC, s + 0.1), s + 0.1, 1 - EDGE_C);
           } else {
             queue.push({ dt: p.spawnDt, gaps: [{ l: -1, r: 1 - s }] });
-            lastC = clamp(Math.min(lastC, 1 - s - 0.1), 0.1, 1 - s - 0.1);
+            lastC = clamp(Math.min(lastC, 1 - s - 0.1), EDGE_C, 1 - s - 0.1);
           }
           return;
         }
@@ -191,7 +194,7 @@ window.plethoraBit = {
         let sgn = lastC > 0.5 ? -1 : 1;
         for (let i = 0; i < n; i++) {
           const reach = reachN(dt, p.k * 0.95);
-          let c = clamp(lastC + sgn * reach * rand(0.75, 1), 0.1, 0.9);
+          let c = clamp(lastC + sgn * reach * rand(0.75, 1), EDGE_C, 1 - EDGE_C);
           const w = Math.max(minGapN(), p.gap * 1.08);
           queue.push({ dt, gaps: [{ l: c - w / 2, r: c + w / 2 }] });
           lastC = c; sgn = -sgn;
@@ -203,8 +206,8 @@ window.plethoraBit = {
         for (let i = 0; i < n; i++) {
           const reach = reachN(dt, p.k * 0.6);
           let c = lastC + sgn * reach;
-          if (c < 0.1 || c > 0.9) { sgn = -sgn; c = lastC + sgn * reach; }
-          c = clamp(c, 0.1, 0.9);
+          if (c < EDGE_C || c > 1 - EDGE_C) { sgn = -sgn; c = lastC + sgn * reach; }
+          c = clamp(c, EDGE_C, 1 - EDGE_C);
           const w = Math.max(minGapN(), p.gap);
           queue.push({ dt, gaps: [{ l: c - w / 2, r: c + w / 2 }] });
           lastC = c;
@@ -217,8 +220,8 @@ window.plethoraBit = {
       } else if (kind === 3) { // choice: two gaps, one wide and far, one narrow and near
         const dt = p.spawnDt;
         const reach = reachN(dt, p.k);
-        const near = clamp(lastC + rand(-0.3, 0.3) * reach, 0.1, 0.9);
-        const far = near < 0.5 ? clamp(near + rand(0.35, 0.55), 0.1, 0.9) : clamp(near - rand(0.35, 0.55), 0.1, 0.9);
+        const near = clamp(lastC + rand(-0.3, 0.3) * reach, EDGE_C, 1 - EDGE_C);
+        const far = near < 0.5 ? clamp(near + rand(0.35, 0.55), EDGE_C, 1 - EDGE_C) : clamp(near - rand(0.35, 0.55), EDGE_C, 1 - EDGE_C);
         const wn = Math.max(minGapN(), p.gap * 0.85), wf = Math.max(minGapN(), p.gap * 1.3);
         const gaps = [{ l: near - wn / 2, r: near + wn / 2 }, { l: far - wf / 2, r: far + wf / 2 }].sort((a, b) => a.l - b.l);
         if (gaps[0].r < gaps[1].l - 0.04) {
@@ -228,7 +231,7 @@ window.plethoraBit = {
       } else { // gate: an island in the middle, then a centred gap
         const a = rand(0.26, 0.38), b = rand(0.62, 0.74);
         queue.push({ dt: p.spawnDt, gaps: [{ l: -1, r: a }, { l: b, r: 2 }] });
-        lastC = lastC < 0.5 ? clamp(Math.min(lastC, a - 0.07), 0.1, 0.4) : clamp(Math.max(lastC, b + 0.07), 0.6, 0.9);
+        lastC = lastC < 0.5 ? clamp(Math.min(lastC, a - 0.07), EDGE_C, 0.4) : clamp(Math.max(lastC, b + 0.07), 0.6, 1 - EDGE_C);
         pushSingle(p, p.spawnDt * 0.9, 0.9);
       }
       // breathing room after a sequence
