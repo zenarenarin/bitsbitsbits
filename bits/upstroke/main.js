@@ -33,7 +33,7 @@ window.plethoraBit = {
       const t = ctx.tune;
       cfg.climb = t.number("climb_speed") ?? 0.55;
       cfg.turn = t.number("turn_speed") ?? 0.62;
-      cfg.smoothMs = t.number("turn_smoothing_ms") ?? 55;
+      cfg.smoothMs = t.number("turn_smoothing_ms") ?? 200;
       cfg.startGap = t.percent("starting_gap") ?? 0.46;
       cfg.margin = t.number("hit_margin") ?? 2;
       cfg.lineColor = t.color("line_color") ?? "#8ff6ff";
@@ -73,7 +73,7 @@ window.plethoraBit = {
 
     // ---------- state ----------
     const WALL = 5;
-    const line = { x: 0, dir: 1, vx: 0 };
+    const line = { x: 0, dir: 1, vx: 0, turnFrom: 0, turnT: -1 };
     let bars = [];
     let trail = [];        // { x, alt, t, turn }
     let rings = [];        // { alt, x, t }
@@ -88,6 +88,12 @@ window.plethoraBit = {
     let lastC = 0.5;
     let autoFlipIn = 0.8;
     let headPulse = 0;
+    let curD = 0;          // current difficulty, drives the tip's heartbeat rate
+    let emberIn = 0;
+    // the tip changes colour every 200 m; index 0 is the tuned line colour
+    const TIER_STEP = 200;
+    const TIP_COLORS = [null, "#ffd36b", "#ff6bd6", "#9dff6b", "#b08bff", "#ff9a4d", "#6bb6ff", "#ffffff"];
+    let tipTier = 0, tipBlend = 1, tipFrom = null;
     let deadAt = 0;
     let shake = 0;
     let overT = 0;
@@ -134,10 +140,13 @@ window.plethoraBit = {
       };
     }
     const minGapN = () => Math.max(40 / W, 0.07);
+    function reachN(dt, k) {
+      return (cfg.turn * U * Math.max(0.12, dt - cfg.smoothMs / 2000) * k) / W;
+    }
 
     // pattern generator: fills `queue` with { dt, gaps:[{l,r}], drift }
     function pushSingle(p, dt, shiftScale, wScale, drift) {
-      const reach = (cfg.turn * U * dt * p.k * shiftScale) / W;
+      const reach = reachN(dt, p.k * shiftScale);
       let c = lastC + rand(-1, 1) * reach;
       if (c < 0.08) c = 0.16 - c;
       if (c > 0.92) c = 1.84 - c;
@@ -175,7 +184,7 @@ window.plethoraBit = {
         const dt = p.spawnDt * lerp(0.78, 0.62, dc);
         let sgn = lastC > 0.5 ? -1 : 1;
         for (let i = 0; i < n; i++) {
-          const reach = (cfg.turn * U * dt * p.k * 0.95) / W;
+          const reach = reachN(dt, p.k * 0.95);
           let c = clamp(lastC + sgn * reach * rand(0.75, 1), 0.08, 0.92);
           const w = Math.max(minGapN(), p.gap * 1.08);
           queue.push({ dt, gaps: [{ l: c - w / 2, r: c + w / 2 }] });
@@ -186,7 +195,7 @@ window.plethoraBit = {
         const dt = p.spawnDt * 0.8;
         let sgn = lastC > 0.5 ? -1 : 1;
         for (let i = 0; i < n; i++) {
-          const reach = (cfg.turn * U * dt * p.k * 0.6) / W;
+          const reach = reachN(dt, p.k * 0.6);
           let c = lastC + sgn * reach;
           if (c < 0.1 || c > 0.9) { sgn = -sgn; c = lastC + sgn * reach; }
           c = clamp(c, 0.08, 0.92);
@@ -201,7 +210,7 @@ window.plethoraBit = {
         for (let i = 0; i < n; i++) queue.push({ dt: p.spawnDt * 0.5, gaps: [{ l: w.l, r: w.r }] });
       } else if (kind === 3) { // choice: two gaps, one wide and far, one narrow and near
         const dt = p.spawnDt;
-        const reach = (cfg.turn * U * dt * p.k) / W;
+        const reach = reachN(dt, p.k);
         const near = clamp(lastC + rand(-0.3, 0.3) * reach, 0.1, 0.9);
         const far = near < 0.5 ? clamp(near + rand(0.35, 0.55), 0.1, 0.92) : clamp(near - rand(0.35, 0.55), 0.08, 0.9);
         const wn = Math.max(minGapN(), p.gap * 0.85), wf = Math.max(minGapN(), p.gap * 1.3);
@@ -260,12 +269,13 @@ window.plethoraBit = {
       trail = [];
       score.reset();
       newBest = false;
+      resetTier();
     }
 
     function startRun(fromAttract) {
       run += 1;
       if (!fromAttract) resetRun();
-      else { bars = []; queue = []; runTime = 0; spawnIn = 0.55; lastC = clamp(line.x / W, 0.2, 0.8); score.reset(); newBest = false; }
+      else { bars = []; queue = []; runTime = 0; spawnIn = 0.55; lastC = clamp(line.x / W, 0.2, 0.8); score.reset(); newBest = false; resetTier(); }
       runStartAlt = altitude;
       mode = "play";
       hintAlpha = fromAttract ? 1 : 0;
@@ -309,9 +319,37 @@ window.plethoraBit = {
       }
     }
 
+    // ---------- tip colour tiers ----------
+    function tierRgb(i) {
+      const c = TIP_COLORS[i % TIP_COLORS.length];
+      return hexToRgb(c || cfg.lineColor);
+    }
+    function tipRgb() {
+      const to = tierRgb(tipTier);
+      if (!tipFrom || tipBlend >= 1) return to;
+      const e = tipBlend * tipBlend * (3 - 2 * tipBlend);
+      return [0, 1, 2].map(i => Math.round(lerp(tipFrom[i], to[i], e)));
+    }
+    function resetTier() { tipTier = 0; tipBlend = 1; tipFrom = null; }
+    function tierUp(tier) {
+      tipFrom = tipRgb();
+      tipTier = tier;
+      tipBlend = 0;
+      const c = tierRgb(tier);
+      const css = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      rings.push({ x: line.x, alt: altitude, t: clock, big: true, rgb: c });
+      burst(line.x, tipY, 26, [css, "#ffffff", css], U * 0.55, cfg.climb * U * 0.5);
+      headPulse = 1;
+      haptic("success");
+      try { ctx.platform.milestone("distance_" + tier * TIER_STEP, { distance: tier * TIER_STEP }); } catch (e) {}
+      if (music) try { ctx.music.sting("powerup"); } catch (e) {}
+    }
+
     // ---------- input ----------
     function flip() {
       line.dir = -line.dir;
+      line.turnFrom = line.vx;
+      line.turnT = 0;
       headPulse = 1;
       rings.push({ x: line.x, alt: altitude, t: clock });
       if (rings.length > 24) rings.shift();
@@ -353,9 +391,16 @@ window.plethoraBit = {
 
     // ---------- simulation ----------
     function stepLine(dt) {
+      // each reversal eases the sideways velocity along a smoothstep, so the
+      // line sweeps through a round arc instead of a sharp corner
       const target = line.dir * cfg.turn * U;
-      const tau = Math.max(0.001, cfg.smoothMs / 1000);
-      line.vx += (target - line.vx) * (1 - Math.exp(-dt / tau));
+      const dur = Math.max(0.001, cfg.smoothMs / 1000);
+      if (line.turnT >= 0) {
+        line.turnT += dt;
+        const s = clamp(line.turnT / dur, 0, 1);
+        line.vx = lerp(line.turnFrom, target, s * s * (3 - 2 * s));
+        if (s >= 1) line.turnT = -1;
+      } else line.vx = target;
       line.x += line.vx * dt;
       if (line.x < WALL) { line.x = 2 * WALL - line.x; line.vx = Math.abs(line.vx); line.dir = 1; wallKick(); }
       if (line.x > W - WALL) { line.x = 2 * (W - WALL) - line.x; line.vx = -Math.abs(line.vx); line.dir = -1; wallKick(); }
@@ -369,6 +414,9 @@ window.plethoraBit = {
       if (trail.length > 900) trail.splice(0, trail.length - 900);
     }
     function wallKick() {
+      // settle smoothly to full speed after a mid-turn bounce
+      line.turnFrom = line.vx;
+      line.turnT = 0;
       if (trail.length) trail[trail.length - 1].turn = true;
     }
 
@@ -376,10 +424,20 @@ window.plethoraBit = {
       if (mode === "over") return;
       const dt = stepMs / 1000;
       clock += dt;
+      emberIn -= dt;
+      if (emberIn <= 0) {
+        emberIn = rand(0.035, 0.08);
+        const c = tipRgb(), fall = cfg.climb * U * rand(0.55, 0.9);
+        parts.push({
+          x: line.x + rand(-1.5, 1.5), y: tipY, vx: rand(-22, 22) - line.vx * 0.12, vy: fall, vyBase: fall,
+          life: 0, max: rand(0.35, 0.75), c: "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")", len: 0, dot: rand(0.9, 1.8)
+        });
+        if (parts.length > 260) parts.shift();
+      }
 
       if (mode === "attract") {
         autoFlipIn -= dt;
-        if (autoFlipIn <= 0) { line.dir = -line.dir; autoFlipIn = rand(0.35, 1.25); if (trail.length) trail[trail.length - 1].turn = true; }
+        if (autoFlipIn <= 0) { line.dir = -line.dir; line.turnFrom = line.vx; line.turnT = 0; autoFlipIn = rand(0.35, 1.25); if (trail.length) trail[trail.length - 1].turn = true; }
         stepLine(dt);
         return;
       }
@@ -399,6 +457,9 @@ window.plethoraBit = {
 
       stepLine(dt);
       score.set(Math.floor((altitude - runStartAlt) / unit));
+      curD = d;
+      const tier = Math.floor(score.value / TIER_STEP);
+      if (tier !== tipTier) tierUp(tier);
 
       const T = barThickness();
       const half = T / 2;
@@ -446,6 +507,7 @@ window.plethoraBit = {
     function update(dtMs) {
       const dt = Math.min(0.05, dtMs / 1000);
       headPulse = Math.max(0, headPulse - dt * 4.5);
+      if (tipBlend < 1) tipBlend = Math.min(1, tipBlend + dt / 0.7);
       shake = Math.max(0, shake - dt * 3.2);
       if (mode === "over") overT += dt;
       if (mode === "play" && runTime > 1.2) hintAlpha = Math.max(0, hintAlpha - dt * 1.4);
@@ -584,7 +646,7 @@ window.plethoraBit = {
       g.lineJoin = "round";
       g.lineCap = "round";
       const passes = [
-        [11, 0.07], [5.5, 0.18], [2.4 + headPulse * 1.6, 0.95]
+        [15, 0.07], [7.5, 0.17], [3.4 + headPulse * 1.8, 0.95]
       ];
       // walk from head to tail in bands of screen distance
       let idx = n - 1;
@@ -596,7 +658,7 @@ window.plethoraBit = {
         const fade = Math.pow(1 - band / BANDS, 1.35);
         for (const [w, a] of passes) {
           g.strokeStyle = rgba(rgb, a * fade);
-          g.lineWidth = band === 0 ? w : Math.max(1, w * (1 - band / (BANDS * 1.6)));
+          g.lineWidth = band === 0 ? w : Math.max(1.4, w * (1 - band / (BANDS * 1.6)));
           g.beginPath();
           for (let j = start; j >= Math.max(0, idx - 1); j--) {
             const p = trail[j];
@@ -615,32 +677,50 @@ window.plethoraBit = {
         if (y > H + 4) break;
         const a = Math.max(0, 1 - (y - tipY) / span);
         g.fillStyle = rgba([255, 255, 255], 0.55 * a);
-        g.beginPath(); g.arc(tpx(p), y, 1.6, 0, TAU); g.fill();
+        g.beginPath(); g.arc(tpx(p), y, 2, 0, TAU); g.fill();
       }
       g.restore();
     }
 
-    function drawTip(rgb) {
+    // lub-dub heartbeat that quickens as the climb gets harder
+    function heartbeat() {
+      const period = lerp(1.15, 0.6, clamp(curD, 0, 1));
+      const ph = (clock % period) / period;
+      const bump = (c, w) => Math.exp(-((ph - c) / w) * ((ph - c) / w));
+      return bump(0.06, 0.05) + 0.6 * bump(0.24, 0.06);
+    }
+
+    function drawTip() {
       const x = line.x, y = tipY;
+      const rgb = tipRgb();
+      const hb = heartbeat();
+      const flicker = Math.sin(clock * 23) * 0.6 + Math.sin(clock * 37 + 1.3) * 0.4;
       g.save();
       g.globalCompositeOperation = "lighter";
-      const r = 16 + headPulse * 10;
+      // wide breathing aura
+      const r = 24 + hb * 12 + headPulse * 12 + flicker;
       const grad = g.createRadialGradient(x, y, 0, x, y, r);
-      grad.addColorStop(0, rgba(rgb, 0.55));
+      grad.addColorStop(0, rgba(rgb, 0.5 + hb * 0.25));
+      grad.addColorStop(0.35, rgba(rgb, 0.18 + hb * 0.12));
       grad.addColorStop(1, rgba(rgb, 0));
       g.fillStyle = grad;
       g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
+      // hot inner glow
+      g.fillStyle = rgba(rgb, 0.55 + hb * 0.3);
+      g.beginPath(); g.arc(x, y, 6 + hb * 2.5 + headPulse * 2, 0, TAU); g.fill();
+      // white-hot core
       g.fillStyle = "#ffffff";
-      g.beginPath(); g.arc(x, y, 2.6 + headPulse * 1.2, 0, TAU); g.fill();
+      g.beginPath(); g.arc(x, y, 3.4 + hb * 1.1 + headPulse * 1.4, 0, TAU); g.fill();
       // tap rings, anchored to where the turn happened
       for (const ring of rings) {
         const age = clock - ring.t;
-        if (age > 0.45) continue;
-        const t = age / 0.45;
+        const life = ring.big ? 0.9 : 0.45;
+        if (age > life) continue;
+        const t = age / life;
         const ry = tipY + (altitude - ring.alt);
-        g.strokeStyle = rgba(rgb, 0.55 * (1 - t));
-        g.lineWidth = 1.2;
-        g.beginPath(); g.arc(ring.x, ry, 4 + t * 20, 0, TAU); g.stroke();
+        g.strokeStyle = rgba(ring.rgb || rgb, (ring.big ? 0.8 : 0.55) * (1 - t));
+        g.lineWidth = ring.big ? 2 : 1.2;
+        g.beginPath(); g.arc(ring.x, ry, 4 + t * (ring.big ? 70 : 20), 0, TAU); g.stroke();
       }
       g.restore();
     }
@@ -654,8 +734,13 @@ window.plethoraBit = {
         const t = q.life / q.max;
         const sp = Math.hypot(q.vx, q.vy) || 1;
         const l = q.len * (1 - t * 0.6);
-        g.strokeStyle = q.c;
         g.globalAlpha = 1 - t;
+        if (q.dot) {
+          g.fillStyle = q.c;
+          g.beginPath(); g.arc(q.x, q.y, q.dot * (1 - t * 0.7), 0, TAU); g.fill();
+          continue;
+        }
+        g.strokeStyle = q.c;
         g.lineWidth = 1.4;
         g.beginPath();
         g.moveTo(q.x, q.y);
@@ -734,7 +819,7 @@ window.plethoraBit = {
       const rgb = lineRgb();
       drawTrail(rgb);
       drawBars();
-      drawTip(rgb);
+      drawTip();
       drawParts();
       g.restore();
       drawHud();

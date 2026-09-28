@@ -4,8 +4,18 @@
   "entry": "main.js",
   "title": "Upstroke",
   "description": "One line of light climbs forever. Tap to reverse its sideways drift and thread it through the gaps in the falling bars.",
-  "tags": ["arcade", "minimal", "one-tap", "reflex", "endless"],
-  "permissions": ["haptics", "backgroundMusic", "storage"],
+  "tags": [
+    "arcade",
+    "minimal",
+    "one-tap",
+    "reflex",
+    "endless"
+  ],
+  "permissions": [
+    "haptics",
+    "backgroundMusic",
+    "storage"
+  ],
   "dependencies": [],
   "onboarding": {
     "kind": "immersive",
@@ -18,8 +28,15 @@
         "valueType": "number",
         "order": "desc",
         "format": "integer",
-        "periods": ["daily", "weekly", "all_time"],
-        "scopes": ["following", "global"],
+        "periods": [
+          "daily",
+          "weekly",
+          "all_time"
+        ],
+        "scopes": [
+          "following",
+          "global"
+        ],
         "dedupe": "best_per_user"
       }
     }
@@ -27,10 +44,18 @@
   "tuning": {
     "schemaVersion": 1,
     "groups": {
-      "feel": { "label": "Line Feel" },
-      "difficulty": { "label": "Difficulty" },
-      "visual": { "label": "Visual" },
-      "audio": { "label": "Audio" }
+      "feel": {
+        "label": "Line Feel"
+      },
+      "difficulty": {
+        "label": "Difficulty"
+      },
+      "visual": {
+        "label": "Visual"
+      },
+      "audio": {
+        "label": "Audio"
+      }
     },
     "knobs": {
       "climb_speed": {
@@ -56,12 +81,12 @@
         "apply": "live"
       },
       "turn_smoothing_ms": {
-        "label": "Turn smoothing (ms)",
+        "label": "Turn arc duration (ms)",
         "type": "number",
-        "default": 55,
-        "min": 0,
-        "max": 180,
-        "step": 5,
+        "default": 200,
+        "min": 60,
+        "max": 400,
+        "step": 10,
         "group": "feel",
         "intent": "feel",
         "apply": "live"
@@ -120,13 +145,31 @@
       "difficulty_ramp": {
         "label": "Difficulty over time",
         "domain": "elapsed_seconds",
-        "range": [0, 1.2],
+        "range": [
+          0,
+          1.2
+        ],
         "default": [
-          { "x": 0, "y": 0 },
-          { "x": 20, "y": 0.16 },
-          { "x": 60, "y": 0.48 },
-          { "x": 120, "y": 0.82 },
-          { "x": 240, "y": 1.2 }
+          {
+            "x": 0,
+            "y": 0
+          },
+          {
+            "x": 20,
+            "y": 0.16
+          },
+          {
+            "x": 60,
+            "y": 0.48
+          },
+          {
+            "x": 120,
+            "y": 0.82
+          },
+          {
+            "x": 240,
+            "y": 1.2
+          }
         ],
         "easing": "smooth",
         "group": "difficulty",
@@ -139,7 +182,8 @@
         "values": {
           "climb_speed": 0.45,
           "starting_gap": 0.56,
-          "hit_margin": 3.5
+          "hit_margin": 3.5,
+          "turn_smoothing_ms": 240
         }
       },
       "sharp": {
@@ -147,7 +191,7 @@
         "values": {
           "climb_speed": 0.7,
           "turn_speed": 0.8,
-          "turn_smoothing_ms": 25,
+          "turn_smoothing_ms": 120,
           "starting_gap": 0.36,
           "hit_margin": 1
         }
