@@ -11,24 +11,72 @@ window.plethoraBit = {
     const HALF_W = 4;            // corridor half width
     const CEIL = 5;              // corridor height
     const CAM_Y = 1.7;
-    const START_BALLS = 25;
+    const START_BALLS = 30;
     const CRASH_COST = 10;
-    const CRYSTAL_BALLS = 2;
+    const CRYSTAL_BALLS = 3;
     const BALL_R = 0.22;
     const BALL_SPEED = 40;
     const BALL_GRAVITY = 4;
     const MAX_BALLS_LIVE = 16;
-    const SHARD_COUNT = 220;
-    const BLOCKS_PER_STAGE = 8;
+    const SHARD_COUNT = 260;
+    const BLOCKS_PER_LEVEL = 7;
     const VIEW_DIST = 85;
     const NOTES = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5, 1174.66, 1318.51, 1567.98];
 
-    const PALETTES = [
-      { bg: 0x1b1633, tints: [0x9ad8ff, 0xc7a6ff, 0xffb3e6], crystal: 0xff8fd0, floor: 0x2a2050, glow: 0xb69cff },
-      { bg: 0x0c2530, tints: [0x8ff5e0, 0x9ad0ff, 0xd0f7a8], crystal: 0xffe08a, floor: 0x123b48, glow: 0x7ff0d4 },
-      { bg: 0x2b1524, tints: [0xffb0b0, 0xffd6a5, 0xffa6d9], crystal: 0x9ffcff, floor: 0x40203a, glow: 0xffa0b8 },
-      { bg: 0x0c1c3a, tints: [0x7fb2ff, 0x9fe3ff, 0xb9a3ff], crystal: 0xffc2f0, floor: 0x142c58, glow: 0x88b8ff }
+    // Glass tiers: 0 thin (1 hit) · 1 medium (2) · 2 thick (3) · 3 armored (4)
+    const TIER_HP = [1, 2, 3, 4];
+    const TIER_DEPTH = [0.1, 0.2, 0.32, 0.46];
+    const TIER_OPACITY = [0.4, 0.5, 0.62, 0.8];
+    const TIER_DARK = [1, 0.92, 0.78, 0.55];
+    const TIER_POINTS = [10, 20, 35, 60];
+    const TIER_EDGE = [0xffffff, 0x9ae8ff, 0xffd58a, 0xff8f8f];
+
+    // Each level = its own colours, environment, glass shapes, textures, thickness mix and obstacle patterns.
+    const LEVELS = [
+      {
+        name: "Lavender Dawn", scale: "pentatonic",
+        bg: 0x1b1633, tints: [0x9ad8ff, 0xc7a6ff, 0xffb3e6], crystal: 0xff8fd0, floor: 0x2a2050, glow: 0xb69cff,
+        env: { walls: true, strips: true, rings: false, spikes: false, dust: 2.2, shine: 0.25 },
+        shapes: ["rect", "circle"], tex: ["clear", "ribbed"], hp: [70, 30, 0, 0],
+        patterns: ["wall", "grid", "hoops", "wall"]
+      },
+      {
+        name: "Teal Grotto", scale: "lydian",
+        bg: 0x0c2530, tints: [0x8ff5e0, 0x9ad0ff, 0xd0f7a8], crystal: 0xffe08a, floor: 0x123b48, glow: 0x7ff0d4,
+        env: { walls: true, strips: false, rings: false, spikes: true, dust: 3.6, shine: 0.4 },
+        shapes: ["hex", "circle", "rect"], tex: ["frosted", "clear"], hp: [35, 50, 15, 0],
+        patterns: ["wall", "grid", "pillars", "hoops", "layers"]
+      },
+      {
+        name: "Ember Hall", scale: "dorian",
+        bg: 0x2b1524, tints: [0xffb0b0, 0xffd6a5, 0xffa6d9], crystal: 0x9ffcff, floor: 0x40203a, glow: 0xff9a7a,
+        env: { walls: true, strips: false, rings: true, spikes: false, dust: 2.0, shine: 0.3 },
+        shapes: ["diamond", "rect", "triangle"], tex: ["lattice", "ribbed"], hp: [10, 40, 42, 8],
+        patterns: ["wall", "rings", "pillars", "grid", "layers"]
+      },
+      {
+        name: "Sapphire Deep", scale: "major",
+        bg: 0x0c1c3a, tints: [0x7fb2ff, 0x9fe3ff, 0xb9a3ff], crystal: 0xffc2f0, floor: 0x142c58, glow: 0x88b8ff,
+        env: { walls: true, strips: true, rings: false, spikes: false, dust: 5.0, shine: 0.55 },
+        shapes: ["circle", "hex", "diamond"], tex: ["mosaic", "frosted"], hp: [5, 40, 42, 13],
+        patterns: ["grid", "rings", "hoops", "layers", "wall"]
+      },
+      {
+        name: "Aurora Drift", scale: "wholeTone",
+        bg: 0x0a2a24, tints: [0x9dffb8, 0xb9a0ff, 0x8ff0ff], crystal: 0xff9fe0, floor: 0x123a3a, glow: 0x9dffc8,
+        env: { walls: false, strips: false, rings: true, spikes: false, dust: 3.0, shine: 0.8 },
+        shapes: ["rect", "circle", "hex", "diamond", "triangle"], tex: ["clear", "frosted", "ribbed", "lattice", "mosaic"], hp: [0, 30, 45, 25],
+        patterns: ["layers", "rings", "grid", "pillars", "hoops", "wall"]
+      },
+      {
+        name: "Obsidian Night", scale: "hirajoshi",
+        bg: 0x0b0a10, tints: [0xff8a8a, 0xffd07a, 0xa8a0ff], crystal: 0x7ffcff, floor: 0x1a1622, glow: 0xff6a5a,
+        env: { walls: true, strips: true, rings: false, spikes: true, dust: 2.4, shine: 0.7 },
+        shapes: ["rect", "hex", "diamond", "triangle", "circle"], tex: ["lattice", "mosaic", "frosted", "ribbed"], hp: [0, 20, 45, 35],
+        patterns: ["layers", "grid", "rings", "pillars", "wall", "hoops"]
+      }
     ];
+    const levelOf = (i) => LEVELS[i % LEVELS.length];
 
     // ---------------------------------------------------------------- surfaces + HUD (drawn first, never blank)
     const bgRoot = ctx.createRoot({
@@ -50,6 +98,7 @@ window.plethoraBit = {
       '.gd-balls.low{color:#ff9fb2}' +
       '.gd-mid{position:absolute;left:0;right:0;top:calc(env(safe-area-inset-top,0px) + 8px);text-align:center;pointer-events:none}' +
       '.gd-score{font-size:34px;font-weight:700;text-shadow:0 0 14px rgba(200,170,255,.8)}' +
+      '.gd-level{font-size:11px;font-weight:700;letter-spacing:2px;color:#bfe3ff;opacity:.85;min-height:14px}' +
       '.gd-streak{font-size:13px;font-weight:700;letter-spacing:2px;color:#ffe9a8;min-height:16px;text-shadow:0 0 8px rgba(255,220,140,.7)}' +
       '.gd-btn{pointer-events:auto;border:1px solid rgba(190,170,255,.5);background:rgba(30,22,64,.55);color:#e9deff;border-radius:50%;width:34px;height:34px;font-size:16px;line-height:32px;text-align:center;padding:0}' +
       '.gd-panel{position:absolute;left:50%;top:40%;transform:translate(-50%,-50%);width:min(86vw,340px);text-align:center;pointer-events:none}' +
@@ -59,6 +108,7 @@ window.plethoraBit = {
       '.gd-over{background:rgba(22,16,50,.72);border:1px solid rgba(180,160,255,.35);border-radius:18px;padding:16px 14px 14px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}' +
       '.gd-over .gd-title{font-size:22px;letter-spacing:2px}' +
       '.gd-final{font-size:44px;font-weight:700;margin:2px 0;text-shadow:0 0 16px rgba(255,200,240,.7)}' +
+      '.gd-reached{font-size:12px;letter-spacing:2px;color:#bfe3ff}' +
       '.gd-best{font-size:13px;font-weight:700;color:#ffe9a8;letter-spacing:2px;min-height:18px}' +
       '.gd-board{margin:8px 4px 4px;font-size:13px;text-align:left;min-height:96px}' +
       '.gd-row{display:flex;gap:8px;padding:3px 6px;border-radius:8px}' +
@@ -69,21 +119,28 @@ window.plethoraBit = {
       '.gd-status{font-size:11px;color:#a9a0cf;margin:4px 0 8px;min-height:14px}' +
       '.gd-play{pointer-events:auto;border:0;border-radius:24px;padding:12px 34px;font-size:16px;font-weight:700;letter-spacing:2px;color:#241c45;background:linear-gradient(135deg,#bfe3ff,#e0c8ff);box-shadow:0 0 18px rgba(190,170,255,.6)}' +
       '.gd-play:disabled{opacity:.45}' +
+      '.gd-banner{position:absolute;left:0;right:0;top:24%;text-align:center;opacity:0;pointer-events:none}' +
+      '.gd-banner.show{animation:gdb 2.6s ease-out}' +
+      '.gd-banner .b1{font-size:34px;font-weight:700;letter-spacing:5px;text-shadow:0 0 18px rgba(255,255,255,.7)}' +
+      '.gd-banner .b2{font-size:14px;font-weight:700;letter-spacing:4px;margin-top:6px;color:#ffe9a8}' +
+      '@keyframes gdb{0%{opacity:0;transform:scale(.9)}14%{opacity:1;transform:scale(1)}72%{opacity:1}100%{opacity:0}}' +
       '@keyframes gdp{0%,100%{opacity:.45}50%{opacity:1}}' +
       '</style>' +
       '<div class="gd-top">' +
-      '<div class="gd-balls" id="gdBalls"><span></span>25</div>' +
+      '<div class="gd-balls" id="gdBalls"><span></span>30</div>' +
       '<button class="gd-btn" id="gdMute" aria-label="Toggle sound">♪</button>' +
       '</div>' +
-      '<div class="gd-mid"><div class="gd-score" id="gdScore">0</div><div class="gd-streak" id="gdStreak"></div></div>' +
+      '<div class="gd-mid"><div class="gd-score" id="gdScore">0</div><div class="gd-level" id="gdLevel"></div><div class="gd-streak" id="gdStreak"></div></div>' +
+      '<div class="gd-banner" id="gdBanner"><div class="b1"></div><div class="b2"></div></div>' +
       '<div class="gd-panel" id="gdMenu">' +
       '<div class="gd-title">GLASS DRIFT</div>' +
       '<div class="gd-sub">TAP TO START</div>' +
-      '<div class="gd-hint">Tap to throw balls at the glass<br>Crystals give +2 balls · crashing costs 10</div>' +
+      '<div class="gd-hint">Tap to throw balls at the glass<br>Thicker glass takes more hits<br>Crystals give +3 balls · crashing costs 10</div>' +
       '</div>' +
       '<div class="gd-panel gd-over" id="gdOver" style="display:none">' +
       '<div class="gd-title">SHATTERED</div>' +
       '<div class="gd-final" id="gdFinal">0</div>' +
+      '<div class="gd-reached" id="gdReached"></div>' +
       '<div class="gd-best" id="gdBest"></div>' +
       '<div class="gd-board" id="gdBoard"></div>' +
       '<div class="gd-status" id="gdStatus"></div>' +
@@ -92,15 +149,18 @@ window.plethoraBit = {
 
     const ballsEl = root.querySelector("#gdBalls");
     const scoreEl = root.querySelector("#gdScore");
+    const levelEl = root.querySelector("#gdLevel");
     const streakEl = root.querySelector("#gdStreak");
     const muteBtn = root.querySelector("#gdMute");
     const menuEl = root.querySelector("#gdMenu");
     const overEl = root.querySelector("#gdOver");
     const finalEl = root.querySelector("#gdFinal");
+    const reachedEl = root.querySelector("#gdReached");
     const bestEl = root.querySelector("#gdBest");
     const boardEl = root.querySelector("#gdBoard");
     const statusEl = root.querySelector("#gdStatus");
     const playBtn = root.querySelector("#gdPlay");
+    const bannerEl = root.querySelector("#gdBanner");
 
     ctx.markVisualReady("hud-shown");
     ctx.loadFont("Nunito Sans", "nunito-sans", "1.0.0", { weight: "700", style: "normal" }).catch(() => {});
@@ -118,20 +178,18 @@ window.plethoraBit = {
     let distAccum = 0;
     let blockIndex = 0;
     let nextBlockZ = -22;
-    let stage = 0;
-    let overAt = 0;
+    let activeLevel = 0;         // level the player is currently in
+    let levelStarts = [];        // upcoming level boundaries { z, level }
     let lastThrow = 0;
     let shake = 0;
     let smashed = 0;
-    let sessionBest = 0;
     let shownScore = -1;
     let shownBalls = -1;
     let sfxOn = true;
-    let musicHandle = null;
     let musicStarted = false;
 
     // ---------------------------------------------------------------- audio (soft synthesized SFX; music via ctx.music)
-    let ac = null, master = null, noiseBuf = null, lastShatterAt = 0;
+    let ac = null, master = null, noiseBuf = null, lastShatterAt = 0, lastCrackAt = 0;
 
     function initAudio() {
       if (ac) { try { ac.resume(); } catch (e) {} return; }
@@ -163,30 +221,50 @@ window.plethoraBit = {
       o.start(when); o.stop(when + dur + 0.05);
     }
 
-    function sfxShatter(size) {
+    function noiseBurst(t, dur, gain, hpFreq, rate) {
+      const src = ac.createBufferSource();
+      src.buffer = noiseBuf;
+      src.playbackRate.value = rate;
+      const hp = ac.createBiquadFilter();
+      hp.type = "highpass"; hp.frequency.value = hpFreq;
+      const g = ac.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(gain, t + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      src.connect(hp); hp.connect(g); g.connect(master);
+      src.start(t, Math.random() * 0.6); src.stop(t + dur + 0.05);
+    }
+
+    // tier 0..3: thicker glass = deeper, longer, heavier shatter
+    function sfxShatter(tier) {
       if (!audioOk()) return;
       const nowMs = performance.now();
       if (nowMs - lastShatterAt < 35) return;
       lastShatterAt = nowMs;
       try {
         const t = ac.currentTime;
-        const s = Math.min(1.4, 0.55 + size * 0.25);
-        const src = ac.createBufferSource();
-        src.buffer = noiseBuf;
-        src.playbackRate.value = 0.9 + Math.random() * 0.4;
-        const hp = ac.createBiquadFilter();
-        hp.type = "highpass"; hp.frequency.value = 2400;
-        const g = ac.createGain();
-        g.gain.setValueAtTime(0.0001, t);
-        g.gain.exponentialRampToValueAtTime(0.42 * s, t + 0.004);
-        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
-        src.connect(hp); hp.connect(g); g.connect(master);
-        src.start(t, Math.random() * 0.6); src.stop(t + 0.5);
-        const tinkles = 6 + Math.round(size * 3);
+        const s = 0.6 + tier * 0.28;
+        noiseBurst(t, 0.36 + tier * 0.1, 0.4 * s, 2600 - tier * 500, 0.9 + Math.random() * 0.4);
+        const tinkles = 6 + tier * 3;
+        const lo = 2400 - tier * 350;
         for (let i = 0; i < tinkles; i++) {
-          tone(2400 + Math.random() * 4800, t + Math.random() * 0.3, 0.07 + Math.random() * 0.14, 0.035 * s, "sine");
+          tone(lo + Math.random() * 4400, t + Math.random() * 0.3, 0.07 + Math.random() * 0.14, 0.035 * s, "sine");
         }
-        tone(180 + Math.random() * 60, t, 0.12, 0.12 * s, "triangle"); // soft body of the crack
+        tone(190 - tier * 25 + Math.random() * 50, t, 0.14 + tier * 0.04, 0.13 * s, "triangle");
+      } catch (e) {}
+    }
+
+    // glass took a hit but held: short brittle "tink" + a small crack
+    function sfxCrack(tier) {
+      if (!audioOk()) return;
+      const nowMs = performance.now();
+      if (nowMs - lastCrackAt < 40) return;
+      lastCrackAt = nowMs;
+      try {
+        const t = ac.currentTime;
+        noiseBurst(t, 0.07, 0.16, 4200, 1.2);
+        tone(1500 + tier * 240, t, 0.16, 0.08, "triangle");
+        tone(2300 + tier * 300, t + 0.02, 0.1, 0.045, "sine");
       } catch (e) {}
     }
 
@@ -206,6 +284,15 @@ window.plethoraBit = {
         const t = ac.currentTime + 0.01;
         [0, 2, 4, 6].forEach((n, i) => tone(NOTES[n] * 1.5, t + i * 0.07, 0.6, 0.09, "sine"));
         tone(NOTES[8] * 1.5, t + 0.3, 0.7, 0.05, "triangle");
+      } catch (e) {}
+    }
+
+    function sfxLevel() {
+      if (!audioOk()) return;
+      try {
+        const t = ac.currentTime + 0.05;
+        [0, 2, 4, 5, 7].forEach((n, i) => tone(NOTES[n], t + i * 0.12, 0.9, 0.09, "sine"));
+        tone(NOTES[8], t + 0.6, 1.2, 0.05, "triangle");
       } catch (e) {}
     }
 
@@ -258,12 +345,12 @@ window.plethoraBit = {
       musicStarted = true;
       try {
         await ctx.music.unlock();
-        musicHandle = ctx.music.play({
+        ctx.music.play({
           preset: "ambient",
           volume: 0.38,
           tempo: 64,
           intensity: 0.2,
-          scale: "pentatonic",
+          scale: levelOf(activeLevel).scale,
           drumGain: 0,
           fadeInMs: 2500
         });
@@ -274,6 +361,10 @@ window.plethoraBit = {
     function setMusicIntensity(v) {
       if (!musicStarted) return;
       try { ctx.music.setIntensity(v, { fadeMs: 1500 }); } catch (e) {}
+    }
+    function setMusicScale(name) {
+      if (!musicStarted) return;
+      try { ctx.music.setScale(name, { fadeMs: 1500 }); } catch (e) {}
     }
 
     function haptic(kind) {
@@ -295,11 +386,12 @@ window.plethoraBit = {
     renderer.setSize(ctx.width, ctx.height);
 
     const scene = new THREE.Scene();
-    const curBg = new THREE.Color(PALETTES[0].bg);
-    const curFloor = new THREE.Color(PALETTES[0].floor);
-    const curCrystal = new THREE.Color(PALETTES[0].crystal);
-    const curGlow = new THREE.Color(PALETTES[0].glow);
-    const curTints = PALETTES[0].tints.map(c => new THREE.Color(c));
+    const L0 = LEVELS[0];
+    const curBg = new THREE.Color(L0.bg);
+    const curFloor = new THREE.Color(L0.floor);
+    const curCrystal = new THREE.Color(L0.crystal);
+    const curGlow = new THREE.Color(L0.glow);
+    const curTints = L0.tints.map(c => new THREE.Color(c));
     const tgtBg = new THREE.Color(), tgtFloor = new THREE.Color(), tgtCrystal = new THREE.Color(), tgtGlow = new THREE.Color();
     const tgtTints = curTints.map(c => c.clone());
     scene.background = curBg;
@@ -316,22 +408,20 @@ window.plethoraBit = {
     camera.position.set(0, CAM_Y, 0);
 
     scene.add(new THREE.AmbientLight(0x8a80c0, 0.9));
-    const hemi = new THREE.HemisphereLight(0xcfe0ff, 0x30204a, 0.6);
-    scene.add(hemi);
+    scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x30204a, 0.6));
     const sun = new THREE.DirectionalLight(0xffffff, 0.9);
     sun.position.set(-3, 6, 4);
     scene.add(sun);
     const camLight = new THREE.PointLight(0xffffff, 1.0, 26);
     scene.add(camLight);
 
-    // floor with a world-fixed soft grid texture
-    function makeGridTexture() {
-      const N = 32, data = new Uint8Array(N * N * 4);
+    // ---- procedural textures (DataTexture: no canvas needed). Tile = 1 world unit.
+    function dataTex(N, fn) {
+      const data = new Uint8Array(N * N * 4);
       for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-        const edge = x < 2 || y < 2;
+        const px = fn(x, y, N);
         const i = (y * N + x) * 4;
-        const v = edge ? 150 : 255;
-        data[i] = v; data[i + 1] = v; data[i + 2] = Math.min(255, v + 20); data[i + 3] = 255;
+        data[i] = px[0]; data[i + 1] = px[1]; data[i + 2] = px[2]; data[i + 3] = px[3];
       }
       const t = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
       t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -341,8 +431,44 @@ window.plethoraBit = {
       t.needsUpdate = true;
       return t;
     }
+    const texBuilders = {
+      frosted: () => dataTex(64, () => {
+        const n = Math.random();
+        return [225 + n * 30, 235 + n * 20, 255, 140 + n * 115];
+      }),
+      ribbed: () => dataTex(64, (x) => {
+        const w = Math.sin((x / 64) * Math.PI * 8);       // 4 ribs per unit
+        const v = 200 + w * 55;
+        return [v, v, 255, 120 + (w * 0.5 + 0.5) * 135];
+      }),
+      lattice: () => dataTex(64, (x, y) => {
+        const bar = (x % 32) < 3 || (y % 32) < 3;
+        return bar ? [70, 70, 90, 255] : [255, 255, 255, 105];
+      }),
+      mosaic: () => {
+        const cells = [];
+        for (let i = 0; i < 16; i++) cells.push(150 + Math.random() * 105);
+        return dataTex(64, (x, y) => {
+          if ((x % 16) < 2 || (y % 16) < 2) return [40, 40, 60, 255];
+          const c = cells[Math.floor(x / 16) + Math.floor(y / 16) * 4];
+          return [c, 255 - (255 - c) * 0.6, 255, 205];
+        });
+      }
+    };
+    const texMaps = {};
+    function texMap(name) {
+      if (name === "clear") return null;
+      if (!texMaps[name]) texMaps[name] = texBuilders[name]();
+      return texMaps[name];
+    }
+
+    // floor with a world-fixed soft grid
     const FLOOR_LEN = 200, TILE = 2;
-    const gridTex = makeGridTexture();
+    const gridTex = dataTex(32, (x, y) => {
+      const edge = x < 2 || y < 2;
+      const v = edge ? 150 : 255;
+      return [v, v, Math.min(255, v + 20), 255];
+    });
     gridTex.repeat.set(HALF_W * 2 / TILE, FLOOR_LEN / TILE);
     const floorMat = new THREE.MeshStandardMaterial({ color: curFloor, map: gridTex, roughness: 0.55, metalness: 0.25 });
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(HALF_W * 2, FLOOR_LEN), floorMat);
@@ -357,21 +483,63 @@ window.plethoraBit = {
     wallR.rotation.y = -Math.PI / 2; wallR.position.set(HALF_W, CEIL / 2, 0);
     scene.add(wallL, wallR);
 
-    // glowing light strips on the walls give a sense of motion
+    // ---- environment decor pools (toggled per level)
+    const glowMat = new THREE.MeshBasicMaterial({ color: curGlow });
+    const stripGroup = new THREE.Group();
     const STRIP_SPACING = 6, STRIPS_PER_SIDE = 16;
-    const stripMat = new THREE.MeshBasicMaterial({ color: curGlow });
     const stripGeo = new THREE.BoxGeometry(0.08, CEIL, 0.08);
     const strips = [];
     for (let s = -1; s <= 1; s += 2) {
       for (let i = 0; i < STRIPS_PER_SIDE; i++) {
-        const m = new THREE.Mesh(stripGeo, stripMat);
+        const m = new THREE.Mesh(stripGeo, glowMat);
         m.position.set(s * (HALF_W - 0.05), CEIL / 2, -i * STRIP_SPACING);
-        scene.add(m);
+        stripGroup.add(m);
         strips.push(m);
       }
     }
+    scene.add(stripGroup);
 
-    // drifting dust motes
+    const ringGroup = new THREE.Group();
+    const RING_SPACING = 9, RING_COUNT = 10;
+    const ringGeo = new THREE.TorusGeometry(3.7, 0.07, 8, 40);
+    const rings = [];
+    for (let i = 0; i < RING_COUNT; i++) {
+      const m = new THREE.Mesh(ringGeo, glowMat);
+      m.scale.set(1.05, 0.68, 1);
+      m.position.set(0, CEIL / 2, -i * RING_SPACING - 6);
+      ringGroup.add(m);
+      rings.push(m);
+    }
+    scene.add(ringGroup);
+
+    const spikeGroup = new THREE.Group();
+    const SPIKES = 30, SPIKE_SPAN = 150;
+    const spikeGeo = new THREE.ConeGeometry(0.28, 1, 5);
+    const spikeMat = new THREE.MeshPhongMaterial({ color: curGlow, emissive: curGlow, emissiveIntensity: 0.25, flatShading: true, shininess: 80 });
+    const spikes = [];
+    function placeSpike(sp, z) {
+      const type = sp.type;
+      const h = 1 + Math.random() * 1.6;
+      sp.mesh.scale.set(0.8 + Math.random() * 0.8, h, 0.8 + Math.random() * 0.8);
+      if (type === 0) {        // floor spike near a wall
+        sp.mesh.rotation.z = 0;
+        sp.mesh.position.set((Math.random() < 0.5 ? -1 : 1) * (HALF_W - 0.5 - Math.random() * 0.8), h / 2, z);
+      } else {                 // ceiling stalactite
+        sp.mesh.rotation.z = Math.PI;
+        sp.mesh.position.set((Math.random() * 2 - 1) * (HALF_W - 0.6), CEIL - h / 2, z);
+      }
+      sp.z = z;
+    }
+    for (let i = 0; i < SPIKES; i++) {
+      const mesh = new THREE.Mesh(spikeGeo, spikeMat);
+      const sp = { mesh, type: i % 2, z: 0 };
+      placeSpike(sp, -(i / SPIKES) * SPIKE_SPAN - 4);
+      spikeGroup.add(mesh);
+      spikes.push(sp);
+    }
+    scene.add(spikeGroup);
+
+    // drifting dust / bubbles
     const DUST = 140;
     const dustPos = new Float32Array(DUST * 3);
     for (let i = 0; i < DUST; i++) {
@@ -386,26 +554,75 @@ window.plethoraBit = {
     dust.frustumCulled = false;
     scene.add(dust);
 
-    // glass materials (3 shared tints) + edge lines
-    const glassMats = curTints.map(c => new THREE.MeshPhongMaterial({
-      color: c, transparent: true, opacity: 0.5, specular: 0xffffff, shininess: 110,
-      side: THREE.DoubleSide, depthWrite: false
-    }));
-    const edgeMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 });
-    const shardMats = curTints.map(c => new THREE.MeshPhongMaterial({
-      color: c, transparent: true, opacity: 0.7, specular: 0xffffff, shininess: 120, side: THREE.DoubleSide, depthWrite: false
-    }));
-    const boxCache = new Map();
-    function panelGeo(w, h) {
-      const key = w.toFixed(2) + "x" + h.toFixed(2);
-      let e = boxCache.get(key);
+    // ---- glass: shapes, cached geometry, cached materials
+    function shapeFor(kind, w, h) {
+      const s = new THREE.Shape();
+      const hw = w / 2, hh = h / 2;
+      if (kind === "circle") {
+        s.absellipse(0, 0, hw, hh, 0, Math.PI * 2, false, 0);
+      } else if (kind === "diamond") {
+        s.moveTo(0, hh); s.lineTo(hw, 0); s.lineTo(0, -hh); s.lineTo(-hw, 0); s.closePath();
+      } else if (kind === "hex") {
+        s.moveTo(-hw, 0); s.lineTo(-hw / 2, hh); s.lineTo(hw / 2, hh); s.lineTo(hw, 0); s.lineTo(hw / 2, -hh); s.lineTo(-hw / 2, -hh); s.closePath();
+      } else if (kind === "triangle") {
+        s.moveTo(-hw, -hh); s.lineTo(hw, -hh); s.lineTo(0, hh); s.closePath();
+      } else {
+        s.moveTo(-hw, -hh); s.lineTo(hw, -hh); s.lineTo(hw, hh); s.lineTo(-hw, hh); s.closePath();
+      }
+      return s;
+    }
+    // normalized point-in-shape, u,v in [-1,1] of the shape's bounding box
+    function pointIn(kind, u, v) {
+      const au = Math.abs(u), av = Math.abs(v);
+      if (au > 1 || av > 1) return false;
+      if (kind === "circle") return u * u + v * v <= 1;
+      if (kind === "diamond") return au + av <= 1;
+      if (kind === "hex") return au + av * 0.5 <= 1;
+      if (kind === "triangle") return au <= (1 - v) / 2;
+      return true;
+    }
+    function insidePanel(p, lx, ly, margin) {
+      return pointIn(p.shape, lx / (p.w / 2 + margin), ly / (p.h / 2 + margin));
+    }
+
+    const geoCache = new Map();
+    function panelGeo(kind, w, h, depth) {
+      const key = kind + "|" + w.toFixed(2) + "|" + h.toFixed(2) + "|" + depth;
+      let e = geoCache.get(key);
       if (!e) {
-        const geo = new THREE.BoxGeometry(w, h, 0.14);
-        e = { geo, edges: new THREE.EdgesGeometry(geo) };
-        boxCache.set(key, e);
+        const geo = new THREE.ExtrudeGeometry(shapeFor(kind, w, h), { depth, bevelEnabled: false, curveSegments: 20 });
+        geo.translate(0, 0, -depth / 2);
+        e = { geo, edges: new THREE.EdgesGeometry(geo, 40) };
+        geoCache.set(key, e);
       }
       return e;
     }
+
+    const glassCache = new Map();
+    function glassMat(tex, tint, tier) {
+      const key = tex + "|" + tint + "|" + tier;
+      let e = glassCache.get(key);
+      if (!e) {
+        const mat = new THREE.MeshPhongMaterial({
+          color: curTints[tint].clone().multiplyScalar(TIER_DARK[tier]),
+          map: texMap(tex),
+          transparent: true,
+          opacity: TIER_OPACITY[tier],
+          specular: 0xffffff,
+          shininess: 60 + tier * 25,
+          side: THREE.DoubleSide,
+          depthWrite: false
+        });
+        e = { mat, tint, tier };
+        glassCache.set(key, e);
+      }
+      return e.mat;
+    }
+    const edgeMats = TIER_EDGE.map((c, i) => new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: 0.55 + i * 0.13 }));
+    const crackMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95 });
+    const shardMats = curTints.map(c => new THREE.MeshPhongMaterial({
+      color: c, transparent: true, opacity: 0.7, specular: 0xffffff, shininess: 120, side: THREE.DoubleSide, depthWrite: false
+    }));
 
     // balls
     const ballGeo = new THREE.SphereGeometry(BALL_R, 14, 10);
@@ -415,7 +632,7 @@ window.plethoraBit = {
       const mesh = new THREE.Mesh(ballGeo, ballMat);
       mesh.visible = false;
       scene.add(mesh);
-      ballPool.push({ mesh, alive: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, life: 0, hit: false });
+      ballPool.push({ mesh, alive: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, life: 0, hit: false, lastPanel: null });
     }
 
     // crystals
@@ -441,14 +658,46 @@ window.plethoraBit = {
     const tmpV = new THREE.Vector3();
 
     // ---------------------------------------------------------------- world generation
-    function addPanel(x, y, z, w, h) {
-      const e = panelGeo(w, h);
+    function pickWeighted(weights) {
+      let total = 0;
+      for (const w of weights) total += w;
+      let r = Math.random() * total;
+      for (let i = 0; i < weights.length; i++) { r -= weights[i]; if (r <= 0) return i; }
+      return weights.length - 1;
+    }
+    function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+    function tierWeights(lvlIndex) {
+      const lv = levelOf(lvlIndex);
+      const w = lv.hp.slice();
+      const cycle = Math.floor(lvlIndex / LEVELS.length);
+      if (cycle > 0) { w[0] = Math.max(0, w[0] - 20 * cycle); w[3] += 12 * cycle; w[2] += 6 * cycle; }
+      return w;
+    }
+
+    function addPanel(x, y, z, w, h, lvlIndex, opts) {
+      const lv = levelOf(lvlIndex);
+      const o = opts || {};
+      let tier = o.tier !== undefined ? o.tier : pickWeighted(tierWeights(lvlIndex));
+      if (o.maxTier !== undefined) tier = Math.min(tier, o.maxTier);
+      const shape = o.shape || pick(lv.shapes);
+      const tex = o.tex || pick(lv.tex);
       const tint = Math.floor(Math.random() * 3);
-      const mesh = new THREE.Mesh(e.geo, glassMats[tint]);
-      mesh.add(new THREE.LineSegments(e.edges, edgeMat));
+      const depth = TIER_DEPTH[tier];
+      const e = panelGeo(shape, w, h, depth);
+      const mesh = new THREE.Mesh(e.geo, glassMat(tex, tint, tier));
+      mesh.add(new THREE.LineSegments(e.edges, edgeMats[tier]));
       mesh.position.set(x, y, z);
       scene.add(mesh);
-      panels.push({ mesh, x, y, z, w, h, tint, alive: true });
+      panels.push({
+        mesh, x, y, z, w, h, shape, tex, tint, tier, depth,
+        hp: TIER_HP[tier], alive: true, pulse: 0, crack: null, crackN: 0
+      });
+    }
+
+    function removePanel(p) {
+      scene.remove(p.mesh);
+      if (p.crack) { p.crack.geometry.dispose(); p.crack = null; }
     }
 
     function addCrystal(x, y, z) {
@@ -460,49 +709,97 @@ window.plethoraBit = {
 
     function spawnBlock(z) {
       const b = blockIndex++;
-      const roll = Math.random();
-      const tier = Math.min(4, Math.floor(b / 3));
-      let kind = "wall";
-      if (b >= 2) {
-        const opts = ["wall", "grid"];
-        if (tier >= 1) opts.push("pillars", "hoops");
-        if (tier >= 2) opts.push("rings", "hoops");
-        if (tier >= 3) opts.push("rings", "grid", "pillars");
-        kind = opts[Math.floor(roll * opts.length)];
+      const lvlIndex = Math.floor(b / BLOCKS_PER_LEVEL);
+      const inLevel = b % BLOCKS_PER_LEVEL;
+      const lv = levelOf(lvlIndex);
+      if (inLevel === 0 && b > 0) {
+        levelStarts.push({ z: z + 9, level: lvlIndex });
+        // breather: a little crystal trail right before the new level
+        for (let i = 0; i < 4; i++) addCrystal((i % 2 ? 1 : -1) * (0.6 + i * 0.35), 1.6 + Math.sin(i) * 0.5, z + 8 - i * 1.6);
       }
+      // first blocks of the first level are gentle
+      const kind = b < 2 ? "wall" : pick(lv.patterns);
+      const soft = b < 3 ? { maxTier: 1 } : {};
+      const S = () => pick(lv.shapes);
+
       if (kind === "wall") {
-        addPanel(0, CEIL / 2, z, HALF_W * 2 - 0.4, CEIL - 0.2);
+        const shape = S();
+        const rect = shape === "rect";
+        addPanel(0, CEIL / 2, z, rect ? HALF_W * 2 - 0.4 : 6.8, rect ? CEIL - 0.2 : 4.7, lvlIndex, Object.assign({ shape, maxTier: 2 }, soft));
       } else if (kind === "grid") {
-        for (const sx of [-1, 1]) for (const sy of [0, 1]) addPanel(sx * 1.95, 1.2 + sy * 2.4, z, 3.6, 2.3);
+        const shape = S();
+        const big = shape === "rect" ? 1 : 1.2;
+        for (const sx of [-1, 1]) for (const sy of [0, 1]) {
+          addPanel(sx * 1.95, 1.2 + sy * 2.4, z, 3.6 * big, 2.3 * big, lvlIndex, Object.assign({ shape }, soft));
+        }
       } else if (kind === "pillars") {
-        for (const px of [-2.7, 0, 2.7]) addPanel(px, CEIL / 2, z, 1.4, CEIL - 0.2);
+        const shape = S();
+        for (const px of [-2.7, 0, 2.7]) addPanel(px, CEIL / 2, z, 1.4, CEIL - 0.2, lvlIndex, Object.assign({ shape }, soft));
       } else if (kind === "rings") {
-        for (let i = 0; i < 3; i++) addPanel(0, 1.8, z - i * 3, 4.6 - i * 0.6, 3.1);
-      } else {
-        addPanel(0, 1.7, z, 2.4, 2.4);
+        const shape = S();
+        for (let i = 0; i < 3; i++) addPanel(0, 1.8, z - i * 3, (4.6 - i * 0.6) * (shape === "rect" ? 1 : 1.1), 3.1, lvlIndex, Object.assign({ shape }, soft));
+      } else if (kind === "layers") {
+        // stacked panes of rising thickness: thin → medium → thick, one behind the other
+        const shape = S();
+        const tex = pick(lv.tex);
         for (let i = 0; i < 3; i++) {
-          addPanel((Math.random() * 2 - 1) * 2.6, 0.9 + Math.random() * 2.8, z - 2 - i * 2.2, 1.8, 1.8);
+          addPanel(0, 1.9, z - i * 1.9, 3.8 - i * 0.4, 3.4 - i * 0.3, lvlIndex, { shape, tex, tier: Math.min(3, i + (lvlIndex >= 3 ? 1 : 0)) });
+        }
+      } else {
+        addPanel(0, 1.7, z, 2.6, 2.6, lvlIndex, soft);
+        for (let i = 0; i < 3; i++) {
+          addPanel((Math.random() * 2 - 1) * 2.6, 0.9 + Math.random() * 2.8, z - 2 - i * 2.2, 1.9, 1.9, lvlIndex, soft);
         }
       }
-      // crystals ahead of the block so ammo stays sustainable
-      const count = b < 3 ? 3 : Math.random() < 0.7 ? 2 : 1;
+      // crystals ahead of the block; heavier glass levels get extra ammo
+      const extra = lvlIndex >= 2 ? 1 : 0;
+      const count = (b < 3 ? 3 : Math.random() < 0.7 ? 2 : 1) + extra;
       for (let i = 0; i < count; i++) {
         addCrystal((Math.random() * 2 - 1) * 2.4, 1.1 + Math.random() * 2.4, z + 4 + i * 1.6 + Math.random());
       }
-      if (b > 0 && b % BLOCKS_PER_STAGE === 0) setStage(Math.floor(b / BLOCKS_PER_STAGE));
     }
 
-    function currentSpacing() { return Math.max(10, 14 - (-camZ) / 250); }
+    function currentSpacing() { return Math.max(10, 14 - Math.floor(blockIndex / BLOCKS_PER_LEVEL) * 0.5); }
 
-    function setStage(n) {
-      stage = n;
-      const p = PALETTES[n % PALETTES.length];
-      tgtBg.set(p.bg); tgtFloor.set(p.floor); tgtCrystal.set(p.crystal); tgtGlow.set(p.glow);
-      p.tints.forEach((c, i) => tgtTints[i].set(c));
-      if (state === "play") {
-        ctx.platform.milestone("stage_" + (n + 1));
-        setMusicIntensity(Math.min(0.5, 0.2 + n * 0.06));
-        popText("STAGE " + (n + 1), ctx.width / 2, ctx.height * 0.3, "#bfe3ff", 22);
+    function setTargetTheme(lv) {
+      tgtBg.set(lv.bg); tgtFloor.set(lv.floor); tgtCrystal.set(lv.crystal); tgtGlow.set(lv.glow);
+      lv.tints.forEach((c, i) => tgtTints[i].set(c));
+    }
+
+    function applyEnv(env) {
+      wallL.visible = wallR.visible = env.walls;
+      stripGroup.visible = env.strips;
+      ringGroup.visible = env.rings;
+      spikeGroup.visible = env.spikes;
+      dustMat.size = env.dust;
+      floorMat.metalness = 0.2 + env.shine * 0.55;
+      floorMat.roughness = 0.7 - env.shine * 0.5;
+    }
+
+    function showBanner(title, sub) {
+      bannerEl.querySelector(".b1").textContent = title;
+      bannerEl.querySelector(".b2").textContent = sub;
+      bannerEl.classList.remove("show");
+      void bannerEl.offsetWidth;
+      bannerEl.classList.add("show");
+    }
+
+    function activateLevel(i, announce) {
+      activeLevel = i;
+      const lv = levelOf(i);
+      setTargetTheme(lv);
+      applyEnv(lv.env);
+      levelEl.textContent = state === "menu" ? "" : "LEVEL " + (i + 1) + " · " + lv.name.toUpperCase();
+      if (announce) {
+        showBanner("LEVEL " + (i + 1), lv.name.toUpperCase());
+        if (i > 0) {
+          score.add(100 * i, { reason: "level" });
+          sfxLevel();
+          haptic("success");
+          ctx.platform.milestone("level_" + (i + 1));
+        }
+        setMusicIntensity(Math.min(0.5, 0.2 + i * 0.05));
+        setMusicScale(lv.scale);
       }
     }
 
@@ -515,31 +812,28 @@ window.plethoraBit = {
       scene.fog.color.copy(curBg);
       floorMat.color.copy(curFloor);
       wallMat.color.copy(curFloor);
-      stripMat.color.copy(curGlow);
+      glowMat.color.copy(curGlow);
+      spikeMat.color.copy(curGlow);
+      spikeMat.emissive.copy(curGlow);
       crystalMat.color.copy(curCrystal);
       crystalMat.emissive.copy(curCrystal);
       for (let i = 0; i < 3; i++) {
         curTints[i].lerp(tgtTints[i], k);
-        glassMats[i].color.copy(curTints[i]);
         shardMats[i].color.copy(curTints[i]);
       }
+      glassCache.forEach((e) => { e.mat.color.copy(curTints[e.tint]).multiplyScalar(TIER_DARK[e.tier]); });
     }
 
     function resetWorld() {
-      for (const p of panels) scene.remove(p.mesh);
+      for (const p of panels) removePanel(p);
       panels.length = 0;
       for (const c of crystals) scene.remove(c.mesh);
       crystals.length = 0;
-      for (const b of ballPool) { b.alive = false; b.mesh.visible = false; }
+      for (const b of ballPool) { b.alive = false; b.mesh.visible = false; b.lastPanel = null; }
       for (const s of shards) { s.life = 0; s.mesh.visible = false; }
-      camZ = 0; blockIndex = 0; nextBlockZ = -22; stage = 0;
-      setStagePalette(0);
-    }
-
-    function setStagePalette(n) {
-      const p = PALETTES[n % PALETTES.length];
-      tgtBg.set(p.bg); tgtFloor.set(p.floor); tgtCrystal.set(p.crystal); tgtGlow.set(p.glow);
-      p.tints.forEach((c, i) => tgtTints[i].set(c));
+      camZ = 0; blockIndex = 0; nextBlockZ = -22; levelStarts = [];
+      activateLevel(0, false);
+      updatePalette(10);
     }
 
     // ---------------------------------------------------------------- effects
@@ -552,21 +846,25 @@ window.plethoraBit = {
       return { x: (tmpV.x * 0.5 + 0.5) * ctx.width, y: (-tmpV.y * 0.5 + 0.5) * ctx.height };
     }
 
-    function spawnShards(cx, cy, cz, w, h, dirx, diry, dirz, tint) {
-      const area = w * h;
-      const n = Math.max(10, Math.min(34, Math.round(area * 3.2)));
-      const size = Math.max(0.22, Math.min(0.7, Math.sqrt(area) * 0.16));
+    function spawnShards(p, dirx, diry, dirz, countScale) {
+      const area = p.w * p.h;
+      const n = Math.min(46, Math.max(10, Math.round(area * 3.2 * (1 + p.tier * 0.3) * (countScale || 1))));
+      const size = Math.max(0.22, Math.min(0.75, Math.sqrt(area) * 0.16)) * (1 + p.tier * 0.12);
       for (let i = 0; i < n; i++) {
         const s = shards[shardCursor];
         shardCursor = (shardCursor + 1) % SHARD_COUNT;
-        const px = cx + (Math.random() - 0.5) * w;
-        const py = cy + (Math.random() - 0.5) * h;
-        s.mesh.material = shardMats[tint];
-        s.mesh.position.set(px, py, cz);
+        let u = 0, v = 0;
+        for (let t = 0; t < 8; t++) {
+          u = Math.random() * 2 - 1; v = Math.random() * 2 - 1;
+          if (pointIn(p.shape, u, v)) break;
+        }
+        const px = p.x + u * p.w / 2, py = p.y + v * p.h / 2;
+        s.mesh.material = shardMats[p.tint];
+        s.mesh.position.set(px, py, p.z);
         s.mesh.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
         s.size = size * (0.5 + Math.random());
         s.max = s.life = 1.1 + Math.random() * 0.9;
-        const ox = (px - cx) * 0.9, oy = (py - cy) * 0.9;
+        const ox = (px - p.x) * 0.9, oy = (py - p.y) * 0.9;
         s.vx = ox + dirx * 0.12 + (Math.random() - 0.5) * 2;
         s.vy = oy + diry * 0.1 + Math.random() * 2;
         s.vz = dirz * 0.16 + (Math.random() - 0.5) * 3 - speed * 0.5;
@@ -576,24 +874,76 @@ window.plethoraBit = {
       }
     }
 
+    function addCracks(p, lx, ly) {
+      const MAXSEG = 60;
+      if (!p.crack) {
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAXSEG * 6), 3));
+        geo.setDrawRange(0, 0);
+        p.crack = new THREE.LineSegments(geo, crackMat);
+        p.crack.frustumCulled = false;
+        p.mesh.add(p.crack);
+        p.crackN = 0;
+      }
+      const arr = p.crack.geometry.attributes.position.array;
+      const lines = 5 + Math.floor(Math.random() * 3);
+      const reach = Math.min(p.w, p.h) * 0.4;
+      const zf = p.depth / 2 + 0.012;
+      for (let k = 0; k < lines && p.crackN + 2 <= MAXSEG; k++) {
+        const a = Math.random() * Math.PI * 2;
+        const len = (0.35 + Math.random() * 0.65) * reach;
+        const mx = lx + Math.cos(a) * len * 0.5 + (Math.random() - 0.5) * 0.15;
+        const my = ly + Math.sin(a) * len * 0.5 + (Math.random() - 0.5) * 0.15;
+        const ex = mx + Math.cos(a + (Math.random() - 0.5) * 0.7) * len * 0.5;
+        const ey = my + Math.sin(a + (Math.random() - 0.5) * 0.7) * len * 0.5;
+        let i = p.crackN * 6;
+        arr[i++] = lx; arr[i++] = ly; arr[i++] = zf; arr[i++] = mx; arr[i++] = my; arr[i++] = zf;
+        arr[i++] = mx; arr[i++] = my; arr[i++] = zf; arr[i++] = ex; arr[i++] = ey; arr[i++] = zf;
+        p.crackN += 2;
+      }
+      p.crack.geometry.attributes.position.needsUpdate = true;
+      p.crack.geometry.setDrawRange(0, p.crackN * 2);
+    }
+
     // ---------------------------------------------------------------- gameplay actions
     function multiplier() { return 1 + Math.min(4, Math.floor(streak / 5)); }
 
-    function shatterPanel(p, bx, by, bz, dx, dy, dz, byBall) {
+    function breakPanel(p, dx, dy, dz, byBall) {
       p.alive = false;
-      scene.remove(p.mesh);
-      spawnShards(p.x, p.y, p.z, p.w, p.h, dx, dy, dz, p.tint);
-      sfxShatter(Math.sqrt(p.w * p.h) * 0.6);
+      removePanel(p);
+      spawnShards(p, dx, dy, dz, 1);
+      sfxShatter(p.tier);
       smashed++;
       if (byBall) {
-        const pts = 10 * multiplier();
+        const pts = TIER_POINTS[p.tier] * multiplier();
         score.add(pts, { reason: "glass" });
         const pos = project(p.x, p.y, p.z);
         popText("+" + pts, pos.x, pos.y, "#ffe9a8", 20 + multiplier() * 2);
         sfxPoint(Math.min(8, streak));
-        haptic("light");
+        haptic(p.tier >= 2 ? "medium" : "light");
         try { ctx.music.duck(0.3, 250); } catch (e) {}
       }
+    }
+
+    // ball hits glass: chip it (crack + bounce) or shatter it once the hits run out
+    function damagePanel(p, b) {
+      p.hp -= 1;
+      if (p.hp <= 0) {
+        breakPanel(p, b.vx, b.vy, b.vz, true);
+        b.vz *= 0.8; b.vx *= 0.9; // a broken pane slows the ball a little; it can punch through several
+        return;
+      }
+      addCracks(p, b.x - p.x, b.y - p.y);
+      p.pulse = 1;
+      spawnShards(p, b.vx, b.vy, b.vz, 0.18);
+      sfxCrack(p.tier);
+      haptic("light");
+      score.add(2, { reason: "chip" });
+      b.lastPanel = p;
+      b.z = p.z + p.depth / 2 + BALL_R + 0.02;
+      b.vz = Math.abs(b.vz) * 0.28;
+      b.vx = (Math.random() - 0.5) * 5;
+      b.vy = 1.5 + Math.random() * 2;
     }
 
     function onBallHitSomething(ball) {
@@ -620,7 +970,7 @@ window.plethoraBit = {
         const b = ballPool.find(q => !q.alive);
         if (!b) break;
         const spread = count === 1 ? 0 : (k === 0 ? -0.05 : 0.05);
-        b.alive = true; b.hit = false; b.life = 0;
+        b.alive = true; b.hit = false; b.life = 0; b.lastPanel = null;
         b.x = camera.position.x + dir.x * 0.6;
         b.y = camera.position.y + dir.y * 0.6 - 0.25;
         b.z = camera.position.z + dir.z * 0.6;
@@ -653,23 +1003,19 @@ window.plethoraBit = {
         let dead = false;
         for (let s = 0; s < steps && !dead; s++) {
           b.x += b.vx * sdt; b.y += b.vy * sdt; b.z += b.vz * sdt;
-          // corridor bounds
           if (b.x < -HALF_W + BALL_R) { b.x = -HALF_W + BALL_R; b.vx = Math.abs(b.vx) * 0.6; }
           else if (b.x > HALF_W - BALL_R) { b.x = HALF_W - BALL_R; b.vx = -Math.abs(b.vx) * 0.6; }
           if (b.y < BALL_R) { b.y = BALL_R; b.vy = Math.abs(b.vy) * 0.5; b.vx *= 0.92; }
           else if (b.y > CEIL - BALL_R) { b.y = CEIL - BALL_R; b.vy = -Math.abs(b.vy) * 0.5; }
-          // glass
           for (const p of panels) {
-            if (!p.alive) continue;
-            if (Math.abs(b.z - p.z) < 0.07 + BALL_R &&
-                Math.abs(b.x - p.x) < p.w / 2 + BALL_R * 0.5 &&
-                Math.abs(b.y - p.y) < p.h / 2 + BALL_R * 0.5) {
+            if (!p.alive || b.lastPanel === p) continue;
+            if (Math.abs(b.z - p.z) < p.depth / 2 + BALL_R &&
+                insidePanel(p, b.x - p.x, b.y - p.y, BALL_R * 0.5)) {
               onBallHitSomething(b);
-              shatterPanel(p, b.x, b.y, b.z, b.vx, b.vy, b.vz, true);
-              b.vz *= 0.82; b.vx *= 0.9; // glass slows the ball a little; it can punch through several panes
+              damagePanel(p, b);
+              if (b.lastPanel === p) break; // bounced off, stop testing this substep
             }
           }
-          // crystals
           for (const c of crystals) {
             if (!c.alive) continue;
             const dx = b.x - c.x, dy = b.y - c.y, dz = b.z - c.z;
@@ -695,11 +1041,11 @@ window.plethoraBit = {
       popText("+" + CRYSTAL_BALLS + " balls", pos.x, pos.y, "#bfe3ff", 20);
       sfxCrystal();
       haptic("medium");
-      spawnShards(c.x, c.y, c.z, 0.7, 0.7, 0, 0, -1, 1);
+      spawnShards({ x: c.x, y: c.y, z: c.z, w: 0.7, h: 0.7, shape: "rect", tint: 1, tier: 0 }, 0, 0, -1, 1);
     }
 
     function crash(p) {
-      shatterPanel(p, 0, 0, 0, 0, 0, -6, false);
+      breakPanel(p, 0, 0, -6, false);
       balls = Math.max(0, balls - CRASH_COST);
       streak = 0;
       shake = 1;
@@ -708,6 +1054,14 @@ window.plethoraBit = {
       try { ctx.fx.flash({ color: "#ff4d6d", opacity: 0.3, durationMs: 300 }); } catch (e) {}
       popText("-" + CRASH_COST, ctx.width / 2, ctx.height * 0.42, "#ff9fb2", 26);
       if (balls <= 0) endRun();
+    }
+
+    function playerHits(p) {
+      const px = camera.position.x;
+      const lx = px - p.x, ly = CAM_Y - p.y;
+      return insidePanel(p, lx, ly, 0) ||
+        insidePanel(p, lx - 0.45, ly, 0) || insidePanel(p, lx + 0.45, ly, 0) ||
+        insidePanel(p, lx, ly - 0.4, 0) || insidePanel(p, lx, ly + 0.4, 0);
     }
 
     function updateHud() {
@@ -728,7 +1082,6 @@ window.plethoraBit = {
     function startRun() {
       run += 1;
       resetWorld();
-      updatePalette(10);
       score.reset();
       balls = START_BALLS; streak = 0; smashed = 0; distAccum = 0; time = 0;
       speed = 6.5; shake = 0;
@@ -737,7 +1090,7 @@ window.plethoraBit = {
       overEl.style.display = "none";
       shownScore = -1; shownBalls = -1;
       while (nextBlockZ > camZ - VIEW_DIST) { spawnBlock(nextBlockZ); nextBlockZ -= currentSpacing(); }
-      setMusicIntensity(0.2);
+      activateLevel(0, true);
       ctx.platform.start();
       updateHud();
     }
@@ -745,23 +1098,23 @@ window.plethoraBit = {
     function endRun() {
       if (state !== "play") return;
       state = "over";
-      overAt = performance.now();
       const attempt = run;
       const finalScore = Math.round(score.value);
+      const reached = activeLevel + 1;
       sfxOver();
       setMusicIntensity(0.08);
-      ctx.platform.complete({ score: finalScore });
-      sessionBest = Math.max(sessionBest, finalScore);
+      ctx.platform.complete({ score: finalScore, level: reached });
       setTimeout(() => {
         if (disposed || attempt !== run) return;
         finalEl.textContent = String(finalScore);
+        reachedEl.textContent = "LEVEL " + reached + " · " + levelOf(reached - 1).name.toUpperCase();
         bestEl.textContent = "";
         boardEl.textContent = "";
         statusEl.textContent = "Saving score…";
         overEl.style.display = "block";
         playBtn.disabled = true;
         setTimeout(() => { if (!disposed) playBtn.disabled = false; }, 600); // guard against the tap that crashed you
-        submitAndShowBoard(attempt, finalScore);
+        submitAndShowBoard(attempt, finalScore, reached);
       }, 750);
     }
 
@@ -769,7 +1122,7 @@ window.plethoraBit = {
       return row.displayName || row.display_name || row.username || row.userName || row.handle || row.name || "Player";
     }
 
-    function renderBoard(board, finalScore) {
+    function renderBoard(board) {
       boardEl.textContent = "";
       const rows = (board && board.rows) || [];
       if (!rows.length) { boardEl.textContent = "No scores yet — you're first!"; return; }
@@ -785,11 +1138,10 @@ window.plethoraBit = {
       }
     }
 
-    async function submitAndShowBoard(attempt, finalScore) {
+    async function submitAndShowBoard(attempt, finalScore, reached) {
       const opts = { scope: "global", period: "all_time", limit: 5 };
-      let result = null;
       try {
-        result = await score.submit("score", { label: finalScore + " pts" });
+        const result = await score.submit("score", { label: finalScore + " pts · L" + reached });
         if (disposed || attempt !== run) return;
         if (result && result.isPersonalBest) bestEl.textContent = "NEW PERSONAL BEST!";
       } catch (e) {
@@ -800,7 +1152,7 @@ window.plethoraBit = {
         statusEl.textContent = statusEl.textContent || "Updating leaderboard…";
         const board = await score.leaderboard("score", opts);
         if (disposed || attempt !== run) return;
-        renderBoard(board, finalScore);
+        renderBoard(board);
         if (board.viewerRank && board.viewerRank.rank) {
           statusEl.textContent = "Your rank: #" + board.viewerRank.rank + (board.totalRanked ? " of " + board.totalRanked : "");
         } else {
@@ -844,7 +1196,8 @@ window.plethoraBit = {
       updatePalette(dt);
 
       if (state === "play") {
-        speed = Math.min(11, 6.5 + (-camZ) / 140);
+        const target = Math.min(12.5, 6.5 + activeLevel * 0.55);
+        speed += (target - speed) * Math.min(1, dt * 0.6);
         camZ -= speed * dt;
         distAccum += speed * dt;
         while (distAccum >= 3) { distAccum -= 3; score.add(1, { reason: "distance" }); }
@@ -857,13 +1210,16 @@ window.plethoraBit = {
 
       while (nextBlockZ > camZ - VIEW_DIST) { spawnBlock(nextBlockZ); nextBlockZ -= currentSpacing(); }
 
+      // crossing into a new level: swap theme + environment, announce it
+      while (levelStarts.length && camZ <= levelStarts[0].z) {
+        const nl = levelStarts.shift().level;
+        activateLevel(nl, state === "play");
+      }
+
       if (state === "play") {
-        const px = camera.position.x;
         for (const p of panels) {
           if (!p.alive) continue;
-          if (p.z > camZ - 0.3 && p.z < camZ + 1.5 &&
-              Math.abs(px - p.x) < p.w / 2 + 0.5 &&
-              Math.abs(CAM_Y - p.y) < p.h / 2 + 0.45) {
+          if (p.z + p.depth / 2 > camZ - 0.3 && p.z - p.depth / 2 < camZ + 1.5 && playerHits(p)) {
             crash(p);
             if (state !== "play") break;
           }
@@ -876,7 +1232,12 @@ window.plethoraBit = {
 
       // recycle what's behind us
       for (let i = panels.length - 1; i >= 0; i--) {
-        if (panels[i].z > camZ + 5) { scene.remove(panels[i].mesh); panels.splice(i, 1); }
+        const p = panels[i];
+        if (p.z > camZ + 5) { removePanel(p); panels.splice(i, 1); continue; }
+        if (p.alive && p.pulse > 0) {
+          p.pulse = Math.max(0, p.pulse - dt * 6);
+          p.mesh.scale.setScalar(1 + p.pulse * 0.035);
+        }
       }
       for (let i = crystals.length - 1; i >= 0; i--) {
         const c = crystals[i];
@@ -918,6 +1279,12 @@ window.plethoraBit = {
       for (const st of strips) {
         if (st.position.z > camZ + 6) st.position.z -= STRIPS_PER_SIDE * STRIP_SPACING;
       }
+      for (const rg of rings) {
+        if (rg.position.z > camZ + 6) rg.position.z -= RING_COUNT * RING_SPACING;
+      }
+      for (const sp of spikes) {
+        if (sp.z > camZ + 6) placeSpike(sp, sp.z - SPIKE_SPAN);
+      }
       for (let i = 0; i < DUST; i++) {
         const zi = i * 3 + 2;
         dustPos[i * 3 + 1] += Math.sin(time + i) * 0.002;
@@ -942,10 +1309,13 @@ window.plethoraBit = {
       try { ctx.music.stop({ fadeOutMs: 200 }); } catch (e) {}
       try { if (ac) ac.close(); } catch (e) {}
       try {
-        boxCache.forEach(e => { e.geo.dispose(); e.edges.dispose(); });
-        [ballGeo, crystalGeo, shardGeo, dustGeo, stripGeo, wallGeo].forEach(g => g.dispose());
-        [ballMat, crystalMat, floorMat, wallMat, stripMat, dustMat, edgeMat].forEach(m => m.dispose());
-        glassMats.forEach(m => m.dispose());
+        for (const p of panels) removePanel(p);
+        geoCache.forEach(e => { e.geo.dispose(); e.edges.dispose(); });
+        glassCache.forEach(e => e.mat.dispose());
+        Object.keys(texMaps).forEach(k => texMaps[k].dispose());
+        [ballGeo, crystalGeo, shardGeo, dustGeo, stripGeo, wallGeo, ringGeo, spikeGeo].forEach(g => g.dispose());
+        [ballMat, crystalMat, floorMat, wallMat, glowMat, spikeMat, dustMat, crackMat].forEach(m => m.dispose());
+        edgeMats.forEach(m => m.dispose());
         shardMats.forEach(m => m.dispose());
         gridTex.dispose();
         floor.geometry.dispose();
@@ -954,6 +1324,7 @@ window.plethoraBit = {
     });
 
     // first visible frame (title over a slowly drifting glass corridor)
+    activateLevel(0, false);
     update(16);
     render();
     ctx.platform.ready();

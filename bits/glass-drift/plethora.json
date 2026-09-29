@@ -3,14 +3,24 @@
   "runtime": "plethora-bit@2",
   "entry": "main.js",
   "title": "Glass Drift",
-  "description": "Glide through a dreamy glass corridor, throw balls to shatter every pane, grab crystals for ammo, and climb the leaderboard.",
-  "tags": ["arcade", "3d", "relaxing"],
-  "permissions": ["audio", "backgroundMusic", "haptics"],
-  "dependencies": ["three@0.164.1"],
+  "description": "Glide through six themed glass worlds. Tap to throw balls \u2014 thin panes shatter, thick ones crack first. Grab crystals for ammo and climb the leaderboard.",
+  "tags": [
+    "arcade",
+    "3d",
+    "relaxing"
+  ],
+  "permissions": [
+    "audio",
+    "backgroundMusic",
+    "haptics"
+  ],
+  "dependencies": [
+    "three@0.164.1"
+  ],
   "onboarding": {
     "kind": "one_line",
-    "version": 1,
-    "message": "Tap to throw balls. Smash glass, hit crystals!"
+    "version": 2,
+    "message": "Tap to throw balls. Thick glass takes more hits!"
   },
   "memory": {
     "records": {
@@ -19,8 +29,15 @@
         "valueType": "number",
         "order": "desc",
         "format": "integer",
-        "periods": ["daily", "weekly", "all_time"],
-        "scopes": ["following", "global"],
+        "periods": [
+          "daily",
+          "weekly",
+          "all_time"
+        ],
+        "scopes": [
+          "following",
+          "global"
+        ],
         "dedupe": "best_per_user"
       }
     }
