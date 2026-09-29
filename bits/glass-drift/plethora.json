@@ -3,7 +3,7 @@
   "runtime": "plethora-bit@2",
   "entry": "main.js",
   "title": "Glass Drift",
-  "description": "Glide through six themed glass worlds. Tap to throw balls \u2014 thin panes shatter, thick ones crack first. Grab crystals for ammo and climb the leaderboard.",
+  "description": "Drift through six architectural glass worlds with swinging pendulums, sliding doors and spinning rotors. Thick glass cracks before it breaks, rare crystals give more balls, and every level ends at a door.",
   "tags": [
     "arcade",
     "3d",
@@ -19,8 +19,8 @@
   ],
   "onboarding": {
     "kind": "one_line",
-    "version": 2,
-    "message": "Tap to throw balls. Thick glass takes more hits!"
+    "version": 3,
+    "message": "Tap to throw balls. Lead the moving glass!"
   },
   "memory": {
     "records": {
