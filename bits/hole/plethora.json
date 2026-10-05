@@ -3,11 +3,26 @@
   "runtime": "plethora-bit@2",
   "entry": "main.js",
   "title": "HOLE",
-  "description": "Carry a living 3D aperture. What it swallows changes its shape — and its shape decides what it can swallow next. Drag or tilt to steer.",
-  "tags": ["arcade", "3d", "shapes", "motion", "endless"],
-  "permissions": ["motion", "haptics", "backgroundMusic"],
-  "dependencies": ["three@0.164.1"],
-  "onboarding": { "kind": "immersive", "version": 1 },
+  "description": "Every piece is hole-sized: same shape drops in, a badge on top changes what your hole becomes, wrong shapes crack it. Drag or tilt to steer.",
+  "tags": [
+    "arcade",
+    "3d",
+    "shapes",
+    "motion",
+    "endless"
+  ],
+  "permissions": [
+    "motion",
+    "haptics",
+    "backgroundMusic"
+  ],
+  "dependencies": [
+    "three@0.164.1"
+  ],
+  "onboarding": {
+    "kind": "immersive",
+    "version": 1
+  },
   "memory": {
     "records": {
       "score": {
@@ -15,8 +30,15 @@
         "valueType": "number",
         "order": "desc",
         "format": "integer",
-        "periods": ["daily", "weekly", "all_time"],
-        "scopes": ["following", "global"],
+        "periods": [
+          "daily",
+          "weekly",
+          "all_time"
+        ],
+        "scopes": [
+          "following",
+          "global"
+        ],
         "dedupe": "best_per_user"
       }
     }
