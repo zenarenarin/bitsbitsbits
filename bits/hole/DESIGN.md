@@ -1,4 +1,30 @@
-# HOLE: design notes and critique
+# HOLE: design notes
+
+## v2 rules (rebuilt after the first playtest feedback)
+
+The first version had shapes bigger than the hole, which made no sense when the hole never grows. It also had almost no way to lose. v2 replaces those systems with four rules:
+
+1. **Every piece is hole-sized.** If it's the same shape as the hole, it drops in. Size never matters.
+2. **A badge on top of a piece is the shape the hole becomes.** The rim colour always shows the current shape, so pieces of matching colour are food.
+3. **You lose by cracking the hole.** The hole has 3 lives. A crack costs a life, and each crack visibly deforms the aperture. At 0 lives it collapses and the run ends. A crack happens when:
+   - a wrong-shaped piece slides over the hole,
+   - a black shard (which homes in on you) touches it, or
+   - the hunger ring around the hole runs out.
+4. **Transforming flips the whole field.** Yesterday's food becomes today's threat. There is a short grace period after each transformation so this isn't unfair.
+
+How a run plays:
+
+- **Loop:** FLOW (mixed pieces) → RUSH warning (the shape is announced and transformers into it appear) → RUSH (a stream of that shape). Becoming the rush shape in time gives double points; not becoming it means dodging a crowded field.
+- **Repair:** every 8 eats in a row without a crack restores one life.
+- **Removed systems:** small or oversized pieces, tap-to-twist, shape blending weights, and themed giant objects.
+- **Orientation still matters:** spinning pieces only drop in when they line up with the hole.
+
+Bot playtest: a do-nothing player loses in about 25 seconds. A clumsy dodging bot reaches about 90 seconds and around 2,000 points.
+
+---
+
+## v1 notes (historical)
+
 
 You carry a 3D aperture cut into a plaster slab. Whatever it swallows changes its geometry, and its geometry decides what it can swallow next.
 
