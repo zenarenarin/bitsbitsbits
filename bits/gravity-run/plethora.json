@@ -1,0 +1,157 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "Gravity Run",
+  "description": "Tilt your phone to roll a heavy steel ball along a carved channel and drop it into the hole. Touch an edge and the run is over.",
+  "tags": ["game", "physics", "tilt", "skill", "puzzle"],
+  "permissions": ["motion", "haptics", "audio"],
+  "dependencies": ["three@0.164.1"],
+  "onboarding": {
+    "kind": "immersive",
+    "version": 1
+  },
+  "memory": {
+    "records": {
+      "furthest_level": {
+        "label": "Furthest Level",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": ["weekly", "all_time"],
+        "scopes": ["following", "global"],
+        "dedupe": "best_per_user"
+      }
+    }
+  },
+  "game": {
+    "progress": {
+      "main": {
+        "label": "Level progress",
+        "stateSchemaVersion": 1,
+        "ttlDays": 180
+      }
+    }
+  },
+  "tuning": {
+    "schemaVersion": 1,
+    "groups": {
+      "feel": { "label": "Ball Feel" },
+      "difficulty": { "label": "Difficulty" },
+      "visual": { "label": "Board" },
+      "audio": { "label": "Sound & Haptics" },
+      "debug": { "label": "Draft Testing" }
+    },
+    "knobs": {
+      "tilt_range": {
+        "label": "Tilt for full force (degrees)",
+        "type": "number",
+        "default": 22,
+        "min": 10,
+        "max": 40,
+        "step": 1,
+        "group": "feel",
+        "intent": "feel",
+        "apply": "live"
+      },
+      "roll_force": {
+        "label": "Rolling force",
+        "type": "number",
+        "default": 1,
+        "min": 0.6,
+        "max": 1.6,
+        "step": 0.05,
+        "group": "feel",
+        "intent": "gameplay",
+        "apply": "live"
+      },
+      "rolling_friction": {
+        "label": "Rolling friction (higher = less coasting)",
+        "type": "number",
+        "default": 1,
+        "min": 0.4,
+        "max": 2,
+        "step": 0.05,
+        "group": "feel",
+        "intent": "gameplay",
+        "apply": "live"
+      },
+      "invert_forward": {
+        "label": "Invert forward/back tilt",
+        "type": "boolean",
+        "default": false,
+        "group": "feel",
+        "intent": "feel",
+        "apply": "live"
+      },
+      "invert_sideways": {
+        "label": "Invert left/right tilt",
+        "type": "boolean",
+        "default": false,
+        "group": "feel",
+        "intent": "feel",
+        "apply": "live"
+      },
+      "edge_tolerance": {
+        "label": "Edge forgiveness (fraction of ball radius)",
+        "type": "number",
+        "default": 0.04,
+        "min": 0,
+        "max": 0.15,
+        "step": 0.01,
+        "group": "difficulty",
+        "intent": "difficulty",
+        "apply": "live"
+      },
+      "board_finish": {
+        "label": "Board finish",
+        "type": "choice",
+        "default": "graphite",
+        "options": ["graphite", "walnut", "porcelain"],
+        "group": "visual",
+        "intent": "visual",
+        "apply": "restart"
+      },
+      "sound_volume": {
+        "label": "Sound volume",
+        "type": "percent",
+        "default": 0.7,
+        "min": 0,
+        "max": 1,
+        "step": 0.05,
+        "group": "audio",
+        "intent": "audio",
+        "apply": "live"
+      },
+      "haptics": {
+        "label": "Haptics",
+        "type": "boolean",
+        "default": true,
+        "group": "audio",
+        "intent": "feel",
+        "apply": "live"
+      },
+      "start_level": {
+        "label": "Start at level (draft preview)",
+        "type": "integer",
+        "default": 1,
+        "min": 1,
+        "max": 30,
+        "step": 1,
+        "group": "debug",
+        "intent": "debug",
+        "apply": "restart"
+      }
+    },
+    "presets": {
+      "gentle": {
+        "label": "Gentle",
+        "values": { "roll_force": 0.85, "rolling_friction": 1.3, "edge_tolerance": 0.1 }
+      },
+      "slippery": {
+        "label": "Slippery steel",
+        "values": { "roll_force": 1.1, "rolling_friction": 0.6 }
+      }
+    }
+  }
+}
