@@ -16,6 +16,9 @@ const BUMPER_LIMIT = BUMPER_T + Math.sqrt((BALL_R + BUMPER_T) ** 2 - (BALL_R - B
 const HOLE_DEPTH = 0.95;
 const GATE_H = 0.3;
 const GATE_T = 0.1;
+const GLASS_T = 0.18;
+const TRAIL_LIFE = 3.2;
+const TRAIL_MAX = 240;
 const STEP_HZ = 120;
 const CAM_TILT = 11 * DEG;
 const CAM_FOV = 30;
@@ -761,6 +764,125 @@ function probe(lv, px, py, idx, gateT) {
   return HIT;
 }
 
+// One fixed physics step for the ball, shared by the game and the offline checks.
+// b carries { x, y, vx, vy, idx } and is updated in place.
+const STEP = { kind: "roll", x: 0, y: 0, hitKind: "", gap: 0, toward: 0, bump: 0, moved: 0 };
+function simulateStep(lv, b, tiltX, tiltY, P, dt, gateT, tolerance) {
+  let ax = tiltX;
+  let ay = -tiltY;
+  const mag = Math.hypot(ax, ay);
+  if (mag > 1) {
+    ax /= mag;
+    ay /= mag;
+  }
+  const m = Math.min(1, mag);
+  const shaped = m > 1e-4 ? Math.pow(m, 1.2) / m : 0;
+  ax *= P.acc * shaped;
+  ay *= P.acc * shaped;
+
+  // Hole lip: once the centre is over the hole the ball tips toward its middle.
+  const hx = lv.hole.x - b.x;
+  const hy = lv.hole.y - b.y;
+  const hd = Math.hypot(hx, hy);
+  if (hd < lv.hole.r && hd > 1e-4) {
+    const pull = 12 * (1 - hd / lv.hole.r) + 3;
+    ax += (hx / hd) * pull;
+    ay += (hy / hd) * pull;
+  }
+
+  let vx = b.vx + ax * dt;
+  let vy = b.vy + ay * dt;
+  let sp = Math.hypot(vx, vy);
+  const dec = (P.roll + P.damp * sp) * dt;
+  if (sp <= dec) {
+    vx = 0;
+    vy = 0;
+    sp = 0;
+  } else {
+    const k = (sp - dec) / sp;
+    vx *= k;
+    vy *= k;
+    sp -= dec;
+  }
+  if (sp > P.vmax) {
+    vx *= P.vmax / sp;
+    vy *= P.vmax / sp;
+    sp = P.vmax;
+  }
+
+  const ox = b.x;
+  const oy = b.y;
+  let nx = ox + vx * dt;
+  let ny = oy + vy * dt;
+  let idx = nearestIndex(lv, nx, ny, b.idx);
+  STEP.bump = 0;
+
+  // Rubber start cup: bounce, never fail. Only inside the cup itself, i.e. when the
+  // nearest centreline sample is the very start and the ball is behind it.
+  const st = lv.start;
+  if (idx <= 2) {
+    const bx = nx - st.x;
+    const by = ny - st.y;
+    if (bx * Math.cos(st.h) + by * Math.sin(st.h) < 0) {
+      const d = Math.hypot(bx, by);
+      if (d > st.limit) {
+        const ux = bx / d;
+        const uy = by / d;
+        nx = st.x + ux * st.limit;
+        ny = st.y + uy * st.limit;
+        const vn = vx * ux + vy * uy;
+        if (vn > 0) {
+          vx -= 1.35 * vn * ux;
+          vy -= 1.35 * vn * uy;
+          STEP.bump = vn;
+        }
+        idx = nearestIndex(lv, nx, ny, idx);
+      }
+    }
+  }
+
+  const hit = probe(lv, nx, ny, idx, gateT);
+  if (hit.gap < -tolerance) {
+    // Find the touching position along this step, then stop dead there.
+    const kind = hit.kind;
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 10; i++) {
+      const mid = (lo + hi) / 2;
+      const mx = lerp(ox, nx, mid);
+      const my = lerp(oy, ny, mid);
+      if (probe(lv, mx, my, nearestIndex(lv, mx, my, b.idx), gateT).gap < -tolerance) hi = mid;
+      else lo = mid;
+    }
+    b.x = lerp(ox, nx, lo);
+    b.y = lerp(oy, ny, lo);
+    b.vx = 0;
+    b.vy = 0;
+    b.idx = nearestIndex(lv, b.x, b.y, b.idx);
+    const h2 = probe(lv, b.x, b.y, b.idx, gateT);
+    STEP.kind = "fail";
+    STEP.x = h2.x;
+    STEP.y = h2.y;
+    STEP.hitKind = kind;
+    STEP.moved = Math.hypot(b.x - ox, b.y - oy);
+    return STEP;
+  }
+
+  b.x = nx;
+  b.y = ny;
+  b.vx = vx;
+  b.vy = vy;
+  b.idx = idx;
+  STEP.moved = Math.hypot(nx - ox, ny - oy);
+  STEP.gap = hit.gap;
+  STEP.x = hit.x;
+  STEP.y = hit.y;
+  STEP.toward = sp > 0 ? ((hit.x - nx) * vx + (hit.y - ny) * vy) / (Math.hypot(hit.x - nx, hit.y - ny) || 1) : 0;
+  const cd = Math.hypot(lv.hole.x - nx, lv.hole.y - ny);
+  STEP.kind = cd < Math.max(lv.hole.r - BALL_R * 0.28, 0.2) ? "capture" : "roll";
+  return STEP;
+}
+
 // ─────────────────────────────────────────────────────────── procedural textures (no canvas)
 
 function rng(seed) {
@@ -905,10 +1027,11 @@ const FINISHES = {
     plateMetal: 0.35,
     plateRough: 0.6,
     plateTex: "grain",
-    floor: 0xd8d0c2,
-    floorRough: 0.88,
+    base: 0x7c8b95,
+    glassTint: 0xd2efe6,
+    trailAdd: false,
     rail: 0xc9a66b,
-    mark: 0x8a8174,
+    mark: 0xdfeaf0,
     rubber: 0x1b1a19,
     gate: 0xb8bec5,
     envRoom: 0x57524b,
@@ -922,10 +1045,11 @@ const FINISHES = {
     plateMetal: 0.0,
     plateRough: 0.55,
     plateTex: "wood",
-    floor: 0xece3d1,
-    floorRough: 0.9,
+    base: 0xcdbfa4,
+    glassTint: 0xe6efd8,
+    trailAdd: false,
     rail: 0xd4ae6f,
-    mark: 0x9c8f78,
+    mark: 0xf1e6d2,
     rubber: 0x221a14,
     gate: 0xc5c9cd,
     envRoom: 0x5a4a3c,
@@ -939,10 +1063,11 @@ const FINISHES = {
     plateMetal: 0.0,
     plateRough: 0.34,
     plateTex: "grain",
-    floor: 0xa3aaae,
-    floorRough: 0.82,
+    base: 0x8d9ca6,
+    glassTint: 0xd8efea,
+    trailAdd: false,
     rail: 0x9ea6ae,
-    mark: 0x6d7479,
+    mark: 0xf4f7f8,
     rubber: 0x2a2b2c,
     gate: 0x8d959c,
     envRoom: 0x9a958d,
@@ -980,15 +1105,21 @@ function createWorld(THREE, renderer, finish) {
     const m = envMesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(hex).multiplyScalar(k), side: THREE.DoubleSide }));
     m.position.set(x, y, z);
     m.lookAt(0, 0, 0);
+    return m;
   };
-  panel(26, 26, 0xf4efe6, 1.15, 0, 0, 16);
+  const ceiling = panel(26, 26, 0xf4efe6, 1.15, 0, 0, 16);
   panel(12, 7, 0xffffff, 7, -5, 6, 14);
   panel(3, 16, 0xffe9cf, 2.6, 13, -1, 7);
   panel(16, 2.4, 0xd8e4ff, 1.8, 0, -14, 6);
   panel(4, 4, 0xffffff, 2.6, 7, 10, 12);
+  // The board and glass reflect discrete softboxes; the steel ball also sees a bright ceiling.
   const pmrem = new THREE.PMREMGenerator(renderer);
+  ceiling.visible = false;
   const envRT = pmrem.fromScene(envScene, 0.03);
+  ceiling.visible = true;
+  const ballEnvRT = pmrem.fromScene(envScene, 0.03);
   pmrem.dispose();
+  keep(ballEnvRT);
   envGeos.forEach(g => g.dispose());
   envMats.forEach(m => m.dispose());
   keep(envRT);
@@ -1046,17 +1177,38 @@ function createWorld(THREE, renderer, finish) {
     plate: keep(new THREE.MeshStandardMaterial({ color: finish.plate, metalness: finish.plateMetal, roughness: finish.plateRough, map: plateMap, bumpMap: plateBump, bumpScale: 0.9, envMapIntensity: 0.42 })),
     wall: keep(new THREE.MeshStandardMaterial({ color: finish.rail, metalness: 1, roughness: 0.34, envMapIntensity: 1.1 })),
     rail: keep(new THREE.MeshStandardMaterial({ color: finish.rail, metalness: 1, roughness: 0.26, envMapIntensity: 1.25 })),
-    floor: keep(new THREE.MeshStandardMaterial({ color: finish.floor, metalness: 0, roughness: finish.floorRough, map: floorMap, bumpMap: floorBump, bumpScale: 0.6, envMapIntensity: 0.3 })),
-    ball: keep(new THREE.MeshStandardMaterial({ color: 0xf4f5f7, metalness: 1, roughness: 0.16, roughnessMap: ballRough, envMapIntensity: 1.45 })),
+    base: keep(new THREE.MeshStandardMaterial({ color: finish.base, metalness: 0, roughness: 0.82, map: floorMap, bumpMap: floorBump, bumpScale: 0.5, envMapIntensity: 0.3 })),
+    // The path itself: a clear, slightly green-tinted glass plate with real refraction.
+    glass: keep(new THREE.MeshPhysicalMaterial({
+      color: 0xffffff,
+      metalness: 0,
+      roughness: 0.03,
+      transmission: 1,
+      thickness: GLASS_T * 1.6,
+      ior: 1.52,
+      attenuationColor: new THREE.Color(finish.glassTint),
+      attenuationDistance: 0.55,
+      specularIntensity: 1,
+      clearcoat: 1,
+      clearcoatRoughness: 0.02,
+      envMapIntensity: 1.35
+    })),
+    glint: keep(new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })),
+    // Broken glass shows its green edge; strong reflections make fragments glint as they tumble.
+    shard: keep(new THREE.MeshStandardMaterial({ color: 0x8fcfc4, metalness: 0, roughness: 0.04, transparent: true, opacity: 0.88, envMapIntensity: 2.6, side: THREE.DoubleSide, depthWrite: false })),
+    crack: keep(new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide })),
+    crackGlow: keep(new THREE.MeshBasicMaterial({ color: 0xf4fbff, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide })),
+    frost: keep(new THREE.MeshBasicMaterial({ color: 0xffffff, alphaMap: radial, transparent: true, opacity: 0.6, depthWrite: false })),
+    ball: keep(new THREE.MeshStandardMaterial({ color: 0xf4f5f7, metalness: 1, roughness: 0.16, roughnessMap: ballRough, envMap: ballEnvRT.texture, envMapIntensity: 1.45 })),
     holeWall: keep(new THREE.MeshStandardMaterial({ color: 0x3a3632, roughness: 0.95, side: THREE.BackSide, vertexColors: true })),
     holeBottom: keep(new THREE.MeshStandardMaterial({ color: 0x0b0a09, roughness: 1 })),
     rubber: keep(new THREE.MeshStandardMaterial({ color: finish.rubber, roughness: 0.62, metalness: 0 })),
     gate: keep(new THREE.MeshStandardMaterial({ color: finish.gate, metalness: 1, roughness: 0.3, envMapIntensity: 1.1 })),
     slot: keep(new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.32, depthWrite: false })),
-    mark: keep(new THREE.MeshBasicMaterial({ color: finish.mark, transparent: true, opacity: 0.6, depthWrite: false })),
+    mark: keep(new THREE.MeshBasicMaterial({ color: finish.mark, transparent: true, opacity: 0.38, depthWrite: false })),
     ao: keep(new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false })),
-    shadow: keep(new THREE.MeshBasicMaterial({ color: 0x000000, alphaMap: radial, transparent: true, opacity: 0.6, depthWrite: false })),
-    flash: keep(new THREE.MeshBasicMaterial({ color: new THREE.Color(finish.ui.danger), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }))
+    shadow: keep(new THREE.MeshBasicMaterial({ color: 0x000000, alphaMap: radial, transparent: true, opacity: 0.3, depthWrite: false })),
+    flash: keep(new THREE.MeshBasicMaterial({ color: 0xcfefff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }))
   };
 
   const ballGeo = keep(new THREE.SphereGeometry(BALL_R, 64, 40));
@@ -1069,8 +1221,11 @@ function createWorld(THREE, renderer, finish) {
   const flash = new THREE.Mesh(keep(new THREE.RingGeometry(0.07, 0.12, 40)), mats.flash);
   flash.renderOrder = 3;
   scene.add(flash);
-  const flashLight = new THREE.PointLight(new THREE.Color(finish.ui.danger), 0, 2.6, 2);
+  const flashLight = new THREE.PointLight(0xd6f2ff, 0, 2.6, 2);
   scene.add(flashLight);
+  // Soft blue light that travels with the ball while it rolls.
+  const glow = new THREE.PointLight(0x2f9bff, 0, 2.2, 2);
+  scene.add(glow);
 
   let level = null;
   const V2 = (x, y) => new THREE.Vector2(x, y);
@@ -1123,6 +1278,8 @@ function createWorld(THREE, renderer, finish) {
   }
 
   function setLevel(lv) {
+    clearFx();
+    trailClear();
     if (level) {
       scene.remove(level.group);
       level.geos.forEach(g => g.dispose());
@@ -1144,40 +1301,51 @@ function createWorld(THREE, renderer, finish) {
     slab.holes.push(new THREE.Path(lv.outline.map(p => V2(p[0], p[1]))));
     add(new THREE.ExtrudeGeometry(slab, { depth: PLATE_H, bevelEnabled: false, curveSegments: 1 }), [mats.plate, mats.wall], { cast: true, receive: true });
 
-    // Channel floor with the destination hole.
-    const floorShape = new THREE.Shape([V2(-16, -22), V2(16, -22), V2(16, 22), V2(-16, 22)]);
+    // Base under the glass, with the destination hole.
+    const baseShape = new THREE.Shape([V2(-16, -22), V2(16, -22), V2(16, 22), V2(-16, 22)]);
     const hp = new THREE.Path();
     hp.absarc(lv.hole.x, lv.hole.y, lv.hole.r, 0, Math.PI * 2, true);
-    floorShape.holes.push(hp);
-    add(new THREE.ShapeGeometry(floorShape, 48), mats.floor, { receive: true });
+    baseShape.holes.push(hp);
+    add(new THREE.ShapeGeometry(baseShape, 48), mats.base, { receive: true }).position.z = -GLASS_T;
+
+    // The glass path: a plate exactly the shape of the route, its top is what the ball rolls on.
+    const glassShape = new THREE.Shape(lv.outline.map(p => V2(p[0], p[1])));
+    const gh = new THREE.Path();
+    gh.absarc(lv.hole.x, lv.hole.y, lv.hole.r, 0, Math.PI * 2, true);
+    glassShape.holes.push(gh);
+    add(new THREE.ExtrudeGeometry(glassShape, { depth: GLASS_T, bevelEnabled: false, curveSegments: 48 }), mats.glass).position.z = -GLASS_T;
 
     const routeN = polyNormals(lv.outline);
     add(ribbon(lv.outline, routeN, 0, 0.05, PLATE_H + 0.002), mats.rail);
     const ao = finish.aoAlpha;
-    add(ribbon(lv.outline, routeN, 0, -0.34, 0.003, [0, 0, 0, ao], [0, 0, 0, 0]), mats.ao, { order: 1 });
+    add(ribbon(lv.outline, routeN, 0, -0.3, 0.003, [0, 0, 0, ao * 0.7], [0, 0, 0, 0]), mats.ao, { order: 1 });
+    // Glass edges catch light where the plate meets the wall.
+    add(ribbon(lv.outline, routeN, 0, -0.035, 0.004, [0.55, 0.85, 0.8, 0.55], [0.55, 0.85, 0.8, 0]), mats.glint, { order: 2 });
 
     for (const isl of lv.islands) {
       const shape = new THREE.Shape(isl.outline.map(p => V2(p[0], p[1])));
       add(new THREE.ExtrudeGeometry(shape, { depth: PLATE_H, bevelEnabled: false, curveSegments: 1 }), [mats.plate, mats.wall], { cast: true, receive: true });
       const nrm = polyNormals(isl.outline);
       add(ribbon(isl.outline, nrm, 0, 0.05, PLATE_H + 0.002), mats.rail);
-      add(ribbon(isl.outline, nrm, 0, -0.3, 0.003, [0, 0, 0, ao], [0, 0, 0, 0]), mats.ao, { order: 1 });
+      add(ribbon(isl.outline, nrm, 0, -0.26, 0.003, [0, 0, 0, ao * 0.7], [0, 0, 0, 0]), mats.ao, { order: 1 });
+      add(ribbon(isl.outline, nrm, 0, -0.035, 0.004, [0.55, 0.85, 0.8, 0.55], [0.55, 0.85, 0.8, 0]), mats.glint, { order: 2 });
     }
 
     // Destination hole: dark bore, floor, brass grommet.
-    const cyl = new THREE.CylinderGeometry(lv.hole.r, lv.hole.r, HOLE_DEPTH, 56, 6, true);
+    const boreH = HOLE_DEPTH - GLASS_T;
+    const cyl = new THREE.CylinderGeometry(lv.hole.r, lv.hole.r, boreH, 56, 6, true);
     cyl.rotateX(Math.PI / 2);
     const cp = cyl.attributes.position;
     const cc = new Float32Array(cp.count * 3);
     for (let i = 0; i < cp.count; i++) {
-      const k = clamp((cp.getZ(i) + HOLE_DEPTH / 2) / HOLE_DEPTH, 0, 1);
+      const k = clamp((cp.getZ(i) + boreH / 2) / boreH, 0, 1);
       const v = 0.06 + 0.94 * k * k;
       cc[i * 3] = v;
       cc[i * 3 + 1] = v;
       cc[i * 3 + 2] = v;
     }
     cyl.setAttribute("color", new THREE.BufferAttribute(cc, 3));
-    add(cyl, mats.holeWall).position.set(lv.hole.x, lv.hole.y, -HOLE_DEPTH / 2);
+    add(cyl, mats.holeWall).position.set(lv.hole.x, lv.hole.y, -GLASS_T - boreH / 2);
     add(new THREE.CircleGeometry(lv.hole.r, 48), mats.holeBottom).position.set(lv.hole.x, lv.hole.y, -HOLE_DEPTH + 0.001);
     const rim = add(new THREE.TorusGeometry(lv.hole.r + 0.014, 0.026, 10, 72), mats.rail, { cast: true });
     rim.position.set(lv.hole.x, lv.hole.y, -0.004);
@@ -1207,6 +1375,308 @@ function createWorld(THREE, renderer, finish) {
       const h = gateHeight(it.g, t);
       it.mesh.position.z = h - GATE_H;
     }
+  }
+
+  // ── blue glowing trail: a vivid blue line with a soft light halo, fading with age.
+  // Each layer is a 5-column ribbon (transparent edges, strong centre).
+  const TRAIL_COLS = [-1, -0.5, 0, 0.5, 1];
+  const trailLayers = [
+    // halo: wide, soft blue light around the line
+    { width: 0.52, alpha: [0, 0.2, 0.38, 0.2, 0], rgb: [[0.12, 0.5, 1], [0.12, 0.5, 1], [0.2, 0.6, 1], [0.12, 0.5, 1], [0.12, 0.5, 1]], blending: finish.trailAdd ? THREE.AdditiveBlending : THREE.NormalBlending, scale: 1 },
+    // line: saturated blue with a brighter cyan centre
+    { width: 0.14, alpha: [0, 0.9, 1, 0.9, 0], rgb: [[0.0, 0.36, 1], [0.02, 0.45, 1], [0.42, 0.82, 1], [0.02, 0.45, 1], [0.0, 0.36, 1]], blending: THREE.NormalBlending, scale: 1 }
+  ];
+  const trailIdx = [];
+  for (let i = 0; i < TRAIL_MAX - 1; i++) {
+    for (let c = 0; c < 4; c++) {
+      const a = i * 5 + c;
+      trailIdx.push(a, a + 5, a + 1, a + 1, a + 5, a + 6);
+    }
+  }
+  for (const layer of trailLayers) {
+    layer.pos = new Float32Array(TRAIL_MAX * 5 * 3);
+    layer.col = new Float32Array(TRAIL_MAX * 5 * 4);
+    layer.geo = keep(new THREE.BufferGeometry());
+    layer.geo.setAttribute("position", new THREE.BufferAttribute(layer.pos, 3).setUsage(THREE.DynamicDrawUsage));
+    layer.geo.setAttribute("color", new THREE.BufferAttribute(layer.col, 4).setUsage(THREE.DynamicDrawUsage));
+    layer.geo.setIndex(trailIdx);
+    layer.geo.setDrawRange(0, 0);
+    const mat = keep(new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: layer.blending }));
+    const mesh = new THREE.Mesh(layer.geo, mat);
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 4;
+    scene.add(mesh);
+  }
+  const trailPts = [];
+
+  function trailPush(x, y, t) {
+    const last = trailPts[trailPts.length - 1];
+    if (last && (x - last.x) * (x - last.x) + (y - last.y) * (y - last.y) < 0.0009) return;
+    trailPts.push({ x, y, t });
+    if (trailPts.length > TRAIL_MAX - 1) trailPts.shift();
+  }
+
+  function trailClear() {
+    trailPts.length = 0;
+    for (const layer of trailLayers) layer.geo.setDrawRange(0, 0);
+  }
+
+  function trailUpdate(t, headX, headY, live) {
+    while (trailPts.length && t - trailPts[0].t > TRAIL_LIFE) trailPts.shift();
+    const n = trailPts.length + (live && trailPts.length ? 1 : 0);
+    if (n < 2) {
+      for (const layer of trailLayers) layer.geo.setDrawRange(0, 0);
+      return;
+    }
+    const at = i => (i < trailPts.length ? trailPts[i] : { x: headX, y: headY, t });
+    for (let i = 0; i < n; i++) {
+      const p = at(i);
+      const a = at(Math.max(0, i - 1));
+      const b = at(Math.min(n - 1, i + 1));
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const l = Math.hypot(dx, dy) || 1;
+      const px = -dy / l;
+      const py = dx / l;
+      const f = i / (n - 1);
+      const life = 1 - clamp((t - p.t) / TRAIL_LIFE, 0, 1);
+      const k = Math.pow(life, 0.7) * (0.3 + 0.7 * Math.pow(f, 0.7));
+      const taper = 0.45 + 0.55 * Math.pow(f, 0.5);
+      for (const layer of trailLayers) {
+        const half = (layer.width / 2) * taper;
+        for (let c = 0; c < 5; c++) {
+          const off = TRAIL_COLS[c] * half;
+          const v = (i * 5 + c) * 3;
+          layer.pos[v] = p.x + px * off;
+          layer.pos[v + 1] = p.y + py * off;
+          layer.pos[v + 2] = 0.006;
+          const q = (i * 5 + c) * 4;
+          const rgb = layer.rgb[c];
+          layer.col[q] = rgb[0];
+          layer.col[q + 1] = rgb[1];
+          layer.col[q + 2] = rgb[2];
+          layer.col[q + 3] = layer.alpha[c] * k * layer.scale;
+        }
+      }
+    }
+    for (const layer of trailLayers) {
+      layer.geo.attributes.position.needsUpdate = true;
+      layer.geo.attributes.color.needsUpdate = true;
+      layer.geo.setDrawRange(0, (n - 1) * 24);
+    }
+  }
+
+  // ── glass shatter: spider-web cracks spreading from the impact, crushed glass, flying shards.
+  const fx = { group: null, geos: [], cracks: [], frost: null, shards: [], shardGeo: null, t: 0 };
+
+  function clearFx() {
+    if (fx.group) scene.remove(fx.group);
+    fx.geos.forEach(g => g.dispose());
+    fx.group = null;
+    fx.geos = [];
+    fx.cracks = [];
+    fx.shards = [];
+    fx.frost = null;
+    fx.shardGeo = null;
+  }
+
+  function shatter(hx, hy, ux, uy, hint, gateT) {
+    clearFx();
+    if (!level) return;
+    const lv = level.lv;
+    const rnd = rng(((hx * 1000) | 0) * 73856093 ^ ((hy * 1000) | 0) * 19349663);
+    const inside = (x, y) => {
+      if (Math.hypot(x - lv.hole.x, y - lv.hole.y) < lv.hole.r) return false;
+      const i = nearestIndex(lv, x, y, hint);
+      return probe(lv, x, y, i, gateT).gap + BALL_R > 0.012;
+    };
+    const segs = [];
+    const radials = [];
+    const walk = (x, y, ang, maxLen, depth) => {
+      const pts = [[x, y]];
+      let len = 0;
+      while (len < maxLen) {
+        const step = 0.035 + rnd() * 0.05;
+        ang += (rnd() - 0.5) * 0.42;
+        let nx = x + Math.cos(ang) * step;
+        let ny = y + Math.sin(ang) * step;
+        if (!inside(nx, ny)) {
+          // Long cracks run along the plate: deflect off the edge rather than end there.
+          if (maxLen < 1.6 || rnd() < 0.25) break;
+          let turned = false;
+          for (const d of [0.7, -0.7, 1.3, -1.3]) {
+            const a2 = ang + d;
+            if (inside(x + Math.cos(a2) * step, y + Math.sin(a2) * step)) {
+              ang = a2;
+              nx = x + Math.cos(ang) * step;
+              ny = y + Math.sin(ang) * step;
+              turned = true;
+              break;
+            }
+          }
+          if (!turned) break;
+        }
+        segs.push([x, y, nx, ny]);
+        x = nx;
+        y = ny;
+        len += step;
+        pts.push([x, y]);
+        if (depth < 2 && rnd() < 0.05) walk(x, y, ang + (rnd() < 0.5 ? -1 : 1) * (0.35 + rnd() * 0.5), maxLen * (0.25 + rnd() * 0.35), depth + 1);
+      }
+      return pts;
+    };
+    const base = Math.atan2(uy, ux);
+    const count = 11 + Math.floor(rnd() * 5);
+    for (let k = 0; k < count; k++) {
+      const spread = (k / (count - 1) - 0.5) * 3.0;
+      const ang = base + spread + (rnd() - 0.5) * 0.18;
+      const long = rnd() < 0.4;
+      radials.push(walk(hx + ux * 0.012, hy + uy * 0.012, ang, long ? 2.4 + rnd() * 3.2 : 0.5 + rnd() * 1.3, 0));
+    }
+    // Concentric rings between neighbouring radials make the spider web.
+    const pointAt = (pts, r) => {
+      for (const p of pts) if (Math.hypot(p[0] - hx, p[1] - hy) >= r) return p;
+      return null;
+    };
+    for (const r of [0.14, 0.32, 0.56, 0.86]) {
+      for (let k = 0; k < radials.length - 1; k++) {
+        if (rnd() < 0.28) continue;
+        const a = pointAt(radials[k], r * (0.85 + rnd() * 0.3));
+        const b = pointAt(radials[k + 1], r * (0.85 + rnd() * 0.3));
+        if (!a || !b) continue;
+        const mx = (a[0] + b[0]) / 2 + (rnd() - 0.5) * 0.04;
+        const my = (a[1] + b[1]) / 2 + (rnd() - 0.5) * 0.04;
+        if (!inside(mx, my)) continue;
+        segs.push([a[0], a[1], mx, my], [mx, my, b[0], b[1]]);
+      }
+    }
+    // Reveal outward from the impact, like a crack racing through the plate.
+    segs.sort((p, q) => Math.hypot(p[0] - hx, p[1] - hy) - Math.hypot(q[0] - hx, q[1] - hy));
+    fx.group = new THREE.Group();
+    // Cracks are thin quads (a sharp core plus a faint halo) so they stay visible on dense screens.
+    const quads = (half, z) => {
+      const arr = new Float32Array(segs.length * 18);
+      segs.forEach((g, i) => {
+        const dx = g[2] - g[0];
+        const dy = g[3] - g[1];
+        const l = Math.hypot(dx, dy) || 1;
+        const w = half * (0.6 + 0.4 * clamp(1 - Math.hypot(g[0] - hx, g[1] - hy) / 3, 0, 1));
+        const ox = (-dy / l) * w;
+        const oy = (dx / l) * w;
+        arr.set([g[0] - ox, g[1] - oy, z, g[2] - ox, g[3] - oy, z, g[2] + ox, g[3] + oy, z, g[0] - ox, g[1] - oy, z, g[2] + ox, g[3] + oy, z, g[0] + ox, g[1] + oy, z], i * 18);
+      });
+      return arr;
+    };
+    for (const [arr, mat] of [[quads(0.028, 0.0045), mats.crackGlow], [quads(0.0075, 0.005), mats.crack]]) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(arr, 3));
+      geo.setDrawRange(0, 0);
+      fx.geos.push(geo);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.renderOrder = 5;
+      mesh.frustumCulled = false;
+      fx.group.add(mesh);
+      fx.cracks.push({ geo, count: segs.length * 6 });
+    }
+    const frostGeo = new THREE.CircleGeometry(0.34, 32);
+    fx.geos.push(frostGeo);
+    fx.frost = new THREE.Mesh(frostGeo, mats.frost);
+    fx.frost.position.set(hx + ux * 0.08, hy + uy * 0.08, 0.005);
+    fx.frost.renderOrder = 5;
+    fx.group.add(fx.frost);
+
+    // Shards: small triangles knocked out of the plate near the impact.
+    const SH = 46;
+    const sPos = new Float32Array(SH * 9);
+    const sNrm = new Float32Array(SH * 9);
+    fx.shardGeo = new THREE.BufferGeometry();
+    fx.shardGeo.setAttribute("position", new THREE.BufferAttribute(sPos, 3).setUsage(THREE.DynamicDrawUsage));
+    fx.shardGeo.setAttribute("normal", new THREE.BufferAttribute(sNrm, 3).setUsage(THREE.DynamicDrawUsage));
+    fx.geos.push(fx.shardGeo);
+    const shardMesh = new THREE.Mesh(fx.shardGeo, mats.shard);
+    shardMesh.frustumCulled = false;
+    shardMesh.renderOrder = 6;
+    fx.group.add(shardMesh);
+    const tx = -uy;
+    const ty = ux;
+    for (let i = 0; i < SH; i++) {
+      const out = 0.12 + rnd() * 0.5;
+      const side = (rnd() - 0.5) * 0.9;
+      const dir = (rnd() - 0.5) * 1.6;
+      const speed = 0.5 + rnd() * 2.2;
+      const verts = [];
+      for (let k = 0; k < 3; k++) {
+        const a = (k / 3) * Math.PI * 2 + (rnd() - 0.5) * 1.4;
+        const r = 0.04 + rnd() * 0.11;
+        verts.push(new THREE.Vector3(Math.cos(a) * r, Math.sin(a) * r, (rnd() - 0.5) * 0.01));
+      }
+      fx.shards.push({
+        p: new THREE.Vector3(hx + ux * out + tx * side, hy + uy * out + ty * side, 0.02 + rnd() * 0.05),
+        v: new THREE.Vector3((ux + tx * dir) * speed, (uy + ty * dir) * speed, 0.8 + rnd() * 2.6),
+        q: new THREE.Quaternion().setFromEuler(new THREE.Euler(rnd() * 6, rnd() * 6, rnd() * 6)),
+        w: new THREE.Vector3(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize().multiplyScalar(4 + rnd() * 12),
+        verts,
+        rest: false
+      });
+    }
+    fx.t = 0;
+    scene.add(fx.group);
+    writeShards();
+  }
+
+  const tmpV = new THREE.Vector3();
+  const tmpA = new THREE.Vector3();
+  const tmpB = new THREE.Vector3();
+  const tmpQ = new THREE.Quaternion();
+  function writeShards() {
+    const pos = fx.shardGeo.attributes.position.array;
+    const nrm = fx.shardGeo.attributes.normal.array;
+    fx.shards.forEach((sh, i) => {
+      const w = [];
+      for (let k = 0; k < 3; k++) {
+        tmpV.copy(sh.verts[k]).applyQuaternion(sh.q).add(sh.p);
+        pos[i * 9 + k * 3] = tmpV.x;
+        pos[i * 9 + k * 3 + 1] = tmpV.y;
+        pos[i * 9 + k * 3 + 2] = tmpV.z;
+        w.push(tmpV.clone());
+      }
+      tmpA.subVectors(w[1], w[0]);
+      tmpB.subVectors(w[2], w[0]);
+      tmpA.cross(tmpB).normalize();
+      for (let k = 0; k < 3; k++) nrm.set([tmpA.x, tmpA.y, tmpA.z], i * 9 + k * 3);
+    });
+    fx.shardGeo.attributes.position.needsUpdate = true;
+    fx.shardGeo.attributes.normal.needsUpdate = true;
+  }
+
+  function updateFx(dt) {
+    if (!fx.group) return;
+    fx.t += dt;
+    const reveal = clamp(fx.t / 0.22, 0, 1);
+    for (const c of fx.cracks) c.geo.setDrawRange(0, Math.floor((c.count * smooth01(reveal)) / 6) * 6);
+    const fs = 0.3 + 0.7 * smooth01(clamp(fx.t / 0.12, 0, 1));
+    fx.frost.scale.set(fs, fs, 1);
+    let moving = false;
+    for (const sh of fx.shards) {
+      if (sh.rest) continue;
+      moving = true;
+      sh.v.z -= 16 * dt;
+      sh.p.addScaledVector(sh.v, dt);
+      tmpQ.setFromAxisAngle(tmpV.copy(sh.w).normalize(), sh.w.length() * dt);
+      sh.q.premultiply(tmpQ);
+      if (sh.p.z < 0.012) {
+        sh.p.z = 0.012;
+        if (Math.abs(sh.v.z) < 0.4) {
+          sh.rest = true;
+        } else {
+          sh.v.z = -sh.v.z * 0.28;
+          sh.v.x *= 0.5;
+          sh.v.y *= 0.5;
+          sh.w.multiplyScalar(0.5);
+        }
+      }
+    }
+    if (moving) writeShards();
   }
 
   function fit(width, height, safe) {
@@ -1251,6 +1721,7 @@ function createWorld(THREE, renderer, finish) {
   }
 
   function dispose() {
+    clearFx();
     if (level) {
       scene.remove(level.group);
       level.geos.forEach(g => g.dispose());
@@ -1259,7 +1730,7 @@ function createWorld(THREE, renderer, finish) {
     disposables.forEach(d => d.dispose && d.dispose());
   }
 
-  return { scene, camera, ball, contact, flash, flashLight, mats, setLevel, updateGates, fit, dispose };
+  return { scene, camera, ball, contact, flash, flashLight, glow, mats, setLevel, updateGates, fit, dispose, trailPush, trailClear, trailUpdate, shatter, clearFx, updateFx };
 }
 
 // ─────────────────────────────────────────────────────────── sound
@@ -1386,15 +1857,19 @@ function createSound() {
     ensure,
     setVolume,
     setRoll,
-    clack() {
-      burst(3200, 1.2, 0.5, 0.035);
-      tone(1720, 0.22, 0.2);
-      tone(2630, 0.14, 0.15);
-      tone(4110, 0.08, 0.1);
-      tone(150, 0.45, 0.11, 0, "sine", 80);
-    },
     tick() {
       burst(2600, 3, 0.09, 0.025);
+    },
+    shatter() {
+      if (!ac) return;
+      burst(5200, 0.7, 0.55, 0.06, 0, "highpass");
+      burst(2800, 1.1, 0.32, 0.14);
+      tone(170, 0.32, 0.09, 0, "sine", 90);
+      for (let i = 0; i < 18; i++) {
+        const at = 0.015 + Math.pow(Math.random(), 1.7) * 0.8;
+        tone(2300 + Math.random() * 5400, 0.025 + Math.random() * 0.06, 0.05 + Math.random() * 0.18, at, i % 3 ? "sine" : "triangle");
+      }
+      for (let i = 0; i < 7; i++) burst(3800 + Math.random() * 3600, 4, 0.04 + Math.random() * 0.05, 0.03, 0.04 + Math.random() * 0.55);
     },
     thud(k) {
       tone(110, 0.18 * k + 0.05, 0.12, 0, "sine", 70);
@@ -1785,6 +2260,8 @@ window.plethoraBit = {
         world.flash.material.opacity = 0;
         world.flashLight.intensity = 0;
         world.updateGates(0);
+        world.clearFx();
+        world.trailClear();
       }
     }
 
@@ -2040,11 +2517,6 @@ window.plethoraBit = {
     ctx.input.activate(el.errBtn, () => boot());
 
     // ── physics
-    function contactAt(px, py, idx) {
-      const h = probe(G.lv, px, py, idx, G.gateT);
-      return h.gap < -settings.tolerance;
-    }
-
     function fail(hit) {
       G.state = "fail";
       G.t = 0;
@@ -2054,14 +2526,15 @@ window.plethoraBit = {
       G.flashT = 0;
       const fx = hit.x;
       const fy = hit.y;
-      world.flash.position.set(fx, fy, 0.004);
-      world.flashLight.position.set(fx, fy, 0.35);
+      world.flash.position.set(fx, fy, 0.006);
+      world.flashLight.position.set(fx, fy, 0.3);
       const nx = G.x - fx;
       const ny = G.y - fy;
       const nl = Math.hypot(nx, ny) || 1;
       G.recoilX = nx / nl;
       G.recoilY = ny / nl;
-      sound.clack();
+      world.shatter(fx, fy, G.recoilX, G.recoilY, G.idx, G.gateT);
+      sound.shatter();
       sound.setRoll(0, 0);
       haptic("heavy");
       const pct = clamp(G.maxS / G.lv.length, 0, 1);
@@ -2121,127 +2594,39 @@ window.plethoraBit = {
     }
 
     function stepBall(dt) {
-      const lv = G.lv;
-      const P = G.phys;
-      let ax = G.tiltX;
-      let ay = -G.tiltY;
-      const mag = Math.hypot(ax, ay);
-      if (mag > 1) {
-        ax /= mag;
-        ay /= mag;
-      }
-      const m = Math.min(1, mag);
-      const shaped = m > 1e-4 ? Math.pow(m, 1.2) / m : 0;
-      ax *= P.acc * shaped;
-      ay *= P.acc * shaped;
-
-      // Hole lip: once the centre is over the hole the ball tips toward its middle.
-      const hx = lv.hole.x - G.x;
-      const hy = lv.hole.y - G.y;
-      const hd = Math.hypot(hx, hy);
-      if (hd < lv.hole.r && hd > 1e-4) {
-        const pull = 12 * (1 - hd / lv.hole.r) + 3;
-        ax += (hx / hd) * pull;
-        ay += (hy / hd) * pull;
-      }
-
-      let vx = G.vx + ax * dt;
-      let vy = G.vy + ay * dt;
-      let sp = Math.hypot(vx, vy);
-      const dec = (P.roll + P.damp * sp) * dt;
-      if (sp <= dec) {
-        vx = 0;
-        vy = 0;
-        sp = 0;
-      } else {
-        const k = (sp - dec) / sp;
-        vx *= k;
-        vy *= k;
-        sp -= dec;
-      }
-      if (sp > P.vmax) {
-        vx *= P.vmax / sp;
-        vy *= P.vmax / sp;
-      }
-
       const ox = G.x;
       const oy = G.y;
-      let nx = ox + vx * dt;
-      let ny = oy + vy * dt;
-
-      // Rubber start cup: bounce, never fail.
-      const st = lv.start;
-      const bx = nx - st.x;
-      const by = ny - st.y;
-      if (bx * Math.cos(st.h) + by * Math.sin(st.h) < 0) {
-        const d = Math.hypot(bx, by);
-        if (d > st.limit) {
-          const ux = bx / d;
-          const uy = by / d;
-          nx = st.x + ux * st.limit;
-          ny = st.y + uy * st.limit;
-          const vn = vx * ux + vy * uy;
-          if (vn > 0) {
-            vx -= 1.35 * vn * ux;
-            vy -= 1.35 * vn * uy;
-            if (vn > 0.35) {
-              sound.thud(clamp(vn / 3, 0, 1));
-              if (vn > 0.9) haptic("light");
-            }
-          }
-        }
+      const r = simulateStep(G.lv, G, G.tiltX, G.tiltY, G.phys, dt, G.gateT, settings.tolerance);
+      if (r.bump > 0.35) {
+        sound.thud(clamp(r.bump / 3, 0, 1));
+        if (r.bump > 0.9) haptic("light");
       }
-
-      const idx = nearestIndex(lv, nx, ny, G.idx);
-      const hit = probe(lv, nx, ny, idx, G.gateT);
-      if (hit.gap < -settings.tolerance) {
-        // Find the touching position along this step, then stop dead there.
-        let lo = 0;
-        let hi = 1;
-        for (let i = 0; i < 10; i++) {
-          const mid = (lo + hi) / 2;
-          const mx = lerp(ox, nx, mid);
-          const my = lerp(oy, ny, mid);
-          if (contactAt(mx, my, nearestIndex(lv, mx, my, G.idx))) hi = mid;
-          else lo = mid;
-        }
-        G.x = lerp(ox, nx, lo);
-        G.y = lerp(oy, ny, lo);
-        G.idx = nearestIndex(lv, G.x, G.y, G.idx);
-        const h2 = probe(lv, G.x, G.y, G.idx, G.gateT);
-        fail({ x: h2.x, y: h2.y, kind: hit.kind });
+      if (r.kind === "fail") {
+        fail({ x: r.x, y: r.y, kind: r.hitKind });
         return;
       }
-
-      G.x = nx;
-      G.y = ny;
-      G.vx = vx;
-      G.vy = vy;
-      G.idx = idx;
-      const moved = Math.hypot(nx - ox, ny - oy);
-      G.moved += moved;
-      if (lv.s[idx] > G.maxS) G.maxS = lv.s[idx];
+      G.moved += r.moved;
+      if (G.lv.s[G.idx] > G.maxS) G.maxS = G.lv.s[G.idx];
 
       // Rolling: rotate about the axis perpendicular to travel.
-      if (moved > 1e-6 && G.quat) {
-        G.rotAxis.set(-(ny - oy) / moved, (nx - ox) / moved, 0);
-        G.rotQ.setFromAxisAngle(G.rotAxis, moved / BALL_R);
+      if (r.moved > 1e-6 && G.quat) {
+        G.rotAxis.set(-(G.y - oy) / r.moved, (G.x - ox) / r.moved, 0);
+        G.rotQ.setFromAxisAngle(G.rotAxis, r.moved / BALL_R);
         G.quat.premultiply(G.rotQ);
       }
 
       // Near-edge cue: one light tick per approach.
-      G.lastWall = hit.gap;
-      const toward = sp > 0 ? ((hit.x - nx) * vx + (hit.y - ny) * vy) / (Math.hypot(hit.x - nx, hit.y - ny) || 1) : 0;
-      if (G.armed && hit.gap < 0.09 && toward > 0.3) {
+      G.lastWall = r.gap;
+      if (G.armed && r.gap < 0.09 && r.toward > 0.3) {
         G.armed = false;
         if (G.cueCd <= 0) {
           sound.tick();
           haptic("light");
           G.cueCd = 0.45;
         }
-      } else if (!G.armed && hit.gap > 0.22) G.armed = true;
+      } else if (!G.armed && r.gap > 0.22) G.armed = true;
 
-      if (hd < Math.max(lv.hole.r - BALL_R * 0.28, 0.2)) capture();
+      if (r.kind === "capture") capture();
     }
 
     // ── per-frame
@@ -2340,8 +2725,13 @@ window.plethoraBit = {
         world.flash.material.opacity = f < 1 ? (1 - f) * 0.95 : 0;
         const s = 1 + f * 5;
         world.flash.scale.set(s, s, 1);
-        world.flashLight.intensity = f < 1 ? (1 - f) * (1 - f) * 6 : 0;
+        world.flashLight.intensity = f < 1 ? (1 - f) * (1 - f) * 7 : 0;
         world.updateGates(G.gateT);
+        world.updateFx(dt);
+        // The glass gives a little under the ball once it breaks.
+        if (G.state === "fail") G.z = -0.03 * smooth01(clamp(G.t / 0.18, 0, 1));
+        const glowTarget = G.state === "play" && G.phys ? 2.4 * clamp(Math.hypot(G.vx, G.vy) / G.phys.vmax, 0, 1) + 0.25 : 0;
+        world.glow.intensity += (glowTarget - world.glow.intensity) * Math.min(1, dt * 8);
       }
     }
 
@@ -2356,6 +2746,7 @@ window.plethoraBit = {
         G.px = G.x;
         G.py = G.y;
         stepBall(dt);
+        if (world) world.trailPush(G.x, G.y, performance.now() / 1000);
       } else if (G.state !== "drop") {
         G.px = G.x;
         G.py = G.y;
@@ -2383,6 +2774,8 @@ window.plethoraBit = {
       world.mats.ball.envMapIntensity = 1.45 * (1 - depth * 0.9);
       world.mats.ball.color.setScalar(1 - depth * 0.62);
       world.contact.position.set(x, y, 0.004);
+      world.glow.position.set(x, y, 0.1 + G.z);
+      world.trailUpdate(performance.now() / 1000, x, y, G.state === "play");
       world.contact.material.opacity = 0.6 * (1 - clamp(depth * 3, 0, 1));
       renderer.render(world.scene, world.camera);
     }

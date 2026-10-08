@@ -3,10 +3,22 @@
   "runtime": "plethora-bit@2",
   "entry": "main.js",
   "title": "Gravity Run",
-  "description": "Tilt your phone to roll a heavy steel ball along a carved channel and drop it into the hole. Touch an edge and the run is over.",
-  "tags": ["game", "physics", "tilt", "skill", "puzzle"],
-  "permissions": ["motion", "haptics", "audio"],
-  "dependencies": ["three@0.164.1"],
+  "description": "Tilt your phone to roll a heavy steel ball along a glass channel and drop it into the hole. Touch an edge and the glass shatters.",
+  "tags": [
+    "game",
+    "physics",
+    "tilt",
+    "skill",
+    "glass"
+  ],
+  "permissions": [
+    "motion",
+    "haptics",
+    "audio"
+  ],
+  "dependencies": [
+    "three@0.164.1"
+  ],
   "onboarding": {
     "kind": "immersive",
     "version": 1
@@ -18,8 +30,14 @@
         "valueType": "number",
         "order": "desc",
         "format": "integer",
-        "periods": ["weekly", "all_time"],
-        "scopes": ["following", "global"],
+        "periods": [
+          "weekly",
+          "all_time"
+        ],
+        "scopes": [
+          "following",
+          "global"
+        ],
         "dedupe": "best_per_user"
       }
     }
@@ -36,11 +54,21 @@
   "tuning": {
     "schemaVersion": 1,
     "groups": {
-      "feel": { "label": "Ball Feel" },
-      "difficulty": { "label": "Difficulty" },
-      "visual": { "label": "Board" },
-      "audio": { "label": "Sound & Haptics" },
-      "debug": { "label": "Draft Testing" }
+      "feel": {
+        "label": "Ball Feel"
+      },
+      "difficulty": {
+        "label": "Difficulty"
+      },
+      "visual": {
+        "label": "Board"
+      },
+      "audio": {
+        "label": "Sound & Haptics"
+      },
+      "debug": {
+        "label": "Draft Testing"
+      }
     },
     "knobs": {
       "tilt_range": {
@@ -107,7 +135,11 @@
         "label": "Board finish",
         "type": "choice",
         "default": "graphite",
-        "options": ["graphite", "walnut", "porcelain"],
+        "options": [
+          "graphite",
+          "walnut",
+          "porcelain"
+        ],
         "group": "visual",
         "intent": "visual",
         "apply": "restart"
@@ -146,11 +178,18 @@
     "presets": {
       "gentle": {
         "label": "Gentle",
-        "values": { "roll_force": 0.85, "rolling_friction": 1.3, "edge_tolerance": 0.1 }
+        "values": {
+          "roll_force": 0.85,
+          "rolling_friction": 1.3,
+          "edge_tolerance": 0.1
+        }
       },
       "slippery": {
         "label": "Slippery steel",
-        "values": { "roll_force": 1.1, "rolling_friction": 0.6 }
+        "values": {
+          "roll_force": 1.1,
+          "rolling_friction": 0.6
+        }
       }
     }
   }
