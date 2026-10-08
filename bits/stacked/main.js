@@ -201,9 +201,9 @@ window.plethoraBit = {
       lastPal = pi;
       const f = {
         type, w, h: TYPES[type].h, pal: WALLS[pi], items: [], people: [],
-        phase: rng.range(0, 6.28), stip: []
+        phase: rng.range(0, 6.28),
+        cornice: type === "entrance" ? "eave" : rng.pick(["slab", "dentil", "eave", "step"])
       };
-      for (let i = 0; i < 26; i++) f.stip.push([rng(), rng(), rng.range(0.6, 1.4)]);
       LAYOUT[type](f, rng);
       return f;
     }
@@ -239,7 +239,7 @@ window.plethoraBit = {
       },
       living(f, rng) {
         const wins = windowRow(f, rng, -f.w / 2 + 8, f.w / 2 - 8, { w: 17, h: 21, gap: 15, y: -f.h + 13, cur: true, lit: 0.35, who: true });
-        if (rng.chance(0.35)) f.items.push({ k: "lamp", x: wins[wins.length - 1].x + 8, y: -f.h + 9 });
+        void wins;
       },
       bedroom(f, rng) {
         const wins = windowRow(f, rng, -f.w / 2 + 12, f.w / 2 - 12, { w: 14, h: 19, gap: 26, y: -f.h + 13, shut: true, box: true, cur: true, lit: 0.2, max: 3 });
@@ -257,9 +257,9 @@ window.plethoraBit = {
       },
       greenhouse(f, rng) {
         const plants = [];
-        for (let x = -f.w / 2 + 10; x < f.w / 2 - 8; x += rng.range(9, 15)) plants.push({ x, r: rng.range(4, 7.5), c: rng.pick(LEAF), b: rng.chance(0.3) ? rng.pick(BLOOM) : null });
+        for (let x = -f.w / 2 + 12; x < f.w / 2 - 8; x += rng.range(15, 22)) plants.push({ x, r: rng.range(4, 7.5), c: rng.pick(LEAF), b: rng.chance(0.3) ? rng.pick(BLOOM) : null });
         const vines = [];
-        for (let x = -f.w / 2 + 8; x < f.w / 2 - 6; x += rng.range(10, 18)) vines.push({ x, len: rng.range(5, 12) });
+        for (let x = -f.w / 2 + 10; x < f.w / 2 - 6; x += rng.range(18, 28)) vines.push({ x, len: rng.range(5, 12) });
         f.items.push({ k: "gh", plants, vines });
         if (rng.chance(0.5)) f.people.push({ pose: "water", x: rng.range(-f.w / 4, f.w / 4), y: -10, c: rng.pick(CLOTHES), s: rng.pick(SKIN), ph: rng.range(0, 6) });
       },
@@ -328,14 +328,27 @@ window.plethoraBit = {
       const { w, h, pal } = f, x0 = -w / 2;
       rect(g, "rgba(50,30,25,0.18)", x0 + 1, 0, w - 2, 3); // contact shadow onto the floor below
       rect(g, pal.wall, x0, -h, w, h);
-      g.globalAlpha = 0.16;
-      g.fillStyle = pal.shade;
-      for (const d of f.stip) g.fillRect(x0 + d[0] * w, -h + 5 + d[1] * (h - 9), d[2], d[2]);
-      g.globalAlpha = 1;
-      rect(g, "rgba(255,246,228,0.18)", x0, -h, 3, h);
-      rect(g, "rgba(60,30,20,0.08)", w / 2 - 7, -h, 7, h);
-      rect(g, pal.trim, x0, -h, w, 4);
-      rect(g, "rgba(60,30,20,0.16)", x0, -h + 4, w, 1.5);
+      // One flat shade plane on the right gives the facade its depth.
+      rect(g, "rgba(60,30,20,0.09)", w / 2 - 6, -h, 6, h);
+      // Each floor wears its own cornice: the quickest way to tell floors apart.
+      switch (f.cornice) {
+        case "dentil":
+          rect(g, pal.trim, x0, -h, w, 3.2);
+          g.fillStyle = pal.trim;
+          for (let x = x0 + 3; x < w / 2 - 3; x += 9) g.fillRect(x, -h + 3.2, 4, 2.6);
+          break;
+        case "eave":
+          rect(g, "#A9553A", x0, -h, w, 4.5);
+          rect(g, "rgba(40,20,15,0.18)", x0, -h + 4.5, w, 1.4);
+          break;
+        case "step":
+          rect(g, pal.trim, x0, -h, w, 2.4);
+          rect(g, pal.trim, x0 + 4, -h + 2.4, w - 8, 2.2);
+          break;
+        default:
+          rect(g, pal.trim, x0, -h, w, 4);
+          rect(g, "rgba(60,30,20,0.14)", x0, -h + 4, w, 1.2);
+      }
       rect(g, pal.shade, x0, -3, w, 3);
     }
 
@@ -379,8 +392,7 @@ window.plethoraBit = {
         circle(g, "rgba(62,48,44,0.78)", px, y + h * 0.5 + bob, 2.3);
         g.fillStyle = "rgba(62,48,44,0.78)"; g.beginPath(); g.ellipse(px, y + h + 1 + bob, 4.4, 6, 0, Math.PI, 0); g.fill();
       }
-      g.fillStyle = "rgba(255,255,255,0.22)";
-      g.beginPath(); g.moveTo(x + w * 0.1, y + h); g.lineTo(x + w * 0.5, y); g.lineTo(x + w * 0.72, y); g.lineTo(x + w * 0.32, y + h); g.fill();
+      rect(g, "rgba(40,25,20,0.2)", x, y, w, 1.8);
       if (it.cur) {
         const sway = Math.sin(t * 1.2 + it.phase) * 1.1;
         const xs = it.cur < 0 ? x : x + w, d = -it.cur;
@@ -393,7 +405,7 @@ window.plethoraBit = {
         g.fill();
       }
       g.restore();
-      if (!it.books) { rect(g, pal.trim, x + w / 2 - 0.6, y, 1.2, h); rect(g, pal.trim, x, y + h * 0.42, w, 1.2); }
+      if (!it.books && w >= 16) rect(g, pal.trim, x + w / 2 - 0.6, y, 1.2, h);
       rect(g, pal.shade, x - 2.4, y + h + 1.6, w + 4.8, 2.2);
       if (it.box) {
         rect(g, WOOD, x - 1.5, y + h + 3.8, w + 3, 3.4);
@@ -517,8 +529,6 @@ window.plethoraBit = {
             circle(g, p.c, p.x + sw, base - 5 - p.r * 0.7, p.r);
             if (p.b) circle(g, p.b, p.x + sw + p.r * 0.3, base - 5 - p.r * 1.2, 1.4);
           }
-          g.fillStyle = "rgba(255,255,255,0.22)";
-          g.beginPath(); g.moveTo(-w / 2 + 10, base); g.lineTo(-w / 2 + 28, top); g.lineTo(-w / 2 + 38, top); g.lineTo(-w / 2 + 20, base); g.fill();
           g.strokeStyle = "#F5EFE0"; g.lineWidth = 1.3;
           g.beginPath();
           for (let x = -w / 2 + 2; x <= w / 2 - 1; x += 13) { g.moveTo(x, top); g.lineTo(x, base); }
@@ -550,8 +560,6 @@ window.plethoraBit = {
           for (let i = 1; i < 4; i++) { const gx = it.x + (it.w * i) / 4; g.moveTo(gx, top); g.lineTo(gx, top + bh); }
           for (let j = 1; j < 3; j++) { const gy = top + (bh * j) / 3; g.moveTo(it.x, gy); g.lineTo(it.x + it.w, gy); }
           g.stroke();
-          g.fillStyle = "rgba(255,255,255,0.18)";
-          g.beginPath(); g.moveTo(it.x + it.w * 0.5, top + bh); g.lineTo(it.x + it.w * 0.75, top); g.lineTo(it.x + it.w * 0.9, top); g.lineTo(it.x + it.w * 0.65, top + bh); g.fill();
           break;
         }
         case "terr": {
@@ -588,7 +596,6 @@ window.plethoraBit = {
             rect(g, "#F6EBD8", tb.x - 4, -10.6, 8, 1.2);
             circle(g, "#C8674A", tb.x + 1.5, -11.6, 0.9);
           }
-          rect(g, "rgba(255,255,255,0.18)", x0 + 6, top, 5, -4 - top);
           // striped awning with scalloped hem
           const aw0 = -w / 2 + 2, aw1 = w / 2 - 2, ay = -h + 5;
           const stripes = Math.max(4, Math.round((aw1 - aw0) / 8));
@@ -616,16 +623,11 @@ window.plethoraBit = {
           rect(g, mixHex(pal.trim, "#9AA0A0", 0.35), x, top, gw, gh * 0.45);
           g.fillStyle = "rgba(0,0,0,0.13)";
           for (let sy = top + 2; sy < top + gh * 0.45; sy += 2.4) g.fillRect(x, sy, gw, 0.7);
-          // tools on the wall
-          rect(g, WOOD, x + 3, top + gh * 0.5, gw - 6, 1);
           break;
         }
         case "garden": {
           const top = -h + 4;
           rect(g, mixHex(pal.wall, "#F6E8D0", 0.3), -w / 2 + 3, top, w - 6, -3 - top);
-          g.strokeStyle = "rgba(110,80,60,0.09)"; g.lineWidth = 0.7; g.beginPath();
-          for (let x = -w / 2 - h; x < w / 2; x += 10) { g.moveTo(x, -3); g.lineTo(x + (-3 - top), top); g.moveTo(x + (-3 - top), -3); g.lineTo(x, top); }
-          g.stroke();
           for (const tr of it.trees) {
             const sw = Math.sin(t * 1.1 + tr.ph) * 0.8 + wind * 0.08;
             rect(g, WOOD, tr.x - 0.9, -18, 1.8, 13);
@@ -649,9 +651,6 @@ window.plethoraBit = {
           for (let x = x0; x <= x1; x += 4) g.lineTo(x, wl + Math.sin(x * 0.25 + t * 2.4) * 0.9);
           g.lineTo(x1, base); g.fill();
           rect(g, "#5FA4AE", x0, base - 4, x1 - x0, 4);
-          g.strokeStyle = "rgba(255,255,255,0.35)"; g.lineWidth = 0.7; g.beginPath();
-          for (let x = x0 + 6; x < x1; x += 10) { g.moveTo(x, wl + 4); g.lineTo(x + 4, wl + 4); }
-          g.stroke();
           const sx = lerp(x0 + 10, x1 - 10, 0.5 + 0.5 * Math.sin(t * 0.4 + f.phase));
           circle(g, "#E5B994", sx, wl - 0.5 + Math.sin(t * 3) * 0.4, 2);
           g.fillStyle = it.swimmer; g.beginPath(); g.arc(sx, wl - 0.8 + Math.sin(t * 3) * 0.4, 2.1, Math.PI, 0); g.fill();
@@ -659,7 +658,6 @@ window.plethoraBit = {
           g.moveTo(x1 - 8, wl - 6); g.lineTo(x1 - 8, base - 2); g.moveTo(x1 - 4, wl - 6); g.lineTo(x1 - 4, base - 2);
           for (let ly = wl - 4; ly < base - 2; ly += 3) { g.moveTo(x1 - 8, ly); g.lineTo(x1 - 4, ly); }
           g.stroke();
-          rect(g, "rgba(255,255,255,0.18)", x0 + 8, top, 4, base - top);
           break;
         }
         case "gable": {
@@ -786,21 +784,12 @@ window.plethoraBit = {
       const xs = blobs.map((b) => b[0]);
       CLOUDS.push({ x0: Math.min(...xs), x1: Math.max(...xs), rb: Math.min(...blobs.map((b) => b[2])), x: bgR.range(-700, 700), y: bgR.range(1250, 3100), f: bgR.range(0.72, 0.95), blobs, w: s, drift: bgR.range(3, 9) });
     }
-    const WISPS = [];
-    for (let i = 0; i < 10; i++) WISPS.push({ x: bgR.range(-400, 400), y: bgR.range(1500, 2900), w: bgR.range(80, 160), drift: bgR.range(6, 14) });
     const SEA = [];
     for (let i = 0; i < 70; i++) SEA.push([i * 28 - 980, bgR.range(18, 38)]);
     const STARS = [];
     for (let i = 0; i < 70; i++) STARS.push([bgR(), bgR() * 0.7, bgR.range(0.6, 1.6), bgR.range(0, 6)]);
-    const LANTERNS = [];
-    for (let i = 0; i < 9; i++) LANTERNS.push({ x: bgR(), sp: bgR.range(0.012, 0.03), off: bgR(), sw: bgR.range(0, 6) });
-    const NEIGHBOURS = [
-      { x: -330, w: 96, h: 82, pal: 4, roof: "pitch" }, { x: -228, w: 70, h: 120, pal: 0, roof: "flat" },
-      { x: 168, w: 80, h: 96, pal: 3, roof: "pitch" }, { x: 252, w: 104, h: 70, pal: 1, roof: "flat" },
-      { x: -470, w: 110, h: 104, pal: 2, roof: "flat" }, { x: 360, w: 90, h: 128, pal: 5, roof: "pitch" }
-    ];
     const WALKERS = [];
-    for (let i = 0; i < 4; i++) WALKERS.push({ x: bgR.range(-500, 500), v: bgR.pick([-1, 1]) * bgR.range(9, 16), c: bgR.pick(CLOTHES), s: bgR.pick(SKIN), ph: bgR.range(0, 6), dog: i === 2 });
+    for (let i = 0; i < 2; i++) WALKERS.push({ x: bgR.range(-500, 500), v: bgR.pick([-1, 1]) * bgR.range(9, 16), c: bgR.pick(CLOTHES), s: bgR.pick(SKIN), ph: bgR.range(0, 6), dog: i === 2 });
 
     // ============================================================ AUDIO
     const sfx = (() => {
@@ -888,10 +877,10 @@ window.plethoraBit = {
     ctx.onResize((l) => {
       W = l.width; H = l.height;
       safeTop = (l.safeArea && l.safeArea.top) || 0;
-      scale = Math.min(W / 360, H / 600);
+      scale = Math.min(W / 410, H / 680);
       viewH = H / scale;
     }, { immediate: true });
-    if (!scale || !Number.isFinite(scale)) { scale = Math.min(W / 360, H / 600) || 1; viewH = H / scale; }
+    if (!scale || !Number.isFinite(scale)) { scale = Math.min(W / 410, H / 680) || 1; viewH = H / scale; }
 
     const heightTrack = (() => { try { return ctx.game.score({ initial: 0 }); } catch (e) { return null; } })();
     let best = 0;
@@ -902,7 +891,7 @@ window.plethoraBit = {
     let time = 0, wind = 0, stageAlt = 0, shake = 0, hintAlpha = 1, firstTapDone = false;
     const cam = { x: 0, y: 0 };
     let lastCos = 1, lightTimer = 0, birdTimer = 3;
-    const birds = [], leaves = [];
+    const birds = [];
 
     function topFloor() { return tower[tower.length - 1]; }
     function topY() { const t = topFloor(); return t.y + t.f.h; }
@@ -995,8 +984,8 @@ window.plethoraBit = {
         combo += CFG.COMBO_INCREMENT;
         gained = 50 * (1 + combo);
         popups.push({ x, y: y + f.h + 10, t: 0, word: "Perfect", pts: `+${gained}`, mult: `×${1 + combo}`, perfect: true });
-        for (let i = 0; i < 12; i++) {
-          const a = (i / 12) * Math.PI * 2;
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
           particles.push({ k: "spark", x: x + Math.cos(a) * w * 0.45, y: y + f.h * 0.5 + Math.sin(a) * f.h * 0.6, vx: Math.cos(a) * 40, vy: Math.sin(a) * 40, life: 0, max: 0.6, size: 3.2 });
         }
         sfx.perfect(combo); haptic("success");
@@ -1006,7 +995,7 @@ window.plethoraBit = {
         gained = Math.round(10 + 30 * ratio);
         const word = ratio > 0.9 ? "Neat" : ratio < 0.4 ? "Tight" : "";
         popups.push({ x: (ol + or) / 2, y: y + f.h + 10, t: 0, word, pts: `+${gained}`, mult: "", perfect: false });
-        for (const sx of [ol + 4, or - 4]) for (let i = 0; i < 3; i++) {
+        for (const sx of [ol + 4, or - 4]) for (let i = 0; i < 2; i++) {
           particles.push({ k: "dust", x: sx, y: y + 1, vx: (sx < x ? -1 : 1) * (12 + Math.random() * 18), vy: 6 + Math.random() * 8, life: 0, max: 0.55, size: 3 + Math.random() * 2 });
         }
         haptic("medium");
@@ -1028,7 +1017,7 @@ window.plethoraBit = {
     function cutPiece(f, ox, y, a, b, dir) {
       pieces.push({ f, ox, y, cl: a, cr: b, dx: 0, dy: 0, vx: dir * (26 + Math.random() * 18), vy: 30, rot: 0, vr: dir * (1.4 + Math.random()), life: 0 });
       const ex = dir < 0 ? b : a;
-      for (let i = 0; i < 7; i++) {
+      for (let i = 0; i < 4; i++) {
         particles.push({ k: "chip", x: ex, y: y + Math.random() * f.h, vx: dir * (20 + Math.random() * 50), vy: 20 + Math.random() * 50, life: 0, max: 0.9, size: 1.6 + Math.random() * 2.2, c: Math.random() < 0.5 ? f.pal.wall : f.pal.shade, rot: Math.random() * 6 });
       }
       sfx.crumble();
@@ -1118,7 +1107,7 @@ window.plethoraBit = {
       shake *= Math.exp(-10 * dt);
       if (firstTapDone) hintAlpha = Math.max(0, hintAlpha - dt * 3);
 
-      // Ambient life: lights flicking on, birds, wind-blown leaves.
+      // Ambient life: lights flicking on, birds.
       lightTimer -= dt;
       if (lightTimer <= 0) {
         lightTimer = 1.2 + Math.random() * 1.8;
@@ -1132,17 +1121,10 @@ window.plethoraBit = {
       birdTimer -= dt;
       if (birdTimer <= 0 && stageAlt < 40) {
         birdTimer = 7 + Math.random() * 8;
-        const dir = Math.random() < 0.5 ? 1 : -1, n = 2 + Math.floor(Math.random() * 3), by = 0.18 + Math.random() * 0.3;
+        const dir = Math.random() < 0.5 ? 1 : -1, n = 2 + Math.floor(Math.random() * 2), by = 0.18 + Math.random() * 0.3;
         for (let i = 0; i < n; i++) birds.push({ x: dir > 0 ? -0.1 - i * 0.03 : 1.1 + i * 0.03, y: by + (i % 2) * 0.02 + i * 0.008, v: dir * (0.045 + Math.random() * 0.01), ph: Math.random() * 6 });
       }
       for (let i = birds.length - 1; i >= 0; i--) { const b = birds[i]; b.x += b.v * dt; b.ph += dt * 9; if (b.x < -0.3 || b.x > 1.3) birds.splice(i, 1); }
-      const leafRate = wa * 3.5;
-      if (Math.random() < leafRate * dt && leaves.length < 14) leaves.push({ x: wind >= 0 ? -10 : W + 10, y: Math.random() * H * 0.8, vx: (wind >= 0 ? 1 : -1) * (50 + Math.random() * 50), vy: 8 + Math.random() * 12, r: Math.random() * 6, c: LEAF[Math.floor(Math.random() * 4)] });
-      for (let i = leaves.length - 1; i >= 0; i--) {
-        const lf = leaves[i];
-        lf.x += lf.vx * dt; lf.y += (lf.vy + Math.sin(time * 3 + lf.r) * 20) * dt; lf.r += dt * 4;
-        if (lf.x < -20 || lf.x > W + 20 || lf.y > H + 20) leaves.splice(i, 1);
-      }
     }
 
     // ============================================================ RENDER
@@ -1163,37 +1145,25 @@ window.plethoraBit = {
     }
 
     function drawSky(sc) {
-      const grd = g.createLinearGradient(0, 0, 0, H);
-      grd.addColorStop(0, css(sc.top));
-      grd.addColorStop(1, css(sc.bot));
-      g.fillStyle = grd; g.fillRect(0, 0, W, H);
+      // Flat poster-like tones instead of a gradient: sky, then a warmer horizon.
+      g.fillStyle = css(sc.top); g.fillRect(0, 0, W, H);
+      g.fillStyle = css(mixRGB(sc.top, sc.bot, 0.6)); g.fillRect(0, H * 0.74, W, H);
 
       if (sc.star > 0.01) {
-        for (const s of STARS) {
+        for (let si = 0; si < STARS.length; si += 2) {
+          const s = STARS[si];
           const tw = 0.5 + 0.5 * Math.sin(time * 1.5 + s[3]);
-          g.fillStyle = `rgba(255,246,226,${sc.star * (0.35 + 0.55 * tw)})`;
+          g.fillStyle = `rgba(255,246,226,${sc.star * (0.25 + 0.35 * tw)})`;
           g.fillRect(s[0] * W, s[1] * H, s[2], s[2]);
         }
       }
       // Sun becomes a pale moon in the thin air.
-      const sx = W * 0.74, sy = H * 0.2, sr = Math.min(W, H * 0.56) * 0.12;
-      g.fillStyle = css(sc.sun, 0.35); g.beginPath(); g.arc(sx, sy, sr * 1.45, 0, Math.PI * 2); g.fill();
-      g.fillStyle = css(sc.sun, 0.95); g.beginPath(); g.arc(sx, sy, sr, 0, Math.PI * 2); g.fill();
+      const sx = W * 0.78, sy = H * 0.17, sr = Math.min(W, H * 0.56) * 0.09;
+      g.fillStyle = css(mixRGB(sc.sun, sc.top, 0.25)); g.beginPath(); g.arc(sx, sy, sr, 0, Math.PI * 2); g.fill();
       const strange = sstep(78, 92, stageAlt);
       if (strange > 0) {
         g.fillStyle = css(sc.top, 0.18 * strange); g.beginPath(); g.arc(sx - sr * 0.3, sy - sr * 0.15, sr * 0.22, 0, Math.PI * 2); g.fill();
         g.beginPath(); g.arc(sx + sr * 0.35, sy + sr * 0.3, sr * 0.14, 0, Math.PI * 2); g.fill();
-        // soft aurora ribbons
-        for (let k = 0; k < 2; k++) {
-          g.strokeStyle = k ? `rgba(168,214,196,${0.08 * strange})` : `rgba(240,170,150,${0.08 * strange})`;
-          g.lineWidth = H * 0.05;
-          g.beginPath();
-          for (let x = -20; x <= W + 20; x += 20) {
-            const y = H * (0.28 + k * 0.1) + Math.sin(x * 0.008 + time * 0.25 + k * 2) * H * 0.05;
-            if (x === -20) g.moveTo(x, y); else g.lineTo(x, y);
-          }
-          g.stroke();
-        }
       }
     }
 
@@ -1215,23 +1185,26 @@ window.plethoraBit = {
         }
         g.lineTo(W, H); g.fill();
       }
-      drawSkyline(SKY_TALL, 0.2, css(sc.tall), css(mixRGB(sc.tall, sc.bot, 0.35)));
-      drawSkyline(SKY_FAR, 0.38, css(sc.far), css(mixRGB(sc.far, sc.bot, 0.4)));
+      drawSkyline(SKY_TALL, 0.2, css(mixRGB(sc.tall, sc.top, 0.35)));
+      drawSkyline(SKY_FAR, 0.38, css(mixRGB(sc.far, sc.bot, 0.3)));
 
       // Clouds the camera rises through.
       const cloudC = sc.cloud;
-      for (const c of CLOUDS) {
+      for (let ci = 0; ci < CLOUDS.length; ci += 2) {
+        const c = CLOUDS[ci];
         const x = bgX(c.x + ((time * c.drift + 900) % 1800) - 900, c.f * 0.3), y = bgY(c.y, c.f);
         if (y < -120 || y > H + 80) continue;
-        g.fillStyle = css(cloudC, 0.88);
+        g.fillStyle = css(cloudC, 0.75);
         for (const b of c.blobs) { g.beginPath(); g.arc(x + b[0] * scale, y + b[1] * scale, b[2] * scale, 0, Math.PI * 2); g.fill(); }
-        g.fillRect(x + c.x0 * scale, y - c.rb * 0.2 * scale, (c.x1 - c.x0) * scale, c.rb * 0.75 * scale);
+        g.beginPath(); g.ellipse(x + (c.x0 + c.x1) / 2 * scale, y + c.rb * 0.1 * scale, ((c.x1 - c.x0) / 2 + c.rb * 0.5) * scale, c.rb * 0.5 * scale, 0, 0, Math.PI * 2); g.fill();
       }
       // Sea of clouds below once above them.
       const seaOff = Math.max(2350 - cam.y * 0.9, 0.17 * viewH);
       const seaY = H - seaOff * scale;
-      if (seaY < H + 40 && stageAlt > 30) {
-        g.fillStyle = css(cloudC, 0.97);
+      // Only once the camera has risen above the layer: it fades in mid-screen, then sinks.
+      const seaA = 1 - sstep(0.4 * viewH, 0.55 * viewH, 2350 - cam.y * 0.9);
+      if (seaY < H + 40 && seaA > 0) {
+        g.fillStyle = css(cloudC, 0.97 * seaA);
         g.beginPath(); g.moveTo(0, H);
         for (const s of SEA) {
           const x = bgX(s[0] + Math.sin(time * 0.1 + s[1]) * 6, 0.15);
@@ -1246,17 +1219,6 @@ window.plethoraBit = {
         }
         g.fillRect(0, seaY, W, H - seaY);
       }
-      // Paper lanterns drifting up in the thin air.
-      const la = sstep(84, 96, stageAlt);
-      if (la > 0) {
-        for (const l of LANTERNS) {
-          const y = H * (1.1 - ((time * l.sp + l.off) % 1) * 1.3);
-          const x = l.x * W + Math.sin(time * 0.6 + l.sw) * 10;
-          g.fillStyle = `rgba(244,190,120,${0.75 * la})`;
-          g.beginPath(); g.ellipse(x, y, 4, 5.5, 0, 0, Math.PI * 2); g.fill();
-          g.fillStyle = `rgba(255,236,190,${0.6 * la})`; g.fillRect(x - 1.5, y + 3, 3, 2);
-        }
-      }
       // Birds.
       g.strokeStyle = "rgba(70,60,60,0.55)"; g.lineWidth = 1.2;
       for (const b of birds) {
@@ -1265,7 +1227,7 @@ window.plethoraBit = {
       }
     }
 
-    function drawSkyline(list, f, col, winCol) {
+    function drawSkyline(list, f, col) {
       const base = bgY(-10, f);
       if (base - 320 * scale > H) return;
       g.fillStyle = col;
@@ -1279,19 +1241,13 @@ window.plethoraBit = {
           case "pitch": g.moveTo(x - 2, top); g.lineTo(x + w / 2, top - w * 0.42); g.lineTo(x + w + 2, top); break;
           case "dome": g.arc(x + w / 2, top, w * 0.36, Math.PI, 0); g.rect(x + w / 2 - 0.6 * scale, top - w * 0.36 - 5 * scale, 1.2 * scale, 6 * scale); break;
           case "spire": g.moveTo(x + w * 0.3, top); g.lineTo(x + w / 2, top - w * 1.1); g.lineTo(x + w * 0.7, top); break;
-          case "tank": g.rect(x + w * 0.55, top - 9 * scale, w * 0.28, 7 * scale); g.rect(x + w * 0.58, top - 2 * scale, 1 * scale, 2 * scale); g.rect(x + w * 0.78, top - 2 * scale, 1 * scale, 2 * scale); break;
-          case "chhatri": g.arc(x + w / 2, top - 4 * scale, w * 0.22, Math.PI, 0); g.rect(x + w * 0.3, top - 4 * scale, w * 0.4, 4 * scale); break;
-          case "step": g.rect(x + w * 0.15, top - 6 * scale, w * 0.7, 6 * scale); g.rect(x + w * 0.32, top - 11 * scale, w * 0.36, 5 * scale); break;
+          case "tank-off": g.rect(x + w * 0.55, top - 9 * scale, w * 0.28, 7 * scale); g.rect(x + w * 0.58, top - 2 * scale, 1 * scale, 2 * scale); g.rect(x + w * 0.78, top - 2 * scale, 1 * scale, 2 * scale); break;
+          case "chhatri-off": g.arc(x + w / 2, top - 4 * scale, w * 0.22, Math.PI, 0); g.rect(x + w * 0.3, top - 4 * scale, w * 0.4, 4 * scale); break;
+          case "step-off": g.rect(x + w * 0.15, top - 6 * scale, w * 0.7, 6 * scale); g.rect(x + w * 0.32, top - 11 * scale, w * 0.36, 5 * scale); break;
           default: g.rect(x - 1, top - 2 * scale, w + 2, 2 * scale);
         }
         g.fill();
-        if (b.win) {
-          g.fillStyle = winCol;
-          for (let wy = top + 6 * scale; wy < base - 6 * scale; wy += 9 * scale) {
-            for (let wx = x + 4 * scale; wx < x + w - 5 * scale; wx += 8 * scale) g.fillRect(wx, wy, 3 * scale, 4 * scale);
-          }
-          g.fillStyle = col;
-        }
+
       }
     }
 
@@ -1320,52 +1276,17 @@ window.plethoraBit = {
       g.beginPath(); g.moveTo(L, 0);
       for (let x = L; x <= R; x += 14) g.lineTo(x, -14 - Math.sin(x * 0.07) * 3 - Math.sin(x * 0.23) * 2);
       g.lineTo(R, 0); g.fill();
-      for (const nb of NEIGHBOURS) {
-        const pal = WALLS[nb.pal];
-        const wall = mixHex(pal.wall, "#E9E2CF", 0.38), sh = mixHex(pal.shade, "#E9E2CF", 0.38), tr = mixHex(pal.trim, "#E9E2CF", 0.3);
-        rect(g, wall, nb.x, -nb.h, nb.w, nb.h);
-        rect(g, sh, nb.x + nb.w - 6, -nb.h, 6, nb.h);
-        if (nb.roof === "pitch") {
-          g.fillStyle = mixHex("#B5573B", "#E9E2CF", 0.4);
-          g.beginPath(); g.moveTo(nb.x - 4, -nb.h); g.lineTo(nb.x + nb.w / 2, -nb.h - nb.w * 0.38); g.lineTo(nb.x + nb.w + 4, -nb.h); g.fill();
-        } else rect(g, tr, nb.x - 2, -nb.h - 4, nb.w + 4, 5);
-        const cols = Math.max(1, Math.floor((nb.w - 10) / 22));
-        for (let fy = -nb.h + 12; fy < -18; fy += 30) {
-          for (let c = 0; c < cols; c++) {
-            const wx = nb.x + 8 + c * ((nb.w - 16) / cols) + ((nb.w - 16) / cols - 11) / 2;
-            rect(g, tr, wx - 1, fy - 1, 13, 17);
-            rect(g, mixHex(GLASS, "#E9E2CF", 0.3), wx, fy, 11, 15);
-          }
-        }
-        rect(g, mixHex("#6E4A39", "#E9E2CF", 0.35), nb.x + nb.w / 2 - 6, -18, 12, 18);
+      // two simple trees frame the tower; nothing else competes with it
+      for (const tx of [-150, 168]) {
+        const sway = Math.sin(time * 0.9 + tx) * 0.8 + wind * 0.12;
+        rect(g, "#7A5843", tx - 1.6, -26, 3.2, 26);
+        g.fillStyle = "#7E9F7A"; g.beginPath(); g.ellipse(tx + sway, -40, 13, 17, 0, 0, Math.PI * 2); g.fill();
+        g.fillStyle = "#6E9070"; g.beginPath(); g.ellipse(tx + sway, -34, 13, 11, 0, 0, Math.PI); g.fill();
       }
-      // trees + lamps behind the tower
-      for (const tx of [-128, 132, -300, 420, -420]) {
-        const sway = Math.sin(time * 1.1 + tx) * (1.2 + Math.abs(wind) * 0.06) + wind * 0.15;
-        rect(g, "#7A5843", tx - 2, -30, 4, 30);
-        circle(g, "#6F946F", tx + sway, -40, 15);
-        circle(g, "#7FA37A", tx - 9 + sway, -34, 10);
-        circle(g, "#86AB80", tx + 8 + sway * 1.1, -46, 10);
-        circle(g, "rgba(255,245,220,0.18)", tx - 5 + sway, -48, 6);
-      }
-      for (const lx of [-92, 104, -250, 300]) {
-        rect(g, INK, lx - 1, -44, 2, 44);
-        rect(g, INK, lx - 3, -46, 6, 2);
-        circle(g, "#F7DA97", lx, -42.5, 2.4);
-      }
-      // parked bicycle
-      const bx = -185;
-      g.strokeStyle = INK; g.lineWidth = 1;
-      g.beginPath(); g.arc(bx - 7, -5, 4.5, 0, Math.PI * 2); g.moveTo(bx + 11.5, -5); g.arc(bx + 7, -5, 4.5, 0, Math.PI * 2);
-      g.moveTo(bx - 7, -5); g.lineTo(bx - 1, -11); g.lineTo(bx + 5, -11); g.lineTo(bx + 7, -5); g.moveTo(bx - 1, -11); g.lineTo(bx + 1, -5); g.lineTo(bx + 5, -11);
-      g.moveTo(bx - 3, -13); g.lineTo(bx, -13); g.moveTo(bx + 5, -11); g.lineTo(bx + 6, -14); g.stroke();
-      rect(g, "#C8674A", bx - 4, -13.6, 3.6, 1.4);
       // street
       rect(g, "#E8D8BA", L, 0, R - L, 7);
       rect(g, "#CDBB98", L, 7, R - L, 2);
       rect(g, "#A2A690", L, 9, R - L, 34);
-      g.fillStyle = "#EFE3C8";
-      for (let x = L; x < R; x += 34) g.fillRect(x, 25, 16, 1.6);
       rect(g, "#C9B996", L, 43, R - L, 3);
       rect(g, "#8DA585", L, 46, R - L, 900);
       // foundation under the tower
@@ -1396,7 +1317,10 @@ window.plethoraBit = {
       return 0.085 * Math.exp(-9 * tSince) * Math.cos(26 * tSince);
     }
 
-    function drawPlaced(tf) {
+    // Floors fade a little into the air as they sink below the top of the tower,
+    // so the newest floors (and the hanging one) carry the most contrast.
+    let fadeColor = [240, 228, 205];
+    function drawPlaced(tf, depth) {
       const f = tf.f;
       const sq = squash(tf.land);
       g.save();
@@ -1408,6 +1332,8 @@ window.plethoraBit = {
       // Finished edges where the floor was cut.
       if (tf.cl > tf.ox - f.w / 2 + 0.5) { rect(g, f.pal.shade, tf.cl, -tf.y - f.h, 2.4, f.h); }
       if (tf.cr < tf.ox + f.w / 2 - 0.5) { rect(g, f.pal.shade, tf.cr - 2.4, -tf.y - f.h, 2.4, f.h); }
+      const fade = clamp((depth - 2) * 0.045, 0, 0.32);
+      if (fade > 0) rect(g, css(fadeColor, fade), tf.cl, -tf.y - f.h, tf.cr - tf.cl, f.h);
     }
 
     function drawPiece(p) {
@@ -1455,6 +1381,7 @@ window.plethoraBit = {
         rect(g, "#3A3230", -bw - 2, 14.5, 4, 2.5); rect(g, "#3A3230", bw - 2, 14.5, 4, 2.5);
         g.translate(0, 16 + f.h);
         drawFloor(g, f, time, wind);
+        heroOutline(f);
         // first-run hint
         if (hintAlpha > 0 && attempt === 1) {
           g.fillStyle = `rgba(62,48,44,${0.75 * hintAlpha})`;
@@ -1480,7 +1407,14 @@ window.plethoraBit = {
       g.rotate(rot);
       g.translate(0, f.h / 2);
       drawFloor(g, f, time, wind);
+      heroOutline(f);
       g.restore();
+    }
+
+    // A crisp ink line marks the floor in play; placed floors have none.
+    function heroOutline(f) {
+      g.strokeStyle = "rgba(43,35,33,0.7)"; g.lineWidth = 1.1;
+      g.strokeRect(-f.w / 2, -f.h, f.w, f.h);
     }
 
     function drawParticles() {
@@ -1527,25 +1461,10 @@ window.plethoraBit = {
       }
     }
 
-    function drawForeground(sc) {
-      // Thin cloud wisps passing in front of the tower in the cloud band.
-      for (const w of WISPS) {
-        const x = bgX(w.x + ((time * w.drift + 800) % 1600) - 800, 0.2), y = bgY(w.y, 1.12);
-        if (y < -60 || y > H + 60) continue;
-        g.fillStyle = css(sc.cloud, 0.32);
-        g.beginPath(); g.ellipse(x, y, w.w * scale, 10 * scale, 0, 0, Math.PI * 2); g.fill();
-        g.beginPath(); g.ellipse(x + w.w * 0.3 * scale, y - 7 * scale, w.w * 0.45 * scale, 9 * scale, 0, 0, Math.PI * 2); g.fill();
-      }
-      for (const lf of leaves) {
-        g.save(); g.translate(lf.x, lf.y); g.rotate(lf.r);
-        g.fillStyle = lf.c; g.beginPath(); g.ellipse(0, 0, 3.4, 1.6, 0, 0, Math.PI * 2); g.fill();
-        g.restore();
-      }
-    }
 
     function drawHUD() {
       const top = Math.max(16, safeTop + 12);
-      const ink = "rgba(62,48,44,0.88)";
+      const ink = "rgba(62,48,44,0.78)";
       g.fillStyle = ink;
       g.font = `12px ${FONT_NUM}`;
       g.textBaseline = "alphabetic";
@@ -1626,9 +1545,11 @@ window.plethoraBit = {
       for (const p of pieces) drawPiece(p);
       // Only draw floors that are on screen.
       const viewTop = view.y + viewH / view.z + 60, viewBottom = view.y - 80;
-      for (const tf of tower) {
+      fadeColor = sc.bot;
+      for (let i = 0; i < tower.length; i++) {
+        const tf = tower[i];
         if (tf.y > viewTop || tf.y + tf.f.h < viewBottom) continue;
-        drawPlaced(tf);
+        drawPlaced(tf, tower.length - 1 - i);
       }
       if (view.y < 60) drawWalkers();
       drawFalling();
@@ -1636,7 +1557,6 @@ window.plethoraBit = {
       drawParticles();
       drawPopups();
       g.restore();
-      drawForeground(sc);
       drawHUD();
       drawCaption();
       drawGameOver();
