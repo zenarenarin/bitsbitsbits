@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "Stacked",
+  "description": "A tiny illustrated floor swings from a crane cable. Tap to drop it on your tower; only what overlaps survives. Build as high as you can.",
+  "tags": ["arcade", "timing", "stacking", "architecture"],
+  "permissions": ["haptics", "audio", "backgroundMusic", "storage"],
+  "dependencies": [],
+  "memory": {
+    "records": {
+      "height": {
+        "label": "Floors",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": ["daily", "weekly", "all_time"],
+        "scopes": ["following", "global"],
+        "dedupe": "best_per_user"
+      }
+    }
+  },
+  "tuning": {
+    "schemaVersion": 1,
+    "groups": {
+      "swing": { "label": "Swing" },
+      "difficulty": { "label": "Difficulty" },
+      "feel": { "label": "Feel" },
+      "audio": { "label": "Audio" }
+    },
+    "knobs": {
+      "swing_speed": { "label": "Swing speed at start", "type": "number", "default": 2.25, "min": 1.2, "max": 4, "step": 0.05, "group": "swing", "intent": "difficulty", "apply": "restart" },
+      "max_swing_speed": { "label": "Swing speed at the top", "type": "number", "default": 4.4, "min": 2.5, "max": 7, "step": 0.1, "group": "swing", "intent": "difficulty", "apply": "restart" },
+      "swing_amplitude": { "label": "Swing width", "type": "number", "default": 112, "min": 70, "max": 150, "step": 2, "group": "swing", "intent": "difficulty", "apply": "restart" },
+      "initial_floor_width": { "label": "Starting floor width", "type": "number", "default": 150, "min": 100, "max": 220, "step": 2, "group": "difficulty", "intent": "difficulty", "apply": "restart" },
+      "min_floor_width": { "label": "Narrowest new floor", "type": "number", "default": 104, "min": 60, "max": 160, "step": 2, "group": "difficulty", "intent": "difficulty", "apply": "restart" },
+      "perfect_threshold": { "label": "Perfect window", "type": "number", "default": 5, "min": 1, "max": 14, "step": 0.5, "group": "difficulty", "intent": "difficulty", "apply": "restart" },
+      "wind_strength": { "label": "Wind strength", "type": "number", "default": 22, "min": 0, "max": 60, "step": 1, "group": "difficulty", "intent": "difficulty", "apply": "restart" },
+      "combo_increment": { "label": "Combo per perfect", "type": "integer", "default": 1, "min": 1, "max": 3, "step": 1, "group": "difficulty", "intent": "gameplay", "apply": "restart" },
+      "gravity": { "label": "Gravity", "type": "number", "default": 2600, "min": 1200, "max": 4000, "step": 50, "group": "feel", "intent": "feel", "apply": "restart" },
+      "floor_spawn_height": { "label": "Drop height", "type": "number", "default": 165, "min": 110, "max": 240, "step": 5, "group": "feel", "intent": "feel", "apply": "restart" },
+      "camera_follow_speed": { "label": "Camera follow speed", "type": "number", "default": 4.2, "min": 1.5, "max": 10, "step": 0.1, "group": "feel", "intent": "feel", "apply": "restart" },
+      "music_volume": { "label": "Music volume", "type": "percent", "default": 0.22, "min": 0, "max": 1, "step": 0.02, "group": "audio", "intent": "audio", "apply": "restart" }
+    },
+    "curves": {
+      "difficulty_ramp": {
+        "label": "Swing speed ramp by floor",
+        "domain": "level",
+        "range": [0, 1.2],
+        "default": [
+          { "x": 0, "y": 0 },
+          { "x": 5, "y": 0.04 },
+          { "x": 15, "y": 0.2 },
+          { "x": 30, "y": 0.38 },
+          { "x": 50, "y": 0.6 },
+          { "x": 75, "y": 0.78 },
+          { "x": 100, "y": 0.9 },
+          { "x": 150, "y": 1 }
+        ],
+        "easing": "smooth",
+        "group": "difficulty",
+        "apply": "restart"
+      }
+    },
+    "presets": {
+      "gentle": { "label": "Gentle", "values": { "swing_speed": 1.8, "max_swing_speed": 3.4, "perfect_threshold": 8, "wind_strength": 10 } },
+      "spicy": { "label": "Spicy", "values": { "swing_speed": 2.8, "max_swing_speed": 5.6, "perfect_threshold": 3.5, "wind_strength": 34 } }
+    }
+  },
+  "onboarding": { "kind": "immersive", "version": 1 }
+}

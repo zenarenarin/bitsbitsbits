@@ -1,0 +1,90 @@
+<!doctype html>
+<!--
+  Local desktop/mobile preview for STACKED.
+  Plethora runs main.js inside its own runtime; this page provides a tiny stand-in
+  for the few ctx APIs the Bit uses so you can play it in any browser.
+  Open with:  npx serve bits/stacked   (or python3 -m http.server)  then visit /preview.html
+  Controls: click / tap / Space = drop, R = restart.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Stacked — preview</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #2a2423; overflow: hidden; }
+    #stage { position: relative; height: 100vh; width: min(100vw, calc(100vh * 9 / 16)); margin: 0 auto; overflow: hidden; }
+    @media (max-aspect-ratio: 10/16) { #stage { width: 100vw; } }
+  </style>
+</head>
+<body>
+  <div id="stage"></div>
+  <script src="main.js"></script>
+  <script>
+    (function () {
+      const stage = document.getElementById("stage");
+      const destroyers = [];
+      const resizeCbs = [];
+      const FONTS = {
+        "bebas-neue": "https://libs.plethora.studio/fonts/bebas-neue/1.0.0/400.ttf",
+        "dm-serif-display": "https://libs.plethora.studio/fonts/dm-serif-display/1.0.0/400-italic.ttf"
+      };
+      const canvases = [];
+      function layout() {
+        const w = stage.clientWidth, h = stage.clientHeight, dpr = Math.min(window.devicePixelRatio || 1, 2);
+        ctx.width = w; ctx.height = h; ctx.dpr = dpr;
+        for (const c of canvases) {
+          c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+          c.style.width = w + "px"; c.style.height = h + "px";
+          c.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+        for (const cb of resizeCbs) cb({ width: w, height: h, dpr, nativeDpr: dpr, safeArea: ctx.safeArea });
+      }
+      const store = {
+        get: (k) => { try { return JSON.parse(localStorage.getItem("preview:" + k)); } catch (e) { return null; } },
+        set: (k, v) => { try { localStorage.setItem("preview:" + k, JSON.stringify(v)); } catch (e) {} }
+      };
+      const ctx = {
+        __preview: {},
+        width: 0, height: 0, dpr: 1, safeArea: { top: 0, bottom: 0, left: 0, right: 0 },
+        createCanvas2D(opts) {
+          const c = document.createElement("canvas");
+          c.style.position = "absolute"; c.style.inset = "0"; c.style.touchAction = (opts && opts.touchAction) || "none";
+          stage.appendChild(c); canvases.push(c); layout();
+          return c;
+        },
+        onResize(cb, o) { resizeCbs.push(cb); if (o && o.immediate) cb({ width: ctx.width, height: ctx.height, dpr: ctx.dpr, safeArea: ctx.safeArea }); return () => {}; },
+        listen(t, ev, fn, o) { t.addEventListener(ev, fn, o); destroyers.push(() => t.removeEventListener(ev, fn, o)); return () => {}; },
+        onDestroy(fn) { destroyers.push(fn); },
+        tune: { number: () => undefined, has: () => false, curve: () => null },
+        storage: store,
+        music: { unlock: async () => {}, play: () => {}, duck: () => {} },
+        platform: {
+          ready: () => console.log("[platform] ready"), start: (p) => console.log("[platform] start", p),
+          interact: () => {}, milestone: (n) => console.log("[platform] milestone", n),
+          fail: (p) => console.log("[platform] fail", p), haptic: () => {}
+        },
+        game: {
+          score: () => ({ value: 0, set(v) { this.value = v; }, reset() { this.value = 0; }, submit: async (id, o) => console.log("[score] submit", id, o) }),
+          loop(o) {
+            let last = performance.now();
+            function frame(now) {
+              const dt = Math.min(now - last, o.maxDeltaMs || 50); last = now;
+              o.update && o.update(dt); o.render && o.render();
+              requestAnimationFrame(frame);
+            }
+            requestAnimationFrame(frame);
+          }
+        },
+        async loadFont(family, name, version, opts) {
+          const ff = new FontFace(family, `url(${FONTS[name]})`, { weight: opts.weight, style: opts.style });
+          await ff.load(); document.fonts.add(ff); return ff;
+        }
+      };
+      window.addEventListener("resize", layout);
+      window.__previewCtx = ctx;
+      window.plethoraBit.init(ctx);
+    })();
+  </script>
+</body>
+</html>
