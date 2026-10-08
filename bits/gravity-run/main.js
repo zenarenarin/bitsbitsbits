@@ -557,8 +557,18 @@ function buildLevel(def) {
     const i = idxAt(P.marks[g.at]);
     const nx = -lv.ty[i];
     const ny = lv.tx[i];
-    const wa = g.a * lv.w[i];
-    const wb = g.b * lv.w[i];
+    let wa = g.a * lv.w[i];
+    let wb = g.b * lv.w[i];
+    // A partial gate always leaves a ball-width gap (plus a little room) when raised.
+    const full = Math.abs(g.a) >= 1 && Math.abs(g.b) >= 1;
+    if (!full) {
+      const gap = 2 * BALL_R + 0.16;
+      const wall = Math.abs(g.a) >= 1 ? wa : wb;
+      const free = -Math.sign(wall) * lv.w[i];
+      const limit = free + Math.sign(wall) * (gap + GATE_T);
+      if (Math.abs(g.a) >= 1) wb = Math.sign(wall) > 0 ? Math.max(wb, limit) : Math.min(wb, limit);
+      else wa = Math.sign(wall) > 0 ? Math.max(wa, limit) : Math.min(wa, limit);
+    }
     return {
       ax: lv.cx[i] + nx * wa,
       ay: lv.cy[i] + ny * wa,
@@ -618,6 +628,11 @@ function validateLevel(lv) {
   if (overlap) issues.push(overlap);
   if (lv.hole.r > lv.w[n - 1] - 0.06) issues.push("hole wider than end chamber");
   if (lv.hole.r < BALL_R * 1.2) issues.push("hole too small");
+  for (const g of lv.gates) {
+    // A gate must stay fully down long enough to roll across its footprint.
+    const down = (1 - g.duty - 0.09) * g.period;
+    if (down < 0.55) issues.push("gate window too short (" + down.toFixed(2) + "s)");
+  }
   for (const isl of lv.islands) {
     for (let k = 0; k < isl.qx.length; k += 4) {
       const j = isl.i0 + k;
@@ -826,10 +841,10 @@ function woodTexture(size, seed) {
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const i = y * size + x;
-      const t = (y / size) * 7 + warp[i] * 1.8;
+      const t = (y / size) * 16 + warp[i] * 2.4 + fine[i] * 0.35;
       let k = 0.5 + 0.5 * Math.sin(t * Math.PI * 2);
-      k = Math.pow(k, 1.8) * 0.7 + fine[i] * 0.3;
-      const v = clamp(0.78 + k * 0.32, 0, 1) * 255;
+      k = Math.pow(k, 2.2) * 0.6 + fine[i] * 0.4;
+      const v = clamp(0.84 + k * 0.2, 0, 1) * 255;
       d[i * 4] = v;
       d[i * 4 + 1] = v;
       d[i * 4 + 2] = v;
@@ -903,7 +918,7 @@ const FINISHES = {
   },
   walnut: {
     bg: 0x1a120c,
-    plate: 0x6b4429,
+    plate: 0x4f3221,
     plateMetal: 0.0,
     plateRough: 0.55,
     plateTex: "wood",
@@ -1018,8 +1033,8 @@ function createWorld(THREE, renderer, finish) {
   };
 
   const plateData = finish.plateTex === "wood" ? woodTexture(256, 11) : grayTexture(256, 5, 0.88, 1.0, 0);
-  const plateMap = tex(plateData, 256, 256, true, finish.plateTex === "wood" ? 1 / 7 : 1 / 3);
-  const plateBump = tex(plateData, 256, 256, false, finish.plateTex === "wood" ? 1 / 7 : 1 / 3);
+  const plateMap = tex(plateData, 256, 256, true, finish.plateTex === "wood" ? 1 / 9 : 1 / 3);
+  const plateBump = tex(plateData, 256, 256, false, finish.plateTex === "wood" ? 1 / 9 : 1 / 3);
   const floorData = grayTexture(256, 23, 0.91, 1.0, 0.006);
   const floorMap = tex(floorData, 256, 256, true, 1 / 4);
   const floorBump = tex(floorData, 256, 256, false, 1 / 4);
@@ -1235,12 +1250,6 @@ function createWorld(THREE, renderer, finish) {
     camera.updateMatrixWorld(true);
   }
 
-  const projV = new THREE.Vector3();
-  function toScreen(x, y, z, width, height) {
-    projV.set(x, y, z).project(camera);
-    return { x: (projV.x * 0.5 + 0.5) * width, y: (-projV.y * 0.5 + 0.5) * height };
-  }
-
   function dispose() {
     if (level) {
       scene.remove(level.group);
@@ -1250,7 +1259,7 @@ function createWorld(THREE, renderer, finish) {
     disposables.forEach(d => d.dispose && d.dispose());
   }
 
-  return { scene, camera, ball, contact, flash, flashLight, mats, setLevel, updateGates, fit, toScreen, dispose };
+  return { scene, camera, ball, contact, flash, flashLight, mats, setLevel, updateGates, fit, dispose };
 }
 
 // ─────────────────────────────────────────────────────────── sound
@@ -1786,7 +1795,6 @@ window.plethoraBit = {
     let motionSeen = false;
     let motionStartedAt = 0;
     const keys = { x: 0, y: 0, l: false, r: false, u: false, d: false };
-    const drag = { on: false, x: 0, y: 0 };
     const tracker = ctx.input.track(canvas, { pointerCapture: true });
 
     function makeTiltControl() {
@@ -2371,7 +2379,9 @@ window.plethoraBit = {
       b.position.set(x, y, BALL_R + G.z);
       if (G.quat) b.quaternion.copy(G.quat);
       const depth = clamp(-G.z / HOLE_DEPTH, 0, 1);
-      world.mats.ball.envMapIntensity = 1.45 * (1 - depth * 0.8);
+      // Sinking into the bore: reflections and light fall away.
+      world.mats.ball.envMapIntensity = 1.45 * (1 - depth * 0.9);
+      world.mats.ball.color.setScalar(1 - depth * 0.62);
       world.contact.position.set(x, y, 0.004);
       world.contact.material.opacity = 0.6 * (1 - clamp(depth * 3, 0, 1));
       renderer.render(world.scene, world.camera);
