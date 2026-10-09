@@ -977,7 +977,7 @@ window.plethoraBit = {
 @media (max-width:360px){.uc .tool{min-width:42px;padding:0 2px}.uc .tool svg{width:32px}.uc .tool span{font-size:8.5px;letter-spacing:.06em}.uc .seg{gap:2px}.uc .colbtn span:last-child{display:none}.uc .colbtn{padding:0 6px}}
 </style>
 <div class="top" data-r="top">
-  <div class="mark">The Unfinished Canvas<button data-a="diag" data-r="count"><span class="live off"></span>connecting…</button></div>
+  <div class="mark">The Unfinished Canvas <span style="font-family:'Space Mono',monospace;font-weight:400;letter-spacing:.04em;color:var(--cyan);text-transform:none">v2.1</span><button data-a="diag" data-r="count"><span class="live off"></span>connecting…</button></div>
   <div class="icons">
     <button class="ib" data-r="history" aria-label="History"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v4h4"/><path d="M12 7v5l3 2"/></svg></button>
     <button class="ib" data-r="fit" aria-label="Whole canvas"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
