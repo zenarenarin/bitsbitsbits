@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "One Second Ago",
+  "description": "Run through a calm, illustrated endless world while translucent echoes of yourself replay every step you took 1, 2, 3… seconds ago. Don't meet your past.",
+  "tags": ["arcade", "endless", "time", "isometric"],
+  "permissions": ["haptics", "audio", "storage"],
+  "dependencies": [],
+  "onboarding": {
+    "kind": "immersive",
+    "version": 1
+  },
+  "memory": {
+    "records": {
+      "distance": {
+        "label": "Distance",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": ["daily", "weekly", "all_time"],
+        "scopes": ["following", "global"],
+        "dedupe": "best_per_user"
+      }
+    }
+  },
+  "tuning": {
+    "schemaVersion": 1,
+    "groups": {
+      "movement": { "label": "Movement" },
+      "echoes": { "label": "Echoes" },
+      "world": { "label": "World" }
+    },
+    "knobs": {
+      "player_speed": { "label": "Run speed (tiles/s)", "type": "number", "default": 2.5, "min": 1.6, "max": 4, "step": 0.1, "group": "movement", "intent": "gameplay", "apply": "restart" },
+      "turn_rate": { "label": "Steering sharpness", "type": "number", "default": 6, "min": 3, "max": 12, "step": 0.5, "group": "movement", "intent": "feel", "apply": "restart" },
+      "collision_tolerance": { "label": "Collision forgiveness", "type": "number", "default": 0.06, "min": 0, "max": 0.14, "step": 0.01, "group": "echoes", "intent": "difficulty", "apply": "restart" },
+      "max_echoes": { "label": "Maximum echoes", "type": "integer", "default": 5, "min": 1, "max": 5, "step": 1, "group": "echoes", "intent": "difficulty", "apply": "restart" },
+      "echo_opacity": { "label": "Echo opacity", "type": "percent", "default": 0.74, "min": 0.35, "max": 1, "step": 0.01, "group": "echoes", "intent": "visual", "apply": "restart" },
+      "scroll_start": { "label": "Walkway pace at start", "type": "number", "default": 0.72, "min": 0.3, "max": 1.6, "step": 0.02, "group": "world", "intent": "difficulty", "apply": "restart" },
+      "scroll_max": { "label": "Walkway pace at full difficulty", "type": "number", "default": 1.55, "min": 0.6, "max": 2.6, "step": 0.05, "group": "world", "intent": "difficulty", "apply": "restart" },
+      "band_length": { "label": "Walkable path length", "type": "number", "default": 13, "min": 8, "max": 22, "step": 0.5, "group": "world", "intent": "difficulty", "apply": "restart" },
+      "path_width": { "label": "Starting path width", "type": "integer", "default": 4, "min": 3, "max": 7, "step": 1, "group": "world", "intent": "difficulty", "apply": "restart" },
+      "environment_pace": { "label": "World transformation pace", "type": "number", "default": 1, "min": 0.4, "max": 3, "step": 0.1, "group": "world", "intent": "visual", "apply": "restart" },
+      "world_scale": { "label": "Zoom (tiles across screen)", "type": "number", "default": 6.2, "min": 4.5, "max": 9, "step": 0.1, "group": "world", "intent": "visual", "apply": "restart" },
+      "preview_environment": { "label": "Preview environment (0 city → 4 clouds)", "type": "number", "default": 0, "min": 0, "max": 4.9, "step": 0.1, "group": "world", "intent": "debug", "apply": "restart" }
+    },
+    "curves": {
+      "echo_schedule": {
+        "label": "Echoes by seconds survived",
+        "domain": "elapsed_seconds",
+        "range": [1, 5],
+        "default": [
+          { "x": 0, "y": 1 },
+          { "x": 22, "y": 2 },
+          { "x": 45, "y": 3 },
+          { "x": 70, "y": 4 },
+          { "x": 100, "y": 5 }
+        ],
+        "easing": "step",
+        "group": "echoes",
+        "apply": "live"
+      },
+      "difficulty_ramp": {
+        "label": "Difficulty by seconds survived",
+        "domain": "elapsed_seconds",
+        "range": [0, 1],
+        "default": [
+          { "x": 0, "y": 0 },
+          { "x": 15, "y": 0.03 },
+          { "x": 60, "y": 0.35 },
+          { "x": 150, "y": 0.8 },
+          { "x": 240, "y": 1 }
+        ],
+        "easing": "smooth",
+        "group": "world",
+        "apply": "live"
+      }
+    }
+  }
+}
