@@ -1,0 +1,114 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Daily Collective Canvas: local harness</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  #stage { position: fixed; inset: 0; overflow: hidden; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+// Mock of the documented Plethora Bit runtime surface used by this Bit.
+// Only for local multi-client testing; the real runtime is Plethora's.
+(function () {
+  const params = new URLSearchParams(location.search);
+  const user = params.get("user") || "anon";
+  const stage = document.getElementById("stage");
+  const cleanups = [];
+  const LAYERS = { background: 0, content: 10, overlay: 20, modal: 30 };
+  window.__events = [];
+  const ev = (name, payload) => window.__events.push({ name, payload, at: Date.now() });
+
+  async function call(pathname, body) {
+    const res = await fetch(pathname, { method: "POST", headers: { "content-type": "application/json", "x-user": user }, body: JSON.stringify(body || {}) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { const e = new Error(data.message || data.code || ("http " + res.status)); e.code = data.code || String(res.status); e.status = res.status; throw e; }
+    return data;
+  }
+  const resizeCbs = [];
+  function sizeInfo() {
+    return { width: stage.clientWidth, height: stage.clientHeight, dpr: window.devicePixelRatio || 1, nativeDpr: window.devicePixelRatio || 1, safeArea: ctx.safeArea };
+  }
+  const canvases = [];
+  function fitCanvas(c) {
+    const d = Math.min(window.devicePixelRatio || 1, c.__maxDpr || 1);
+    c.width = Math.round(stage.clientWidth * d);
+    c.height = Math.round(stage.clientHeight * d);
+  }
+  window.addEventListener("resize", () => {
+    canvases.forEach(fitCanvas);
+    resizeCbs.forEach(cb => cb(sizeInfo()));
+  });
+
+  const ctx = {
+    container: stage,
+    get width() { return stage.clientWidth; },
+    get height() { return stage.clientHeight; },
+    get dpr() { return window.devicePixelRatio || 1; },
+    safeArea: { top: 20, bottom: 18, left: 0, right: 0 },
+    capabilities: { audio: false, backgroundMusic: false, camera: false, haptics: true, microphone: false, motion: false, storage: true },
+    runtime: { version: "plethora-bit@2", sdkVersion: "1.6.3", schemaVersion: 1 },
+    createCanvas2D(opts = {}) {
+      const c = document.createElement("canvas");
+      c.__maxDpr = opts.maxDpr || 1;
+      c.style.cssText = "position:absolute;inset:0;width:100%;height:100%;touch-action:" + (opts.touchAction || "none") + ";z-index:" + (LAYERS[opts.layer] ?? 10);
+      stage.appendChild(c);
+      canvases.push(c);
+      fitCanvas(c);
+      return c;
+    },
+    createRoot(opts = {}) {
+      const d = document.createElement("div");
+      d.className = opts.className || "";
+      d.style.cssText = "position:absolute;inset:0;z-index:" + (LAYERS[opts.layer] ?? 20) + (opts.input === "passthrough" ? ";pointer-events:none" : "");
+      stage.appendChild(d);
+      return d;
+    },
+    onResize(cb, o = {}) { resizeCbs.push(cb); if (o.immediate) cb(sizeInfo()); return () => {}; },
+    listen(target, name, fn, opts) { target.addEventListener(name, fn, opts); cleanups.push(() => target.removeEventListener(name, fn, opts)); return () => target.removeEventListener(name, fn, opts); },
+    input: {
+      activate(el, fn) { el.addEventListener("click", fn); return () => el.removeEventListener("click", fn); }
+    },
+    timeout(fn, ms) { const h = setTimeout(fn, ms); cleanups.push(() => clearTimeout(h)); return () => clearTimeout(h); },
+    interval(fn, ms) { const h = setInterval(fn, ms); cleanups.push(() => clearInterval(h)); return () => clearInterval(h); },
+    onFrame(cb) { let last = performance.now(); const loop = t => { cb(t - last, t); last = t; requestAnimationFrame(loop); }; requestAnimationFrame(loop); },
+    onDestroy(fn) { cleanups.push(fn); },
+    markVisualReady() {},
+    platform: {
+      ready(p) { ev("ready", p); document.body.dataset.ready = "1"; },
+      start(p) { ev("start", p); }, interact(p) { ev("interact", p); }, error(p) { ev("error", p); },
+      complete(p) { ev("complete", p); }, emit(n, p) { ev(n, p); }, haptic(k) { ev("haptic", k); }
+    },
+    fx: { ripple() { return { done: Promise.resolve() }; } },
+    loadFont() { return Promise.reject(new Error("font registry not available in harness")); },
+    storage: {
+      async get(k) { const v = localStorage.getItem(user + ":" + k); return v == null ? null : JSON.parse(v); },
+      async set(k, v) { localStorage.setItem(user + ":" + k, JSON.stringify(v)); },
+      async remove(k) { localStorage.removeItem(user + ":" + k); },
+      async clear() {}
+    },
+    memory: {
+      world(channel) {
+        if (channel !== "canvas") throw new Error("undeclared world channel " + channel);
+        return {
+          get: () => call("/api/world/get"),
+          mutate: m => call("/api/world/mutate", m)
+        };
+      }
+    }
+  };
+  window.__ctx = ctx;
+  const s = document.createElement("script");
+  s.src = "/main.js";
+  s.onload = () => {
+    window.plethoraBit.init(ctx).then(() => { document.body.dataset.inited = "1"; }, e => { document.body.dataset.initError = String(e && e.stack || e); console.error(e); });
+  };
+  document.head.appendChild(s);
+})();
+</script>
+</body>
+</html>

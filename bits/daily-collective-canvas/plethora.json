@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "Daily Collective Canvas",
+  "description": "One shared canvas per day. Add a mark, contribute to someone else's, or transform what's there. Nothing is erased, and at midnight (IST) the day's composition joins a permanent archive.",
+  "tags": ["art", "shared", "multiplayer", "drawing", "daily"],
+  "permissions": ["haptics", "storage"],
+  "dependencies": [],
+  "memory": {
+    "worlds": {
+      "canvas": {
+        "label": "Daily canvases",
+        "type": "objects",
+        "rules": [
+          { "type": "rate_limit", "max": 40, "per": "day", "by": "user" }
+        ],
+        "attribution": true
+      }
+    }
+  },
+  "onboarding": {
+    "kind": "one_line",
+    "version": 1,
+    "message": "Pick ADD, CONTRIBUTE or TRANSFORM. Every committed mark stays."
+  }
+}
