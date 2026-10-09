@@ -633,16 +633,26 @@ window.plethoraBit = {
     }
 
     // ---- Offscreen layers for transformations ----
-    function makeLayer(w, h) {
+    // Helper bitmaps are OffscreenCanvas. Older WebViews without it get one hidden,
+    // runtime-owned Canvas2D surface per purpose, reused and resized.
+    const fallbackSurfaces = new Map();
+    function makeLayer(w, h, purpose) {
       if (typeof OffscreenCanvas !== "undefined") return new OffscreenCanvas(w, h);
-      const c = document.createElement("canvas");
-      c.width = w; c.height = h;
+      const key = purpose || "scratch";
+      let c = fallbackSurfaces.get(key);
+      if (!c) {
+        c = ctx.createCanvas2D({ layer: "background", order: -10, input: "passthrough" });
+        c.style.visibility = "hidden";
+        fallbackSurfaces.set(key, c);
+      }
+      if (c.width !== w) c.width = w;
+      if (c.height !== h) c.height = h;
       return c;
     }
     let layerPool = null;
     function getLayer(w, h) {
       if (!layerPool || layerPool.width < w || layerPool.height < h) {
-        layerPool = makeLayer(Math.max(w, layerPool ? layerPool.width : 0), Math.max(h, layerPool ? layerPool.height : 0));
+        layerPool = makeLayer(Math.max(w, layerPool ? layerPool.width : 0), Math.max(h, layerPool ? layerPool.height : 0), "layer");
       }
       const lg = layerPool.getContext("2d");
       lg.setTransform(1, 0, 0, 1, 0, 0);
@@ -738,7 +748,7 @@ window.plethoraBit = {
     let grainTile = null;
     function grain() {
       if (grainTile) return grainTile;
-      grainTile = makeLayer(160, 160);
+      grainTile = makeLayer(160, 160, "grain");
       const g = grainTile.getContext("2d"), r = rng(424242);
       for (let i = 0; i < 900; i++) {
         g.fillStyle = r() < 0.5 ? "rgba(60,40,20,0.07)" : "rgba(255,255,255,0.35)";
@@ -894,7 +904,7 @@ window.plethoraBit = {
         if (fresh) { S.newCount = fresh; S.newUntil = Date.now() + 4000; }
         if (S.sel && !S.all.has(S.sel)) S.sel = null;
         artDirty = true;
-        thumbCache.clear();
+        clearThumbs();
       }
       S.rejected = rejected;
       S.loaded = true;
@@ -948,7 +958,7 @@ window.plethoraBit = {
         S.draft.stale = true;
       }
       artDirty = true;
-      thumbCache.clear();
+      clearThumbs();
       toast("Midnight (IST): " + prettyDay(prev) + " is now in the archive. A fresh canvas is open.", 6000);
       refreshHud();
       requestDraw();
@@ -1000,7 +1010,7 @@ window.plethoraBit = {
       const bs = backingScale();
       const pw = Math.max(1, Math.round(rect.w * bs)), ph = Math.max(1, Math.round(rect.h * bs));
       if (!artCanvas || artCanvas.width !== pw || artCanvas.height !== ph) {
-        artCanvas = makeLayer(pw, ph);
+        artCanvas = makeLayer(pw, ph, "art");
         artDirty = true;
       }
       if (!artDirty) return;
@@ -1136,7 +1146,7 @@ window.plethoraBit = {
     let hitLayer = null;
     function hitsAt(u, day) {
       const lookup = lookupFor(day), list = recordsFor(day), tol = 14, out = [];
-      if (!hitLayer) hitLayer = makeLayer(2 * tol + 1, 2 * tol + 1);
+      if (!hitLayer) hitLayer = makeLayer(2 * tol + 1, 2 * tol + 1, "hit");
       const hg = hitLayer.getContext("2d");
       for (let i = list.length - 1; i >= 0; i--) {
         const rec = list[i];
@@ -1436,7 +1446,7 @@ window.plethoraBit = {
       }
       for (const list of S.byDay.values()) list.sort(compareRecs);
       artDirty = true;
-      thumbCache.clear();
+      clearThumbs();
     }
     function ack(b) {
       const c = unitsToCss((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2);
@@ -1532,7 +1542,7 @@ window.plethoraBit = {
       .dcc-arch p.lede { font-size: 11px; opacity: .7; margin: 0 0 14px; line-height: 1.4; }
       .dcc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 16px 12px; }
       .dcc-card { background: none; border: 0; padding: 0; color: inherit; text-align: left; cursor: pointer; }
-      .dcc-card canvas, .dcc-card .ph { width: 100%; aspect-ratio: 4 / 5; display: block; border-radius: 2px; background: ${PAPER}; }
+      .dcc-card img, .dcc-card .ph { width: 100%; aspect-ratio: 4 / 5; display: block; border-radius: 2px; background: ${PAPER}; }
       .dcc-card .cd { font-family: 'DM Serif Display', Georgia, serif; font-size: 17px; margin-top: 6px; }
       .dcc-card .cm { font-size: 10px; opacity: .65; letter-spacing: .05em; text-transform: uppercase; }
       .dcc-live { display: inline-block; font-size: 9px; letter-spacing: .1em; background: #8fe3c4; color: #16130f; padding: 1px 5px; border-radius: 3px; margin-left: 6px; vertical-align: middle; }
@@ -1906,23 +1916,36 @@ window.plethoraBit = {
         card.dataset.day = d;
         grid.appendChild(card);
         // Thumbnails are derived from the stored records, never stored themselves.
-        try {
-          const thumb = thumbFor(d, 280);
-          if (thumb) card.querySelector(".ph").replaceWith(thumb);
-        } catch (e) { /* the card still opens the day */ }
+        const ph = card.querySelector(".ph");
+        thumbFor(d, 280).then(url => {
+          if (!url || !ph.isConnected) return;
+          const img = document.createElement("img");
+          img.alt = ""; img.className = "th";
+          img.onload = () => { if (ph.isConnected) ph.replaceWith(img); };
+          img.src = url;
+        }, () => { /* the card still opens the day */ });
       }
     }
+    let thumbQueue = Promise.resolve();
     function thumbFor(d, pw) {
       const list = recordsFor(d);
-      const key = d + ":" + pw + ":" + list.length;
-      let c = thumbCache.get(key);
-      if (!c) {
-        c = document.createElement("canvas");
-        c.width = pw; c.height = Math.round(pw * H / W);
-        renderComposition(c.getContext("2d"), c.width, c.height, list, lookupFor(d));
-        thumbCache.set(key, c);
-      }
-      return c;
+      const key = d + ":" + pw + ":" + list.length + ":" + S.lastSnapshotSig;
+      if (thumbCache.has(key)) return thumbCache.get(key);
+      // Rendered one at a time through a shared bitmap.
+      const job = thumbQueue.then(async () => {
+        const ph = Math.round(pw * H / W);
+        const L = makeLayer(pw, ph, "thumb");
+        renderComposition(L.getContext("2d"), pw, ph, list, lookupFor(d));
+        const blob = L.convertToBlob ? await L.convertToBlob({ type: "image/png" }) : await new Promise(r => L.toBlob(r, "image/png"));
+        return blob ? URL.createObjectURL(blob) : null;
+      });
+      thumbQueue = job.catch(() => null);
+      thumbCache.set(key, job);
+      return job;
+    }
+    function clearThumbs() {
+      for (const job of thumbCache.values()) job.then(url => { if (url) URL.revokeObjectURL(url); }, () => {});
+      thumbCache.clear();
     }
 
     // =====================================================================
@@ -2080,7 +2103,7 @@ window.plethoraBit = {
 
     ctx.listen(document, "visibilitychange", () => { if (!document.hidden) refresh(); });
     ctx.listen(window, "online", () => { S.fails = Math.min(S.fails, 1); refresh(); });
-    ctx.onDestroy(() => { destroyed = true; });
+    ctx.onDestroy(() => { destroyed = true; clearThumbs(); });
 
     // Optional typography from the approved font registry (never blocks play).
     (async () => {

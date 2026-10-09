@@ -499,7 +499,7 @@ test("F: the archive lists every day (quiet ones too) and opens them read-only",
   const days = await a.page.$$eval(".dcc-card", els => els.map(e => [e.dataset.day, e.querySelector(".cm").textContent]));
   assert.deepEqual(days.map(x => x[0]), [d, d1, addDays(d, -2), d3]);
   assert.equal(days[2][1], "a quiet day");
-  assert.equal(await a.page.$$eval(".dcc-card canvas", els => els.length), 4, "thumbnails derived from records");
+  await a.page.waitForFunction(() => document.querySelectorAll(".dcc-card img.th").length === 4, null, { timeout: 8000 });
   await a.page.click(`.dcc-card[data-day="${d3}"]`);
   assert.match(await a.page.textContent(".dcc-meta"), /archived · read-only · 2 marks/);
   assert.equal(await a.page.isVisible(".dcc-modes"), false, "no contribution controls on archived canvas");
