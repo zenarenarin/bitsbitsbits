@@ -81,8 +81,11 @@ window.plethoraBit = {
       CFG.TURN_RATE = tget("turn_rate", 6.0);                 // radians / second (slightly inertial steering)
       CFG.PLAYER_SIZE = 0.14;                                 // body radius in tiles
       CFG.ECHO_DELAY_1 = 1; CFG.ECHO_DELAY_2 = 2; CFG.ECHO_DELAY_3 = 3; CFG.ECHO_DELAY_4 = 4; CFG.ECHO_DELAY_5 = 5;
-      CFG.ECHO_DELAYS = [CFG.ECHO_DELAY_1, CFG.ECHO_DELAY_2, CFG.ECHO_DELAY_3, CFG.ECHO_DELAY_4, CFG.ECHO_DELAY_5];
-      CFG.MAX_ECHOES = clamp(Math.round(tget("max_echoes", 5)), 1, 5);
+      CFG.ECHO_DELAY_6 = 6; CFG.ECHO_DELAY_7 = 7;
+      CFG.ECHO_DELAYS = [CFG.ECHO_DELAY_1, CFG.ECHO_DELAY_2, CFG.ECHO_DELAY_3, CFG.ECHO_DELAY_4, CFG.ECHO_DELAY_5, CFG.ECHO_DELAY_6, CFG.ECHO_DELAY_7];
+      CFG.MAX_ECHOES = clamp(Math.round(tget("max_echoes", 7)), 1, 7);
+      CFG.JUMP_HEIGHT = 0.75;                                 // in wall units
+      CFG.JUMP_TIME = 0.7;                                    // seconds airborne
       CFG.ECHO_OPACITY = tget("echo_opacity", 0.74);
       CFG.PATH_WIDTH = clamp(Math.round(tget("path_width", 4)), 3, 7);   // starting path width in tiles
       CFG.WORLD_SCALE = tget("world_scale", 6.2);             // tiles across the screen width
@@ -107,7 +110,7 @@ window.plethoraBit = {
       }
       return 1;
     };
-    const echoScheduleFallback = (t) => (t < 22 ? 1 : t < 45 ? 2 : t < 70 ? 3 : t < 100 ? 4 : 5);
+    const echoScheduleFallback = (t) => (t < 12 ? 1 : t < 25 ? 2 : t < 40 ? 3 : t < 55 ? 4 : t < 72 ? 5 : t < 90 ? 6 : 7);
     readConfig();
 
     // ---------------------------------------------------------------- STAGES
@@ -205,13 +208,13 @@ window.plethoraBit = {
     const REC_HZ = 60;
     const REC_STEP = 1 / REC_HZ;
     const timeBuffer = {
-      cap: Math.ceil(7 * REC_HZ) + 8,
+      cap: Math.ceil(9 * REC_HZ) + 8,
       buf: [], head: 0, count: 0,
       init() { for (let i = 0; i < this.cap; i++) this.buf.push({ t: 0, x: 0, y: 0, z: 0, phase: 0, facing: 1, moving: 0 }); },
       reset() { this.head = 0; this.count = 0; },
       push(t, p) {
         const s = this.buf[this.head];
-        s.t = t; s.x = p.x; s.y = p.y; s.z = 0; s.phase = p.phase; s.facing = p.facing; s.moving = p.moving;
+        s.t = t; s.x = p.x; s.y = p.y; s.z = p.jz || 0; s.phase = p.phase; s.facing = p.facing; s.moving = p.moving;
         this.head = (this.head + 1) % this.cap;
         if (this.count < this.cap) this.count++;
       },
@@ -234,6 +237,7 @@ window.plethoraBit = {
         out.phase = lerp(a.phase, b.phase, f);
         out.facing = f < 0.5 ? a.facing : b.facing;
         out.moving = lerp(a.moving, b.moving, f);
+        out.z = lerp(a.z, b.z, f);
         return out;
       }
     };
@@ -316,13 +320,15 @@ window.plethoraBit = {
       }
       // HURDLES: low barriers across the walkway. There is no jump — every hurdle row
       // leaves a gap to steer through. They grow denser and the gaps tighter with distance.
-      if (kind !== "bridge" && d0 > 14) {
-        const hp = CFG.HURDLE_DENSITY * (0.22 + 0.5 * prog);
-        let lastRow = -9;
+      if (kind !== "bridge" && d0 > 9) {
+        const hp = CFG.HURDLE_DENSITY * (0.5 + 0.45 * prog);
+        let lastRow = -9, lastFull = false;
         for (let i = 1; i < L; i++) {
-          if (i - lastRow < (prog < 0.5 ? 3 : 2) || r() > hp) continue;
-          lastRow = i;
-          const gap = Wd >= 4 && prog < 0.6 ? 2 : (prog > 0.45 && r() < 0.5 ? 1 : 2);
+          if (i - lastRow < (lastFull ? 3 : 2) || r() > hp) continue;
+          // full-width rows must be jumped; never two in a row
+          const full = d0 > 16 && !lastFull && r() < 0.25 + 0.3 * prog;
+          lastRow = i; lastFull = full;
+          const gap = full ? 0 : Wd >= 4 && prog < 0.5 ? 2 : (r() < 0.55 ? 1 : 2);
           const g0 = -h + Math.floor(r() * (Wd - gap + 1));
           const hst = genStage(d0 + i, r());
           const look = hst === 1 ? "crate" : hst === 3 ? "barrier" : hst === 4 ? "column" : r() < 0.5 ? "hedge" : "wall";
@@ -389,15 +395,15 @@ window.plethoraBit = {
     const run = {
       state: "title", // title | run | dying | over | paused
       t: 0, frontD: 6, backD: -7, band: 13, scroll: 0.7, diff: 0, echoCount: 0,
-      unlockT: [0, 0, 0, 0, 0], meters: 0, best: 0, deathT: 0, overT: 0, cause: "", seed: 1, attempt: 0,
+      unlockT: [0, 0, 0, 0, 0, 0, 0], meters: 0, best: 0, deathT: 0, overT: 0, cause: "", seed: 1, attempt: 0,
       nearCooldown: 0, prox: 0, startedOnce: false
     };
     const FRONT0 = 17;   // the opening walkway is long: the first seconds are calm
     const player = { x: 0.5, y: 2.5, z: 0, heading: Math.atan2(-1, 2), target: Math.atan2(-1, 2), speed: 0, phase: 0, facing: 1, moving: 0, fallV: 0 };
     const echoes = [];
-    for (let k = 0; k < 5; k++) echoes.push({ k, x: 0, y: 0, phase: 0, facing: 1, moving: 0, vis: 0, alpha: 0, active: false, near: false, minD: 9, on: false });
-    const ECHO_TINT = ["#cfe2ef", "#b6c8ea", "#c4b5e2", "#dfb1c9", "#eeaab4"].map(hex);
-    const tmpS = { x: 0, y: 0, phase: 0, facing: 1, moving: 0 };
+    for (let k = 0; k < 7; k++) echoes.push({ k, x: 0, y: 0, z: 0, phase: 0, facing: 1, moving: 0, vis: 0, alpha: 0, active: false, near: false, minD: 9, on: false });
+    const ECHO_TINT = ["#cfe2ef", "#b6c8ea", "#c4b5e2", "#dfb1c9", "#eeaab4", "#f0b8a6", "#e8c7a4"].map(hex);
+    const tmpS = { x: 0, y: 0, z: 0, phase: 0, facing: 1, moving: 0 };
     const GLIDE = [[1, 0], [-1, 0], [0, 1], [0, -1], [0.7071, 0.7071], [0.7071, -0.7071], [-0.7071, 0.7071], [-0.7071, -0.7071]];
 
     // -------------------------------------------------------------- SCORING
@@ -425,9 +431,9 @@ window.plethoraBit = {
       run.t = 0; run.frontD = FRONT0; run.band = CFG.BAND_START; run.backD = -6;
       run.scroll = CFG.SCROLL_START; run.diff = 0; run.echoCount = 0; run.meters = 0; run.deathT = 0; run.cause = "";
       run.nearCooldown = 0; run.prox = 0;
-      for (let k = 0; k < 5; k++) run.unlockT[k] = 1e9;
+      for (let k = 0; k < 7; k++) run.unlockT[k] = 1e9;
       for (const e of echoes) { e.vis = 0; e.alpha = 0; e.active = false; e.near = false; e.minD = 9; e.on = false; }
-      player.x = 0.5; player.y = 2.5; player.z = 0; player.fallV = 0;
+      player.x = 0.5; player.y = 2.5; player.z = 0; player.fallV = 0; player.jz = 0; player.jv = 0; player.jumpQ = 0;
       player.heading = player.target = Math.atan2(-1, 2);
       player.speed = 0; player.phase = 0; player.facing = 1; player.moving = 0;
       timeBuffer.reset();
@@ -477,6 +483,7 @@ window.plethoraBit = {
     ctx.listen(window, "keydown", (ev) => {
       const k = KEYMAP[ev.code];
       if (k) { keys[k] = true; if (ev.preventDefault) ev.preventDefault(); if (run.state === "title" || (run.state === "over" && run.overT > 0.35)) beginRun(); }
+      else if ((ev.code === "Space" || ev.code === "KeyJ") && run.state === "run") { requestJump(); if (ev.preventDefault) ev.preventDefault(); }
       else if (ev.code === "Space" || ev.code === "Enter") { if (run.state === "title" || (run.state === "over" && run.overT > 0.35)) beginRun(); else if (run.state === "paused") togglePause(); }
       else if (ev.code === "Escape" || ev.code === "KeyP") togglePause();
     });
@@ -496,13 +503,37 @@ window.plethoraBit = {
     }
 
     // ------------------------------------------------------------- COLLISION
+    let airborne = false;   // while in the air, hurdles don't block
     function walkableTile(t) {
-      return !!t && PATHLIKE[t.kind] === 1 && !t.block && t.d <= run.frontD + 1e-6 && t.d >= run.backD - 1e-6;
+      return !!t && PATHLIKE[t.kind] === 1 && (!t.block || (airborne && t.block === "hurdle")) && t.d <= run.frontD + 1e-6 && t.d >= run.backD - 1e-6;
     }
     function walkable(x, y) {
       const r = CFG.PLAYER_SIZE;
       return walkableTile(tileAt(Math.floor(x - r), Math.floor(y - r))) && walkableTile(tileAt(Math.floor(x + r), Math.floor(y - r))) &&
              walkableTile(tileAt(Math.floor(x - r), Math.floor(y + r))) && walkableTile(tileAt(Math.floor(x + r), Math.floor(y + r)));
+    }
+    function groundFree(x, y) { const a = airborne; airborne = false; const ok = walkable(x, y); airborne = a; return ok; }
+    // JUMP: a short hop over hurdles (and over your own past). Presses are buffered briefly.
+    function requestJump() {
+      if (run.state !== "run") return;
+      player.jumpQ = 0.16;
+    }
+    function jumpStep(dt) {
+      player.jumpQ = Math.max(0, player.jumpQ - dt);
+      const grav = 8 * CFG.JUMP_HEIGHT / (CFG.JUMP_TIME * CFG.JUMP_TIME);
+      if (player.jumpQ > 0 && player.jz <= 0.001) {
+        player.jumpQ = 0; player.jv = grav * CFG.JUMP_TIME / 2; player.jz = 0.001;
+        sfx.hop();
+        try { ctx.platform.haptic("light"); ctx.platform.interact({ type: "jump" }); } catch (e) { /* ignore */ }
+      }
+      if (player.jz > 0) {
+        player.jv -= grav * dt; player.jz += player.jv * dt;
+        if (player.jz <= 0) {
+          if (!groundFree(player.x, player.y)) { player.jz = 0.06; player.jv = 0; }   // skim the top until clear
+          else { player.jz = 0; player.jv = 0; sfx.footstep(player.phase + Math.PI); }
+        }
+      }
+      airborne = player.jz > 0.05;
     }
 
     // ---------------------------------------------------------- SIMULATION
@@ -524,6 +555,7 @@ window.plethoraBit = {
         const excess = Math.max(0, (run.frontD - run.backD) - run.band);
         run.backD = Math.min(run.frontD - CFG.BAND_MIN * 0.8, run.backD + dt * backEase * (run.scroll + 0.3 * excess));
 
+        jumpStep(dt);
         // --- PLAYER: constant-speed run with slightly inertial steering
         const turn = CFG.TURN_RATE * dt;
         player.heading = wrapAngle(player.heading + clamp(wrapAngle(player.target - player.heading), -turn, turn));
@@ -574,14 +606,15 @@ window.plethoraBit = {
           const s = run.t >= delay ? timeBuffer.sample(run.t - delay, tmpS) : null;
           if (!s) { e.on = false; continue; }
           e.on = true;
-          e.x = s.x; e.y = s.y; e.phase = s.phase; e.facing = s.facing; e.moving = s.moving;
+          e.x = s.x; e.y = s.y; e.z = s.z; e.phase = s.phase; e.facing = s.facing; e.moving = s.moving;
           const born = Math.max(run.unlockT[k], delay);
           e.vis = clamp((run.t - born) / 0.8, 0, 1);
           const dist = Math.hypot(e.x - player.x, e.y - player.y);
           if (!e.active && e.vis >= 1 && dist > hit + 0.35) e.active = true;   // never spawn on top of the player
           if (e.active) {
             prox = Math.min(prox, dist);
-            if (dist < hit) { die("echo"); break; }
+            // you can leap over your past, but not land on it
+            if (dist < hit && Math.abs(e.z - player.jz) < 0.45) { die("echo"); break; }
             // near-miss relief: came close, then got away
             if (dist < 0.62) { e.near = true; e.minD = Math.min(e.minD, dist); }
             else if (e.near && dist > 0.95) {
@@ -614,7 +647,7 @@ window.plethoraBit = {
           const e = echoes[k];
           const tq = Math.min(run.t + run.deathT - CFG.ECHO_DELAYS[k], last ? last.t : 0);
           const s = timeBuffer.sample(tq, tmpS);
-          if (s) { e.x = s.x; e.y = s.y; e.phase = s.phase; e.facing = s.facing; e.moving = s.moving; e.on = true; }
+          if (s) { e.x = s.x; e.y = s.y; e.z = s.z; e.phase = s.phase; e.facing = s.facing; e.moving = s.moving; e.on = true; }
         }
         if (run.cause === "fall") { player.fallV += dt * 9; player.z -= player.fallV * dt; }
         if (run.deathT > 1.05) finishRun();
@@ -669,6 +702,11 @@ window.plethoraBit = {
         const f = ac.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 700 + Math.random() * 300;
         const gn = ac.createGain(); src.connect(f); f.connect(gn); gn.connect(AU.master);
         this.env(gn, 0.05, 0.004, 0.06); src.start(ac.currentTime, Math.random() * 1.5, 0.1);
+      },
+      hop() {
+        if (!AU.ac) return;
+        const ac = AU.ac, o = ac.createOscillator(); o.type = "sine"; o.frequency.setValueAtTime(330, ac.currentTime); o.frequency.exponentialRampToValueAtTime(520, ac.currentTime + 0.12);
+        const gn = ac.createGain(); o.connect(gn); gn.connect(AU.master); this.env(gn, 0.035, 0.01, 0.18); o.start(); o.stop(ac.currentTime + 0.25);
       },
       chime() {
         if (!AU.ac) return;
@@ -1326,7 +1364,7 @@ window.plethoraBit = {
     function drawEcho(e, px, py) {
       const k = K * 1.05;
       const idx = e.k;
-      const age = idx / 4;
+      const age = idx / 6;
       const base = CFG.ECHO_OPACITY * lerp(1, 0.48, age) * e.vis;
       if (base < 0.01) return;
       // On pale walkways, deepen the tint so the past stays readable without turning spooky.
@@ -1519,10 +1557,10 @@ window.plethoraBit = {
       ents.push({ key: pk, kind: 4 });
       ents.sort((a, b) => a.key - b.key);
       for (const it of ents) {
-        if (it.kind === 4) drawShadow(sx(player.x, player.y), sy(player.x, player.y, 0), K, player.z < -0.05 ? 0 : 1);
+        if (it.kind === 4) drawShadow(sx(player.x, player.y), sy(player.x, player.y, 0), K, player.z < -0.05 ? 0 : 1 / (1 + player.jz * 1.4));
         else if (it.kind === 5) drawShadow(sx(it.e.x, it.e.y), sy(it.e.x, it.e.y, 0), K, 0.35 * it.e.vis);
       }
-      const ppx = sx(player.x, player.y), ppy = sy(player.x, player.y, player.z);
+      const ppx = sx(player.x, player.y), ppy = sy(player.x, player.y, player.z + player.jz);
       for (const it of ents) {
         if (it.kind === 3) {
           const o = it.o;
@@ -1532,7 +1570,7 @@ window.plethoraBit = {
         } else if (it.kind === 4) {
           drawPlayer(ppx, ppy, player.z < -0.05 ? clamp(1 + player.z * 0.4, 0, 1) : 1);
         } else if (it.kind === 5) {
-          drawEcho(it.e, sx(it.e.x, it.e.y), sy(it.e.x, it.e.y, 0));
+          drawEcho(it.e, sx(it.e.x, it.e.y), sy(it.e.x, it.e.y, it.e.z || 0));
         }
       }
       resetT();
@@ -1567,11 +1605,15 @@ window.plethoraBit = {
       ".osa-pz{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;transition:opacity .3s}" +
       ".osa-u{font-family:Inter,system-ui,sans-serif;font-size:.36em;font-weight:600;letter-spacing:.08em;margin-left:.28em;text-transform:none}" +
       ".osa-new{font-family:Inter,system-ui,sans-serif;font-size:10px;font-weight:600;letter-spacing:.24em;text-transform:uppercase;margin-left:12px;vertical-align:middle;opacity:.8}" +
+      ".osa-jump{position:absolute;left:22px;width:76px;height:76px;border-radius:50%;border:1.5px solid rgba(255,255,255,.55);background:rgba(255,255,255,.2);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);color:var(--ink,#fff);pointer-events:auto;touch-action:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font:600 9.5px Inter,system-ui,sans-serif;letter-spacing:.22em;transition:opacity .4s,transform .08s;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}" +
+      ".osa-jump svg{width:22px;height:22px}" +
+      ".osa-jump.on{transform:scale(.92);background:rgba(255,255,255,.34)}" +
       ".osa-hide{opacity:0 !important}" +
       "</style>" +
       "<div class='osa'>" +
       "<div class='osa-score osa-hide'><div class='osa-lbl'>Score</div><div class='osa-big' data-m>0</div><div class='osa-dots' data-dots></div></div>" +
       "<button class='osa-pause osa-hide' aria-label='Pause'><b></b><b></b></button>" +
+      "<button class='osa-jump osa-hide' aria-label='Jump'><svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 14l6-6 6 6'/><path d='M6 19l6-6 6 6' opacity='.45'/></svg>JUMP</button>" +
       "<div class='osa-title'><div class='osa-big'>One<br>Second<br>Ago</div><div class='osa-tag'>DON’T MEET<br>YOUR PAST.</div></div>" +
       "<div class='osa-hint'>DRAG TO RUN</div>" +
       "<div class='osa-res osa-hide'><div class='osa-lbl'>Distance</div><div class='osa-big d' data-rd>0 m</div>" +
@@ -1579,12 +1621,12 @@ window.plethoraBit = {
       "<div class='osa-pz osa-hide'><div class='osa-big' style='font-size:44px'>Paused</div><div class='osa-lbl'>Tap to continue</div></div>" +
       "</div>";
     const $ = (sel) => hud.querySelector(sel);
-    const elScore = $(".osa-score"), elM = $("[data-m]"), elDots = $("[data-dots]"), elPause = $(".osa-pause");
+    const elScore = $(".osa-score"), elM = $("[data-m]"), elDots = $("[data-dots]"), elPause = $(".osa-pause"), elJump = $(".osa-jump");
     const elTitle = $(".osa-title"), elHint = $(".osa-hint"), elRes = $(".osa-res"), elRD = $("[data-rd]"), elRB = $("[data-rb]"), elPZ = $(".osa-pz");
     const hide = (el, h) => { if (h) el.classList.add("osa-hide"); else el.classList.remove("osa-hide"); };
     function hudShow(mode) {
       hide(elTitle, mode !== "title"); hide(elHint, mode !== "title");
-      hide(elScore, mode === "title" || mode === "over"); hide(elPause, mode !== "run" && mode !== "paused");
+      hide(elScore, mode === "title" || mode === "over"); hide(elPause, mode !== "run" && mode !== "paused"); hide(elJump, mode !== "run");
       hide(elRes, mode !== "over"); hide(elPZ, mode !== "paused");
       if (mode === "run") { elM.textContent = String(run.meters); }
     }
@@ -1597,6 +1639,7 @@ window.plethoraBit = {
       const sa = ctx.safeArea || { top: 0, bottom: 0 };
       elScore.style.top = (16 + (sa.top || 0)) + "px";
       elPause.style.top = (16 + (sa.top || 0)) + "px";
+      elJump.style.bottom = Math.max(96, (sa.bottom || 0) + 78) + "px";
       elTitle.style.top = (30 + (sa.top || 0)) + "px";
       elHint.style.bottom = Math.max(110, (sa.bottom || 0) + 96) + "px";
     }
@@ -1619,6 +1662,15 @@ window.plethoraBit = {
       else if (run.state === "paused") { run.state = "run"; hudShow("run"); stick.active = false; }
     }
     ctx.input.activate(elPause, () => togglePause());
+    ctx.listen(elJump, "pointerdown", (ev) => {
+      if (ev.preventDefault) ev.preventDefault();
+      if (ev.stopPropagation) ev.stopPropagation();
+      requestJump();
+      elJump.classList.add("on");
+    });
+    ctx.listen(elJump, "pointerup", () => elJump.classList.remove("on"));
+    ctx.listen(elJump, "pointercancel", () => elJump.classList.remove("on"));
+    ctx.listen(elJump, "pointerleave", () => elJump.classList.remove("on"));
 
     // ------------------------------------------------------------ MAIN LOOP
     function frame(dt) {
@@ -1648,7 +1700,7 @@ window.plethoraBit = {
     }
 
     // Optional test hook: only populated when a local harness passes ctx.__debug.
-    if (ctx.__debug && typeof ctx.__debug === "object") ctx.__debug.api = { run, player, echoes, walkable, timeBuffer, CFG, world };
+    if (ctx.__debug && typeof ctx.__debug === "object") ctx.__debug.api = { run, player, echoes, walkable, groundFree, requestJump, timeBuffer, CFG, world };
 
     // ------------------------------------------------------------------ BOOT
     layoutWorld();

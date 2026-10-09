@@ -3,7 +3,7 @@
   "runtime": "plethora-bit@2",
   "entry": "main.js",
   "title": "One Second Ago",
-  "description": "Run through a calm, illustrated endless world while translucent echoes of yourself replay every step you took 1, 2, 3\u2026 seconds ago. Don't meet your past.",
+  "description": "Run through a calm, illustrated endless world while translucent echoes of yourself replay every step you took 1, 2, 3\u2026 seconds ago. Steer around hurdles, jump the ones you can't avoid \u2014 and don't meet your past.",
   "tags": [
     "arcade",
     "endless",
@@ -90,9 +90,9 @@
       "max_echoes": {
         "label": "Maximum echoes",
         "type": "integer",
-        "default": 5,
+        "default": 7,
         "min": 1,
-        "max": 5,
+        "max": 7,
         "step": 1,
         "group": "echoes",
         "intent": "difficulty",
@@ -204,7 +204,7 @@
         "domain": "elapsed_seconds",
         "range": [
           1,
-          5
+          7
         ],
         "default": [
           {
@@ -212,20 +212,28 @@
             "y": 1
           },
           {
-            "x": 22,
+            "x": 12,
             "y": 2
           },
           {
-            "x": 45,
+            "x": 25,
             "y": 3
           },
           {
-            "x": 70,
+            "x": 40,
             "y": 4
           },
           {
-            "x": 100,
+            "x": 55,
             "y": 5
+          },
+          {
+            "x": 72,
+            "y": 6
+          },
+          {
+            "x": 90,
+            "y": 7
           }
         ],
         "easing": "step",
