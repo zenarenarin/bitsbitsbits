@@ -3,9 +3,18 @@
   "runtime": "plethora-bit@2",
   "entry": "main.js",
   "title": "The Unfinished Canvas",
-  "description": "One shared, never-finished artwork. Add a mark, continue a stranger's line, or change how something reads. Nothing gets erased.",
-  "tags": ["art", "shared", "drawing", "co-creation"],
-  "permissions": ["haptics", "backgroundMusic", "storage"],
+  "description": "One shared, never-finished artwork. Draw anything with six distinct tools and any colour, build on a stranger's mark, or change how it reads. Nothing gets erased.",
+  "tags": [
+    "art",
+    "shared",
+    "drawing",
+    "co-creation"
+  ],
+  "permissions": [
+    "haptics",
+    "backgroundMusic",
+    "storage"
+  ],
   "dependencies": [],
   "memory": {
     "worlds": {
@@ -13,7 +22,12 @@
         "label": "The Unfinished Canvas",
         "type": "objects",
         "rules": [
-          { "type": "rate_limit", "max": 6, "per": "day", "by": "user" }
+          {
+            "type": "rate_limit",
+            "max": 20,
+            "per": "day",
+            "by": "user"
+          }
         ],
         "attribution": false
       }
@@ -22,17 +36,23 @@
   "tuning": {
     "schemaVersion": 1,
     "groups": {
-      "gameplay": { "label": "Contribution budget" },
-      "world": { "label": "Canvas growth" },
-      "visual": { "label": "Look" }
+      "gameplay": {
+        "label": "Contribution budget"
+      },
+      "world": {
+        "label": "Canvas growth"
+      },
+      "visual": {
+        "label": "Look"
+      }
     },
     "knobs": {
       "marks_per_contribution": {
         "label": "Marks per contribution",
         "type": "integer",
-        "default": 8,
+        "default": 10,
         "min": 1,
-        "max": 12,
+        "max": 16,
         "step": 1,
         "group": "gameplay",
         "intent": "gameplay",
@@ -41,7 +61,7 @@
       "drawing_seconds": {
         "label": "Seconds of active drawing",
         "type": "number",
-        "default": 10,
+        "default": 15,
         "min": 4,
         "max": 30,
         "step": 1,
@@ -52,9 +72,9 @@
       "contributions_per_visit": {
         "label": "Contributions per visit",
         "type": "integer",
-        "default": 1,
+        "default": 5,
         "min": 1,
-        "max": 3,
+        "max": 10,
         "step": 1,
         "group": "gameplay",
         "intent": "gameplay",
