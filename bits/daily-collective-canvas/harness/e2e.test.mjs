@@ -103,7 +103,12 @@ async function tap(page, ux, uy) { const r = await rectOf(page), p = u2c(r, ux, 
 const mode = (page, m) => page.click(`.dcc-mode[data-mode="${m}"]`);
 const tool = (page, m, t) => page.click(`.dcc-tools .dcc-chip[data-mode="${m}"][data-tool="${t}"]`);
 const variant = (page, label) => page.locator(".dcc-vars .dcc-chip", { hasText: new RegExp("^" + label + "( ✓)?$") }).click();
-const swatch = (page, hex) => page.click(`.dcc-sw[data-color="${hex}"]`);
+// Sets an exact colour through the picker's hex field, then closes the picker.
+async function swatch(page, hex) {
+  if (!(await page.isVisible(".dcc-pick"))) await page.click(".dcc-cur");
+  await page.fill(".dcc-hexin", hex);
+  await page.click(".dcc-pickdone");
+}
 async function slider(page, cls, value) {
   await page.$eval(cls, (el, v) => { el.value = String(v); el.dispatchEvent(new Event("input", { bubbles: true })); }, value);
 }
@@ -339,7 +344,7 @@ test("C/D: invalid relationships are ignored without breaking the canvas", async
   await inject(Object.assign({}, base, { k: "con", s: "react", vr: "halo", tg: [old], g: { x0: 0, y0: 0, x1: 10, y1: 10 } }));          // cross-day target
   const tint = await inject(Object.assign({}, base, { k: "tf", s: "tint", vr: "multiply", tg: [good] }));                                 // valid
   await inject(Object.assign({}, base, { k: "tf", s: "tint", vr: "multiply", tg: [tint] }));                                             // transform of a transform
-  await inject(Object.assign({}, base, { k: "add", s: "rect", c: "#123456", g: { x0: 0, y0: 0, x1: 5, y1: 5 } }));                        // colour outside palette
+  await inject(Object.assign({}, base, { k: "add", s: "rect", c: "red", g: { x0: 0, y0: 0, x1: 5, y1: 5 } }));                            // malformed colour
   await inject(Object.assign({}, base, { k: "add", s: "rect", g: { x0: 0, y0: 0, x1: 99999, y1: 5 } }));                                  // geometry out of range
   const a = await openClient("alice");
   await waitMarks(a.page, 2);   // the good mark + its tint
@@ -594,4 +599,49 @@ test("H: View shows the whole canvas full-screen, look-only, and Done returns", 
   await a.page.keyboard.press("Escape");
   assert.equal(await a.page.isVisible(".dcc-viewcap"), false);
   await closeClient(a);
+});
+
+test("ADD: the full-spectrum picker sets the exact colour that previews, saves and renders", async () => {
+  await reset();
+  const a = await openClient("alice"), b = await openClient("bob");
+  // Inline hue strip: drag to the orange region.
+  const hb = await a.page.locator(".dcc-hue-inline").boundingBox();
+  await a.page.mouse.move(hb.x + 4, hb.y + hb.height / 2); await a.page.mouse.down();
+  await a.page.mouse.move(hb.x + hb.width * 0.08, hb.y + hb.height / 2, { steps: 4 }); await a.page.mouse.up();
+  const hue = await a.page.getAttribute(".dcc", "data-color");
+  assert.match(hue, /^#[0-9a-f]{6}$/);
+  // Open the field and pick a muted variation; it stays open while choosing and drawing.
+  await a.page.click(".dcc-cur");
+  const sv = await a.page.locator(".dcc-sv").boundingBox();
+  await a.page.mouse.move(sv.x + sv.width * 0.9, sv.y + 4); await a.page.mouse.down();
+  await a.page.mouse.move(sv.x + sv.width * 0.4, sv.y + sv.height * 0.35, { steps: 5 }); await a.page.mouse.up();
+  const picked = await a.page.getAttribute(".dcc", "data-color");
+  assert.notEqual(picked, hue, "saturation/brightness changed the colour");
+  assert.equal(await a.page.isVisible(".dcc-pick"), true);
+  await tool(a.page, "add", "brush");
+  assert.equal(await a.page.isVisible(".dcc-pick"), true, "switching brush keeps the picker open");
+  assert.equal(await a.page.getAttribute(".dcc", "data-color"), picked, "colour preserved across brushes");
+  await scribble(a.page, [[150, 120], [300, 200], [450, 120], [600, 200]]);
+  // The settling mark picks up a colour change immediately.
+  await a.page.fill(".dcc-hexin", "#7a1fe0");
+  await commit(a);
+  let rs = await recs();
+  assert.equal(rs[0].object.c, "#7a1fe0", "submitted colour is the exact chosen hex");
+  await a.page.keyboard.press("Escape");
+  assert.equal(await a.page.isVisible(".dcc-pick"), false, "Escape dismisses the picker");
+  // Same exact colour on another client.
+  await waitMarks(b.page, 1);
+  await settle(a.page); await settle(b.page);
+  assert.equal(await canvasHash(a.page), await canvasHash(b.page));
+  // Keyboard adjusts hue on the strip.
+  await a.page.focus(".dcc-hue-inline");
+  const beforeKey = await a.page.getAttribute(".dcc", "data-color");
+  await a.page.keyboard.press("ArrowRight");
+  assert.notEqual(await a.page.getAttribute(".dcc", "data-color"), beforeKey);
+  // The chosen colour survives a reload.
+  const kept = await a.page.getAttribute(".dcc", "data-color");
+  await a.page.waitForTimeout(1500);
+  await a.page.reload(); await a.page.waitForSelector("body[data-inited='1']");
+  assert.equal(await a.page.getAttribute(".dcc", "data-color"), kept);
+  await closeClient(a); await closeClient(b);
 });

@@ -23,19 +23,16 @@ window.plethoraBit = {
     const ID_RE = /^(\d{4}-\d{2}-\d{2})_([a-z0-9]{6,12})_([a-z0-9]{1,8})$/;
 
     const PAPER = "#f6f1e6";
-    const PALETTE = [
-      { hex: "#2b3ff5", name: "ultramarine" },
-      { hex: "#ffcc1a", name: "cadmium yellow" },
-      { hex: "#f2421b", name: "vermilion" },
-      { hex: "#ff5fa2", name: "hot pink" },
-      { hex: "#0f8a6a", name: "viridian" },
-      { hex: "#8fe3c4", name: "mint" },
-      { hex: "#6a3cc9", name: "violet" },
-      { hex: "#c98a1b", name: "ochre" },
-      { hex: "#16130f", name: "ink" },
-      { hex: "#fbf8f1", name: "paper white" }
-    ];
-    const PALETTE_SET = new Set(PALETTE.map(p => p.hex));
+    const DEFAULT_COLOR = "#2b3ff5";
+    const HEX_RE = /^#[0-9a-f]{6}$/;
+    // Colours mix like ink (multiply) so overlaps get richer; very light colours
+    // are laid on top instead, otherwise they would vanish into the paper.
+    // Decided from the stored hex alone, so every client and every replay agrees.
+    function blendFor(hex) {
+      const n = parseInt(hex.slice(1), 16);
+      const lum = (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
+      return lum > 0.85 ? "source-over" : "multiply";
+    }
 
     const KINDS = {
       add: ["brush", "ellipse", "rect", "poly", "blob", "line", "arc", "dots", "stamp"],
@@ -195,7 +192,7 @@ window.plethoraBit = {
       if (o.v !== SCHEMA || o.d !== m[1] || !DAY_RE.test(o.d)) return null;
       if (checksum(o) !== m[3]) return null;               // tampered or overwritten record
       if (!KINDS[o.k] || !KINDS[o.k].includes(o.s)) return null;
-      if (!PALETTE_SET.has(o.c)) return null;
+      if (typeof o.c !== "string" || !HEX_RE.test(o.c)) return null;
       if (!inRange(o.o, 0.05, 1) || !inRange(o.w, 1, 100) || !inRange(o.r ?? 0, -180, 180)) return null;
       if (!isNum(o.t)) return null;
       const tg = o.tg == null ? [] : o.tg;
@@ -691,7 +688,7 @@ window.plethoraBit = {
       const target = lookup(rec.tg[0]);
       if (!target) return;
       if (rec.s === "shift") {
-        g.globalCompositeOperation = rec.c === "#fbf8f1" ? "source-over" : "multiply";
+        g.globalCompositeOperation = blendFor(rec.c);
         drawPrims(g, primsOf(rec, lookup), rec.c, rec.o, rec.seed);
         g.globalCompositeOperation = "source-over";
         return;
@@ -717,7 +714,7 @@ window.plethoraBit = {
       } else if (rec.s === "texture") {
         lg.fillStyle = rec.c; lg.strokeStyle = rec.c;
         hatchInto(lg, b, 6 + rec.w * 0.3, rec.r || 0, rec.vr || "hatch", 1.6 + rec.w * 0.04);
-        g.globalCompositeOperation = rec.c === "#fbf8f1" ? "source-over" : "multiply";
+        g.globalCompositeOperation = blendFor(rec.c);
         g.globalAlpha = rec.o;
       } else if (rec.s === "mask") {
         lg.fillStyle = PAPER;
@@ -739,7 +736,7 @@ window.plethoraBit = {
 
     function drawRecord(g, k, rec, lookup) {
       if (rec.k === "tf") return drawTransform(g, k, rec, lookup);
-      g.globalCompositeOperation = rec.c === "#fbf8f1" ? "source-over" : "multiply";
+      g.globalCompositeOperation = blendFor(rec.c);
       drawPrims(g, primsOf(rec, lookup), rec.c, rec.o, rec.seed);
       g.globalCompositeOperation = "source-over";
     }
@@ -806,7 +803,9 @@ window.plethoraBit = {
       mode: "add",
       tool: { add: "brush", con: "echo", tf: "tint" },
       variant: {},
-      color: PALETTE[0].hex,
+      color: DEFAULT_COLOR,
+      hsv: null,                // picker position; the stored colour is always S.color (exact hex)
+      recent: [],               // this player's own recent picks
       opacity: 85,
       size: 30,
       rot: 0,
@@ -1006,6 +1005,7 @@ window.plethoraBit = {
       el.toast.style.top = (top + 10) + "px";
       el.bottom.style.paddingBottom = ((sa.bottom || 0) + 8) + "px";
       el.viewcap.style.bottom = ((sa.bottom || 0) + 10) + "px";
+      if (!el.pick.hidden) positionPicker();
       requestDraw();
     }
 
@@ -1567,8 +1567,24 @@ window.plethoraBit = {
       .dcc-row::-webkit-scrollbar { display: none; }
       .dcc-chip { flex: 0 0 auto; background: transparent; color: #efe9dc; border: 1.5px solid rgba(239,233,220,.3); border-radius: 8px; padding: 6px 10px; font-size: 11px; letter-spacing: .04em; cursor: pointer; min-height: 32px; text-transform: lowercase; }
       .dcc-chip[aria-pressed="true"] { border-color: #efe9dc; background: rgba(239,233,220,.14); }
-      .dcc-sw { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%; border: 2px solid rgba(239,233,220,.25); cursor: pointer; padding: 0; }
-      .dcc-sw[aria-pressed="true"] { border-color: #efe9dc; box-shadow: 0 0 0 2px #1a1714 inset; }
+      .dcc-colors { gap: 10px; overflow: visible; }
+      .dcc-cur { flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%; border: 2px solid #efe9dc; padding: 0; cursor: pointer; box-shadow: 0 0 12px var(--glow, transparent); }
+      .dcc-cur[aria-expanded="true"] { outline: 2px solid #efe9dc; outline-offset: 3px; }
+      .dcc-hue { position: relative; flex: 1; height: 22px; border-radius: 11px; cursor: pointer; touch-action: none; pointer-events: auto;
+        background: linear-gradient(90deg, #f00 0%, #ff8000 8.3%, #ff0 16.7%, #80ff00 25%, #0f0 33.3%, #00ff80 41.7%, #0ff 50%, #0080ff 58.3%, #00f 66.7%, #8000ff 75%, #f0f 83.3%, #ff0080 91.7%, #f00 100%); }
+      .dcc-hue.big { flex: none; height: 28px; border-radius: 14px; }
+      .dcc-thumb { position: absolute; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 1.5px #16130f, 0 0 10px rgba(255,255,255,.55); pointer-events: none; }
+      .dcc-hexl { font-size: 10px; letter-spacing: .06em; opacity: .75; min-width: 58px; text-transform: uppercase; }
+      .dcc-pick { position: absolute; z-index: 5; left: 50%; transform: translateX(-50%); width: min(calc(100% - 20px), 380px); background: #100e0c; border: 1px solid rgba(239,233,220,.22); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 10px; pointer-events: auto; box-shadow: 0 0 0 1px rgba(0,0,0,.6), 0 0 28px var(--glow, transparent); }
+      .dcc-pick[hidden] { display: none; }
+      .dcc-sv { position: relative; height: clamp(96px, 16vh, 140px); border-radius: 10px; cursor: crosshair; touch-action: none; margin: 0 4px; }
+      .dcc-sv .dcc-thumb { width: 24px; height: 24px; margin: -12px 0 0 -12px; }
+      .dcc-pickrow { display: flex; align-items: center; gap: 10px; }
+      .dcc-big { width: 40px; height: 40px; border-radius: 10px; border: 2px solid rgba(239,233,220,.6); flex: 0 0 auto; }
+      .dcc-hexin { width: 92px; background: #1f1b17; color: #efe9dc; border: 1px solid rgba(239,233,220,.3); border-radius: 6px; padding: 6px 8px; font-size: 13px; text-transform: lowercase; }
+      .dcc-recent { display: flex; gap: 6px; flex: 1; overflow: hidden; }
+      .dcc-rc { width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid rgba(239,233,220,.35); padding: 0; cursor: pointer; flex: 0 0 auto; }
+      .dcc-slider:focus-visible { outline: 2px solid #ffcc1a; outline-offset: 3px; }
       .dcc-sliders { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
       .dcc-sl { display: flex; flex-direction: column; gap: 2px; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; opacity: .85; }
       .dcc-sl[hidden] { display: none; }
@@ -1608,7 +1624,6 @@ window.plethoraBit = {
     `;
     root.appendChild(style);
 
-    const PALETTE_HTML = PALETTE.map(p => `<button class="dcc-sw" data-color="${p.hex}" style="background:${p.hex}" aria-label="${p.name}" aria-pressed="false"></button>`).join("");
     root.insertAdjacentHTML("beforeend", `
       <div class="dcc-top">
         <div class="dcc-date"><span class="dcc-day"></span><span class="dcc-meta"></span></div>
@@ -1634,7 +1649,11 @@ window.plethoraBit = {
         </div>
         <div class="dcc-row dcc-tools" role="toolbar" aria-label="Tools"></div>
         <div class="dcc-row dcc-vars" role="toolbar" aria-label="Variations"></div>
-        <div class="dcc-row dcc-colors" role="toolbar" aria-label="Colours">${PALETTE_HTML}</div>
+        <div class="dcc-row dcc-colors">
+          <button class="dcc-cur" type="button" aria-label="Open colour picker" aria-expanded="false"></button>
+          <div class="dcc-hue dcc-hue-inline dcc-slider" role="slider" tabindex="0" aria-label="Hue" aria-valuemin="0" aria-valuemax="360"><div class="dcc-thumb"></div></div>
+          <span class="dcc-hexl"></span>
+        </div>
         <div class="dcc-sliders">
           <label class="dcc-sl dcc-sl-o"><span>Opacity</span><input type="range" min="10" max="100" step="1" class="dcc-o"></label>
           <label class="dcc-sl dcc-sl-s"><span class="dcc-sl-sl">Width</span><input type="range" min="1" max="100" step="1" class="dcc-s"></label>
@@ -1644,6 +1663,16 @@ window.plethoraBit = {
           <button class="dcc-mode" type="button" data-mode="add" aria-pressed="true">ADD</button>
           <button class="dcc-mode" type="button" data-mode="con" aria-pressed="false">CONTRIBUTE</button>
           <button class="dcc-mode" type="button" data-mode="tf" aria-pressed="false">TRANSFORM</button>
+        </div>
+      </div>
+      <div class="dcc-pick" hidden role="dialog" aria-label="Colour picker">
+        <div class="dcc-sv dcc-slider" role="slider" tabindex="0" aria-label="Saturation and brightness"><div class="dcc-thumb"></div></div>
+        <div class="dcc-hue big dcc-hue-big dcc-slider" role="slider" tabindex="0" aria-label="Hue" aria-valuemin="0" aria-valuemax="360"><div class="dcc-thumb"></div></div>
+        <div class="dcc-pickrow">
+          <div class="dcc-big" aria-hidden="true"></div>
+          <input class="dcc-hexin" type="text" inputmode="text" maxlength="7" spellcheck="false" aria-label="Hex colour">
+          <div class="dcc-recent" aria-label="Recent colours"></div>
+          <button class="dcc-btn solid dcc-pickdone" type="button">Done</button>
         </div>
       </div>
       <div class="dcc-viewcap" hidden><span class="dcc-viewt"></span><button class="dcc-btn solid dcc-done" type="button">Done</button></div>
@@ -1656,7 +1685,8 @@ window.plethoraBit = {
       hint: $(".dcc-hint"), chipsel: $(".dcc-chipsel"), chipselt: $(".dcc-chipselt"), cycle: $(".dcc-cycle"), unsel: $(".dcc-unsel"),
       bottom: $(".dcc-bottom"), draft: $(".dcc-draft"), cancel: $(".dcc-cancel"), dmsg: $(".dcc-dmsg"), commit: $(".dcc-commit"),
       hist: $(".dcc-hist"), histt: $(".dcc-histt"), back: $(".dcc-back"), totoday: $(".dcc-totoday"),
-      tools: $(".dcc-tools"), vars: $(".dcc-vars"), colors: $(".dcc-colors"),
+      tools: $(".dcc-tools"), vars: $(".dcc-vars"), colors: $(".dcc-colors"), cur: $(".dcc-cur"), hueIn: $(".dcc-hue-inline"), hexl: $(".dcc-hexl"),
+      pick: $(".dcc-pick"), sv: $(".dcc-sv"), hueBig: $(".dcc-hue-big"), big: $(".dcc-big"), hexin: $(".dcc-hexin"), recent: $(".dcc-recent"), pickdone: $(".dcc-pickdone"),
       sliders: $(".dcc-sliders"), so: $(".dcc-o"), ss: $(".dcc-s"), sr: $(".dcc-r"), slS: $(".dcc-sl-s"), slR: $(".dcc-sl-r"), slO: $(".dcc-sl-o"),
       slSl: $(".dcc-sl-sl"), slRl: $(".dcc-sl-rl"), modes: $(".dcc-modes"), toast: $(".dcc-toast"), arch: $(".dcc-arch")
     };
@@ -1725,12 +1755,133 @@ window.plethoraBit = {
     }
     ctx.input.activate(roughBtn, () => { S.rough = !S.rough; buildVariants(); touchDraft(); });
 
-    for (const b of el.colors.querySelectorAll(".dcc-sw")) {
-      ctx.input.activate(b, () => { S.color = b.dataset.color; refreshColors(); touchDraft(); });
+    // ---- Full-spectrum colour picker (hue strip + saturation/brightness field) ----
+    function hsvToHex(h, sat, val) {
+      const f = n => {
+        const k = (n + h / 60) % 6;
+        return Math.round(255 * (val - val * sat * Math.max(0, Math.min(k, 4 - k, 1))));
+      };
+      return "#" + [f(5), f(3), f(1)].map(x => x.toString(16).padStart(2, "0")).join("");
+    }
+    function hexToHsv(hex) {
+      const n = parseInt(hex.slice(1), 16), r = ((n >> 16) & 255) / 255, gg = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+      const mx = Math.max(r, gg, b), mn = Math.min(r, gg, b), d = mx - mn;
+      let h = 0;
+      if (d) h = mx === r ? ((gg - b) / d) % 6 : mx === gg ? (b - r) / d + 2 : (r - gg) / d + 4;
+      return { h: (h * 60 + 360) % 360, s: mx ? d / mx : 0, v: mx };
+    }
+    S.hsv = hexToHsv(S.color);
+    // Every change goes through here: the exact hex is what previews, saves and renders.
+    function setColor(hex, hsv, opts) {
+      S.color = hex;
+      S.hsv = hsv || hexToHsv(hex);
+      refreshColors();
+      touchDraft();
+      if (!opts || !opts.quiet) rememberColorSoon();
+    }
+    function setHsv(h, sat, val) {
+      const hsv = { h: clamp(h, 0, 360) % 360, s: clamp(sat, 0, 1), v: clamp(val, 0, 1) };
+      setColor(hsvToHex(hsv.h, hsv.s, hsv.v), hsv);
     }
     function refreshColors() {
-      for (const b of el.colors.querySelectorAll(".dcc-sw")) b.setAttribute("aria-pressed", b.dataset.color === S.color ? "true" : "false");
+      const { h, s: sat, v } = S.hsv;
+      root.style.setProperty("--glow", S.color + "88");
+      root.dataset.color = S.color;
+      el.cur.style.background = S.color;
+      el.big.style.background = S.color;
+      el.hexl.textContent = S.color;
+      if (document.activeElement !== el.hexin) el.hexin.value = S.color;
+      el.sv.style.background = "linear-gradient(to top, #000, rgba(0,0,0,0)), linear-gradient(to right, #fff, " + hsvToHex(h, 1, 1) + ")";
+      for (const strip of [el.hueIn, el.hueBig]) {
+        const t = strip.firstElementChild;
+        t.style.left = (h / 360 * 100) + "%";
+        t.style.background = hsvToHex(h, 1, 1);
+        strip.setAttribute("aria-valuenow", String(Math.round(h)));
+      }
+      const st = el.sv.firstElementChild;
+      st.style.left = (sat * 100) + "%"; st.style.top = ((1 - v) * 100) + "%"; st.style.background = S.color;
+      el.sv.setAttribute("aria-valuetext", "saturation " + Math.round(sat * 100) + "%, brightness " + Math.round(v * 100) + "%");
     }
+    // Drag anywhere on a strip/field; pointer capture keeps tracking outside it.
+    function dragSurface(target, onPoint) {
+      let active = null;
+      const at = e => {
+        const r = target.getBoundingClientRect();
+        onPoint(clamp((e.clientX - r.left) / r.width, 0, 1), clamp((e.clientY - r.top) / r.height, 0, 1));
+      };
+      ctx.listen(target, "pointerdown", e => {
+        active = e.pointerId;
+        try { target.setPointerCapture(e.pointerId); } catch (err) { /* optional */ }
+        e.preventDefault && e.preventDefault();
+        at(e);
+      });
+      ctx.listen(target, "pointermove", e => { if (active === e.pointerId) at(e); });
+      const end = e => { if (active === e.pointerId) active = null; };
+      ctx.listen(target, "pointerup", end);
+      ctx.listen(target, "pointercancel", end);
+    }
+    for (const strip of [el.hueIn, el.hueBig]) {
+      dragSurface(strip, x => {
+        // A grey has no hue to move; give it enough colour that the hue choice shows.
+        const sat = S.hsv.s < 0.05 ? 0.85 : S.hsv.s, val = S.hsv.v < 0.08 ? 0.85 : S.hsv.v;
+        setHsv(x * 360, sat, val);
+      });
+      ctx.listen(strip, "keydown", e => {
+        const step = e.shiftKey ? 30 : 5;
+        if (e.key === "ArrowRight" || e.key === "ArrowUp") { setHsv((S.hsv.h + step) % 360, S.hsv.s, S.hsv.v); e.preventDefault(); }
+        if (e.key === "ArrowLeft" || e.key === "ArrowDown") { setHsv((S.hsv.h - step + 360) % 360, S.hsv.s, S.hsv.v); e.preventDefault(); }
+      });
+    }
+    dragSurface(el.sv, (x, y) => setHsv(S.hsv.h, x, 1 - y));
+    ctx.listen(el.sv, "keydown", e => {
+      const d = e.shiftKey ? 0.1 : 0.03;
+      const m = { ArrowRight: [d, 0], ArrowLeft: [-d, 0], ArrowUp: [0, d], ArrowDown: [0, -d] }[e.key];
+      if (m) { setHsv(S.hsv.h, S.hsv.s + m[0], S.hsv.v + m[1]); e.preventDefault(); }
+    });
+    ctx.listen(el.hexin, "input", () => {
+      let v = el.hexin.value.trim().toLowerCase();
+      if (v && v[0] !== "#") v = "#" + v;
+      if (HEX_RE.test(v)) setColor(v);
+    });
+    ctx.listen(el.hexin, "blur", () => { el.hexin.value = S.color; });
+    ctx.listen(el.hexin, "keydown", e => { if (e.key === "Enter") { el.hexin.blur(); setPicker(false); } });
+    function setPicker(open) {
+      el.pick.hidden = !open;
+      el.cur.setAttribute("aria-expanded", open ? "true" : "false");
+      el.cur.setAttribute("aria-label", open ? "Close colour picker" : "Open colour picker");
+      if (open) { renderRecent(); positionPicker(); }
+      else rememberColor();
+    }
+    function positionPicker() {
+      el.pick.style.bottom = ((el.bottom.offsetHeight || 220) + 6) + "px";
+    }
+    ctx.input.activate(el.cur, () => setPicker(el.pick.hidden));
+    ctx.input.activate(el.pickdone, () => setPicker(false));
+    // Recent colours are the player's own picks, kept locally for quick reuse.
+    let rememberToken = 0;
+    function rememberColorSoon() {
+      const token = ++rememberToken;
+      ctx.timeout(() => { if (token === rememberToken) rememberColor(); }, 1200);
+    }
+    function rememberColor() {
+      S.recent = [S.color].concat(S.recent.filter(c => c !== S.color)).slice(0, 8);
+      store("dcc:color", { color: S.color, recent: S.recent });
+      if (!el.pick.hidden) renderRecent();
+    }
+    function renderRecent() {
+      el.recent.innerHTML = "";
+      for (const c of S.recent) {
+        if (c === S.color) continue;
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "dcc-rc"; b.style.background = c; b.dataset.color = c;
+        b.setAttribute("aria-label", "Recent colour " + c);
+        el.recent.appendChild(b);
+      }
+    }
+    ctx.listen(el.recent, "click", e => {
+      const b = e.target && e.target.closest ? e.target.closest(".dcc-rc") : null;
+      if (b) setColor(b.dataset.color, null, { quiet: true });
+    });
     ctx.listen(el.so, "input", () => { S.opacity = Number(el.so.value); touchDraft(); });
     ctx.listen(el.ss, "input", () => { S.size = Number(el.ss.value); touchDraft(); });
     ctx.listen(el.sr, "input", () => { S.rot = Number(el.sr.value); touchDraft(); });
@@ -1870,6 +2021,7 @@ window.plethoraBit = {
       const live = isLive();
       el.modes.hidden = !live;
       el.tools.hidden = !live; el.colors.hidden = !live; el.sliders.hidden = !live;
+      if ((!live || S.viewing) && !el.pick.hidden) setPicker(false);
       el.hist.hidden = S.view !== "day";
       if (S.view === "day") el.histt.textContent = "Archived canvas from " + longDay(S.viewDay) + ". It's read-only; new marks go on today's canvas.";
       for (const b of el.modes.querySelectorAll(".dcc-mode")) b.setAttribute("aria-pressed", b.dataset.mode === S.mode ? "true" : "false");
@@ -2173,6 +2325,8 @@ window.plethoraBit = {
     // Keyboard support
     ctx.listen(window, "keydown", e => {
       const tag = e.target && e.target.tagName;
+      if (e.key === "Escape" && !el.pick.hidden) { setPicker(false); el.cur.focus(); return; }
+      if (tag === "INPUT" && e.target.type === "text") return;
       if (S.viewing && (e.key === "Escape" || e.key === "v")) { setViewing(false); return; }
       if (e.key === "v" && tag !== "INPUT" && S.view !== "archive") { setViewing(true); return; }
       if (e.key === "Escape") { if (S.sel) { S.sel = null; S.selCycle = null; } cancelDraft(); refreshHud(); requestDraw(); }
@@ -2223,7 +2377,11 @@ window.plethoraBit = {
     ctx.platform.ready();
 
     // Recover local convenience state, then load the shared canvas.
-    const [savedOutbox, savedCounts] = await Promise.all([load("dcc:outbox"), load("dcc:count")]);
+    const [savedOutbox, savedCounts, savedColor] = await Promise.all([load("dcc:outbox"), load("dcc:count"), load("dcc:color")]);
+    if (savedColor && typeof savedColor.color === "string" && HEX_RE.test(savedColor.color)) {
+      S.recent = Array.isArray(savedColor.recent) ? savedColor.recent.filter(c => typeof c === "string" && HEX_RE.test(c)).slice(0, 8) : [];
+      setColor(savedColor.color, null, { quiet: true });
+    }
     if (savedCounts && typeof savedCounts === "object") localCounts = savedCounts;
     if (Array.isArray(savedOutbox)) {
       for (const it of savedOutbox) {

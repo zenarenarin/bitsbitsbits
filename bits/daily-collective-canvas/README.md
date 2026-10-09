@@ -10,7 +10,7 @@ Files:
 | `plethora.json` | Manifest. Declares the shared `objects` world `canvas` with a 40/day/user rate limit and attribution. |
 | `harness/server.mjs` | Local stand-in for the platform world plus a static server for the harness. Dev only, not uploaded. |
 | `harness/harness.html` | Mock of the documented `ctx` surface the Bit uses. Dev only. |
-| `harness/e2e.test.mjs` | 19 Playwright acceptance tests across independent browser clients. |
+| `harness/e2e.test.mjs` | 20 Playwright acceptance tests across independent browser clients. |
 
 ## How it fits Plethora
 
@@ -25,7 +25,7 @@ A Bit runs inside Plethora's sandbox. It cannot ship its own server, database or
 
 ### Gameplay
 
-- **ADD:** freehand (ink, chalk or dotted), shapes (ellipse, rectangle, polygon, organic blob; filled or outlined), line and arc, dot clusters (scatter, ring or row), and 8 drawn stamps (eye, sun, spiral, leaf, moon, star, zigzag, flower). Settings are a curated 10-colour palette, opacity, size, rotation and a "rough" hand-drawn toggle. Tap to drop a mark, drag to size it. There is no commit step: when you lift your finger the mark settles for 1.5 s with an **Undo**, then saves in the background. Starting the next stroke saves the previous one immediately, so drawing never waits on the network.
+- **ADD:** freehand (ink, chalk or dotted), shapes (ellipse, rectangle, polygon, organic blob; filled or outlined), line and arc, dot clusters (scatter, ring or row), and 8 drawn stamps (eye, sun, spiral, leaf, moon, star, zigzag, flower). Settings are a full-spectrum colour picker, opacity, size, rotation and a "rough" hand-drawn toggle. Tap to drop a mark, drag to size it. There is no commit step: when you lift your finger the mark settles for 1.5 s with an **Undo**, then saves in the background. Starting the next stroke saves the previous one immediately, so drawing never waits on the network.
 - **CONTRIBUTE** (target required; overlapping marks can be cycled through, "2 of 4 here"):
   - **Echo** repeats the target's own geometry 2, 3 or 5 times along the dragged direction, with a scale and turn per step.
   - **Connect** draws a thread, vine or dotted line from the target to a point or a second mark. It stores both target ids.
@@ -42,6 +42,14 @@ A Bit runs inside Plethora's sandbox. It cannot ship its own server, database or
 ### Viewing
 
 **View** (top bar, or the `v` key) hides every tool and fits the whole canvas to the screen, with just the date, counts and **Done** underneath. It is look-only: touches never draw. It works on today's canvas and on archived days. Escape or `v` closes it.
+
+### Colour
+
+The colour row is a live colour preview plus a continuous hue strip you can drag directly. Tapping the preview opens the picker: a saturation/brightness field for the current hue (muted, pastel, vivid or dark), a large hue strip, a hex field for exact values, and the player's own recent colours. It stays open while choosing and drawing, and closes on **Done**, a second tap on the preview, or Escape. The hue strip and field also respond to arrow keys.
+
+The picker is drawn with CSS gradients, not canvases. Every change goes through one exact `#rrggbb` value, which drives the draft preview, the stored record and every client's render. The chosen colour persists across brushes and reloads.
+
+Colours mix like ink (multiply) so overlaps get richer. Very light colours (luminance above 0.85) are laid on top instead, so they don't vanish into the paper. That choice is computed from the stored hex alone, so it is the same everywhere, and marks made with the earlier palette render exactly as before.
 
 ### Daily lifecycle
 
@@ -67,7 +75,7 @@ There are deliberate states for:
 node --test --test-concurrency=1 bits/daily-collective-canvas/harness/e2e.test.mjs
 ```
 
-Latest run: **19 passed, 0 failed** (about 100 s, headless Chromium). The tests cover:
+Latest run: **20 passed, 0 failed** (about 100 s, headless Chromium). The tests cover:
 
 - **Multiplayer (A):**
   - A commit reaches a second client without a reload, and both render pixel-identical canvases.
@@ -82,11 +90,12 @@ Latest run: **19 passed, 0 failed** (about 100 s, headless Chromium). The tests 
 - **CONTRIBUTE (C):**
   - Echo, connect and react store correct target ids, connect stores both, and originals are unchanged.
   - Overlapping marks can be cycled.
-  - Missing, cross-day and transform-of-transform targets, colours outside the palette, and geometry out of range are all ignored safely.
+  - Missing, cross-day and transform-of-transform targets, malformed colours, and geometry out of range are all ignored safely.
 - **TRANSFORM (D):** all four transforms change the target's pixels, leave its record intact and render identically on another client. A cancelled preview creates nothing.
 - **Rollover (E):** a server clock set to 23:59:40 IST rolls over with an open draft. Nothing moves silently, continuing on the new day is explicit, and yesterday is archived intact. A device clock 5 days wrong does not change the canvas.
 - **Archive (F):** quiet days are listed, thumbnails are derived from records, archived days are read-only, and marks can be inspected.
 - **Resilience (G):** a lost response is retried with the same id and saved once. An expired session keeps the draft. A draft survives a reload.
+- **Colour:** dragging the hue strip and the saturation/brightness field picks a new colour, and the picker stays open while switching brushes and drawing. A colour change updates the settling mark, the exact hex is saved and renders identically on another client, keyboard controls adjust hue, and the colour survives a reload.
 - **Interface (H):** proportions hold on phone and desktop sizes, keyboard controls work, the Bit runs with reduced motion, and View enlarges the whole canvas without drawing.
 
 ### Manual two-client check
