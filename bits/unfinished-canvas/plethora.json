@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "The Unfinished Canvas",
+  "description": "One shared, never-finished artwork. Add a mark, continue a stranger's line, or change how something reads. Nothing gets erased.",
+  "tags": ["art", "shared", "drawing", "co-creation"],
+  "permissions": ["haptics", "backgroundMusic", "storage"],
+  "dependencies": [],
+  "memory": {
+    "worlds": {
+      "canvas": {
+        "label": "The Unfinished Canvas",
+        "type": "objects",
+        "rules": [
+          { "type": "rate_limit", "max": 6, "per": "day", "by": "user" }
+        ],
+        "attribution": false
+      }
+    }
+  },
+  "tuning": {
+    "schemaVersion": 1,
+    "groups": {
+      "gameplay": { "label": "Contribution budget" },
+      "world": { "label": "Canvas growth" },
+      "visual": { "label": "Look" }
+    },
+    "knobs": {
+      "marks_per_contribution": {
+        "label": "Marks per contribution",
+        "type": "integer",
+        "default": 8,
+        "min": 1,
+        "max": 12,
+        "step": 1,
+        "group": "gameplay",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "drawing_seconds": {
+        "label": "Seconds of active drawing",
+        "type": "number",
+        "default": 10,
+        "min": 4,
+        "max": 30,
+        "step": 1,
+        "group": "gameplay",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "contributions_per_visit": {
+        "label": "Contributions per visit",
+        "type": "integer",
+        "default": 1,
+        "min": 1,
+        "max": 3,
+        "step": 1,
+        "group": "gameplay",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "milestone_1": {
+        "label": "First edge opens at (marks)",
+        "type": "integer",
+        "default": 25,
+        "min": 5,
+        "max": 200,
+        "step": 5,
+        "group": "world",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "milestone_2": {
+        "label": "Second edge opens at (marks)",
+        "type": "integer",
+        "default": 100,
+        "min": 20,
+        "max": 400,
+        "step": 10,
+        "group": "world",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "milestone_3": {
+        "label": "Third edge opens at (marks)",
+        "type": "integer",
+        "default": 250,
+        "min": 50,
+        "max": 600,
+        "step": 10,
+        "group": "world",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "glow_strength": {
+        "label": "Glow strength",
+        "type": "percent",
+        "default": 0.7,
+        "min": 0,
+        "max": 1,
+        "group": "visual",
+        "intent": "visual",
+        "apply": "live"
+      },
+      "grain_amount": {
+        "label": "Surface grain",
+        "type": "percent",
+        "default": 0.06,
+        "min": 0,
+        "max": 0.2,
+        "group": "visual",
+        "intent": "visual",
+        "apply": "live"
+      }
+    }
+  },
+  "onboarding": {
+    "kind": "immersive",
+    "version": 1
+  }
+}
