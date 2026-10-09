@@ -1556,69 +1556,99 @@ window.plethoraBit = {
     let fragMesh = null, frags = [], tracerMesh = null, flashes = [], puffs = [], shockwaves = [];
     const enemyPool = [], missilePool = [];
 
-    function makeCanvasTex(w, h, draw, repeat) {
-      const c = document.createElement("canvas");
-      c.width = w; c.height = h;
-      const g = c.getContext("2d");
-      draw(g, w, h);
-      const t = new THREE.CanvasTexture(c);
+    // Procedural textures are painted straight into pixel buffers (no extra canvases).
+    function makeTex(w, h, paint, repeat) {
+      const data = new Uint8Array(w * h * 4);
+      const R = {
+        w, h,
+        fill(r, g, b, a) { for (let i = 0; i < w * h; i++) { data[i * 4] = r; data[i * 4 + 1] = g; data[i * 4 + 2] = b; data[i * 4 + 3] = a === undefined ? 255 : a; } },
+        px(x, y, r, g, b, a) {
+          if (x < 0 || y < 0 || x >= w || y >= h) return;
+          const i = (y * w + x) * 4;
+          data[i] = data[i] + (r - data[i]) * a; data[i + 1] = data[i + 1] + (g - data[i + 1]) * a; data[i + 2] = data[i + 2] + (b - data[i + 2]) * a;
+        },
+        rect(x, y, rw, rh, r, g, b, a) {
+          const x0 = Math.max(0, Math.floor(x)), y0 = Math.max(0, Math.floor(y));
+          const x1 = Math.min(w, Math.floor(x + rw)), y1 = Math.min(h, Math.floor(y + rh));
+          for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) R.px(xx, yy, r, g, b, a);
+        },
+        set(x, y, r, g, b, a) { const i = (y * w + x) * 4; data[i] = r; data[i + 1] = g; data[i + 2] = b; data[i + 3] = a; }
+      };
+      paint(R, w, h);
+      const t = new THREE.DataTexture(data, w, h, THREE.RGBAFormat);
       t.colorSpace = THREE.SRGBColorSpace;
-      if (repeat) { t.wrapS = t.wrapT = THREE.RepeatWrapping; }
+      t.generateMipmaps = true;
+      t.minFilter = THREE.LinearMipmapLinearFilter;
+      t.magFilter = THREE.LinearFilter;
       t.anisotropy = 4;
+      if (repeat) { t.wrapS = t.wrapT = THREE.RepeatWrapping; }
+      t.needsUpdate = true;
       return t;
     }
+    function frame(R, w, h, t, r, g, b, a) { R.rect(0, 0, w, t, r, g, b, a); R.rect(0, h - t, w, t, r, g, b, a); R.rect(0, t, t, h - 2 * t, r, g, b, a); R.rect(w - t, t, t, h - 2 * t, r, g, b, a); }
+    function radial(R, w, h, stops) {
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const d = Math.hypot(x + 0.5 - w / 2, y + 0.5 - h / 2) / (w / 2);
+        let k = 0;
+        while (k < stops.length - 2 && d > stops[k + 1][0]) k++;
+        const a = stops[k], b = stops[k + 1];
+        const t = clamp((d - a[0]) / (b[0] - a[0]), 0, 1);
+        R.set(x, y, lerp(a[1], b[1], t), lerp(a[2], b[2], t), lerp(a[3], b[3], t), d >= 1 ? 0 : lerp(a[4], b[4], t) * 255);
+      }
+    }
     function buildTextures() {
-      tex.panel = makeCanvasTex(256, 256, (g, w, h) => {
-        g.fillStyle = "#59606c"; g.fillRect(0, 0, w, h);
-        for (let i = 0; i < 90; i++) { g.fillStyle = "rgba(255,255,255," + (Math.random() * 0.05) + ")"; g.fillRect(Math.random() * w, Math.random() * h, Math.random() * 60, Math.random() * 30); }
-        g.strokeStyle = "rgba(10,12,18,.75)"; g.lineWidth = 3;
-        g.strokeRect(2, 2, w - 4, h - 4);
-        g.beginPath(); g.moveTo(0, h * 0.5); g.lineTo(w, h * 0.5); g.moveTo(w * 0.5, 0); g.lineTo(w * 0.5, h * 0.5); g.stroke();
-        g.fillStyle = "rgba(10,12,18,.6)";
-        for (const [x, y] of [[12, 12], [w - 16, 12], [12, h - 16], [w - 16, h - 16]]) g.fillRect(x, y, 4, 4);
+      const rnd = mulberry32(4242);
+      tex.panel = makeTex(256, 256, (R, w, h) => {
+        R.fill(0x59, 0x60, 0x6c);
+        for (let i = 0; i < 90; i++) R.rect(rnd() * w, rnd() * h, rnd() * 60, rnd() * 30, 255, 255, 255, rnd() * 0.05);
+        frame(R, w, h, 3, 10, 12, 18, 0.75);
+        R.rect(0, h / 2 - 1, w, 3, 10, 12, 18, 0.75);
+        R.rect(w / 2 - 1, 0, 3, h / 2, 10, 12, 18, 0.75);
+        for (const [x, y] of [[12, 12], [w - 16, 12], [12, h - 16], [w - 16, h - 16]]) R.rect(x, y, 4, 4, 10, 12, 18, 0.6);
       }, true);
-      tex.gate = makeCanvasTex(256, 256, (g, w, h) => {
-        g.fillStyle = "#c9d0da"; g.fillRect(0, 0, w, h);
-        for (let i = 0; i < 60; i++) { g.fillStyle = "rgba(40,50,70," + (Math.random() * 0.06) + ")"; g.fillRect(Math.random() * w, Math.random() * h, Math.random() * 70, Math.random() * 30); }
-        g.strokeStyle = "rgba(40,48,64,.55)"; g.lineWidth = 3;
-        g.strokeRect(2, 2, w - 4, h - 4);
-        g.beginPath(); g.moveTo(0, h * 0.5); g.lineTo(w, h * 0.5); g.moveTo(w * 0.5, 0); g.lineTo(w * 0.5, h); g.stroke();
-        g.fillStyle = "rgba(255,120,40,.85)"; g.fillRect(10, 10, 22, 6); g.fillRect(w - 32, h - 16, 22, 6);
+      tex.gate = makeTex(256, 256, (R, w, h) => {
+        R.fill(0xc9, 0xd0, 0xda);
+        for (let i = 0; i < 60; i++) R.rect(rnd() * w, rnd() * h, rnd() * 70, rnd() * 30, 40, 50, 70, rnd() * 0.06);
+        frame(R, w, h, 3, 40, 48, 64, 0.55);
+        R.rect(0, h / 2 - 1, w, 3, 40, 48, 64, 0.55);
+        R.rect(w / 2 - 1, 0, 3, h, 40, 48, 64, 0.55);
+        R.rect(10, 10, 22, 6, 255, 120, 40, 0.85);
+        R.rect(w - 32, h - 16, 22, 6, 255, 120, 40, 0.85);
       }, true);
-      tex.floor = makeCanvasTex(256, 256, (g, w, h) => {
-        g.fillStyle = "#2b303b"; g.fillRect(0, 0, w, h);
-        g.strokeStyle = "rgba(120,200,255,.18)"; g.lineWidth = 2;
-        g.strokeRect(1, 1, w - 2, h - 2);
-        g.strokeStyle = "rgba(0,0,0,.4)"; g.lineWidth = 1;
-        g.beginPath(); g.moveTo(w / 2, 0); g.lineTo(w / 2, h); g.moveTo(0, h / 2); g.lineTo(w, h / 2); g.stroke();
-        g.fillStyle = "rgba(255,190,90,.55)"; g.fillRect(w / 2 - 3, 20, 6, 60);
+      tex.floor = makeTex(256, 256, (R, w, h) => {
+        R.fill(0x2b, 0x30, 0x3b);
+        frame(R, w, h, 2, 120, 200, 255, 0.18);
+        R.rect(w / 2, 0, 1, h, 0, 0, 0, 0.4);
+        R.rect(0, h / 2, w, 1, 0, 0, 0, 0.4);
+        R.rect(w / 2 - 3, 20, 6, 60, 255, 190, 90, 0.55);
       }, true);
-      tex.chev = makeCanvasTex(128, 64, (g, w, h) => {
-        g.clearRect(0, 0, w, h);
-        g.fillStyle = "#000"; g.fillRect(0, 0, w, h);
-        g.fillStyle = "#fff";
-        g.beginPath(); g.moveTo(20, 6); g.lineTo(64, 32); g.lineTo(20, 58); g.lineTo(42, 58); g.lineTo(86, 32); g.lineTo(42, 6); g.closePath(); g.fill();
+      tex.chev = makeTex(128, 64, (R, w, h) => {
+        R.fill(0, 0, 0);
+        const poly = [[20, 6], [64, 32], [20, 58], [42, 58], [86, 32], [42, 6]];
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+          let inside = false;
+          for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+            const xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+            if ((yi > y + 0.5) !== (yj > y + 0.5) && x + 0.5 < ((xj - xi) * (y + 0.5 - yi)) / (yj - yi) + xi) inside = !inside;
+          }
+          if (inside) R.set(x, y, 255, 255, 255, 255);
+        }
       }, true);
-      tex.hazard = makeCanvasTex(128, 128, (g, w, h) => {
-        g.fillStyle = "#2a2d33"; g.fillRect(0, 0, w, h);
-        g.fillStyle = "#d89a2a";
-        for (let i = -2; i < 6; i++) { g.beginPath(); g.moveTo(i * 32, 0); g.lineTo(i * 32 + 16, 0); g.lineTo(i * 32 + 16 + h, h); g.lineTo(i * 32 + h, h); g.closePath(); g.fill(); }
-        g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(0, 0, w, 6);
+      tex.hazard = makeTex(128, 128, (R, w, h) => {
+        R.fill(0x2a, 0x2d, 0x33);
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if ((x + y) % 32 < 16) R.set(x, y, 0xd8, 0x9a, 0x2a, 255);
+        R.rect(0, 0, w, 6, 0, 0, 0, 0.25);
       }, true);
-      tex.glow = makeCanvasTex(128, 128, (g, w, h) => {
-        const gr = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
-        gr.addColorStop(0, "rgba(255,255,255,1)"); gr.addColorStop(0.25, "rgba(255,255,255,.55)"); gr.addColorStop(1, "rgba(255,255,255,0)");
-        g.fillStyle = gr; g.fillRect(0, 0, w, h);
+      tex.glow = makeTex(128, 128, (R, w, h) => {
+        radial(R, w, h, [[0, 255, 255, 255, 1], [0.25, 255, 255, 255, 0.55], [1, 255, 255, 255, 0]]);
       }, false);
-      tex.smoke = makeCanvasTex(128, 128, (g, w, h) => {
-        const gr = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
-        gr.addColorStop(0, "rgba(220,220,230,.8)"); gr.addColorStop(0.6, "rgba(160,160,175,.35)"); gr.addColorStop(1, "rgba(120,120,140,0)");
-        g.fillStyle = gr; g.fillRect(0, 0, w, h);
+      tex.smoke = makeTex(128, 128, (R, w, h) => {
+        radial(R, w, h, [[0, 220, 220, 230, 0.8], [0.6, 160, 160, 175, 0.35], [1, 120, 120, 140, 0]]);
       }, false);
-      tex.ground = makeCanvasTex(256, 256, (g, w, h) => {
-        g.fillStyle = "#3a2f3a"; g.fillRect(0, 0, w, h);
-        for (let i = 0; i < 400; i++) { g.fillStyle = "rgba(" + (Math.random() < 0.5 ? "255,220,200" : "20,10,30") + "," + Math.random() * 0.08 + ")"; g.fillRect(Math.random() * w, Math.random() * h, 8, 8); }
-        g.strokeStyle = "rgba(255,170,120,.12)"; g.lineWidth = 2; g.strokeRect(0, 0, w, h);
+      tex.ground = makeTex(256, 256, (R, w, h) => {
+        R.fill(0x3a, 0x2f, 0x3a);
+        for (let i = 0; i < 400; i++) { const lite = rnd() < 0.5; R.rect(rnd() * w, rnd() * h, 8, 8, lite ? 255 : 20, lite ? 220 : 10, lite ? 200 : 30, rnd() * 0.08); }
+        frame(R, w, h, 2, 255, 170, 120, 0.12);
       }, true);
     }
     function buildMaterials() {

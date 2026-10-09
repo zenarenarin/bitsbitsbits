@@ -19,9 +19,7 @@
     "backgroundMusic"
   ],
   "dependencies": [
-    "three@0.164.1",
-    "bebas-neue@1.0.0",
-    "space-grotesk@1.0.0"
+    "three@0.164.1"
   ],
   "onboarding": {
     "kind": "immersive",
