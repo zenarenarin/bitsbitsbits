@@ -25,12 +25,13 @@ A Bit runs inside Plethora's sandbox. It cannot ship its own server, database or
 
 ### Gameplay
 
-- **ADD:** freehand (ink, chalk or dotted), shapes (ellipse, rectangle, polygon, organic blob; filled or outlined), line and arc, dot clusters (scatter, ring or row), and 8 drawn stamps (eye, sun, spiral, leaf, moon, star, zigzag, flower). Settings are a curated 10-colour palette, opacity, size, rotation and a "rough" hand-drawn toggle. Tap to drop a mark, drag to size it. The mark previews as a dashed **DRAFT** until you commit.
+- **ADD:** freehand (ink, chalk or dotted), shapes (ellipse, rectangle, polygon, organic blob; filled or outlined), line and arc, dot clusters (scatter, ring or row), and 8 drawn stamps (eye, sun, spiral, leaf, moon, star, zigzag, flower). Settings are a curated 10-colour palette, opacity, size, rotation and a "rough" hand-drawn toggle. Tap to drop a mark, drag to size it. There is no commit step: when you lift your finger the mark settles for 1.5 s with an **Undo**, then saves in the background. Starting the next stroke saves the previous one immediately, so drawing never waits on the network.
 - **CONTRIBUTE** (target required; overlapping marks can be cycled through, "2 of 4 here"):
   - **Echo** repeats the target's own geometry 2, 3 or 5 times along the dragged direction, with a scale and turn per step.
   - **Connect** draws a thread, vine or dotted line from the target to a point or a second mark. It stores both target ids.
   - **React** surrounds the target with a halo, rays, an orbit or a frame.
   - Unanswered recent marks get a subtle dotted ring as suggestions.
+- Drag-defined responses and transforms (echo, connect, mask, shift) save the same way after the drag. Tint, react and texture preview as soon as a mark is picked, so they take one **Apply** tap; otherwise just selecting a mark would save something.
 - **TRANSFORM** (a new record that references its target; the original is never touched):
   - **Tint** applies a translucent colour clipped to the target's exact shape (multiply, screen or colour blend).
   - **Mask** cuts a circular window into the target, or reveals only that window.
@@ -40,7 +41,7 @@ A Bit runs inside Plethora's sandbox. It cannot ship its own server, database or
 
 ### Daily lifecycle
 
-The date key is computed in `Asia/Kolkata` from a clock corrected by the server's time. If the snapshot or mutation response carries `serverTime`, the client uses it, so a wrong device clock cannot pick the canvas (tested). A client left open across midnight gets a notice and moves to the new canvas. A draft started before midnight is marked as belonging to a closed canvas and cannot be committed there. The user chooses whether to continue it on today's canvas; a response to an old mark can only be set aside. Commit-time checks re-validate the day and the targets.
+The date key is computed in `Asia/Kolkata` from a clock corrected by the server's time. If the snapshot or mutation response carries `serverTime`, the client uses it, so a wrong device clock cannot pick the canvas (tested). A client left open across midnight gets a notice and moves to the new canvas. A mark that didn't reach the server before midnight is never written to the closed canvas or moved silently: the player gets "didn't save before midnight" with **Add to today** or **Discard**. A response to an old mark can only be set aside. Save-time checks re-validate the day and the targets.
 
 ### States
 
@@ -48,14 +49,13 @@ There are deliberate states for:
 
 - loading
 - an empty canvas with a daily loose prompt
-- draft, saving, saved and not-saved with retry (the retry reuses the same idempotency key)
+- settling with Undo, preview with Apply, "saving N" and "saved" in the status, and not-saved marks outlined on the canvas with Retry and Discard (retries reuse the same idempotency key, and network failures retry by themselves when the connection returns)
 - offline and reconnecting
-- a cooldown of 4 s between commits
-- reaching the daily limit
+- reaching the daily limit (150 marks per person per day, enforced by the world's rate-limit rule)
 - an expired session or a permission error
 - rollover
 - the archive and read-only historical canvases (tap a mark to inspect it)
-- recovery of an unsaved draft after a reload, via `ctx.storage`, which is convenience only
+- unsaved marks survive a reload (kept in `ctx.storage`, convenience only) and are re-sent with their original ids
 
 ## Tests
 

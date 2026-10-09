@@ -13,7 +13,7 @@
         "label": "Daily canvases",
         "type": "objects",
         "rules": [
-          { "type": "rate_limit", "max": 40, "per": "day", "by": "user" }
+          { "type": "rate_limit", "max": 150, "per": "day", "by": "user" }
         ],
         "attribution": true
       }
@@ -22,6 +22,6 @@
   "onboarding": {
     "kind": "one_line",
     "version": 1,
-    "message": "Pick ADD, CONTRIBUTE or TRANSFORM. Every committed mark stays."
+    "message": "Just draw. Every mark joins today's shared canvas and stays."
   }
 }

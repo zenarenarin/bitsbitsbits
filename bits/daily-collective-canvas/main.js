@@ -17,8 +17,8 @@ window.plethoraBit = {
     const MAX_MUTATION_BYTES = 1000;    // schema limit is 1024 for the whole mutation
     const POLL_MS = 4000;
     const POLL_MAX_MS = 30000;
-    const COOLDOWN_MS = 4000;
-    const DAILY_LIMIT = 40;             // mirrors the manifest rate_limit rule
+    const SETTLE_MS = 1500;             // a finished mark waits this long (with Undo) before it saves
+    const DAILY_LIMIT = 150;            // mirrors the manifest rate_limit rule
     const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
     const ID_RE = /^(\d{4}-\d{2}-\d{2})_([a-z0-9]{6,12})_([a-z0-9]{1,8})$/;
 
@@ -811,10 +811,11 @@ window.plethoraBit = {
       size: 30,
       rot: 0,
       rough: true,
-      draft: null,              // { rec, stage: draft|pending|failed, id?, obj?, error? }
+      draft: null,              // { rec, stage: draft|settling, stale?, error? }
+      outbox: [],               // finished marks being saved: { id, obj, rec, state: queued|saving|failed, error?, retryable?, auto?, stale? }
+      savedUntil: 0,
       sel: null,
       selCycle: null,           // { ux, uy, ids, i }
-      lastCommitAt: 0,
       lastSnapshotSig: ""
     };
     for (const fam of Object.keys(VARIANTS)) S.variant[fam] = VARIANTS[fam][0];
@@ -925,6 +926,7 @@ window.plethoraBit = {
         S.lastOk = Date.now();
         S.fails = 0;
         checkRollover(first);
+        if (!first) retryOutbox(true);       // the connection is back: resend what failed on the network
       } catch (e) {
         if (destroyed) return;
         S.fails++;
@@ -948,14 +950,16 @@ window.plethoraBit = {
       S.today = key;
       if (silent) {
         // First contact with the server clock corrected a wrong device date.
-        if (S.draft && S.draft.rec.d !== key && S.draft.stage !== "pending") S.draft.stale = true;
+        if (S.draft && S.draft.rec.d !== key) { S.draft.stale = true; S.draft.stage = "draft"; settleToken++; }
         artDirty = true;
         return;
       }
       S.sel = null;
       S.selCycle = null;
-      if (S.draft && S.draft.rec.d !== key && S.draft.stage !== "pending") {
-        S.draft.stale = true;
+      if (S.draft && S.draft.rec.d !== key) {
+        S.draft.stale = true;          // never moved to the new day without the player's say-so
+        S.draft.stage = "draft";
+        settleToken++;
       }
       artDirty = true;
       clearThumbs();
@@ -1077,13 +1081,19 @@ window.plethoraBit = {
         }
       }
 
-      // Draft preview
+      // Marks on their way to the server, then the draft being made.
+      if (isLive()) {
+        for (const item of S.outbox) {
+          if (item.rec.d !== day) continue;
+          try { drawRecord(g, k, item.rec, lookup); } catch (e) { /* preview only */ }
+          if (item.state === "failed") draftFrame(boundsOf(item.rec, lookup), "NOT SAVED", "failed");
+        }
+      }
       if (S.draft && S.draft.rec.d === day && isLive()) {
         const rec = S.draft.rec;
         try { drawRecord(g, k, rec, lookup); } catch (e) { /* preview only */ }
-        const b = boundsOf(rec, lookup);
-        const label = S.draft.stage === "pending" ? "SAVING…" : S.draft.stage === "failed" ? "NOT SAVED" : "DRAFT";
-        draftFrame(b, label, S.draft.stage);
+        // A settling mark looks like any other mark; only explicit previews get a frame.
+        if (S.draft.stage === "draft") draftFrame(boundsOf(rec, lookup), "PREVIEW", "draft");
       }
       g.restore();
 
@@ -1200,23 +1210,17 @@ window.plethoraBit = {
         tg: [], p: null, t: 0, seed: 99991
       };
     }
-    function startDraft(rec) {
-      S.draft = { rec, stage: "draft" };
-      saveDraftLocal();
-      refreshHud();
-      requestDraw();
-    }
     function touchDraft() {
       if (!S.draft) return;
-      if (S.draft.stage === "failed") { S.draft.stage = "draft"; S.draft.id = null; S.draft.obj = null; }
+      S.draft.error = null;
       applyStyleToDraft();
-      saveDraftLocal();
+      if (S.draft.stage === "settling") settleDraft();   // tweaking a just-made mark restarts its short wait
       refreshHud();
       requestDraw();
     }
     function applyStyleToDraft() {
       const d = S.draft && S.draft.rec;
-      if (!d || S.draft.stage === "pending") return;
+      if (!d) return;
       d.c = S.color; d.o = Math.round(S.opacity) / 100; d.ro = S.rough ? 1 : 0;
       const fam = familyOf(d.s);
       if (d.k === "add") {
@@ -1295,7 +1299,6 @@ window.plethoraBit = {
       }
       S.draft = { rec, stage: "draft" };
       applyStyleToDraft();
-      saveDraftLocal();
       refreshHud();
       requestDraw();
     }
@@ -1357,80 +1360,138 @@ window.plethoraBit = {
     }
 
     // =====================================================================
-    // Commit: Draft -> Submit -> server persists -> refetch -> render
+    // Saving. A finished mark settles briefly (Undo is offered), then joins an
+    // outbox that saves in the background, in order:
+    //   draft -> settle -> outbox -> server persists -> refetch -> render
     // =====================================================================
-    async function commit() {
-      const dr = S.draft;
-      if (!dr || dr.stage === "pending" || !isLive()) return;
-      const key = dateKeyAt(now());
-      if (key !== S.today) checkRollover();
-      if (dr.rec.d !== S.today || dr.stale) {
-        dr.stale = true;
-        refreshHud();
-        return;
-      }
-      for (const t of dr.rec.tg) {
-        if (!lookupFor(S.today)(t)) {
-          dr.error = "The mark you were responding to isn't on today's canvas any more.";
-          dr.stage = "failed";
-          refreshHud();
-          return;
-        }
-      }
-      const wait = S.lastCommitAt + COOLDOWN_MS - Date.now();
-      if (wait > 0) { toast("Give it " + Math.ceil(wait / 1000) + "s. Let the canvas breathe.", 1800); return; }
-      if (localCount() >= DAILY_LIMIT) { toast("You've left " + DAILY_LIMIT + " marks today, which is the daily limit. Tomorrow starts fresh.", 4000); return; }
-
-      if (!dr.id || !dr.obj) {
-        const obj = fitPayload(dr.rec);
-        const id = obj.d + "_" + nonce() + "_" + checksum(obj);
-        if (JSON.stringify({ id, object: obj }).length > MAX_MUTATION_BYTES) {
-          dr.stage = "failed";
-          dr.error = "That mark is too detailed to save. Try a shorter stroke.";
-          refreshHud();
-          return;
-        }
-        dr.id = id; dr.obj = obj;        // stable idempotency key for retries
-      }
-      dr.stage = "pending";
-      dr.error = null;
-      saveDraftLocal();
+    let settleToken = 0, draining = false;
+    function settleDraft() {
+      if (!S.draft) return;
+      S.draft.stage = "settling";
+      const token = ++settleToken;
+      ctx.timeout(() => {
+        if (token === settleToken && S.draft && S.draft.stage === "settling") finalizeDraft();
+      }, SETTLE_MS);
       refreshHud();
       requestDraw();
-      ctx.platform.start();
-      try {
-        const res = await world.mutate({ id: dr.id, object: dr.obj });
-        if (destroyed) return;
-        readServerTime(res);
-        const rec = sanitize(dr.id, dr.obj);
-        if (rec) { rec.seq = rec.t; S.confirmed.set(rec.id, rec); }
-        const center = boundsOf(dr.rec, lookupFor(S.today));
-        S.draft = null;
-        S.lastCommitAt = Date.now();
-        bumpLocalCount();
-        clearDraftLocal();
-        S.lastSnapshotSig = "";
-        if (rec) applySnapshotMerge(rec);
-        ack(center);
-        ctx.platform.interact({ type: "contribution", kind: rec ? rec.k : "unknown" });
-        refresh();
-      } catch (e) {
-        if (destroyed) return;
-        dr.stage = "failed";
-        const msg = String((e && (e.code || e.message)) || e).toLowerCase();
-        dr.error = /rate|limit|429/.test(msg)
-          ? "Daily limit reached for now. Your draft is kept."
-          : /size|payload|large/.test(msg)
-            ? "That mark is too large to save. Try something simpler."
-            : /auth|sign|session|401|403|permission/.test(msg)
-              ? "Your session needs a refresh. Your draft is kept."
-              : "Not saved yet: connection trouble. Your draft is kept.";
-        dr.retryable = !/size|payload|large/.test(msg);
-        saveDraftLocal();
-      } finally {
+    }
+    // Turn the current draft into a stored object and queue it. Returns true when queued.
+    function finalizeDraft() {
+      const dr = S.draft;
+      if (!dr || !isLive()) return false;
+      settleToken++;
+      if (dateKeyAt(now()) !== S.today) checkRollover();
+      if (dr.stale || dr.rec.d !== S.today) { dr.stale = true; dr.stage = "draft"; refreshHud(); return false; }
+      if (localCount() + S.outbox.length >= DAILY_LIMIT) {
+        dr.stage = "draft";
+        dr.error = "That's " + DAILY_LIMIT + " marks today, the daily limit. Tomorrow starts fresh.";
         refreshHud();
-        requestDraw();
+        return false;
       }
+      const obj = fitPayload(dr.rec);
+      const id = obj.d + "_" + nonce() + "_" + checksum(obj);   // stable idempotency key for every retry
+      const rec = sanitize(id, obj);
+      if (!rec || JSON.stringify({ id, object: obj }).length > MAX_MUTATION_BYTES) {
+        dr.stage = "draft";
+        dr.error = "That mark is too detailed to save. Try something simpler.";
+        refreshHud();
+        return false;
+      }
+      rec.seq = rec.t;
+      S.outbox.push({ id, obj, rec, state: "queued" });
+      S.draft = null;
+      ctx.platform.start();
+      if (S.mode !== "add") { S.sel = null; S.selCycle = null; }
+      saveOutbox();
+      refreshHud();
+      requestDraw();
+      drain();
+      return true;
+    }
+    function classify(e) {
+      const msg = String((e && (e.code || e.message)) || e).toLowerCase();
+      if (/rate|limit|429/.test(msg)) return { error: "Daily limit reached. Your mark is kept here but not shared.", retryable: false };
+      if (/size|payload|large/.test(msg)) return { error: "A mark was too large to save.", retryable: false };
+      if (/full|507/.test(msg)) return { error: "The shared canvas is out of space.", retryable: false };
+      if (/auth|sign|session|401|403|permission/.test(msg)) return { error: "Your session needs a refresh. Marks are kept here until then.", retryable: true };
+      return { error: "Not saved yet: connection trouble. Will retry.", retryable: true, auto: true };
+    }
+    async function drain() {
+      if (draining || destroyed) return;
+      draining = true;
+      let saved = 0;
+      try {
+        for (;;) {
+          const idx = S.outbox.findIndex(i => i.state !== "saving" && i.state !== "done");
+          const item = idx >= 0 ? S.outbox[idx] : null;
+          if (!item || item.state === "failed") break;     // keep order: wait for a failed mark to be resolved
+          if (dateKeyAt(now()) !== S.today) checkRollover();
+          if (item.obj.d !== S.today) {
+            Object.assign(item, { state: "failed", stale: true, retryable: false, error: null });
+            continue;
+          }
+          if (item.rec.tg.some(t => !S.all.has(t))) {
+            Object.assign(item, { state: "failed", retryable: false, error: "The mark it answered isn't on today's canvas any more." });
+            continue;
+          }
+          item.state = "saving";
+          updateSync();
+          try {
+            const res = await world.mutate({ id: item.id, object: item.obj });
+            if (destroyed) return;
+            readServerTime(res);
+            S.confirmed.set(item.id, item.rec);
+            S.outbox.splice(S.outbox.indexOf(item), 1);
+            bumpLocalCount();
+            applySnapshotMerge(item.rec);
+            saved++;
+            ctx.platform.interact({ type: "contribution", kind: item.rec.k });
+          } catch (e) {
+            if (destroyed) return;
+            Object.assign(item, { state: "failed", stale: false }, classify(e));
+          }
+          saveOutbox();
+          refreshHud();
+          requestDraw();
+        }
+      } finally {
+        draining = false;
+      }
+      if (saved) {
+        S.savedUntil = Date.now() + 1800;
+        S.lastSnapshotSig = "";
+        if (ctx.capabilities && ctx.capabilities.haptics) { try { ctx.platform.haptic("light"); } catch (e) { /* optional */ } }
+        refresh();
+      }
+      refreshHud();
+      requestDraw();
+    }
+    function retryOutbox(autoOnly) {
+      let any = false;
+      for (const i of S.outbox) {
+        if (i.state === "failed" && i.retryable && (!autoOnly || i.auto)) { i.state = "queued"; i.error = null; any = true; }
+      }
+      if (any) drain();
+    }
+    function discardFailed() {
+      S.outbox = S.outbox.filter(i => i.state !== "failed");
+      saveOutbox(); refreshHud(); requestDraw();
+      drain();
+    }
+    // Marks finished just before midnight can be re-added to today's canvas, but only on request.
+    function moveStaleToToday() {
+      const next = [];
+      for (const i of S.outbox) {
+        if (!(i.state === "failed" && i.stale)) { next.push(i); continue; }
+        if (i.rec.k !== "add") continue;        // responses to yesterday's marks can't move
+        const obj = Object.assign({}, i.obj, { d: S.today, t: Math.round(now()) });
+        const id = obj.d + "_" + nonce() + "_" + checksum(obj);
+        const rec = sanitize(id, obj);
+        if (rec) { rec.seq = rec.t; next.push({ id, obj, rec, state: "queued" }); }
+      }
+      S.outbox = next;
+      saveOutbox(); refreshHud(); requestDraw();
+      drain();
     }
     // Show an acknowledged record immediately without waiting for the next poll.
     function applySnapshotMerge(rec) {
@@ -1448,18 +1509,10 @@ window.plethoraBit = {
       artDirty = true;
       clearThumbs();
     }
-    function ack(b) {
-      const c = unitsToCss((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2);
-      if (!reduceMotion) {
-        try { ctx.fx.ripple({ x: c.x, y: c.y, color: "rgba(22,19,15,0.55)", radius: 60, durationMs: 700 }); } catch (e) { /* cosmetic */ }
-      }
-      if (ctx.capabilities && ctx.capabilities.haptics) { try { ctx.platform.haptic("light"); } catch (e) { /* optional */ } }
-      toast("Saved. It's part of today's canvas now.", 2200);
-    }
     function cancelDraft() {
-      if (!S.draft || S.draft.stage === "pending") return;
+      if (!S.draft) return;
+      settleToken++;
       S.draft = null;
-      clearDraftLocal();
       refreshHud();
       requestDraw();
     }
@@ -1468,17 +1521,10 @@ window.plethoraBit = {
     const canStore = !!(ctx.capabilities && ctx.capabilities.storage && ctx.storage);
     function store(k, v) { if (canStore) { try { const r = v === null ? ctx.storage.remove(k) : ctx.storage.set(k, v); if (r && r.catch) r.catch(() => {}); } catch (e) { /* ignore */ } } }
     async function load(k) { if (!canStore) return null; try { return await ctx.storage.get(k); } catch (e) { return null; } }
-    let draftSaveTimer = null;
-    function saveDraftLocal() {
-      if (draftSaveTimer) return;
-      draftSaveTimer = ctx.timeout(() => {
-        draftSaveTimer = null;
-        if (!S.draft) return;
-        const r = Object.assign({}, S.draft.rec);
-        store("dcc:draft", { rec: r, id: S.draft.id || null, obj: S.draft.obj || null });
-      }, 400);
+    // Unsaved marks survive a reload; their ids make re-sending them safe.
+    function saveOutbox() {
+      store("dcc:outbox", S.outbox.length ? S.outbox.map(i => ({ id: i.id, obj: i.obj })) : null);
     }
-    function clearDraftLocal() { store("dcc:draft", null); }
     let localCounts = {};
     function localCount() { return localCounts[S.today] || 0; }
     function bumpLocalCount() {
@@ -1614,18 +1660,18 @@ window.plethoraBit = {
     const SHAPE_KINDS = ["ellipse", "rect", "poly", "blob"];
     S.shapeKind = "ellipse";
     const HINTS = {
-      brush: "ADD: draw freely. Lift your finger to preview, then commit.",
+      brush: "ADD: draw freely. Each stroke joins the canvas as you lift.",
       shape: "ADD: drag to size a shape, or tap to drop one.",
       line: "ADD: drag a line. Arc bends it; tune the bend with the slider.",
       dots: "ADD: drag out a cluster of dots, or tap to drop one.",
       stamp: "ADD: tap to place a motif, drag to scale it.",
-      echo: "CONTRIBUTE: tap a mark, then drag to repeat it with rhythm.",
+      echo: "CONTRIBUTE: tap a mark, then drag to repeat it (or Apply the preview).",
       connect: "CONTRIBUTE: tap a mark, then drag to another place or mark to link them.",
-      react: "CONTRIBUTE: tap a mark to surround or answer it.",
-      tint: "TRANSFORM: tap a mark to wash it in a new colour. The original stays.",
+      react: "CONTRIBUTE: tap a mark to preview a response, then Apply.",
+      tint: "TRANSFORM: tap a mark to preview a colour wash, then Apply.",
       mask: "TRANSFORM: tap a mark, then drag a circle to cut or reveal part of it.",
       shift: "TRANSFORM: tap a mark, then drag to cast a displaced impression.",
-      texture: "TRANSFORM: tap a mark to lay a texture over it."
+      texture: "TRANSFORM: tap a mark to preview a texture, then Apply."
     };
 
     for (const mode of Object.keys(TOOLS)) {
@@ -1683,10 +1729,17 @@ window.plethoraBit = {
       ctx.input.activate(b, () => setMode(b.dataset.mode));
     }
     ctx.input.activate(el.commit, () => {
-      if (S.draft && S.draft.stale) { moveDraftToToday(); return; }
-      commit();
+      const m = el.draft.dataset.bar;
+      if (m === "stale") moveDraftToToday();
+      else if (m === "draft") finalizeDraft();
+      else if (m === "failed") retryOutbox(false);
+      else if (m === "missed") moveStaleToToday();
     });
-    ctx.input.activate(el.cancel, () => cancelDraft());
+    ctx.input.activate(el.cancel, () => {
+      const m = el.draft.dataset.bar;
+      if (m === "failed" || m === "missed") discardFailed();
+      else cancelDraft();
+    });
     ctx.input.activate(el.nav, () => { if (S.view === "archive") openToday(); else openArchive(); });
     ctx.input.activate(el.back, () => openArchive());
     ctx.listen(el.arch, "click", e => {
@@ -1702,16 +1755,16 @@ window.plethoraBit = {
     });
     ctx.input.activate(el.unsel, () => {
       S.sel = null; S.selCycle = null;
-      if (S.draft && S.draft.rec.k !== "add" && S.draft.stage !== "pending") S.draft = null;
+      if (S.draft && S.draft.rec.k !== "add") cancelDraft();
       refreshHud(); requestDraw();
     });
 
     function setMode(mode) {
       if (!isLive()) return;
       if (S.mode === mode) return;
-      if (S.draft && S.draft.stage === "pending") return;
+      if (S.draft && S.draft.stage === "settling") finalizeDraft();
       S.mode = mode;
-      if (S.draft) { S.draft = null; clearDraftLocal(); }
+      if (S.draft) cancelDraft();
       if (mode === "add") { S.sel = null; S.selCycle = null; }
       else if (S.sel) onTargetChanged();
       buildVariants();
@@ -1721,7 +1774,8 @@ window.plethoraBit = {
     function selectTool(mode, id) {
       if (S.mode !== mode) setMode(mode);
       S.tool[mode] = id;
-      if (S.draft && S.draft.stage !== "pending" && (mode !== "add" || S.draft.rec.k !== "add" || toolOf(S.draft.rec) !== id)) S.draft = null;
+      if (S.draft && S.draft.stage === "settling") finalizeDraft();
+      if (S.draft && (mode !== "add" || S.draft.rec.k !== "add" || toolOf(S.draft.rec) !== id)) cancelDraft();
       if (mode !== "add" && S.sel) onTargetChanged();
       buildVariants();
       refreshHud();
@@ -1734,8 +1788,8 @@ window.plethoraBit = {
     function onTargetChanged() {
       const tool = S.tool[S.mode];
       if (!isLive() || S.mode === "add") { refreshHud(); requestDraw(); return; }
-      if (S.draft && S.draft.stage === "pending") return;
-      if (!S.sel) { S.draft = null; clearDraftLocal(); refreshHud(); requestDraw(); return; }
+      if (S.draft && S.draft.stage === "settling") finalizeDraft();
+      if (!S.sel) { cancelDraft(); return; }
       if (["react", "tint", "texture", "mask", "shift", "echo"].includes(tool)) draftForTarget(null, null);
       else { S.draft = null; refreshHud(); requestDraw(); }
     }
@@ -1743,9 +1797,8 @@ window.plethoraBit = {
       const dr = S.draft;
       if (!dr) return;
       if (dr.rec.k !== "add") { cancelDraft(); toast("That response belonged to a closed canvas, so it was set aside.", 3000); return; }
-      dr.rec.d = S.today; dr.stale = false; dr.stage = "draft"; dr.id = null; dr.obj = null; dr.error = null;
-      saveDraftLocal(); refreshHud(); requestDraw();
-      toast("Moved your draft onto today's canvas. Commit when ready.", 2600);
+      dr.rec.d = S.today; dr.stale = false; dr.error = null;
+      finalizeDraft();
     }
 
     let toastToken = 0;
@@ -1761,7 +1814,10 @@ window.plethoraBit = {
       if (S.syncing && !S.loaded) { s = "syncing"; t = "loading"; }
       else if (S.fails > 0) { s = "offline"; t = S.loaded ? "offline · retrying" : "can't connect"; }
       else if (S.syncing) { s = "syncing"; t = "syncing"; }
-      if (s === "live" && Date.now() < S.newUntil && S.newCount) t = "+" + S.newCount + " new";
+      const saving = S.outbox.filter(i => i.state !== "failed").length;
+      if (saving && s !== "offline") { s = "syncing"; t = "saving " + saving; }
+      else if (s === "live" && Date.now() < S.savedUntil) t = "saved";
+      else if (s === "live" && Date.now() < S.newUntil && S.newCount) t = "+" + S.newCount + " new";
       el.sync.dataset.s = s;
       el.synct.textContent = t;
     }
@@ -1825,29 +1881,45 @@ window.plethoraBit = {
         el.cycle.hidden = n < 2;
       }
 
-      // Draft bar
+      // Action bar: Undo while a mark settles, Apply for previews, and any unsaved marks.
       const dr = S.draft;
-      const showDraft = live && !!dr;
+      const failed = S.outbox.filter(i => i.state === "failed");
+      let bar = "";
+      if (dr && dr.stale) bar = "stale";
+      else if (dr && dr.stage === "settling") bar = "settling";
+      else if (dr) bar = "draft";
+      else if (failed.some(i => i.stale)) bar = "missed";
+      else if (failed.length) bar = "failed";
+      el.draft.dataset.bar = bar;
       el.draft.hidden = !live;
-      el.draft.style.visibility = showDraft ? "visible" : "hidden";
-      if (showDraft) {
-        el.dmsg.classList.toggle("err", dr.stage === "failed" || !!dr.stale);
-        el.cancel.disabled = dr.stage === "pending";
-        if (dr.stale) {
-          el.dmsg.textContent = "This draft was started on " + prettyDay(dr.rec.d) + "'s canvas, which has closed.";
-          el.commit.textContent = dr.rec.k === "add" ? "Continue today" : "Set aside";
-          el.commit.disabled = false;
-        } else if (dr.stage === "pending") {
-          el.dmsg.textContent = "Saving to the shared canvas…";
-          el.commit.textContent = "Saving…"; el.commit.disabled = true;
-        } else if (dr.stage === "failed") {
-          el.dmsg.textContent = dr.error || "Not saved.";
-          el.commit.textContent = dr.retryable === false ? "Commit" : "Retry"; el.commit.disabled = false;
-        } else {
-          el.dmsg.textContent = "Draft: only you can see this until you commit.";
-          el.commit.textContent = "Commit"; el.commit.disabled = false;
-        }
+      el.draft.style.visibility = live && bar ? "visible" : "hidden";
+      el.dmsg.classList.toggle("err", bar === "stale" || bar === "failed" || bar === "missed" || !!(dr && dr.error));
+      el.commit.hidden = false;
+      if (bar === "stale") {
+        el.dmsg.textContent = "This was started on " + prettyDay(dr.rec.d) + "'s canvas, which has closed.";
+        el.cancel.textContent = "Discard";
+        el.commit.textContent = dr.rec.k === "add" ? "Add to today" : "Set aside";
+      } else if (bar === "settling") {
+        el.dmsg.textContent = "Adding to the canvas…";
+        el.cancel.textContent = "Undo";
+        el.commit.hidden = true;
+      } else if (bar === "draft") {
+        el.dmsg.textContent = dr.error || "Preview. Apply adds it to the canvas.";
+        el.cancel.textContent = "Cancel";
+        el.commit.textContent = "Apply";
+      } else if (bar === "missed") {
+        const n = failed.filter(i => i.stale).length;
+        el.dmsg.textContent = n + (n === 1 ? " mark" : " marks") + " didn't save before midnight.";
+        el.cancel.textContent = "Discard";
+        el.commit.textContent = "Add to today";
+      } else if (bar === "failed") {
+        el.dmsg.textContent = (failed.length > 1 ? failed.length + " marks not saved. " : "") + (failed[0].error || "Not saved.");
+        el.cancel.textContent = "Discard";
+        el.commit.textContent = "Retry";
+        el.commit.hidden = !failed.some(i => i.retryable);
       }
+      root.dataset.draft = dr ? dr.stage : "";
+      root.dataset.outbox = String(S.outbox.length);
       ctx.timeout(computeLayout, 0);
     }
 
@@ -1873,7 +1945,7 @@ window.plethoraBit = {
       return out;
     }
     function openArchive() {
-      if (S.draft && S.draft.stage === "pending") return;
+      if (S.draft && S.draft.stage === "settling") finalizeDraft();
       S.view = "archive";
       S.sel = null; S.selCycle = null;
       renderArchive();
@@ -1966,9 +2038,9 @@ window.plethoraBit = {
       ctx.platform.start();
       const u = toUnits(p.x, p.y);
       ptr = { id: e.pointerId, start: p, su: u, last: u, moved: false, t0: Date.now() };
-      if (isLive() && S.mode === "add" && (!S.draft || S.draft.stage !== "pending")) {
-        if (S.tool.add === "brush") ptr.pts = [u.x, u.y];
-      }
+      // Starting the next gesture saves the previous mark straight away.
+      if (isLive() && S.draft && S.draft.stage === "settling") finalizeDraft();
+      if (isLive() && S.mode === "add" && S.tool.add === "brush") ptr.pts = [u.x, u.y];
       e.preventDefault && e.preventDefault();
     });
     ctx.listen(canvas, "pointermove", e => {
@@ -2004,10 +2076,9 @@ window.plethoraBit = {
         refreshHud(); requestDraw();
         return;
       }
-      if (S.draft && S.draft.stage === "pending") return;
       if (S.mode === "add") {
         const rec = addFromGesture(u, null);
-        if (rec) startDraft(rec);
+        if (rec) settleDraft();
         return;
       }
       const prev = S.sel;
@@ -2017,24 +2088,23 @@ window.plethoraBit = {
     }
 
     function onDrag(u, done) {
-      if (!isLive() || (S.draft && S.draft.stage === "pending")) return;
+      if (!isLive()) return;
       if (S.mode === "add") {
-        if (S.tool.add === "brush") {
+        if (S.tool.add === "brush" && ptr.pts) {
           const pts = ptr.pts;
           const lx = pts[pts.length - 2], ly = pts[pts.length - 1];
           if (Math.hypot(u.x - lx, u.y - ly) >= 5 && pts.length < 2000) pts.push(Math.round(clamp(u.x, -50, W + 50)), Math.round(clamp(u.y, -50, H + 50)));
-          const rec = addFromGesture(ptr.su, u);
-          if (rec) { S.draft = { rec, stage: "draft" }; if (done) startDraft(rec); else requestDraw(); }
-        } else {
-          const rec = addFromGesture(ptr.su, u);
-          if (rec) { S.draft = { rec, stage: "draft" }; if (done) startDraft(rec); else requestDraw(); }
         }
+        const rec = addFromGesture(ptr.su, u);
+        if (rec) { if (done) settleDraft(); else requestDraw(); }
         return;
       }
       if (!S.sel) return;
       const tool = S.tool[S.mode];
       if (["echo", "connect", "mask", "shift"].includes(tool)) {
         draftForTarget(ptr.su, u);
+        // The drag itself is the deliberate act, so it saves like a drawn mark.
+        if (done && S.draft) settleDraft();
       }
     }
 
@@ -2078,7 +2148,7 @@ window.plethoraBit = {
     ctx.listen(window, "keydown", e => {
       const tag = e.target && e.target.tagName;
       if (e.key === "Escape") { if (S.sel) { S.sel = null; S.selCycle = null; } cancelDraft(); refreshHud(); requestDraw(); }
-      else if (e.key === "Enter" && S.draft && tag !== "BUTTON" && tag !== "INPUT") { commit(); }
+      else if (e.key === "Enter" && S.draft && tag !== "BUTTON" && tag !== "INPUT") { finalizeDraft(); }
       else if (tag !== "INPUT" && isLive() && (e.key === "1" || e.key === "2" || e.key === "3")) setMode(["add", "con", "tf"][Number(e.key) - 1]);
     });
 
@@ -2125,25 +2195,21 @@ window.plethoraBit = {
     ctx.platform.ready();
 
     // Recover local convenience state, then load the shared canvas.
-    const [savedDraft, savedCounts] = await Promise.all([load("dcc:draft"), load("dcc:count")]);
+    const [savedOutbox, savedCounts] = await Promise.all([load("dcc:outbox"), load("dcc:count")]);
     if (savedCounts && typeof savedCounts === "object") localCounts = savedCounts;
-    await refresh();
-    if (savedDraft && savedDraft.rec && !S.draft && !destroyed) {
-      const r = savedDraft.rec;
-      if (r.d && KINDS[r.k] && KINDS[r.k].includes(r.s)) {
-        const mode = r.k;
-        S.mode = mode;
-        S.tool[mode] = familyOf(r.s);
-        if (r.k !== "add") S.sel = r.tg && r.tg[0];
-        r.draft = true; r.id = "draft"; r.seed = 99991;
-        S.draft = { rec: r, stage: savedDraft.id ? "failed" : "draft", id: savedDraft.id, obj: savedDraft.obj, error: savedDraft.id ? "Recovered an unsaved draft. Retry to save it." : null, retryable: true };
-        if (r.d !== S.today) S.draft.stale = true;
-        if (r.k !== "add" && !lookupFor(r.d)(S.sel)) { S.draft = null; S.sel = null; S.mode = "add"; }
-        buildVariants();
-        refreshHud();
-        requestDraw();
-        if (S.draft) toast("Recovered your unsaved draft.", 2600);
+    if (Array.isArray(savedOutbox)) {
+      for (const it of savedOutbox) {
+        const rec = it && sanitize(it.id, it.obj);
+        if (rec) { rec.seq = rec.t; S.outbox.push({ id: it.id, obj: it.obj, rec, state: "queued" }); }
       }
+    }
+    await refresh();
+    if (S.outbox.length && !destroyed) {
+      // Anything the server already has is done; the rest is re-sent with the same ids.
+      S.outbox = S.outbox.filter(i => !S.all.has(i.id));
+      saveOutbox();
+      if (S.outbox.length) toast("Saving marks from your last visit.", 2400);
+      drain();
     }
   }
 };

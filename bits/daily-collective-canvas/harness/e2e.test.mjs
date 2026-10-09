@@ -78,7 +78,7 @@ async function openClient(user, opts = {}) {
   page.on("pageerror", e => pageErrors.push(user + ": " + e.message));
   await page.goto(`${BASE}/?user=${user}`);
   await page.waitForSelector("body[data-inited='1']", { timeout: 15000 });
-  const c = { user, context, page, lastCommit: 0 };
+  const c = { user, context, page };
   clients.push(c);
   return c;
 }
@@ -108,15 +108,11 @@ async function slider(page, cls, value) {
   await page.$eval(cls, (el, v) => { el.value = String(v); el.dispatchEvent(new Event("input", { bubbles: true })); }, value);
 }
 async function draftVisible(page) { return page.$eval(".dcc-draft", el => !el.hidden && el.style.visibility !== "hidden"); }
-async function commit(c, { expectSaved = true } = {}) {
-  const wait = c.lastCommit + 4300 - Date.now();
-  if (wait > 0) await sleep(wait);
-  assert.ok(await draftVisible(c.page), "draft bar visible before commit");
-  await c.page.click(".dcc-commit");
-  if (expectSaved) {
-    await c.page.waitForFunction(() => { const el = document.querySelector(".dcc-draft"); return el.style.visibility === "hidden"; }, null, { timeout: 8000 });
-    c.lastCommit = Date.now();
-  }
+// Marks save on their own after a short settle; previews (tint, react, texture...) need Apply.
+async function commit(c) {
+  const stage = await c.page.getAttribute(".dcc", "data-draft");
+  if (stage === "draft") await c.page.click(".dcc-commit");
+  await c.page.waitForFunction(() => { const r = document.querySelector(".dcc"); return r.dataset.draft === "" && r.dataset.outbox === "0"; }, null, { timeout: 10000 });
 }
 async function marks(page) { const m = /(\d+) marks?/.exec(await page.textContent(".dcc-meta")); return m ? Number(m[1]) : -1; }
 async function waitMarks(page, n, timeout = 12000) {
@@ -172,7 +168,7 @@ test("A: simultaneous contributions are all preserved and ordered the same every
   await drag(a.page, [150, 200], [550, 600]);
   await swatch(b.page, "#ffcc1a");
   await drag(b.page, [350, 400], [800, 900]);
-  await Promise.all([a.page.click(".dcc-commit"), b.page.click(".dcc-commit")]);
+  await Promise.all([commit(a), commit(b)]);
   await waitMarks(a.page, 2); await waitMarks(b.page, 2);
   assert.equal((await recs()).length, 2);
   await settle(a.page); await settle(b.page);
@@ -234,15 +230,15 @@ test("B: every ADD mark type persists as structured, normalized geometry with it
   await closeClient(a);
 });
 
-test("B: cancelling a draft creates no record; long strokes stay under the payload limit", async () => {
+test("B: undoing a fresh mark creates no record; long strokes stay under the payload limit", async () => {
   await reset();
   const a = await openClient("alice");
   await tool(a.page, "add", "shape");
   await drag(a.page, [100, 100], [400, 400]);
-  assert.ok(await draftVisible(a.page));
+  assert.equal(await a.page.textContent(".dcc-cancel"), "Undo");
   await a.page.click(".dcc-cancel");
-  await a.page.waitForTimeout(500);
-  assert.equal((await recs()).length, 0, "cancel left no server record");
+  await a.page.waitForTimeout(2200);
+  assert.equal((await recs()).length, 0, "undo left no server record");
   // A very long scribble is simplified to fit the 1 KB mutation limit.
   await tool(a.page, "add", "brush"); await variant(a.page, "ink");
   const pts = [];
@@ -377,7 +373,6 @@ test("D: tint, mask, shift and texture visibly change the target and leave it in
     await tool(a.page, "tf", name);
     await act();
     await commit(a);
-    await a.page.click(".dcc-unsel").catch(() => {});
     await settle(a.page);
     const h = await canvasHash(a.page, region);
     assert.notEqual(h, prev, name + " changed the composition");
@@ -400,13 +395,12 @@ test("G: a lost response is retried with the same idempotency key and saved once
   await reset();
   const a = await openClient("alice");
   await tool(a.page, "add", "shape");
-  await drag(a.page, [200, 200], [500, 500]);
   await api("/api/test/failNext", { mode: "after_persist" });
-  await a.page.click(".dcc-commit");
-  await a.page.waitForFunction(() => document.querySelector(".dcc-commit").textContent === "Retry", null, { timeout: 8000 });
-  assert.match(await a.page.textContent(".dcc-dmsg"), /Not saved/);
-  await a.page.click(".dcc-commit");
-  await a.page.waitForFunction(() => document.querySelector(".dcc-draft").style.visibility === "hidden", null, { timeout: 8000 });
+  await drag(a.page, [200, 200], [500, 500]);
+  await a.page.waitForFunction(() => /Not saved/.test(document.querySelector(".dcc-dmsg").textContent), null, { timeout: 8000 });
+  assert.equal(await a.page.textContent(".dcc-commit"), "Retry");
+  // It retries by itself once the connection answers again (or on Retry).
+  await a.page.waitForFunction(() => document.querySelector(".dcc").dataset.outbox === "0", null, { timeout: 15000 });
   const r = await api("/api/test/store");
   assert.equal(Object.keys(r.objects).length, 1, "exactly one record");
   const ids = r.log.map(l => l.id);
@@ -414,34 +408,42 @@ test("G: a lost response is retried with the same idempotency key and saved once
   await closeClient(a);
 });
 
-test("G: an expired session keeps the draft and explains what happened", async () => {
+test("G: an expired session keeps the mark and explains what happened", async () => {
   await reset();
   const a = await openClient("alice");
   await tool(a.page, "add", "dots");
-  await tap(a.page, 500, 500);
   await api("/api/test/failNext", { mode: "auth" });
-  await a.page.click(".dcc-commit");
+  await tap(a.page, 500, 500);
   await a.page.waitForFunction(() => /session/.test(document.querySelector(".dcc-dmsg").textContent), null, { timeout: 8000 });
   assert.equal((await recs()).length, 0);
-  assert.ok(await draftVisible(a.page));
-  await closeClient(a);
-});
-
-test("G: an unsaved draft survives a reload", async () => {
-  await reset();
-  const a = await openClient("alice");
-  await tool(a.page, "add", "stamp");
-  await tap(a.page, 400, 400);
-  await a.page.waitForTimeout(700);
-  await a.page.reload(); await a.page.waitForSelector("body[data-inited='1']");
-  await a.page.waitForFunction(() => document.querySelector(".dcc-draft").style.visibility === "visible", null, { timeout: 8000 });
-  await commit(a);
+  assert.equal(await a.page.getAttribute(".dcc", "data-outbox"), "1");
+  await a.page.click(".dcc-commit");          // Retry once signed in again
+  await a.page.waitForFunction(() => document.querySelector(".dcc").dataset.outbox === "0", null, { timeout: 8000 });
   assert.equal((await recs()).length, 1);
   await closeClient(a);
 });
 
+test("G: rapid drawing never waits on the network, and unsaved marks survive a reload", async () => {
+  await reset();
+  const a = await openClient("alice");
+  await tool(a.page, "add", "brush");
+  for (let i = 0; i < 4; i++) await scribble(a.page, [[100 + i * 150, 200], [150 + i * 150, 300], [120 + i * 150, 420]]);
+  await commit(a);
+  assert.equal((await recs()).length, 4, "four quick strokes, four records");
+  await api("/api/test/down", { down: true });
+  await tool(a.page, "add", "stamp");
+  await tap(a.page, 400, 800);
+  await a.page.waitForFunction(() => /connection/.test(document.querySelector(".dcc-dmsg").textContent), null, { timeout: 8000 });
+  await a.page.reload(); await a.page.waitForSelector("body[data-inited='1']");
+  assert.equal(await a.page.getAttribute(".dcc", "data-outbox"), "1", "the unsaved mark came back after reload");
+  await api("/api/test/down", { down: false });
+  await a.page.waitForFunction(() => document.querySelector(".dcc").dataset.outbox === "0", null, { timeout: 20000 });
+  assert.equal((await recs()).length, 5);
+  await closeClient(a);
+});
+
 // ======================================================= E. Daily lifecycle
-test("E: rollover follows the server clock, archives the day and refuses stale drafts", async () => {
+test("E: rollover follows the server clock, archives the day and never moves marks silently", async () => {
   await reset();
   const d0 = dayKey(Date.now());
   const [y, m, dd] = d0.split("-").map(Number);
@@ -451,21 +453,21 @@ test("E: rollover follows the server clock, archives the day and refuses stale d
   await tool(a.page, "add", "shape");
   await drag(a.page, [200, 200], [500, 500]);
   await commit(a);
-  await drag(a.page, [500, 600], [800, 900]);         // a draft left open across midnight
-  assert.ok(await draftVisible(a.page));
+  await api("/api/test/down", { down: true });           // this one can't reach the server before midnight
+  await drag(a.page, [500, 600], [800, 900]);
+  await a.page.waitForFunction(() => /connection/.test(document.querySelector(".dcc-dmsg").textContent), null, { timeout: 8000 });
   await api("/api/test/clock", { offsetMs: target + 40000 - Date.now() });
-  await a.page.waitForFunction(() => /0 marks/.test(document.querySelector(".dcc-meta").textContent), null, { timeout: 15000 });
+  await api("/api/test/down", { down: false });
+  await a.page.waitForFunction(() => /0 marks/.test(document.querySelector(".dcc-meta").textContent), null, { timeout: 20000 });
   assert.match(await a.page.textContent(".dcc-toast"), /archive/);
-  assert.match(await a.page.textContent(".dcc-dmsg"), /closed/);
-  assert.equal(await a.page.textContent(".dcc-commit"), "Continue today");
-  assert.equal((await recs()).length, 1, "nothing was silently moved to the new day");
-  // Explicitly continue on today's canvas.
+  await a.page.waitForFunction(() => /midnight/.test(document.querySelector(".dcc-dmsg").textContent), null, { timeout: 8000 });
+  assert.equal(await a.page.textContent(".dcc-commit"), "Add to today");
+  assert.equal((await recs()).length, 1, "nothing was silently written to either day");
   await a.page.click(".dcc-commit");
   await commit(a);
   const rs = (await recs()).sort((p, q) => p.seq - q.seq);
   assert.equal(rs[0].object.d, d0);
   assert.equal(rs[1].object.d, addDays(d0, 1));
-  // Yesterday is in the archive, intact.
   await a.page.click(".dcc-nav");
   const cards = await a.page.$$eval(".dcc-card", els => els.map(e => e.dataset.day + "|" + e.querySelector(".cm").textContent));
   assert.deepEqual(cards, [addDays(d0, 1) + "|1 mark · 1 person", d0 + "|1 mark · 1 person"]);
@@ -544,7 +546,7 @@ test("H: geometry keeps its proportions across viewport sizes", async () => {
   await closeClient(phone); await closeClient(desk);
 });
 
-test("H: keyboard can switch actions and commit; reduced motion works", async () => {
+test("H: keyboard can switch actions, undo and apply; reduced motion works", async () => {
   await reset();
   const a = await openClient("alice", { reducedMotion: "reduce" });
   await a.page.keyboard.press("2");
@@ -552,12 +554,19 @@ test("H: keyboard can switch actions and commit; reduced motion works", async ()
   await a.page.keyboard.press("1");
   await tool(a.page, "add", "stamp");
   await tap(a.page, 500, 500);
-  await a.page.focus(".dcc-commit");
-  await a.page.keyboard.press("Enter");
-  await a.page.waitForFunction(() => document.querySelector(".dcc-draft").style.visibility === "hidden", null, { timeout: 8000 });
+  await commit(a);
   assert.equal((await recs()).length, 1);
   await tap(a.page, 300, 300);
-  await a.page.keyboard.press("Escape");
-  assert.equal(await draftVisible(a.page), false);
+  await a.page.keyboard.press("Escape");             // undo before it settles
+  await a.page.waitForTimeout(2200);
+  assert.equal((await recs()).length, 1);
+  await a.page.keyboard.press("3");
+  await tool(a.page, "tf", "tint");
+  await tap(a.page, 500, 500);
+  await a.page.focus(".dcc-commit");
+  assert.equal(await a.page.textContent(".dcc-commit"), "Apply");
+  await a.page.keyboard.press("Enter");
+  await commit(a);
+  assert.equal((await recs()).length, 2);
   await closeClient(a);
 });
