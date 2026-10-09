@@ -1,0 +1,303 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "The Elevator",
+  "description": "Everyone has somewhere to be. Drive a glowing elevator through an endless tower: hold and drag to move, release to brake onto a floor, and get every passenger where they're going before they give up waiting.",
+  "tags": [
+    "arcade",
+    "strategy",
+    "elevator",
+    "cozy",
+    "one-hand"
+  ],
+  "permissions": [
+    "audio",
+    "haptics",
+    "storage"
+  ],
+  "dependencies": [],
+  "onboarding": {
+    "kind": "immersive",
+    "version": 1
+  },
+  "memory": {
+    "records": {
+      "served": {
+        "label": "Passengers Served",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": [
+          "daily",
+          "weekly",
+          "all_time"
+        ],
+        "scopes": [
+          "following",
+          "global"
+        ],
+        "dedupe": "best_per_user"
+      }
+    }
+  },
+  "tuning": {
+    "schemaVersion": 1,
+    "groups": {
+      "elevator": {
+        "label": "Elevator feel"
+      },
+      "service": {
+        "label": "Doors & boarding"
+      },
+      "passengers": {
+        "label": "Passengers"
+      },
+      "scoring": {
+        "label": "Scoring"
+      },
+      "camera": {
+        "label": "Camera & world"
+      }
+    },
+    "knobs": {
+      "elevator_max_speed": {
+        "label": "Max speed (floors/s)",
+        "type": "number",
+        "default": 3.4,
+        "min": 1.5,
+        "max": 7,
+        "step": 0.1,
+        "group": "elevator",
+        "intent": "gameplay",
+        "apply": "live"
+      },
+      "elevator_acceleration": {
+        "label": "Acceleration (floors/s²)",
+        "type": "number",
+        "default": 5.2,
+        "min": 1.5,
+        "max": 14,
+        "step": 0.1,
+        "group": "elevator",
+        "intent": "feel",
+        "apply": "live"
+      },
+      "elevator_deceleration": {
+        "label": "Braking (floors/s²) — sets braking distance",
+        "type": "number",
+        "default": 6.0,
+        "min": 2,
+        "max": 16,
+        "step": 0.1,
+        "group": "elevator",
+        "intent": "gameplay",
+        "apply": "live"
+      },
+      "stop_tolerance": {
+        "label": "Perfect-stop tolerance (floors)",
+        "type": "number",
+        "default": 0.1,
+        "min": 0.02,
+        "max": 0.3,
+        "step": 0.01,
+        "group": "elevator",
+        "intent": "difficulty",
+        "apply": "live"
+      },
+      "door_open_time": {
+        "label": "Door open time",
+        "type": "duration_ms",
+        "default": 260,
+        "min": 100,
+        "max": 800,
+        "step": 10,
+        "group": "service",
+        "intent": "feel",
+        "apply": "live"
+      },
+      "door_close_time": {
+        "label": "Door close time",
+        "type": "duration_ms",
+        "default": 230,
+        "min": 100,
+        "max": 800,
+        "step": 10,
+        "group": "service",
+        "intent": "feel",
+        "apply": "live"
+      },
+      "passenger_board_time": {
+        "label": "Time per passenger boarding",
+        "type": "duration_ms",
+        "default": 300,
+        "min": 120,
+        "max": 900,
+        "step": 10,
+        "group": "service",
+        "intent": "gameplay",
+        "apply": "live"
+      },
+      "passenger_patience": {
+        "label": "Base patience (seconds)",
+        "type": "number",
+        "default": 26,
+        "min": 10,
+        "max": 70,
+        "step": 1,
+        "group": "passengers",
+        "intent": "difficulty",
+        "apply": "live"
+      },
+      "max_capacity": {
+        "label": "Elevator capacity",
+        "type": "integer",
+        "default": 6,
+        "min": 3,
+        "max": 10,
+        "step": 1,
+        "group": "passengers",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "passenger_spawn_rate": {
+        "label": "Arrival rate multiplier",
+        "type": "number",
+        "default": 1,
+        "min": 0.4,
+        "max": 2.5,
+        "step": 0.05,
+        "group": "passengers",
+        "intent": "difficulty",
+        "apply": "live"
+      },
+      "destination_range": {
+        "label": "Longest trip (floors)",
+        "type": "integer",
+        "default": 14,
+        "min": 6,
+        "max": 30,
+        "step": 1,
+        "group": "passengers",
+        "intent": "difficulty",
+        "apply": "live"
+      },
+      "missed_limit": {
+        "label": "Missed passengers before overload",
+        "type": "integer",
+        "default": 3,
+        "min": 1,
+        "max": 9,
+        "step": 1,
+        "group": "passengers",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "combo_duration": {
+        "label": "Route combo window (seconds)",
+        "type": "number",
+        "default": 9,
+        "min": 3,
+        "max": 20,
+        "step": 0.5,
+        "group": "scoring",
+        "intent": "gameplay",
+        "apply": "live"
+      },
+      "score_multiplier": {
+        "label": "Points multiplier",
+        "type": "number",
+        "default": 1,
+        "min": 0.5,
+        "max": 3,
+        "step": 0.1,
+        "group": "scoring",
+        "intent": "gameplay",
+        "apply": "live"
+      },
+      "world_scroll_speed": {
+        "label": "Climb per passenger served (floors)",
+        "type": "number",
+        "default": 0.7,
+        "min": 0.2,
+        "max": 2,
+        "step": 0.05,
+        "group": "camera",
+        "intent": "gameplay",
+        "apply": "live"
+      },
+      "camera_follow_speed": {
+        "label": "Camera follow speed",
+        "type": "number",
+        "default": 6,
+        "min": 2,
+        "max": 14,
+        "step": 0.5,
+        "group": "camera",
+        "intent": "feel",
+        "apply": "live"
+      }
+    },
+    "curves": {
+      "difficulty_curve": {
+        "label": "Decision density over the run",
+        "domain": "elapsed_seconds",
+        "range": [
+          0,
+          1
+        ],
+        "default": [
+          {
+            "x": 0,
+            "y": 0
+          },
+          {
+            "x": 15,
+            "y": 0.08
+          },
+          {
+            "x": 35,
+            "y": 0.25
+          },
+          {
+            "x": 60,
+            "y": 0.42
+          },
+          {
+            "x": 120,
+            "y": 0.65
+          },
+          {
+            "x": 200,
+            "y": 0.85
+          },
+          {
+            "x": 300,
+            "y": 1
+          }
+        ],
+        "easing": "smooth",
+        "group": "passengers",
+        "apply": "live"
+      }
+    },
+    "presets": {
+      "relaxed": {
+        "label": "Relaxed",
+        "values": {
+          "passenger_patience": 38,
+          "passenger_spawn_rate": 0.75,
+          "missed_limit": 5
+        }
+      },
+      "rush_hour": {
+        "label": "Rush hour",
+        "values": {
+          "passenger_patience": 20,
+          "passenger_spawn_rate": 1.4,
+          "destination_range": 20
+        }
+      }
+    }
+  }
+}
