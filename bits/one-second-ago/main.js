@@ -88,7 +88,8 @@ window.plethoraBit = {
       CFG.WORLD_SCALE = tget("world_scale", 6.2);             // tiles across the screen width
       CFG.CAMERA_SPEED = 3.4;                                 // camera follow sharpness
       CFG.SCROLL_START = tget("scroll_start", 0.72);          // walkway advance, tiles / second
-      CFG.SCROLL_MAX = tget("scroll_max", 1.55);
+      CFG.SCROLL_MAX = tget("scroll_max", 1.8);
+      CFG.HURDLE_DENSITY = tget("hurdle_density", 1);         // 0 = no hurdles, 2 = twice as many
       CFG.BAND_START = tget("band_length", 13);               // walkable length of the path in tiles
       CFG.BAND_MIN = 8.5;
       CFG.ENVIRONMENT_TRANSITION_SPEED = tget("environment_pace", 1);   // >1 = world changes faster
@@ -100,7 +101,7 @@ window.plethoraBit = {
     }
     // DIFFICULTY_CURVE (0..1 by survival seconds) and echo schedule are tuning curves.
     const difficultyFallback = (t) => {
-      const pts = [[0, 0], [15, 0.03], [60, 0.35], [150, 0.8], [240, 1]];
+      const pts = [[0, 0], [15, 0.05], [60, 0.5], [130, 0.85], [200, 1]];
       for (let i = 1; i < pts.length; i++) {
         if (t <= pts[i][0]) { const a = pts[i - 1], b = pts[i]; return lerp(a[1], b[1], smooth((t - a[0]) / (b[0] - a[0]))); }
       }
@@ -311,6 +312,26 @@ window.plethoraBit = {
           const x = dir === 0 ? cx - i : cx + j;
           const y = dir === 0 ? cy + j : cy - i;
           addPath(x, y, d0 + i, kind, st);
+        }
+      }
+      // HURDLES: low barriers across the walkway. There is no jump — every hurdle row
+      // leaves a gap to steer through. They grow denser and the gaps tighter with distance.
+      if (kind !== "bridge" && d0 > 14) {
+        const hp = CFG.HURDLE_DENSITY * (0.22 + 0.5 * prog);
+        let lastRow = -9;
+        for (let i = 1; i < L; i++) {
+          if (i - lastRow < (prog < 0.5 ? 3 : 2) || r() > hp) continue;
+          lastRow = i;
+          const gap = Wd >= 4 && prog < 0.6 ? 2 : (prog > 0.45 && r() < 0.5 ? 1 : 2);
+          const g0 = -h + Math.floor(r() * (Wd - gap + 1));
+          const hst = genStage(d0 + i, r());
+          const look = hst === 1 ? "crate" : hst === 3 ? "barrier" : hst === 4 ? "column" : r() < 0.5 ? "hedge" : "wall";
+          for (let j = -h; j <= h2; j++) {
+            if (j >= g0 && j < g0 + gap) continue;
+            const x = dir === 0 ? cx - i : cx + j, y = dir === 0 ? cy + j : cy - i;
+            const t = tileAt(x, y);
+            if (t && PATHLIKE[t.kind] && t.kind !== "plaza" && !t.block) { t.block = "hurdle"; t.look = look; }
+          }
         }
       }
       // Side architecture (behind the path) and foreground plants (in front, below path level).
@@ -1112,9 +1133,39 @@ window.plethoraBit = {
         g.beginPath(); g.arc(cx, cy - 22 * k, 1.8 * k, 0, TAU); g.fill();
       }
     }
+    function drawHurdle(t) {
+      const x = t.x, y = t.y, z0 = t._z;
+      const look = t.look || "wall";
+      const ins = look === "column" ? 0.24 : look === "crate" ? 0.14 : 0.1;
+      const hh = look === "column" ? 0.62 : look === "crate" ? 0.48 : look === "hedge" ? 0.42 : 0.36;
+      let cl, cr, ct;
+      if (look === "hedge") { cl = P.c.leaf; cr = mixC(P.c.leaf, [10, 30, 20], 0.3); ct = P.c.leaf2; }
+      else if (look === "crate") { cl = mixC(P.c.trunk, P.c.towerTop, 0.45); cr = mixC(P.c.trunk, P.c.wallR, 0.3); ct = mixC(P.c.trunk, P.c.towerTop, 0.65); }
+      else if (look === "barrier") { cl = mixC(P.c.wallL, [230, 225, 240], 0.35); cr = mixC(P.c.wallR, [200, 195, 215], 0.3); ct = mixC(P.c.path, [255, 255, 255], 0.2); }
+      else { cl = mixC(P.c.wallL, P.c.arch, 0.12); cr = mixC(P.c.wallR, P.c.arch, 0.15); ct = mixC(P.c.towerTop, P.c.wallL, 0.25); }
+      setT(HW, HH, 0, -ZPX, sx(x + ins, y + 1 - ins), sy(x + ins, y + 1 - ins, z0));
+      g.fillStyle = css(cl); g.fillRect(0, 0, 1 - 2 * ins, hh);
+      if (look === "crate") { g.strokeStyle = css(cr, 0.8); g.lineWidth = 0.04; g.strokeRect(0.06, 0.06, 1 - 2 * ins - 0.12, hh - 0.12); g.beginPath(); g.moveTo(0.06, 0.06); g.lineTo(1 - 2 * ins - 0.06, hh - 0.06); g.stroke(); }
+      if (look === "barrier") { g.fillStyle = css(P.c.window, 0.25 + 0.6 * P.lamps); g.fillRect(0, hh * 0.55, 1 - 2 * ins, hh * 0.14); }
+      setT(HW, -HH, 0, -ZPX, sx(x + 1 - ins, y + 1 - ins), sy(x + 1 - ins, y + 1 - ins, z0));
+      g.fillStyle = css(cr); g.fillRect(0, 0, 1 - 2 * ins, hh);
+      if (look === "barrier") { g.fillStyle = css(P.c.window, 0.2 + 0.5 * P.lamps); g.fillRect(0, hh * 0.55, 1 - 2 * ins, hh * 0.14); }
+      resetT();
+      g.fillStyle = css(ct);
+      topPath(x, y, z0 + hh, ins); g.fill();
+      if (look === "hedge") {
+        g.fillStyle = css(P.c.leaf2, 0.8);
+        const cx = sx(x + 0.5, y + 0.5), cy = sy(x + 0.5, y + 0.5, z0 + hh);
+        g.beginPath(); g.ellipse(cx - 5 * K, cy - 1 * K, 7 * K, 3.5 * K, 0, 0, TAU); g.ellipse(cx + 6 * K, cy + 1 * K, 6 * K, 3 * K, 0, 0, TAU); g.fill();
+        if (t.h < 0.4) { g.fillStyle = "rgba(244,170,150,0.95)"; g.beginPath(); g.arc(cx + 2 * K, cy - 2 * K, 1.5 * K, 0, TAU); g.fill(); }
+      } else if (look === "wall" || look === "column") {
+        g.strokeStyle = css([255, 255, 255], 0.35); g.lineWidth = 1 * K; g.stroke();
+      }
+    }
     function drawPlanterBlock(t, alphaMul) {
       const x = t.x, y = t.y, z0 = t._z;
       g.globalAlpha = alphaMul;
+      if (t.block === "hurdle") { drawHurdle(t); g.globalAlpha = 1; return; }
       if (t.block === "tank") {
         drawTopDecor("tank", sx(x + 0.5, y + 0.5), sy(x + 0.5, y + 0.5, z0), t.h, 1);
         g.globalAlpha = 1; return;
