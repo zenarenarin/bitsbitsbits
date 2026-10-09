@@ -495,6 +495,9 @@ window.plethoraBit = {
         // The walkway assembles slowly at first so the opening seconds stay calm.
         const ease = smooth(clamp(run.t / 4, 0, 1));
         run.frontD += run.scroll * dt * ease;
+        // The walkway builds itself ahead of you, so running forward is never blocked.
+        const under = tileAt(Math.floor(player.x), Math.floor(player.y));
+        if (under && under.d + 4 > run.frontD) run.frontD = lerp(run.frontD, under.d + 4, Math.min(1, dt * 6));
         // The back edge wakes up after a few seconds and closes the band gently.
         const backEase = smooth(clamp((run.t - 6) / 8, 0, 1));
         const excess = Math.max(0, (run.frontD - run.backD) - run.band);
@@ -899,7 +902,7 @@ window.plethoraBit = {
     function tileLift(t) {
       let z = 0, fade = 0, shake = 0;
       const ahead = t.d - run.frontD;
-      if (ahead > 0) { const k = smooth(clamp(ahead / 2.6, 0, 1)); z -= k * 0.62; fade = k * 0.25 + clamp((ahead - 4) / 30, 0, 0.38); }
+      if (ahead > 0) { fade = clamp((ahead - 2) / 30, 0, 0.38); }   // the path ahead stays level: no steps, just distance haze
       const behind = run.backD - t.d;
       if (behind > 0) { const k = smooth(clamp(behind / 2.4, 0, 1)); z -= k * 1.9; fade = Math.max(fade, 0.15 + k * 0.7); }
       else if (behind > -1.4 && run.state !== "title") shake = (1.4 + behind) / 1.4;
