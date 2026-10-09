@@ -46,7 +46,7 @@ window.plethoraBit = {
       missed_limit: 3
     };
     const DIFFICULTY_FALLBACK = [
-      [0, 0], [15, 0.08], [35, 0.25], [60, 0.42], [120, 0.65], [200, 0.85], [300, 1]
+      [0, 0], [15, 0.08], [35, 0.22], [60, 0.36], [120, 0.52], [200, 0.7], [300, 0.86], [420, 1]
     ];
     const CFG = {};
     function readTuning() {
@@ -552,7 +552,7 @@ window.plethoraBit = {
       const p = {
         id: paxId++, floor, origin: floor, dest, state: "arriving",
         u: L.roomU1 + 0.15 + slot * 0.08, tu: slotU(slot), slot, cslot: -1,
-        waited: 0, patience: CFG.passenger_patience * lerp(1.15, 0.68, S.d) + travel + (opts && opts.extraPatience || 0),
+        waited: 0, patience: CFG.passenger_patience * lerp(1.2, 0.78, S.d) + travel + (opts && opts.extraPatience || 0),
         look: makeLook(opts && opts.kind), group: opts && opts.group || 0,
         walk: 0, alpha: 0, stateT: 0, spawnT: S.t, boardT: 0, ttl: 0, sit: false
       };
@@ -698,7 +698,7 @@ window.plethoraBit = {
       }
       S.chain++;
       S.comboT = CFG.combo_duration;
-      const m = Math.min(5, 1 + Math.floor(S.chain / 2));
+      const m = Math.min(4, 1 + Math.floor(S.chain / 3));
       if (q.quality === "perfect") {
         addPoints(5);
         floatText("PERFECT STOP", q.floor, "#fff4d6", -0.2, false, true);
@@ -772,10 +772,10 @@ window.plethoraBit = {
       if (S.t < 11) return;
       spawnT -= dt;
       if (spawnT > 0) return;
-      const interval = lerp(4.0, 1.3, S.d) / clamp(CFG.passenger_spawn_rate, 0.2, 4);
+      const interval = lerp(4.0, 1.55, S.d) / clamp(CFG.passenger_spawn_rate, 0.2, 4);
       spawnT = interval * rand(0.75, 1.25);
       const waitingNow = pax.filter(p => p.state === "waiting" || p.state === "arriving").length;
-      const maxWaiting = Math.round(lerp(2.5, 11, S.d));
+      const maxWaiting = Math.round(lerp(2.5, 10, S.d));
       if (waitingNow >= maxWaiting) return;
       const c = bandCenter(), span = bandSpan();
       const lo = Math.max(1, Math.floor(c - span * 0.5));
