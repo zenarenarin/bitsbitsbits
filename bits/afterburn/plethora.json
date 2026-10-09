@@ -1,0 +1,320 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "AFTERBURN",
+  "description": "A 3D tilt-controlled fighter-jet endless runner. Thread real fighter-shaped openings, bank through long turns, unlock limited missiles and dogfight in open sky.",
+  "tags": [
+    "arcade",
+    "flight",
+    "3d",
+    "endless-runner",
+    "motion"
+  ],
+  "permissions": [
+    "motion",
+    "haptics",
+    "storage",
+    "audio",
+    "backgroundMusic"
+  ],
+  "dependencies": [
+    "three@0.164.1",
+    "bebas-neue@1.0.0",
+    "space-grotesk@1.0.0"
+  ],
+  "onboarding": {
+    "kind": "immersive",
+    "version": 1
+  },
+  "memory": {
+    "records": {
+      "score": {
+        "label": "High Score",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": [
+          "daily",
+          "weekly",
+          "all_time"
+        ],
+        "scopes": [
+          "following",
+          "global"
+        ],
+        "dedupe": "best_per_user"
+      }
+    }
+  },
+  "tuning": {
+    "schemaVersion": 1,
+    "groups": {
+      "flight": {
+        "label": "Flight feel"
+      },
+      "obstacles": {
+        "label": "Obstacles"
+      },
+      "combat": {
+        "label": "Weapons & combat"
+      },
+      "difficulty": {
+        "label": "Difficulty"
+      }
+    },
+    "knobs": {
+      "base_speed": {
+        "label": "Starting speed (m/s)",
+        "type": "number",
+        "default": 54,
+        "min": 35,
+        "max": 80,
+        "step": 1,
+        "group": "flight",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "max_speed": {
+        "label": "Top speed (m/s)",
+        "type": "number",
+        "default": 66,
+        "min": 40,
+        "max": 95,
+        "step": 1,
+        "group": "flight",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "steer_sensitivity": {
+        "label": "Steering gain",
+        "type": "number",
+        "default": 1,
+        "min": 0.5,
+        "max": 1.8,
+        "step": 0.05,
+        "group": "flight",
+        "intent": "feel",
+        "apply": "restart"
+      },
+      "max_bank_deg": {
+        "label": "Max bank angle (deg)",
+        "type": "number",
+        "default": 60,
+        "min": 35,
+        "max": 75,
+        "step": 1,
+        "group": "flight",
+        "intent": "feel",
+        "apply": "restart"
+      },
+      "lateral_damping": {
+        "label": "Lateral damping",
+        "type": "number",
+        "default": 1.7,
+        "min": 0.8,
+        "max": 3.5,
+        "step": 0.1,
+        "group": "flight",
+        "intent": "feel",
+        "apply": "restart"
+      },
+      "climb_rate": {
+        "label": "Climb rate (m/s)",
+        "type": "number",
+        "default": 17,
+        "min": 8,
+        "max": 28,
+        "step": 1,
+        "group": "flight",
+        "intent": "feel",
+        "apply": "restart"
+      },
+      "gate_margin": {
+        "label": "Opening size multiplier",
+        "type": "number",
+        "default": 1,
+        "min": 0.7,
+        "max": 1.6,
+        "step": 0.05,
+        "group": "obstacles",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "bank_tolerance_deg": {
+        "label": "Bank tolerance (13 = default)",
+        "type": "number",
+        "default": 13,
+        "min": 6,
+        "max": 24,
+        "step": 1,
+        "group": "obstacles",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "gate_spacing": {
+        "label": "Obstacle spacing (m)",
+        "type": "number",
+        "default": 150,
+        "min": 100,
+        "max": 260,
+        "step": 5,
+        "group": "obstacles",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "min_turn_radius": {
+        "label": "Tightest turn radius (m)",
+        "type": "number",
+        "default": 240,
+        "min": 160,
+        "max": 500,
+        "step": 10,
+        "group": "obstacles",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "enemy_wave_size": {
+        "label": "Max enemies per formation",
+        "type": "integer",
+        "default": 3,
+        "min": 1,
+        "max": 5,
+        "step": 1,
+        "group": "combat",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "cannon_damage": {
+        "label": "Cannon damage per hit",
+        "type": "number",
+        "default": 1,
+        "min": 0.5,
+        "max": 3,
+        "step": 0.5,
+        "group": "combat",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "missile1_unlock_m": {
+        "label": "STRIKE unlock distance (m)",
+        "type": "number",
+        "default": 1500,
+        "min": 300,
+        "max": 5000,
+        "step": 100,
+        "group": "combat",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "missile2_unlock_m": {
+        "label": "LANCE unlock distance (m)",
+        "type": "number",
+        "default": 4000,
+        "min": 1000,
+        "max": 12000,
+        "step": 250,
+        "group": "combat",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "missile3_unlock_m": {
+        "label": "HAMMER unlock distance (m)",
+        "type": "number",
+        "default": 8000,
+        "min": 2000,
+        "max": 20000,
+        "step": 500,
+        "group": "combat",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "first_combat_m": {
+        "label": "First open-air combat (m)",
+        "type": "number",
+        "default": 4400,
+        "min": 1500,
+        "max": 12000,
+        "step": 100,
+        "group": "combat",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "combat_every_m": {
+        "label": "Combat spacing (m)",
+        "type": "number",
+        "default": 5200,
+        "min": 2500,
+        "max": 15000,
+        "step": 100,
+        "group": "combat",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "alignment_assist": {
+        "label": "Alignment assist near openings",
+        "type": "percent",
+        "default": 0.6,
+        "min": 0,
+        "max": 1,
+        "step": 0.05,
+        "group": "flight",
+        "intent": "difficulty",
+        "apply": "restart"
+      }
+    },
+    "curves": {
+      "difficulty_ramp": {
+        "label": "Difficulty by distance (km)",
+        "domain": "custom",
+        "range": [
+          0,
+          1
+        ],
+        "default": [
+          {
+            "x": 0,
+            "y": 0
+          },
+          {
+            "x": 3,
+            "y": 0.4
+          },
+          {
+            "x": 8,
+            "y": 0.85
+          },
+          {
+            "x": 12,
+            "y": 1
+          }
+        ],
+        "easing": "smooth",
+        "group": "difficulty",
+        "apply": "live"
+      }
+    },
+    "presets": {
+      "relaxed": {
+        "label": "Relaxed",
+        "values": {
+          "base_speed": 46,
+          "max_speed": 56,
+          "gate_margin": 1.25,
+          "bank_tolerance_deg": 17,
+          "alignment_assist": 0.85
+        }
+      },
+      "ace": {
+        "label": "Ace",
+        "values": {
+          "base_speed": 60,
+          "max_speed": 74,
+          "gate_margin": 0.9,
+          "bank_tolerance_deg": 10,
+          "alignment_assist": 0.25
+        }
+      }
+    }
+  }
+}
