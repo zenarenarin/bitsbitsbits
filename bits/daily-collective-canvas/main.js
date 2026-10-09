@@ -814,6 +814,7 @@ window.plethoraBit = {
       draft: null,              // { rec, stage: draft|settling, stale?, error? }
       outbox: [],               // finished marks being saved: { id, obj, rec, state: queued|saving|failed, error?, retryable?, auto?, stale? }
       savedUntil: 0,
+      viewing: false,           // full-screen look at the whole composition
       sel: null,
       selCycle: null,           // { ux, uy, ids, i }
       lastSnapshotSig: ""
@@ -989,9 +990,11 @@ window.plethoraBit = {
       const sa = ctx.safeArea || { top: 0, bottom: 0, left: 0, right: 0 };
       const topEl = root.querySelector(".dcc-top");
       const botEl = root.querySelector(".dcc-bottom");
-      const top = (topEl ? topEl.offsetHeight : 56) + (sa.top || 0) + 6;
-      const bottom = S.view === "archive" ? 0 : (botEl ? botEl.offsetHeight : 220) + 6;
-      const availW = Math.max(60, ctx.width - 16 - (sa.left || 0) - (sa.right || 0));
+      const capEl = root.querySelector(".dcc-viewcap");
+      const top = S.viewing ? (sa.top || 0) + 12 : (topEl ? topEl.offsetHeight : 56) + (sa.top || 0) + 6;
+      const bottom = S.viewing ? (capEl ? capEl.offsetHeight : 44) + (sa.bottom || 0) + 20
+        : S.view === "archive" ? 0 : (botEl ? botEl.offsetHeight : 220) + 6;
+      const availW = Math.max(60, ctx.width - (S.viewing ? 24 : 16) - (sa.left || 0) - (sa.right || 0));
       const availH = Math.max(80, ctx.height - top - bottom);
       let w = availW, h = w * (H / W);
       if (h > availH) { h = availH; w = h * (W / H); }
@@ -1002,6 +1005,7 @@ window.plethoraBit = {
       el.top.style.top = (sa.top || 0) + "px";
       el.toast.style.top = (top + 10) + "px";
       el.bottom.style.paddingBottom = ((sa.bottom || 0) + 8) + "px";
+      el.viewcap.style.bottom = ((sa.bottom || 0) + 10) + "px";
       requestDraw();
     }
 
@@ -1063,7 +1067,7 @@ window.plethoraBit = {
       }
 
       // Suggestions in CONTRIBUTE: recent marks nobody has answered yet.
-      if (isLive() && S.mode === "con" && !S.sel && S.loaded) {
+      if (isLive() && !S.viewing && S.mode === "con" && !S.sel && S.loaded) {
         for (const rec of suggestions()) {
           const b = boundsOf(rec, lookup);
           g.setLineDash([5, 7]); g.lineWidth = 2; g.strokeStyle = "rgba(22,19,15,0.55)";
@@ -1073,7 +1077,7 @@ window.plethoraBit = {
       }
 
       // Selected target
-      if (S.sel) {
+      if (S.sel && !S.viewing) {
         const t = lookup(S.sel);
         if (t) {
           const b = boundsOf(t, lookup);
@@ -1086,10 +1090,10 @@ window.plethoraBit = {
         for (const item of S.outbox) {
           if (item.rec.d !== day) continue;
           try { drawRecord(g, k, item.rec, lookup); } catch (e) { /* preview only */ }
-          if (item.state === "failed") draftFrame(boundsOf(item.rec, lookup), "NOT SAVED", "failed");
+          if (item.state === "failed" && !S.viewing) draftFrame(boundsOf(item.rec, lookup), "NOT SAVED", "failed");
         }
       }
-      if (S.draft && S.draft.rec.d === day && isLive()) {
+      if (S.draft && S.draft.rec.d === day && isLive() && !S.viewing) {
         const rec = S.draft.rec;
         try { drawRecord(g, k, rec, lookup); } catch (e) { /* preview only */ }
         // A settling mark looks like any other mark; only explicit previews get a frame.
@@ -1577,6 +1581,10 @@ window.plethoraBit = {
       .dcc-draft[hidden], .dcc-row[hidden], .dcc-sliders[hidden], .dcc-modes[hidden] { display: none; }
       .dcc-dmsg { flex: 1; font-size: 11px; line-height: 1.3; }
       .dcc-dmsg.err { color: #ff9a85; }
+      .dcc.viewing .dcc-top, .dcc.viewing .dcc-bottom { display: none; }
+      .dcc-viewcap { position: absolute; z-index: 3; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; white-space: nowrap; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+      .dcc-viewcap[hidden] { display: none; }
+      .dcc-viewt { opacity: .75; }
       .dcc-toast { position: absolute; z-index: 4; left: 50%; transform: translateX(-50%); max-width: min(92%, 420px); background: #efe9dc; color: #16130f; font-size: 12px; line-height: 1.35; padding: 8px 12px; border-radius: 8px; pointer-events: none; opacity: 0; transition: opacity .25s; text-align: center; }
       .dcc-toast.on { opacity: 1; }
       .dcc-chipsel { align-self: center; background: #16130f; color: #efe9dc; border: 1px solid rgba(239,233,220,.4); font-size: 11px; padding: 5px 8px; border-radius: 6px; display: flex; gap: 8px; align-items: center; white-space: nowrap; }
@@ -1606,6 +1614,7 @@ window.plethoraBit = {
         <div class="dcc-date"><span class="dcc-day"></span><span class="dcc-meta"></span></div>
         <div class="dcc-sp"></div>
         <div class="dcc-sync" data-s="syncing" role="status" aria-live="polite"><span class="dcc-dot"></span><span class="dcc-synct">connecting</span></div>
+        <button class="dcc-btn dcc-viewbtn" type="button" aria-label="View the whole canvas">View</button>
         <button class="dcc-btn dcc-nav" type="button">Archive</button>
       </div>
       <div class="dcc-bottom">
@@ -1637,12 +1646,13 @@ window.plethoraBit = {
           <button class="dcc-mode" type="button" data-mode="tf" aria-pressed="false">TRANSFORM</button>
         </div>
       </div>
+      <div class="dcc-viewcap" hidden><span class="dcc-viewt"></span><button class="dcc-btn solid dcc-done" type="button">Done</button></div>
       <div class="dcc-toast" role="status" aria-live="polite"></div>
       <section class="dcc-arch" hidden aria-label="Archive"></section>
     `);
     const $ = sel => root.querySelector(sel);
     const el = {
-      top: $(".dcc-top"), day: $(".dcc-day"), meta: $(".dcc-meta"), sync: $(".dcc-sync"), synct: $(".dcc-synct"), nav: $(".dcc-nav"),
+      top: $(".dcc-top"), day: $(".dcc-day"), meta: $(".dcc-meta"), sync: $(".dcc-sync"), synct: $(".dcc-synct"), nav: $(".dcc-nav"), viewbtn: $(".dcc-viewbtn"), viewcap: $(".dcc-viewcap"), viewt: $(".dcc-viewt"), done: $(".dcc-done"),
       hint: $(".dcc-hint"), chipsel: $(".dcc-chipsel"), chipselt: $(".dcc-chipselt"), cycle: $(".dcc-cycle"), unsel: $(".dcc-unsel"),
       bottom: $(".dcc-bottom"), draft: $(".dcc-draft"), cancel: $(".dcc-cancel"), dmsg: $(".dcc-dmsg"), commit: $(".dcc-commit"),
       hist: $(".dcc-hist"), histt: $(".dcc-histt"), back: $(".dcc-back"), totoday: $(".dcc-totoday"),
@@ -1741,6 +1751,20 @@ window.plethoraBit = {
       else cancelDraft();
     });
     ctx.input.activate(el.nav, () => { if (S.view === "archive") openToday(); else openArchive(); });
+    ctx.input.activate(el.viewbtn, () => setViewing(true));
+    ctx.input.activate(el.done, () => setViewing(false));
+    // Full-screen view: tools step aside so the whole composition fills the screen.
+    function setViewing(on) {
+      if (on && S.view === "archive") return;
+      if (on && S.draft && S.draft.stage === "settling") finalizeDraft();
+      S.viewing = !!on;
+      root.classList.toggle("viewing", S.viewing);
+      el.viewcap.hidden = !S.viewing;
+      refreshHud();
+      computeLayout();
+      if (S.viewing) el.done.focus();
+      else el.viewbtn.focus();
+    }
     ctx.input.activate(el.back, () => openArchive());
     ctx.listen(el.arch, "click", e => {
       const card = e.target && e.target.closest ? e.target.closest(".dcc-card") : null;
@@ -1840,6 +1864,8 @@ window.plethoraBit = {
         el.meta.textContent = "archived · read-only · " + counts;
       }
       el.nav.textContent = S.view === "archive" ? "Today" : "Archive";
+      el.viewbtn.hidden = S.view === "archive";
+      el.viewt.textContent = prettyDay(day) + " · " + counts + (isLive() ? "" : " · archived");
 
       const live = isLive();
       el.modes.hidden = !live;
@@ -2031,7 +2057,7 @@ window.plethoraBit = {
     function inCanvas(p) { return p.x >= rect.x - 4 && p.x <= rect.x + rect.w + 4 && p.y >= rect.y - 4 && p.y <= rect.y + rect.h + 4; }
 
     ctx.listen(canvas, "pointerdown", e => {
-      if (S.view === "archive" || ptr) return;
+      if (S.view === "archive" || S.viewing || ptr) return;
       const p = localPoint(e);
       if (!inCanvas(p)) return;
       try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* optional */ }
@@ -2147,6 +2173,8 @@ window.plethoraBit = {
     // Keyboard support
     ctx.listen(window, "keydown", e => {
       const tag = e.target && e.target.tagName;
+      if (S.viewing && (e.key === "Escape" || e.key === "v")) { setViewing(false); return; }
+      if (e.key === "v" && tag !== "INPUT" && S.view !== "archive") { setViewing(true); return; }
       if (e.key === "Escape") { if (S.sel) { S.sel = null; S.selCycle = null; } cancelDraft(); refreshHud(); requestDraw(); }
       else if (e.key === "Enter" && S.draft && tag !== "BUTTON" && tag !== "INPUT") { finalizeDraft(); }
       else if (tag !== "INPUT" && isLive() && (e.key === "1" || e.key === "2" || e.key === "3")) setMode(["add", "con", "tf"][Number(e.key) - 1]);

@@ -570,3 +570,28 @@ test("H: keyboard can switch actions, undo and apply; reduced motion works", asy
   assert.equal((await recs()).length, 2);
   await closeClient(a);
 });
+
+test("H: View shows the whole canvas full-screen, look-only, and Done returns", async () => {
+  await reset();
+  await inject(rectObj(today(), 400, 500, 600, 750, "#16130f"));
+  const a = await openClient("alice");
+  await waitMarks(a.page, 1);
+  const before = await rectOf(a.page);
+  await a.page.click(".dcc-viewbtn");
+  const big = await rectOf(a.page);
+  assert.ok(big.w > before.w && big.h > before.h, "canvas is larger in View");
+  assert.ok(Math.abs(big.w / big.h - 0.8) < 0.01, "still the whole 4:5 canvas");
+  assert.equal(await a.page.isVisible(".dcc-modes"), false, "tools step aside");
+  assert.match(await a.page.textContent(".dcc-viewt"), /1 mark/);
+  await drag(a.page, [100, 100], [300, 300]);          // looking never draws
+  await a.page.waitForTimeout(2000);
+  assert.equal((await recs()).length, 1);
+  await a.page.click(".dcc-done");
+  assert.deepEqual(await rectOf(a.page), before);
+  assert.equal(await a.page.isVisible(".dcc-modes"), true);
+  await a.page.keyboard.press("v");
+  assert.equal(await a.page.isVisible(".dcc-viewcap"), true);
+  await a.page.keyboard.press("Escape");
+  assert.equal(await a.page.isVisible(".dcc-viewcap"), false);
+  await closeClient(a);
+});

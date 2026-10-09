@@ -10,7 +10,7 @@ Files:
 | `plethora.json` | Manifest. Declares the shared `objects` world `canvas` with a 40/day/user rate limit and attribution. |
 | `harness/server.mjs` | Local stand-in for the platform world plus a static server for the harness. Dev only, not uploaded. |
 | `harness/harness.html` | Mock of the documented `ctx` surface the Bit uses. Dev only. |
-| `harness/e2e.test.mjs` | 18 Playwright acceptance tests across independent browser clients. |
+| `harness/e2e.test.mjs` | 19 Playwright acceptance tests across independent browser clients. |
 
 ## How it fits Plethora
 
@@ -39,6 +39,10 @@ A Bit runs inside Plethora's sandbox. It cannot ship its own server, database or
   - **Texture** lays hatch, halftone or stripes over the target's shape.
   - Transforms cannot target transforms. A record may only reference existing marks from the same day, and the checks reject cycles, missing targets and targets from another day. Because each id carries a checksum of its own target list, a valid cycle cannot be built in the first place.
 
+### Viewing
+
+**View** (top bar, or the `v` key) hides every tool and fits the whole canvas to the screen, with just the date, counts and **Done** underneath. It is look-only: touches never draw. It works on today's canvas and on archived days. Escape or `v` closes it.
+
 ### Daily lifecycle
 
 The date key is computed in `Asia/Kolkata` from a clock corrected by the server's time. If the snapshot or mutation response carries `serverTime`, the client uses it, so a wrong device clock cannot pick the canvas (tested). A client left open across midnight gets a notice and moves to the new canvas. A mark that didn't reach the server before midnight is never written to the closed canvas or moved silently: the player gets "didn't save before midnight" with **Add to today** or **Discard**. A response to an old mark can only be set aside. Save-time checks re-validate the day and the targets.
@@ -63,7 +67,7 @@ There are deliberate states for:
 node --test --test-concurrency=1 bits/daily-collective-canvas/harness/e2e.test.mjs
 ```
 
-Latest run: **18 passed, 0 failed** (about 100 s, headless Chromium). The tests cover:
+Latest run: **19 passed, 0 failed** (about 100 s, headless Chromium). The tests cover:
 
 - **Multiplayer (A):**
   - A commit reaches a second client without a reload, and both render pixel-identical canvases.
@@ -83,7 +87,7 @@ Latest run: **18 passed, 0 failed** (about 100 s, headless Chromium). The tests 
 - **Rollover (E):** a server clock set to 23:59:40 IST rolls over with an open draft. Nothing moves silently, continuing on the new day is explicit, and yesterday is archived intact. A device clock 5 days wrong does not change the canvas.
 - **Archive (F):** quiet days are listed, thumbnails are derived from records, archived days are read-only, and marks can be inspected.
 - **Resilience (G):** a lost response is retried with the same id and saved once. An expired session keeps the draft. A draft survives a reload.
-- **Interface (H):** proportions hold on phone and desktop sizes, keyboard controls work, and the Bit runs with reduced motion.
+- **Interface (H):** proportions hold on phone and desktop sizes, keyboard controls work, the Bit runs with reduced motion, and View enlarges the whole canvas without drawing.
 
 ### Manual two-client check
 
