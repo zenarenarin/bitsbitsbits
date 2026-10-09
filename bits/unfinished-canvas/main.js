@@ -625,13 +625,13 @@ window.plethoraBit = {
     const cam = { x: CENTER, y: CENTER, s: 0.4 };
     let fitScale = 0.4;
 
+    // Offscreen cache for the committed artwork. Without OffscreenCanvas the art is
+    // simply drawn straight to the screen each frame it changes.
     function makeBuffer(w, h) {
-      if (typeof OffscreenCanvas !== "undefined") { try { return new OffscreenCanvas(w, h); } catch (e) { /* fall through */ } }
-      const c = document.createElement("canvas");
-      c.width = w; c.height = h;
-      return c;
+      if (typeof OffscreenCanvas === "undefined") return null;
+      try { return new OffscreenCanvas(w, h); } catch (e) { return null; }
     }
-    let art = makeBuffer(4, 4), artG = art.getContext("2d");
+    let art = makeBuffer(4, 4), artG = art ? art.getContext("2d") : null;
     let artView = null;  // camera the art buffer was rendered with
     let artDirty = true;
     let artLimit = Infinity;
@@ -680,6 +680,7 @@ window.plethoraBit = {
     function buildGrain() {
       const n = 96;
       const c = makeBuffer(n, n);
+      if (!c) { grainPattern = "none"; return; }
       const cg = c.getContext("2d");
       const img = cg.createImageData(n, n);
       const rand = rng(7);
@@ -692,11 +693,11 @@ window.plethoraBit = {
       grainPattern = g.createPattern(c, "repeat");
     }
 
-    function renderArt() {
+    function renderArt(direct) {
       const s = backingScale();
       const bw = canvas.width, bh = canvas.height;
-      if (art.width !== bw || art.height !== bh) { art = makeBuffer(bw, bh); artG = art.getContext("2d"); }
-      const a = artG;
+      if (!direct && (art.width !== bw || art.height !== bh)) { art = makeBuffer(bw, bh); artG = art.getContext("2d"); }
+      const a = direct ? g : artG;
       a.setTransform(1, 0, 0, 1, 0, 0);
       a.globalAlpha = 1;
       a.globalCompositeOperation = "source-over";
@@ -723,7 +724,7 @@ window.plethoraBit = {
         if (!bboxHit(c.bbox, view, 40)) continue;
         drawContribution(a, c, 1);
       }
-      artView = { x: cam.x, y: cam.y, s: cam.s, W, H };
+      if (!direct) artView = { x: cam.x, y: cam.y, s: cam.s, W, H };
       artDirty = false;
     }
 
@@ -1616,11 +1617,13 @@ window.plethoraBit = {
     // =====================================================================
     function drawFrame(timeMs) {
       const s = backingScale();
-      if (artDirty && !camAnim && !(gesture && (gesture.type === "pan" || gesture.type === "pinch"))) renderArt();
+      if (art && artDirty && !camAnim && !(gesture && (gesture.type === "pan" || gesture.type === "pinch"))) renderArt(false);
       g.setTransform(1, 0, 0, 1, 0, 0);
       g.globalAlpha = 1;
       g.globalCompositeOperation = "source-over";
-      if (artView && artView.x === cam.x && artView.y === cam.y && artView.s === cam.s && artView.W === W && artView.H === H) {
+      if (!art) {
+        renderArt(true);
+      } else if (artView && artView.x === cam.x && artView.y === cam.y && artView.s === cam.s && artView.W === W && artView.H === H) {
         g.drawImage(art, 0, 0);
       } else {
         // While moving, reuse the last render under a transform; re-render when the view settles.
@@ -1686,6 +1689,8 @@ window.plethoraBit = {
       g.setTransform(s, 0, 0, s, 0, 0);
       if (CFG.grain > 0) {
         if (!grainPattern) buildGrain();
+      }
+      if (CFG.grain > 0 && grainPattern !== "none") {
         g.globalAlpha = CFG.grain;
         g.globalCompositeOperation = "overlay";
         g.fillStyle = grainPattern;
