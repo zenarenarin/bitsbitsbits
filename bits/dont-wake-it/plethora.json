@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "Don't Wake It",
+  "description": "A tiny explorer climbs an impossibly enormous sleeping creature. Climb higher. Stay quiet.",
+  "tags": ["adventure", "climbing", "atmospheric"],
+  "permissions": [],
+  "dependencies": [],
+  "onboarding": {
+    "kind": "immersive",
+    "version": 1
+  },
+  "tuning": {
+    "schemaVersion": 1,
+    "groups": {
+      "preview": { "label": "Stage 1 preview" }
+    },
+    "knobs": {
+      "view": {
+        "label": "Camera shot",
+        "type": "choice",
+        "default": "gameplay",
+        "options": ["gameplay", "establishing"],
+        "group": "preview",
+        "intent": "debug",
+        "apply": "live"
+      },
+      "collision_overlay": {
+        "label": "Show collision on the body",
+        "type": "boolean",
+        "default": false,
+        "group": "preview",
+        "intent": "debug",
+        "apply": "live"
+      }
+    }
+  }
+}
