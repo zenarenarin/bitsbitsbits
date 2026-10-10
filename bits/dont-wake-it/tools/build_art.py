@@ -10,7 +10,7 @@ import pathlib
 root = pathlib.Path(__file__).resolve().parent.parent
 art = root / "art"
 main = root / "main.js"
-mime = {".jpg": "image/jpeg", ".png": "image/png"}
+mime = {".jpg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
 lines = []
 for f in sorted(art.iterdir()):
     if f.suffix not in mime:
