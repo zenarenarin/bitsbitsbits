@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Spindle — local preview</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #080909; overflow: hidden; }
+  #bit { position: fixed; inset: 0; overflow: hidden; touch-action: none; }
+</style>
+</head>
+<body>
+<div id="bit"></div>
+<!--
+  Local preview only. Plethora runs main.js inside its own runtime; this page
+  provides a minimal stand-in for the subset of `ctx` that Spindle uses so the
+  game can be played and tested in any modern browser. Open this file directly
+  (file://) or serve the folder. Query params: ?level=N, ?test=1
+-->
+<script>
+(function () {
+  const host = document.getElementById("bit");
+  const params = new URLSearchParams(location.search);
+  const cleanups = [];
+  const resizeCbs = [];
+  const dprCap = (c) => Math.min(window.devicePixelRatio || 1, c || 1);
+  const canvases = [];
+  const store = (() => { try { return window.localStorage; } catch (e) { return null; } })();
+  const tuneDefaults = {
+    rotation_speed: 1, difficulty_ramp: 1, collision_forgiveness: 0.86,
+    launch_ms: 190, start_level: Number(params.get("level")) || 1, sound_volume: 0.6
+  };
+  const placeZ = { background: 0, content: 10, overlay: 20, modal: 30 };
+
+  const ctx = {
+    container: host,
+    get width() { return host.clientWidth; },
+    get height() { return host.clientHeight; },
+    get dpr() { return window.devicePixelRatio || 1; },
+    get nativeDpr() { return window.devicePixelRatio || 1; },
+    safeArea: { top: 0, bottom: 0, left: 0, right: 0 },
+    capabilities: { haptics: !!navigator.vibrate, audio: true, backgroundMusic: false, camera: false, microphone: false, motion: false, storage: true },
+    __testHooks: params.has("test"),
+    markVisualReady() {},
+    createCanvas2D(o = {}) {
+      const c = document.createElement("canvas");
+      Object.assign(c.style, { position: "absolute", inset: "0", width: "100%", height: "100%", zIndex: placeZ[o.layer || "content"], touchAction: o.touchAction || "none" });
+      host.appendChild(c);
+      const g = c.getContext("2d", { alpha: o.alpha !== false });
+      const entry = { c, g, maxDpr: o.maxDpr || 1 };
+      canvases.push(entry);
+      sizeCanvas(entry);
+      return c;
+    },
+    createRoot(o = {}) {
+      const r = document.createElement("div");
+      Object.assign(r.style, { position: "absolute", inset: "0", zIndex: placeZ[o.layer || "overlay"] });
+      if (o.input === "passthrough" || o.pointerEvents === "none") r.style.pointerEvents = "none";
+      host.appendChild(r);
+      return r;
+    },
+    onResize(cb, opts = {}) {
+      resizeCbs.push(cb);
+      if (opts.immediate) cb(info());
+      return () => {};
+    },
+    listen(t, ev, fn, opt) { t.addEventListener(ev, fn, opt); cleanups.push(() => t.removeEventListener(ev, fn, opt)); },
+    input: {
+      activate(target, handler) {
+        target.addEventListener("click", (e) => { e.stopPropagation(); handler(e); });
+        target.addEventListener("pointerdown", (e) => e.stopPropagation());
+      }
+    },
+    timeout(fn, ms) { const id = setTimeout(fn, ms); return () => clearTimeout(id); },
+    interval(fn, ms) { const id = setInterval(fn, ms); return () => clearInterval(id); },
+    onDestroy(fn) { cleanups.push(fn); },
+    loadFont() { return Promise.resolve(null); },
+    math: {},
+    tune: {
+      number: (id) => tuneDefaults[id], integer: (id) => tuneDefaults[id],
+      percent: (id) => tuneDefaults[id], durationMs: (id) => tuneDefaults[id],
+      onChange() { return () => {}; }
+    },
+    game: {
+      loop({ update, render, maxDeltaMs = 50 }) {
+        let last = performance.now(), live = true;
+        const frame = (now) => {
+          if (!live) return;
+          const dt = Math.min(now - last, maxDeltaMs);
+          last = now;
+          update && update(dt);
+          render && render();
+          requestAnimationFrame(frame);
+        };
+        requestAnimationFrame(frame);
+        return { stop() { live = false; } };
+      },
+      score() {
+        return { value: 0, set(v) { this.value = v; }, checkpoint() { return Promise.resolve({ queued: true }); } };
+      },
+      progress: {
+        load() {
+          if (params.has("level") || params.has("test")) return Promise.resolve(null);
+          let s = null; try { s = JSON.parse(store && store.getItem("spindle.progress")); } catch (e) {}
+          return Promise.resolve(s ? { resumeEligible: true, state: s } : null);
+        },
+        save(_ch, v) { try { store && store.setItem("spindle.progress", JSON.stringify(v.state)); } catch (e) {} return Promise.resolve({}); }
+      }
+    },
+    platform: {
+      log: [],
+      ready() {}, start(p) { this.log.push(["start", p]); }, interact() {}, setProgress() {},
+      milestone(n, p) { this.log.push([n, p]); }, fail(p) { this.log.push(["fail", p]); },
+      complete() {}, error(e) { console.warn(e); },
+      haptic(k) { try { navigator.vibrate && navigator.vibrate(k === "error" ? [30, 40, 30] : k === "success" ? 25 : 8); } catch (e) {} }
+    },
+    pulse: { complete() {} }
+  };
+
+  function info() { return { width: ctx.width, height: ctx.height, dpr: ctx.dpr, nativeDpr: ctx.nativeDpr, safeArea: ctx.safeArea }; }
+  function sizeCanvas(e) {
+    const d = dprCap(e.maxDpr);
+    e.c.width = Math.round(ctx.width * d); e.c.height = Math.round(ctx.height * d);
+    e.g.setTransform(d, 0, 0, d, 0, 0);   // coordinateSpace: "css"
+  }
+  window.addEventListener("resize", () => { canvases.forEach(sizeCanvas); resizeCbs.forEach((cb) => cb(info())); });
+  window.__ctx = ctx;
+
+  const s = document.createElement("script");
+  s.src = "main.js";
+  s.onload = () => window.plethoraBit.init(ctx).catch((e) => console.error(e));
+  document.body.appendChild(s);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "Spindle",
+  "description": "A kinetic sculpture of graphite and acid-lime needles. Time each tap to add a pin to the spinning core without touching the others. Endless levels.",
+  "tags": ["arcade", "timing", "one-tap"],
+  "permissions": ["haptics", "audio"],
+  "dependencies": [],
+  "onboarding": {
+    "kind": "one_line",
+    "version": 1,
+    "message": "Tap to fire a pin. Don't touch the others."
+  },
+  "memory": {
+    "records": {
+      "best_level": {
+        "label": "Best Level",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": ["daily", "weekly", "all_time"],
+        "scopes": ["following", "global"],
+        "dedupe": "best_per_user"
+      }
+    }
+  },
+  "game": {
+    "progress": {
+      "main": { "label": "Spindle level", "stateSchemaVersion": 1, "ttlDays": 90 }
+    }
+  },
+  "tuning": {
+    "schemaVersion": 1,
+    "groups": {
+      "difficulty": { "label": "Difficulty" },
+      "feel": { "label": "Feel" },
+      "audio": { "label": "Audio" }
+    },
+    "knobs": {
+      "rotation_speed": { "label": "Rotation speed", "type": "number", "default": 1, "min": 0.6, "max": 1.6, "step": 0.05, "group": "difficulty", "intent": "difficulty", "apply": "restart" },
+      "difficulty_ramp": { "label": "Difficulty ramp per level", "type": "number", "default": 1, "min": 0.5, "max": 2, "step": 0.1, "group": "difficulty", "intent": "difficulty", "apply": "restart" },
+      "collision_forgiveness": { "label": "Collision size (of visual)", "type": "percent", "default": 0.86, "min": 0.7, "max": 1, "step": 0.02, "group": "difficulty", "intent": "gameplay", "apply": "live" },
+      "launch_ms": { "label": "Pin flight time", "type": "duration_ms", "default": 190, "min": 150, "max": 260, "step": 10, "group": "feel", "intent": "feel", "apply": "live" },
+      "start_level": { "label": "Start level (testing)", "type": "integer", "default": 1, "min": 1, "max": 200, "step": 1, "group": "difficulty", "intent": "debug", "apply": "restart" },
+      "sound_volume": { "label": "Sound volume", "type": "percent", "default": 0.6, "min": 0, "max": 1, "step": 0.05, "group": "audio", "intent": "audio", "apply": "live" }
+    }
+  }
+}
