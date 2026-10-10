@@ -1,38 +1,58 @@
 // ---- Scene: composites sky, cloud sea, depth layers, explorer, foreground ---
 
-const LAYER_DEFS = {
-  tail: { par: 0.2, fog: 0.72, clumpCell: 1.2, fringeCell: 1.6, minClumpPx: 7, minLockPx: 9, flow: [0.3, -0.95], gridPx: 6, moss: false, props: false, seedOffset: 300, maxTiles: 12 },
-  flank: { par: 0.55, fog: 0.4, clumpCell: 0.5, fringeCell: 1.0, minClumpPx: 7, minLockPx: 9, flow: [0.5, -0.87], gridPx: 5, moss: true, props: false, seedOffset: 200, maxTiles: 16 },
-  play: { par: 1, fog: 0.05, clumpCell: 0.2, fringeCell: 0.5, minClumpPx: 7, minLockPx: 10, flow: [0.53, -0.85], gridPx: 4, moss: true, props: true, seedOffset: 100, maxTiles: 24 },
-  fore: { par: 1.5, fog: 0, valueShift: -0.34, clumpCell: 0.25, fringeCell: 0.5, minClumpPx: 9, minLockPx: 14, flow: [0.3, -0.95], gridPx: 5, moss: false, props: false, seedOffset: 400, maxTiles: 10 }
+// Brush passes per layer (CSS px): broad strokes everywhere, fine strokes on detail.
+const BRUSH = {
+  sky: [{ cell: 9, len: 30, width: 9, jitter: 0.05, sat: 0.06, alpha: 0.75, edge: 999 }],
+  far: [{ cell: 5, len: 14, width: 5, jitter: 0.08, sat: 0.08, alpha: 0.82 }],
+  mid: [{ cell: 4.5, len: 12, width: 4.5, jitter: 0.1, sat: 0.1, alpha: 0.85 },
+    { cell: 2.5, len: 6, width: 2, jitter: 0.1, sat: 0.1, alpha: 0.85, minGrad: 16 }],
+  near: [{ cell: 4, len: 11, width: 4, jitter: 0.12, sat: 0.12, alpha: 0.88 },
+    { cell: 2, len: 5.5, width: 1.8, jitter: 0.12, sat: 0.12, alpha: 0.9, minGrad: 14 }],
+  fore: [{ cell: 7, len: 18, width: 7, jitter: 0.1, sat: 0.15, alpha: 0.9 }]
 };
+
+// Depth layers, back to front. par = depth scale (1 = the climbable body).
+const LAYER_DEFS = [
+  { name: "cloudSea", par: 0.045, fog: 0, paint: paintCloudSeaTile, flow: [1, 0], seedOffset: 500, maxTiles: 6, repaint: BRUSH.far },
+  { name: "cloudsFar", par: 0.22, fog: 0.35, paint: paintCloudTile, banks: (w) => w.clouds.far, flow: [1, 0], seedOffset: 600, maxTiles: 10, repaint: BRUSH.far },
+  { name: "tail", par: 0.2, fog: 0.66, fogCool: true, clumpCell: 1.2, fringeCell: 1.6, minClumpPx: 7, minLockPx: 9, flow: [0.3, -0.95], gridPx: 6, seedOffset: 300, maxTiles: 12, repaint: BRUSH.far },
+  { name: "far", par: 0.22, fog: 0.6, fogCool: true, clumpCell: 0.8, fringeCell: 1.2, minClumpPx: 7, minLockPx: 9, flow: [0.2, -0.98], gridPx: 5, seedOffset: 700, maxTiles: 14, repaint: BRUSH.far },
+  { name: "cloudsMid", par: 0.45, fog: 0.15, paint: paintCloudTile, banks: (w) => w.clouds.mid, flow: [1, 0], seedOffset: 800, maxTiles: 12, repaint: BRUSH.mid },
+  { name: "flank", par: 0.55, fog: 0.32, clumpCell: 0.5, fringeCell: 1.0, minClumpPx: 7, minLockPx: 9, flow: [0.5, -0.87], gridPx: 5, moss: true, seedOffset: 200, maxTiles: 16, repaint: BRUSH.mid },
+  { name: "play", par: 1, fog: 0.04, clumpCell: 0.2, fringeCell: 0.5, minClumpPx: 7, minLockPx: 10, flow: [0.53, -0.85], gridPx: 4, moss: true, props: true, seedOffset: 100, maxTiles: 24, repaint: BRUSH.near },
+  { name: "fore", par: 1.5, fog: 0, valueShift: -0.48, clumpCell: 0.25, fringeCell: 0.5, minClumpPx: 9, minLockPx: 14, flow: [0.3, -0.95], gridPx: 5, seedOffset: 400, maxTiles: 10, repaint: BRUSH.fore }
+];
 
 class Scene {
   constructor(world) {
     this.world = world;
+    this.sky = new SkyBackdrop(world.seed);
     this.layers = {};
-    for (const name of Object.keys(LAYER_DEFS)) {
-      const L = Object.assign({ name, anatomy: world.layers[name], paint: paintAnatomyTile }, LAYER_DEFS[name]);
-      this.layers[name] = new PaintedLayer(L, world);
+    for (const def of LAYER_DEFS) {
+      const L = Object.assign({ anatomy: world.layers[def.name], paint: paintAnatomyTile }, def);
+      this.layers[def.name] = new PaintedLayer(L, world);
     }
   }
 
   render(g, view, opts) {
-    const w = this.world, s = w.seed;
+    const w = this.world;
     const ey = view.explorer.y;
-    drawSky(g, view, s);
-    drawCloudSea(g, view, s);
-    drawMistBand(g, view, 20, 0.2, 40, PAL.mistWarm, 0.55);
-    this.layers.tail.draw(g, view);
-    drawCloudWrap(g, view, 96, 8, 0.2, 40, s + 1, 0.3, 0.9);
-    drawMistBand(g, view, ey - 4, 0.45, 30, PAL.mistWarm, 0.4);
-    this.layers.flank.draw(g, view);
-    drawMistBand(g, view, ey - 14, 0.8, 9, PAL.mistWarm, 0.55);
-    drawCloudWrap(g, view, view.explorer.x + 14, ey - 16, 0.55, 14, s + 2, 0.25, 0.85);
-    this.layers.play.draw(g, view);
+    const Ls = this.layers;
+    this.sky.draw(g, view);
+    Ls.cloudSea.draw(g, view);
+    drawMistBand(g, view, 10, 0.12, 60, PAL.mistWarm, 0.5);
+    Ls.tail.draw(g, view);
+    drawMistBand(g, view, ey - 30, 0.3, 30, PAL.mistWarm, 0.35);
+    Ls.far.draw(g, view);
+    Ls.cloudsFar.draw(g, view);
+    drawMistBand(g, view, ey - 26, 0.3, 26, PAL.mistWarm, 0.45);
+    Ls.cloudsMid.draw(g, view);
+    Ls.flank.draw(g, view);
+    drawMistBand(g, view, ey - 14, 0.8, 8, PAL.mistWarm, 0.35);
+    Ls.play.draw(g, view);
     const [sx, sy] = worldToScreen(view, view.explorer.x, view.explorer.y, 1);
     drawExplorer(g, sx, sy, EXPLORER_HEIGHT * view.ppm * view.pr, view.explorer.facing, "idle");
-    this.layers.fore.draw(g, view);
+    Ls.fore.draw(g, view);
     drawGrain(g, view);
     if (opts && opts.collision) drawCollisionOverlay(g, view, w.layers.play);
   }

@@ -49,7 +49,7 @@ function buildWorld(seed) {
     play.ell(tx, ty, ta, ta * 0.72, 0.3, { k: 1, hk: 1, hz: 1.4, base: 5, tag: "lobe" });
   }
   play.ell(HX, 284, 14, 10.5, 0.12, { k: 6, hk: 4, hz: 9, base: 2, tag: "cranium" });
-  play.ell(HX - 13.5, 279, 7.5, 5.5, 0.25, { k: 3.5, hk: 3, hz: 4, base: 6, tag: "muzzle" });
+  play.ell(HX - 12.5, 279.5, 7, 4.8, 0.22, { k: 4.5, hk: 4, hz: 2.6, base: 4, tag: "muzzle" });
   play.ell(HX + 12, 274, 7, 8.5, -0.3, { k: 4, hk: 3, hz: 5, base: 4 });
   play.seg(HX - 3, 292, 3.4, HX - 5, 302, 2.0, { mat: MAT_EAR, k: 2, hk: 1.5, hs: 0.4, base: 1, tag: "ear-far" });
   play.seg(HX + 7, 290, 6.6, HX + 12.5, 309, 3.4, { mat: MAT_EAR, k: 2.4, hk: 1.5, hs: 0.6, base: 9, tag: "ear" });
@@ -137,9 +137,11 @@ function buildWorld(seed) {
     props.mushrooms.push({ root, top, capR });
     return true;
   }
+  const reserved = [];
   function addTree(x, yHint, h, kind) {
     const y = play.surfaceBelow(x, yHint + 10, yHint - 14);
-    if (y !== null) props.trees.push({ x, y, h, kind, seed: hash2(x * 10, y * 10, seed) });
+    if (y === null || reserved.some((p) => Math.abs(p.x - x) < 2.2 && Math.abs(p.y - y) < 2.5)) return;
+    props.trees.push({ x, y, h, kind, seed: hash2(x * 10, y * 10, seed) });
   }
 
   // A standing spot on top of a shelf (searches across the tread).
@@ -160,16 +162,23 @@ function buildWorld(seed) {
   // The gameplay showcase: the shelf on the back nearest 124 m.
   const show = nearestShelf(124, (s) => standOn(s));
   const { x: gx, y: gy } = standOn(show);
+  reserved.push({ x: gx, y: gy });
   addTree(gx + 2.2, gy + 1, 2.6, "cypress");
   addTree(gx - 2.8, gy + 7, 3.4, "cypress");
   addTree(gx + 4, gy - 4, 1.6, "shrub");
   // Sparse vegetation along the rest of the back.
   for (const s of shelves) {
-    if (Math.abs(s.y - gy) > 14 && rnd() < 0.35) addTree(s.x + R(-s.a * 0.2, s.a * 0.5), s.y + s.b + 4, R(1.2, 3.2), rnd() < 0.5 ? "shrub" : "cypress");
+    const n = rnd() < 0.75 ? 1 + Math.floor(rnd() * 3) : 0;
+    for (let i = 0; i < n; i++) {
+      const x = s.x + R(-s.a * 0.3, s.a * 0.7);
+      if (Math.abs(x - gx) < 3 && Math.abs(s.y - gy) < 4) continue; // keep the explorer's spot clear
+      addTree(x, s.y + s.b + 4, rnd() < 0.7 ? R(0.8, 1.8) : R(2, 3.6), rnd() < 0.65 ? "shrub" : "cypress");
+    }
   }
-  addMushroom(gx - 4.2, gy + 6, 1.9, 2.4, -0.4);
-  addMushroom(gx + 5.5, gy - 7, 1.4, 1.6, 0.3);
-  addMushroom(gx - 7.8, gy + 9, 1.1, 1.3, -0.2);
+  addMushroom(gx - 4.6, gy + 6, 1.9, 2.4, -0.4);
+  addMushroom(gx + 3.6, gy - 4.5, 1.6, 1.8, 0.3);
+  addMushroom(gx - 1.6, gy + 3.4, 1.0, 1.1, -0.15);
+  addMushroom(gx + 6.5, gy - 10, 2.2, 2.6, 0.4);
 
   // Establishing: on a shelf of the neck, below and behind the head.
   // Establishing: standing on the brow, right above the closed eye (the
@@ -202,11 +211,43 @@ function buildWorld(seed) {
       { mat: MAT_SPIRE, k: 1.5, hk: 1.5, hs: 0.7, base: reliefAt(flank, ax, ay) + 2 });
   }
 
+  // -- Far layer: the creature's far-side dorsal spires through the haze -----
+  // Tall rounded monoliths rising from a rolling far-back ridge, placed along
+  // the whole climb (to the sunward side) so every altitude has them.
+  const far = new Anatomy("far");
+  const routeX = (y) => {
+    let best = dorsal[0];
+    for (const d of dorsal) if (Math.abs(d.y - y) < Math.abs(best.y - y)) best = d;
+    return best.x;
+  };
+  // Spires rise out of far cloud banks (their feet stay hidden in cloud, as in
+  // the reference), so nothing floats and nothing walls off the sky.
+  const farFeet = [];
+  for (let y = 10; y < 340; y += R(24, 36)) {
+    const bx = routeX(y) + R(26, 50), by = y - R(30, 40);
+    const n = 1 + Math.floor(rnd() * 2);
+    for (let i = 0; i < n; i++) {
+      const ax = bx + R(-6, 6), ay = by - 4;
+      const h = R(34, 66), lean = R(-0.1, 0.1), ra = R(1.5, 2.6);
+      far.seg(ax, ay, ra, ax + Math.sin(lean) * h, ay + Math.cos(lean) * h, ra * R(0.55, 0.7),
+        { mat: MAT_SPIRE, k: 1.6, hk: 1.5, hs: 0.7, base: 8 + i });
+    }
+    farFeet.push({ x: bx, y: by + 3, size: R(14, 20), seed: Math.floor(rnd() * 1e9) });
+  }
+
+  // -- Cloud banks: painted cumulus wrapping the body at two depths ----------
+  const clouds = { mid: [], far: farFeet.slice() };
+  for (let y = 0; y < 310; y += R(12, 20)) {
+    clouds.mid.push({ x: routeX(y) + R(6, 22), y: y - R(16, 26), size: R(7, 13), seed: Math.floor(rnd() * 1e9) });
+    if (rnd() < 0.6) clouds.mid.push({ x: routeX(y) - R(20, 40), y: y - R(18, 30), size: R(8, 14), seed: Math.floor(rnd() * 1e9) });
+    clouds.far.push({ x: routeX(y) + R(-30, 50), y: y - R(34, 50), size: R(16, 28), seed: Math.floor(rnd() * 1e9) });
+  }
+
   // -- Tail layer: the tail curling up out of the clouds ---------------------
   const tail = new Anatomy("tail");
   const tailSpine = sampleSpine([
-    [70, -60, 15], [74, 30, 13], [68, 100, 11], [52, 142, 9], [30, 154, 7],
-    [18, 144, 5.5], [21, 128, 4], [31, 126, 3]
+    [76, -100, 15], [80, -10, 13], [74, 60, 11], [58, 102, 9], [36, 114, 7],
+    [24, 104, 5.5], [27, 88, 4], [37, 86, 3]
   ], 6);
   addSpine(tail, tailSpine, { k: 4, hk: 3, hs: 0.5 });
 
@@ -220,7 +261,8 @@ function buildWorld(seed) {
   return {
     seed,
     spine,
-    layers: { play, flank, tail, fore },
+    layers: { play, flank, tail, far, fore },
+    clouds,
     props,
     explorerSpots,
     focus

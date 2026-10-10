@@ -9,7 +9,7 @@
 // Marks are seeded by world cell, so tile borders are invisible.
 
 const LIGHT = (() => {
-  const v = [0.52 * SUN_SIDE, 0.52, 0.68];
+  const v = [0.8 * SUN_SIDE, 0.5, 0.36];
   const l = Math.hypot(v[0], v[1], v[2]);
   return [v[0] / l, v[1] / l, v[2] / l];
 })();
@@ -122,7 +122,7 @@ function surfaceColor(F, idx, X, Y, seed, nrm) {
   const mat = F.mat[idx];
   const lam = nrm.nx * LIGHT[0] + nrm.ny * LIGHT[1] + nrm.nz * LIGHT[2];
   const cav = F.cav[idx];
-  let t = 0.14 + lam * 0.98;
+  let t = 0.3 + lam * 0.84;
   t -= clamp(cav * 0.13, 0, 0.5);
   t += clamp(-cav * 0.05, 0, 0.08);
   t += (fbm(X * 0.11, Y * 0.11, seed, 3) - 0.5) * 0.26;
@@ -151,20 +151,20 @@ function surfaceColor(F, idx, X, Y, seed, nrm) {
     c = mixRGB(c, PAL.furBounce, clamp(-nrm.ny, 0, 1) * edge * 0.35);
   }
   const rim = edge * clamp(nrm.nx * LIGHT2[0] + nrm.ny * LIGHT2[1], 0, 1) * smoothstep(-2.5, 0, F.sd[idx]);
-  c = mixRGB(c, PAL.furRim, rim * 0.55);
+  c = mixRGB(c, PAL.furRim, rim * 0.7);
   nrm.t = t;
   return c;
 }
 
 function finishColor(c, Y, L) {
   if (L.valueShift) c = shade(c, L.valueShift);
-  if (L.fog) c = mixRGB(c, fogColor(Y), L.fog);
+  if (L.fog) c = mixRGB(c, L.fogCool ? mixRGB(PAL.mistCool, PAL.skyMid, 0.35) : fogColor(Y), L.fog);
   return c;
 }
 
 function paintAnatomyTile(tg, x0, yTop, k, L, world) {
   const anat = L.anatomy;
-  const T = TILE;
+  const T = tg.canvas.width;
   const span = T / k;
   const reach = furReach(L, k);
   const margin = reach + 1.6;
@@ -269,16 +269,24 @@ class PaintedLayer {
     this.maxTiles = L.maxTiles || 24;
   }
 
-  tile(tx, ty, k) {
-    const key = `${k.toFixed(4)}|${tx}|${ty}`;
+  // Tiles are painted with a margin (so brushwork can cross tile borders
+  // identically on both sides), repainted, then drawn cropped.
+  tile(tx, ty, k, pr) {
+    const key = `${k.toFixed(4)}|${pr}|${tx}|${ty}`;
     if (this.tiles.has(key)) {
       const t = this.tiles.get(key);
       this.tiles.delete(key);
       this.tiles.set(key, t);
       return t;
     }
-    const c = makeCanvas(TILE, TILE);
-    const used = this.L.paint(c.getContext("2d"), (tx * TILE) / k, (-ty * TILE) / k, k, this.L, this.world);
+    const M = REPAINT_MARGIN;
+    const c = makeCanvas(TILE + 2 * M, TILE + 2 * M);
+    const tg = c.getContext("2d", { willReadFrequently: true });
+    const used = this.L.paint(tg, (tx * TILE - M) / k, (-ty * TILE + M) / k, k, this.L, this.world);
+    if (used && this.L.repaint) {
+      repaintCanvas(tg, tx * TILE - M, ty * TILE - M, scaleRepaint(this.L.repaint, pr, this.L.flow), this.world.seed + this.L.seedOffset + 17);
+    }
+    if (used && this.L.props) drawPostProps(tg, this.world, (tx * TILE - M) / k, (-ty * TILE + M) / k, k, this.L, this.world.seed + this.L.seedOffset);
     const t = used ? c : null;
     this.tiles.set(key, t);
     while (this.tiles.size > this.maxTiles) this.tiles.delete(this.tiles.keys().next().value);
@@ -293,8 +301,8 @@ class PaintedLayer {
     const ty0 = Math.floor(-oy / TILE), ty1 = Math.floor((view.H - oy) / TILE);
     for (let ty = ty0; ty <= ty1; ty++) {
       for (let tx = tx0; tx <= tx1; tx++) {
-        const t = this.tile(tx, ty, k);
-        if (t) g.drawImage(t, tx * TILE + ox, ty * TILE + oy);
+        const t = this.tile(tx, ty, k, view.pr);
+        if (t) g.drawImage(t, REPAINT_MARGIN, REPAINT_MARGIN, TILE, TILE, tx * TILE + ox, ty * TILE + oy, TILE, TILE);
       }
     }
   }

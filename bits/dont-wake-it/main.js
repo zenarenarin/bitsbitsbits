@@ -90,30 +90,30 @@ function ramp(stops, t) {
 // and a rust-orange explorer that stays readable against all of it.
 
 const PAL = {
-  skyZenith: hex("#6d7cb2"),
-  skyHigh: hex("#9ba2cb"),
-  skyMid: hex("#cfb3c3"),
-  skyLow: hex("#f1c6a2"),
-  horizon: hex("#fbdcaa"),
+  skyZenith: hex("#5a6aa6"),
+  skyHigh: hex("#8e95c6"),
+  skyMid: hex("#d6a6b6"),
+  skyLow: hex("#f2b48f"),
+  horizon: hex("#ffd59a"),
   sunCore: hex("#fff3d2"),
-  cloudLit: hex("#fde3c4"),
-  cloudMid: hex("#e8c3bd"),
-  cloudShade: hex("#a99cc4"),
-  cloudDeep: hex("#8b86b6"),
-  mistWarm: hex("#f4dfcc"),
-  mistCool: hex("#c7bdd9"),
+  cloudLit: hex("#ffdcb4"),
+  cloudMid: hex("#e7b2b0"),
+  cloudShade: hex("#9a88bb"),
+  cloudDeep: hex("#76699f"),
+  mistWarm: hex("#f3cdb6"),
+  mistCool: hex("#b8a9d2"),
 
-  fur: [hex("#6a6189"), hex("#9a8db2"), hex("#d3aea6"), hex("#efd2bb"), hex("#fcf0df")],
-  furRim: hex("#ffcc98"),
-  furBounce: hex("#b4b1d8"),
+  fur: [hex("#574a7a"), hex("#8f7cae"), hex("#d6a2a6"), hex("#f4cdbd"), hex("#fff2e6")],
+  furRim: hex("#ffd0a2"),
+  furBounce: hex("#a59ad0"),
 
-  spire: [hex("#8d7aa2"), hex("#c597a2"), hex("#e7b9ad"), hex("#f6dccd")],
-  skin: [hex("#8a7598"), hex("#c49aa6"), hex("#e7c2b5"), hex("#f6e0d2")],
+  spire: [hex("#7d6696"), hex("#c48a98"), hex("#e8ab9e"), hex("#fcd8c0")],
+  skin: [hex("#7e6893"), hex("#c48f9f"), hex("#ebb7a8"), hex("#fde0cc")],
   earInner: hex("#cf7f8a"),
   lash: hex("#3d3048"),
 
-  moss: [hex("#3f4a36"), hex("#5d6b45"), hex("#7f8c56"), hex("#a8ad6b"), hex("#d3c98d")],
-  shroomCap: [hex("#8e5873"), hex("#c06a72"), hex("#dd8a7c"), hex("#f2b39a")],
+  moss: [hex("#2f3d33"), hex("#4b6040"), hex("#76884a"), hex("#adb35a"), hex("#e2d27c")],
+  shroomCap: [hex("#7e4466"), hex("#c45f72"), hex("#e5867f"), hex("#fbb7a0")],
   shroomGill: [hex("#9a87a6"), hex("#dcbcb0"), hex("#f2dccb")],
   shroomStem: [hex("#9b8aa8"), hex("#e2cdbf"), hex("#f7ebdc")],
 
@@ -390,7 +390,7 @@ function buildWorld(seed) {
     play.ell(tx, ty, ta, ta * 0.72, 0.3, { k: 1, hk: 1, hz: 1.4, base: 5, tag: "lobe" });
   }
   play.ell(HX, 284, 14, 10.5, 0.12, { k: 6, hk: 4, hz: 9, base: 2, tag: "cranium" });
-  play.ell(HX - 13.5, 279, 7.5, 5.5, 0.25, { k: 3.5, hk: 3, hz: 4, base: 6, tag: "muzzle" });
+  play.ell(HX - 12.5, 279.5, 7, 4.8, 0.22, { k: 4.5, hk: 4, hz: 2.6, base: 4, tag: "muzzle" });
   play.ell(HX + 12, 274, 7, 8.5, -0.3, { k: 4, hk: 3, hz: 5, base: 4 });
   play.seg(HX - 3, 292, 3.4, HX - 5, 302, 2.0, { mat: MAT_EAR, k: 2, hk: 1.5, hs: 0.4, base: 1, tag: "ear-far" });
   play.seg(HX + 7, 290, 6.6, HX + 12.5, 309, 3.4, { mat: MAT_EAR, k: 2.4, hk: 1.5, hs: 0.6, base: 9, tag: "ear" });
@@ -478,9 +478,11 @@ function buildWorld(seed) {
     props.mushrooms.push({ root, top, capR });
     return true;
   }
+  const reserved = [];
   function addTree(x, yHint, h, kind) {
     const y = play.surfaceBelow(x, yHint + 10, yHint - 14);
-    if (y !== null) props.trees.push({ x, y, h, kind, seed: hash2(x * 10, y * 10, seed) });
+    if (y === null || reserved.some((p) => Math.abs(p.x - x) < 2.2 && Math.abs(p.y - y) < 2.5)) return;
+    props.trees.push({ x, y, h, kind, seed: hash2(x * 10, y * 10, seed) });
   }
 
   // A standing spot on top of a shelf (searches across the tread).
@@ -501,16 +503,23 @@ function buildWorld(seed) {
   // The gameplay showcase: the shelf on the back nearest 124 m.
   const show = nearestShelf(124, (s) => standOn(s));
   const { x: gx, y: gy } = standOn(show);
+  reserved.push({ x: gx, y: gy });
   addTree(gx + 2.2, gy + 1, 2.6, "cypress");
   addTree(gx - 2.8, gy + 7, 3.4, "cypress");
   addTree(gx + 4, gy - 4, 1.6, "shrub");
   // Sparse vegetation along the rest of the back.
   for (const s of shelves) {
-    if (Math.abs(s.y - gy) > 14 && rnd() < 0.35) addTree(s.x + R(-s.a * 0.2, s.a * 0.5), s.y + s.b + 4, R(1.2, 3.2), rnd() < 0.5 ? "shrub" : "cypress");
+    const n = rnd() < 0.75 ? 1 + Math.floor(rnd() * 3) : 0;
+    for (let i = 0; i < n; i++) {
+      const x = s.x + R(-s.a * 0.3, s.a * 0.7);
+      if (Math.abs(x - gx) < 3 && Math.abs(s.y - gy) < 4) continue; // keep the explorer's spot clear
+      addTree(x, s.y + s.b + 4, rnd() < 0.7 ? R(0.8, 1.8) : R(2, 3.6), rnd() < 0.65 ? "shrub" : "cypress");
+    }
   }
-  addMushroom(gx - 4.2, gy + 6, 1.9, 2.4, -0.4);
-  addMushroom(gx + 5.5, gy - 7, 1.4, 1.6, 0.3);
-  addMushroom(gx - 7.8, gy + 9, 1.1, 1.3, -0.2);
+  addMushroom(gx - 4.6, gy + 6, 1.9, 2.4, -0.4);
+  addMushroom(gx + 3.6, gy - 4.5, 1.6, 1.8, 0.3);
+  addMushroom(gx - 1.6, gy + 3.4, 1.0, 1.1, -0.15);
+  addMushroom(gx + 6.5, gy - 10, 2.2, 2.6, 0.4);
 
   // Establishing: on a shelf of the neck, below and behind the head.
   // Establishing: standing on the brow, right above the closed eye (the
@@ -543,11 +552,43 @@ function buildWorld(seed) {
       { mat: MAT_SPIRE, k: 1.5, hk: 1.5, hs: 0.7, base: reliefAt(flank, ax, ay) + 2 });
   }
 
+  // -- Far layer: the creature's far-side dorsal spires through the haze -----
+  // Tall rounded monoliths rising from a rolling far-back ridge, placed along
+  // the whole climb (to the sunward side) so every altitude has them.
+  const far = new Anatomy("far");
+  const routeX = (y) => {
+    let best = dorsal[0];
+    for (const d of dorsal) if (Math.abs(d.y - y) < Math.abs(best.y - y)) best = d;
+    return best.x;
+  };
+  // Spires rise out of far cloud banks (their feet stay hidden in cloud, as in
+  // the reference), so nothing floats and nothing walls off the sky.
+  const farFeet = [];
+  for (let y = 10; y < 340; y += R(24, 36)) {
+    const bx = routeX(y) + R(26, 50), by = y - R(30, 40);
+    const n = 1 + Math.floor(rnd() * 2);
+    for (let i = 0; i < n; i++) {
+      const ax = bx + R(-6, 6), ay = by - 4;
+      const h = R(34, 66), lean = R(-0.1, 0.1), ra = R(1.5, 2.6);
+      far.seg(ax, ay, ra, ax + Math.sin(lean) * h, ay + Math.cos(lean) * h, ra * R(0.55, 0.7),
+        { mat: MAT_SPIRE, k: 1.6, hk: 1.5, hs: 0.7, base: 8 + i });
+    }
+    farFeet.push({ x: bx, y: by + 3, size: R(14, 20), seed: Math.floor(rnd() * 1e9) });
+  }
+
+  // -- Cloud banks: painted cumulus wrapping the body at two depths ----------
+  const clouds = { mid: [], far: farFeet.slice() };
+  for (let y = 0; y < 310; y += R(12, 20)) {
+    clouds.mid.push({ x: routeX(y) + R(6, 22), y: y - R(16, 26), size: R(7, 13), seed: Math.floor(rnd() * 1e9) });
+    if (rnd() < 0.6) clouds.mid.push({ x: routeX(y) - R(20, 40), y: y - R(18, 30), size: R(8, 14), seed: Math.floor(rnd() * 1e9) });
+    clouds.far.push({ x: routeX(y) + R(-30, 50), y: y - R(34, 50), size: R(16, 28), seed: Math.floor(rnd() * 1e9) });
+  }
+
   // -- Tail layer: the tail curling up out of the clouds ---------------------
   const tail = new Anatomy("tail");
   const tailSpine = sampleSpine([
-    [70, -60, 15], [74, 30, 13], [68, 100, 11], [52, 142, 9], [30, 154, 7],
-    [18, 144, 5.5], [21, 128, 4], [31, 126, 3]
+    [76, -100, 15], [80, -10, 13], [74, 60, 11], [58, 102, 9], [36, 114, 7],
+    [24, 104, 5.5], [27, 88, 4], [37, 86, 3]
   ], 6);
   addSpine(tail, tailSpine, { k: 4, hk: 3, hs: 0.5 });
 
@@ -561,7 +602,8 @@ function buildWorld(seed) {
   return {
     seed,
     spine,
-    layers: { play, flank, tail, fore },
+    layers: { play, flank, tail, far, fore },
+    clouds,
     props,
     explorerSpots,
     focus
@@ -759,6 +801,95 @@ function paintDrips(tg, F, L, prims, x0, yTop, k, span, seed) {
   }
 }
 
+// ==== src/38-repaint.js ====
+// ---- Repaint: turn a rendered tile into brushwork ---------------------------
+// Stroke-based painterly rendering: sample the tile's own render and lay
+// textured, colour-jittered brush strokes over it - broad strokes first, then
+// small strokes only where there is detail (edges, eyes, mushrooms). Strokes
+// follow edges where the image has structure and the fur flow elsewhere, so
+// fur, spires, plants and props share one painted surface like the reference.
+// Strokes are seeded by global pixel cell; tiles are painted with a margin and
+// cropped, so neighbouring tiles repaint identically and seams never show.
+
+const REPAINT_MARGIN = 40;
+
+// Repaint passes are authored in CSS pixels (brush size is a property of the
+// painting, not of the world zoom) and scaled to the backing store here.
+function scaleRepaint(R, pr, flow) {
+  return {
+    flow,
+    passes: R.map((P) => Object.assign({}, P, {
+      cell: P.cell * pr, len: P.len * pr, width: P.width * pr, probe: Math.max(1, Math.round((P.probe || 2) * pr))
+    }))
+  };
+}
+
+function repaintCanvas(g, gx0, gy0, R, seed) {
+  const W = g.canvas.width, H = g.canvas.height;
+  const src = g.getImageData(0, 0, W, H).data;
+  const lumAt = (x, y) => {
+    x = clamp(x | 0, 0, W - 1); y = clamp(y | 0, 0, H - 1);
+    const o = (y * W + x) * 4;
+    return (src[o] * 0.3 + src[o + 1] * 0.59 + src[o + 2] * 0.11) * (src[o + 3] / 255);
+  };
+  const alphaAt = (x, y) => {
+    x = clamp(x | 0, 0, W - 1); y = clamp(y | 0, 0, H - 1);
+    return src[(y * W + x) * 4 + 3];
+  };
+  const flowX = (R.flow || [0, -1])[0], flowY = -(R.flow || [0, -1])[1];
+  for (let p = 0; p < R.passes.length; p++) {
+    const P = R.passes[p];
+    const c = P.cell;
+    const reach = P.len * 0.75;
+    for (let cy = Math.floor((gy0 + reach) / c); cy <= Math.ceil((gy0 + H - reach) / c); cy++) {
+      for (let cx = Math.floor((gx0 + reach) / c); cx <= Math.ceil((gx0 + W - reach) / c); cx++) {
+        const r = rngFrom(hash2(cx, cy, seed + p * 7919));
+        const x = (cx + r()) * c - gx0, y = (cy + r()) * c - gy0;
+        if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1) continue;
+        const o = ((y | 0) * W + (x | 0)) * 4;
+        if (src[o + 3] < 150) continue;
+        const d = P.probe;
+        const gxl = lumAt(x + d, y) - lumAt(x - d, y), gyl = lumAt(x, y + d) - lumAt(x, y - d);
+        const gxa = alphaAt(x + d, y) - alphaAt(x - d, y), gya = alphaAt(x, y + d) - alphaAt(x, y - d);
+        const gl = Math.hypot(gxl, gyl), ga = Math.hypot(gxa, gya);
+        if (P.minGrad && gl < P.minGrad && ga < 60) continue;
+        // Direction: along silhouettes, along strong edges, else the fur flow.
+        let dx, dy;
+        if (ga > 60) { dx = -gya / ga; dy = gxa / ga; }
+        else if (gl > (P.edge || 18)) { dx = -gyl / gl; dy = gxl / gl; }
+        else { dx = flowX; dy = flowY; }
+        const ang = (vnoise((cx * c) * 0.02, (cy * c) * 0.02, seed + 31) - 0.5) * 0.9 + (r() - 0.5) * 0.4;
+        const ca = Math.cos(ang), sa = Math.sin(ang);
+        [dx, dy] = [dx * ca - dy * sa, dx * sa + dy * ca];
+        if (dy < 0 && ga <= 60 && gl <= (P.edge || 18)) { dx = -dx; dy = -dy; }
+        // Colour: sampled, then nudged warm in the light and cool in shadow,
+        // with a little saturation, as a painter mixes on the palette.
+        let col = [src[o], src[o + 1], src[o + 2]];
+        const l = (col[0] * 0.3 + col[1] * 0.59 + col[2] * 0.11) / 255;
+        const jv = (r() - 0.5) * P.jitter;
+        col = l > 0.6 ? mixRGB(col, [255, 222, 200], 0.04 + r() * 0.06) : l < 0.45 ? mixRGB(col, [104, 86, 150], 0.04 + r() * 0.08) : col;
+        col = shade(col, jv);
+        const m = (col[0] + col[1] + col[2]) / 3;
+        col = [col[0] + (col[0] - m) * P.sat, col[1] + (col[1] - m) * P.sat, col[2] + (col[2] - m) * P.sat].map((v) => clamp(v, 0, 255));
+        const len = P.len * (0.65 + r() * 0.7);
+        const w = P.width * (0.7 + r() * 0.5);
+        const bend = (r() - 0.5) * 0.3;
+        const sx = x - dx * len * 0.5, sy = y - dy * len * 0.5;
+        g2Stroke(g, sx, sy, dx, dy, len, w, bend, col, P.alpha * (0.8 + r() * 0.2));
+        // Bristle marks: a lighter and a darker hair-line inside the stroke.
+        if (w > 3) {
+          const px = -dy, py = dx;
+          for (let b = 0; b < 2; b++) {
+            const off = (r() - 0.5) * w * 0.6;
+            streak(g, sx + px * off, sy + py * off, dx, dy, len * (0.55 + r() * 0.35), Math.max(0.6, w * 0.12),
+              shade(col, b ? 0.12 : -0.12), 0.32);
+          }
+        }
+      }
+    }
+  }
+}
+
 // ==== src/40-painter.js ====
 // ---- Painter: turns an anatomy layer into painted, cached tiles -------------
 // Per tile:
@@ -771,7 +902,7 @@ function paintDrips(tg, F, L, prims, x0, yTop, k, span, seed) {
 // Marks are seeded by world cell, so tile borders are invisible.
 
 const LIGHT = (() => {
-  const v = [0.52 * SUN_SIDE, 0.52, 0.68];
+  const v = [0.8 * SUN_SIDE, 0.5, 0.36];
   const l = Math.hypot(v[0], v[1], v[2]);
   return [v[0] / l, v[1] / l, v[2] / l];
 })();
@@ -884,7 +1015,7 @@ function surfaceColor(F, idx, X, Y, seed, nrm) {
   const mat = F.mat[idx];
   const lam = nrm.nx * LIGHT[0] + nrm.ny * LIGHT[1] + nrm.nz * LIGHT[2];
   const cav = F.cav[idx];
-  let t = 0.14 + lam * 0.98;
+  let t = 0.3 + lam * 0.84;
   t -= clamp(cav * 0.13, 0, 0.5);
   t += clamp(-cav * 0.05, 0, 0.08);
   t += (fbm(X * 0.11, Y * 0.11, seed, 3) - 0.5) * 0.26;
@@ -913,20 +1044,20 @@ function surfaceColor(F, idx, X, Y, seed, nrm) {
     c = mixRGB(c, PAL.furBounce, clamp(-nrm.ny, 0, 1) * edge * 0.35);
   }
   const rim = edge * clamp(nrm.nx * LIGHT2[0] + nrm.ny * LIGHT2[1], 0, 1) * smoothstep(-2.5, 0, F.sd[idx]);
-  c = mixRGB(c, PAL.furRim, rim * 0.55);
+  c = mixRGB(c, PAL.furRim, rim * 0.7);
   nrm.t = t;
   return c;
 }
 
 function finishColor(c, Y, L) {
   if (L.valueShift) c = shade(c, L.valueShift);
-  if (L.fog) c = mixRGB(c, fogColor(Y), L.fog);
+  if (L.fog) c = mixRGB(c, L.fogCool ? mixRGB(PAL.mistCool, PAL.skyMid, 0.35) : fogColor(Y), L.fog);
   return c;
 }
 
 function paintAnatomyTile(tg, x0, yTop, k, L, world) {
   const anat = L.anatomy;
-  const T = TILE;
+  const T = tg.canvas.width;
   const span = T / k;
   const reach = furReach(L, k);
   const margin = reach + 1.6;
@@ -1031,16 +1162,24 @@ class PaintedLayer {
     this.maxTiles = L.maxTiles || 24;
   }
 
-  tile(tx, ty, k) {
-    const key = `${k.toFixed(4)}|${tx}|${ty}`;
+  // Tiles are painted with a margin (so brushwork can cross tile borders
+  // identically on both sides), repainted, then drawn cropped.
+  tile(tx, ty, k, pr) {
+    const key = `${k.toFixed(4)}|${pr}|${tx}|${ty}`;
     if (this.tiles.has(key)) {
       const t = this.tiles.get(key);
       this.tiles.delete(key);
       this.tiles.set(key, t);
       return t;
     }
-    const c = makeCanvas(TILE, TILE);
-    const used = this.L.paint(c.getContext("2d"), (tx * TILE) / k, (-ty * TILE) / k, k, this.L, this.world);
+    const M = REPAINT_MARGIN;
+    const c = makeCanvas(TILE + 2 * M, TILE + 2 * M);
+    const tg = c.getContext("2d", { willReadFrequently: true });
+    const used = this.L.paint(tg, (tx * TILE - M) / k, (-ty * TILE + M) / k, k, this.L, this.world);
+    if (used && this.L.repaint) {
+      repaintCanvas(tg, tx * TILE - M, ty * TILE - M, scaleRepaint(this.L.repaint, pr, this.L.flow), this.world.seed + this.L.seedOffset + 17);
+    }
+    if (used && this.L.props) drawPostProps(tg, this.world, (tx * TILE - M) / k, (-ty * TILE + M) / k, k, this.L, this.world.seed + this.L.seedOffset);
     const t = used ? c : null;
     this.tiles.set(key, t);
     while (this.tiles.size > this.maxTiles) this.tiles.delete(this.tiles.keys().next().value);
@@ -1055,8 +1194,8 @@ class PaintedLayer {
     const ty0 = Math.floor(-oy / TILE), ty1 = Math.floor((view.H - oy) / TILE);
     for (let ty = ty0; ty <= ty1; ty++) {
       for (let tx = tx0; tx <= tx1; tx++) {
-        const t = this.tile(tx, ty, k);
-        if (t) g.drawImage(t, tx * TILE + ox, ty * TILE + oy);
+        const t = this.tile(tx, ty, k, view.pr);
+        if (t) g.drawImage(t, REPAINT_MARGIN, REPAINT_MARGIN, TILE, TILE, tx * TILE + ox, ty * TILE + oy, TILE, TILE);
       }
     }
   }
@@ -1078,7 +1217,7 @@ function propsInRect(world, x0, y0, x1, y1) {
 
 function drawProps(g, world, x0, yTop, k, L, seed) {
   const P = (X, Y) => [(X - x0) * k, (yTop - Y) * k];
-  const span = TILE / k;
+  const span = g.canvas.width / k;
   const inRect = (ax, ay, bx, by) => bx > x0 - 1 && ax < x0 + span + 1 && by > yTop - span - 1 && ay < yTop + 1;
   for (const t of world.props.trees) {
     if (inRect(t.x - t.h, t.y - 0.5, t.x + t.h, t.y + t.h)) drawTree(g, P, k, t, L);
@@ -1086,8 +1225,14 @@ function drawProps(g, world, x0, yTop, k, L, seed) {
   for (const m of world.props.mushrooms) {
     if (inRect(m.top.x - m.capR - 1, m.root.y - 1, m.top.x + m.capR + 1, m.top.y + m.capR)) drawMushroom(g, P, k, m, L, seed);
   }
+}
+
+// Fine features drawn after the repaint so they stay crisp (the lash line).
+function drawPostProps(g, world, x0, yTop, k, L, seed) {
+  const P = (X, Y) => [(X - x0) * k, (yTop - Y) * k];
+  const span = g.canvas.width / k;
   for (const e of world.props.eyes) {
-    if (inRect(e.x - e.w, e.y - e.w, e.x + e.w, e.y + e.w)) drawClosedEye(g, P, k, e, L, seed);
+    if (e.x + e.w > x0 - 1 && e.x - e.w < x0 + span + 1 && e.y + e.w > yTop - span - 1 && e.y - e.w < yTop + 1) drawClosedEye(g, P, k, e, L, seed);
   }
 }
 
@@ -1197,13 +1342,7 @@ function drawClosedEye(g, P, k, e, L, seed) {
   g.rotate(-e.tilt);
   g.scale(-(e.outer || -1), 1); // drawn with the outer corner on local -x
   // Socket: a lavender hollow above the lid, warm swell of the lid itself.
-  for (let i = 0; i < 6; i++) {
-    const s = 1 - i * 0.12;
-    dab(g, 0, -w * 0.1, w * 0.66 * s, w * 0.26 * s, 0, fin(PAL.fur[1]), 0.06);
-  }
-  dab(g, -w * 0.04, -w * 0.07, w * 0.42, w * 0.09, 0, fin(PAL.fur[3]), 0.3);
-  dab(g, -w * 0.1, -w * 0.09, w * 0.22, w * 0.035, 0, fin(PAL.fur[4]), 0.35);
-  for (let i = 0; i < 4; i++) dab(g, 0, w * 0.1, w * (0.5 - i * 0.08), w * (0.09 - i * 0.015), 0, fin(PAL.fur[1]), 0.07);
+  for (let i = 0; i < 5; i++) dab(g, 0, w * 0.06, w * (0.58 - i * 0.07), w * (0.1 - i * 0.015), 0, fin(PAL.fur[0]), 0.05);
   // Lid crease: a tapered crescent sagging downward.
   const lw = w * 0.03;
   g.beginPath();
@@ -1234,96 +1373,139 @@ function drawClosedEye(g, P, k, e, L, seed) {
 }
 
 // ==== src/50-atmosphere.js ====
-// ---- Atmosphere: golden-hour sky, cloud sea, mist bands, paper grain --------
-// Distant things dissolve into warm mist; the cloud sea sinks as you climb
-// because it is a real plane far below (its screen height follows altitude).
+// ---- Atmosphere: painted golden-hour sky, cloud banks, cloud sea, mist ------
+// The sky is screen-fixed (it belongs to the camera's horizon), painted once
+// per screen size and repainted with broad brushwork. Clouds live in the
+// world at several depths as tiled, repainted layers; the cloud sea is a real
+// plane far below, so it sinks as you climb.
 
-function drawSky(g, view, seed) {
+function drawSkyGradient(g, view, seed) {
   const { W, H, horizon } = view;
-  const grad = g.createLinearGradient(0, horizon - H * 0.78, 0, horizon + H * 0.35);
+  const grad = g.createLinearGradient(0, horizon - H * 0.8, 0, horizon + H * 0.3);
   grad.addColorStop(0, css(PAL.skyZenith));
-  grad.addColorStop(0.3, css(PAL.skyHigh));
-  grad.addColorStop(0.55, css(PAL.skyMid));
+  grad.addColorStop(0.32, css(PAL.skyHigh));
+  grad.addColorStop(0.56, css(PAL.skyMid));
   grad.addColorStop(0.74, css(PAL.skyLow));
-  grad.addColorStop(0.8, css(PAL.horizon));
+  grad.addColorStop(0.82, css(PAL.horizon));
   grad.addColorStop(1, css(PAL.cloudMid));
   g.fillStyle = grad;
-  g.fillRect(0, 0, W, H);
+  g.fillRect(-W, -H, W * 3, H * 3);
 
-  const sx = W * (0.5 + 0.34 * SUN_SIDE), sy = horizon - H * 0.04;
-  const sun = g.createRadialGradient(sx, sy, 0, sx, sy, W * 0.95);
-  sun.addColorStop(0, css(PAL.sunCore, 0.95));
-  sun.addColorStop(0.18, css(PAL.horizon, 0.55));
+  const sx = W * (0.5 + 0.36 * SUN_SIDE), sy = horizon - H * 0.03;
+  const sun = g.createRadialGradient(sx, sy, 0, sx, sy, W * 1.1);
+  sun.addColorStop(0, css(PAL.sunCore, 1));
+  sun.addColorStop(0.12, css(PAL.horizon, 0.75));
+  sun.addColorStop(0.45, css(PAL.skyLow, 0.25));
   sun.addColorStop(1, css(PAL.horizon, 0));
   g.fillStyle = sun;
-  g.fillRect(0, 0, W, H);
+  g.fillRect(-W, -H, W * 3, H * 3);
 
-  // High wisps: long thin strokes, lit peach underneath, lavender above.
   const r = rngFrom(seed + 501);
-  for (let i = 0; i < 9; i++) {
-    const y = horizon - H * (0.25 + r() * 0.45);
+  // High streaks of cirrus catching the light.
+  for (let i = 0; i < 14; i++) {
+    const y = horizon - H * (0.18 + r() * 0.55);
     const x = r() * W;
-    const len = W * (0.2 + r() * 0.35);
-    for (let s = 0; s < 5; s++) {
-      dab(g, x + (r() - 0.5) * len * 0.3, y + s * 2.5 * view.pr, len * (0.3 + r() * 0.2), (1.2 + r() * 2.2) * view.pr, -0.04,
-        s < 2 ? PAL.skyHigh : mixRGB(PAL.cloudLit, PAL.skyMid, 0.4), 0.18);
+    const len = W * (0.25 + r() * 0.4);
+    const lit = 1 - (horizon - y) / (H * 0.8);
+    for (let s = 0; s < 6; s++) {
+      dab(g, x + (r() - 0.5) * len * 0.4, y + s * 3 * view.pr, len * (0.25 + r() * 0.2), (1.5 + r() * 3) * view.pr, -0.03,
+        mixRGB(PAL.skyHigh, PAL.cloudLit, clamp(lit, 0, 1)), 0.22);
     }
   }
-  // Cumulus banks resting on the horizon.
-  for (let c = 0; c < 6; c++) {
-    const cx = (c / 5) * W * 1.1 - W * 0.05 + (r() - 0.5) * W * 0.12;
-    const size = W * (0.1 + r() * 0.1);
-    cloudCluster(g, cx, horizon + H * 0.012, size, rngFrom(seed + 600 + c), 0.3 + r() * 0.2, 0.9);
+  // Distant cumulus banks resting on the horizon, brightest toward the sun.
+  for (let c = 0; c < 7; c++) {
+    const cx = (c / 6) * W * 1.2 - W * 0.1 + (r() - 0.5) * W * 0.12;
+    const size = W * (0.09 + r() * 0.09);
+    const near = 1 - Math.abs(cx - sx) / W;
+    cloudBank(g, cx, horizon + H * 0.02, size, rngFrom(seed + 600 + c), 0.45 - near * 0.15);
   }
 }
 
-// A billowing cluster of round dabs, lit from the upper left.
-function cloudCluster(g, cx, baseY, size, r, fog, alpha) {
-  const n = 26;
+// Screen-fixed painted sky: rendered with a margin, repainted, cropped.
+class SkyBackdrop {
+  constructor(seed) {
+    this.seed = seed;
+    this.key = "";
+    this.canvas = null;
+  }
+
+  draw(g, view) {
+    const M = REPAINT_MARGIN;
+    const key = `${view.W}|${view.H}|${view.pr}`;
+    if (key !== this.key) {
+      this.key = key;
+      this.canvas = makeCanvas(view.W + 2 * M, view.H + 2 * M);
+      const cg = this.canvas.getContext("2d", { willReadFrequently: true });
+      cg.translate(M, M);
+      drawSkyGradient(cg, view, this.seed);
+      cg.setTransform(1, 0, 0, 1, 0, 0);
+      repaintCanvas(cg, -M, -M, scaleRepaint(BRUSH.sky, view.pr, [1, 0]), this.seed + 77);
+    }
+    g.drawImage(this.canvas, M, M, view.W, view.H, 0, 0, view.W, view.H);
+  }
+}
+
+// A cumulus bank: soft round puffs with a lit crown toward the sun, a rosy
+// body and a flat lavender base. (cx, cy) is the middle of the base, in px.
+function cloudBank(g, cx, cy, size, r, fog) {
+  const n = 16 + Math.floor(r() * 10);
   const puffs = [];
   for (let i = 0; i < n; i++) {
-    const a = Math.PI + r() * Math.PI;
-    const rad = Math.pow(r(), 0.7);
-    puffs.push({
-      x: cx + Math.cos(a) * rad * size * 1.25,
-      y: baseY + Math.sin(a) * rad * size * 0.6,
-      s: size * (0.18 + r() * 0.24)
-    });
+    const a = r() * Math.PI;
+    const rad = Math.pow(r(), 0.6);
+    const s = size * (0.22 + r() * 0.22) * (1 - rad * 0.35);
+    puffs.push({ x: cx + Math.cos(a) * rad * size * 1.3, y: cy - Math.sin(a) * rad * size * 0.62 - s * 0.2, s });
   }
   puffs.sort((p, q) => q.y - p.y);
+  const tone = (t) => mixRGB(ramp([PAL.cloudDeep, PAL.cloudShade, PAL.cloudMid, PAL.cloudLit], t), PAL.horizon, fog);
   for (const p of puffs) {
-    const h = clamp((baseY - p.y) / (size * 0.7), 0, 1);
-    const base = mixRGB(PAL.cloudShade, PAL.cloudMid, h);
-    dab(g, p.x, p.y, p.s, p.s * 0.82, 0, mixRGB(base, PAL.horizon, fog), alpha);
-    dab(g, p.x + p.s * 0.22 * SUN_SIDE, p.y - p.s * 0.28, p.s * 0.72, p.s * 0.52, 0, mixRGB(mixRGB(PAL.cloudLit, PAL.cloudMid, 0.3 - h * 0.3), PAL.horizon, fog * 0.6), alpha * 0.85);
+    const h = clamp((cy - p.y) / (size * 0.75), 0, 1);
+    const lx = p.x + p.s * 0.35 * SUN_SIDE, ly = p.y - p.s * 0.4;
+    const grd = g.createRadialGradient(lx, ly, p.s * 0.1, p.x, p.y, p.s);
+    grd.addColorStop(0, css(tone(0.62 + h * 0.38)));
+    grd.addColorStop(0.55, css(tone(0.42 + h * 0.4), 0.95));
+    grd.addColorStop(0.85, css(tone(0.4 + h * 0.35), 0.6));
+    grd.addColorStop(1, css(tone(0.4 + h * 0.3), 0));
+    g.beginPath();
+    g.arc(p.x, p.y, p.s, 0, Math.PI * 2);
+    g.fillStyle = grd;
+    g.fill();
   }
 }
 
-// The cloud sea: a vast plane at y = 0, seen from altitude.
-function drawCloudSea(g, view, seed) {
-  const par = 0.045;
-  const k = view.ppm * view.pr * par;
-  const top = view.horizon + view.camY * k;
-  if (top > view.H + 50) return;
-  const { W, H } = view;
-  const fill = g.createLinearGradient(0, top, 0, H);
-  fill.addColorStop(0, css(mixRGB(PAL.cloudMid, PAL.horizon, 0.35)));
+// Tile painter for a layer of world-anchored cloud banks (L.banks).
+function paintCloudTile(tg, x0, yTop, k, L, world) {
+  const span = tg.canvas.width / k;
+  let used = false;
+  for (const b of L.banks(world)) {
+    const m = b.size * 1.6;
+    if (b.x + m < x0 || b.x - m > x0 + span || b.y + m < yTop - span || b.y - b.size * 0.3 > yTop) continue;
+    cloudBank(tg, (b.x - x0) * k, (yTop - b.y) * k, b.size * k, rngFrom(b.seed), L.fog);
+    used = true;
+  }
+  return used;
+}
+
+// Tile painter for the cloud sea: a lit billowing top at y = 0 over a
+// lavender body that fills everything below.
+function paintCloudSeaTile(tg, x0, yTop, k, L, world) {
+  const S = tg.canvas.width, span = S / k;
+  if (yTop - span > 12) return false;
+  const top = (yTop - 2) * k;
+  const fill = tg.createLinearGradient(0, top, 0, top + 70 * k);
+  fill.addColorStop(0, css(mixRGB(PAL.cloudMid, PAL.horizon, 0.3)));
   fill.addColorStop(1, css(PAL.cloudShade));
-  g.fillStyle = fill;
-  g.fillRect(0, top, W, H - top + 1);
-  // Rows of billows: farther rows smaller and warmer, nearer rows larger and cooler.
-  for (let row = 0; row < 4; row++) {
-    const depth = 1 + row * 0.6;
-    const cellW = 34 / depth;
-    const y = top + row * row * 7 * view.pr + row * 9 * view.pr;
-    if (y > H + 40) break;
-    const xw0 = view.camX - (W / 2) / k - cellW * 2, xw1 = view.camX + (W / 2) / k + cellW * 2;
-    for (let c = Math.floor(xw0 / cellW); c <= Math.ceil(xw1 / cellW); c++) {
-      const r = rngFrom(hash2(c, row, seed + 900));
-      const x = W / 2 + ((c + r()) * cellW - view.camX) * k;
-      cloudCluster(g, x, y + r() * 6 * view.pr, cellW * k * (0.5 + r() * 0.4) * (0.8 + row * 0.25), r, 0.35 - row * 0.08, 0.85);
+  tg.fillStyle = fill;
+  tg.fillRect(0, Math.max(0, top), S, S);
+  for (let row = 0; row < 3; row++) {
+    const cellW = 34 - row * 6;
+    for (let c = Math.floor((x0 - cellW * 2) / cellW); c <= Math.ceil((x0 + span + cellW * 2) / cellW); c++) {
+      const r = rngFrom(hash2(c, row, world.seed + 900));
+      const bx = (c + r()) * cellW, by = 2 - row * 9 + r() * 4;
+      cloudBank(tg, (bx - x0) * k, (yTop - by) * k, cellW * (0.45 + r() * 0.3) * k, r, 0.3 - row * 0.1);
     }
   }
+  return true;
 }
 
 // Soft horizontal mist band anchored at world height y in a given depth layer.
@@ -1340,15 +1522,6 @@ function drawMistBand(g, view, y, par, thickness, color, alpha) {
   g.fillRect(0, sy - t, view.W, t * 2);
 }
 
-// Low clouds wrapping the body at a given depth: world-anchored clusters.
-function drawCloudWrap(g, view, x, y, par, size, seed, fog, alpha) {
-  const k = view.ppm * view.pr * par;
-  const sx = view.W / 2 + (x - view.camX) * k;
-  const sy = view.horizon - (y - view.camY) * k;
-  if (sx < -size * k * 2 || sx > view.W + size * k * 2 || sy < -size * k || sy > view.H + size * k) return;
-  cloudCluster(g, sx, sy, size * k, rngFrom(seed), fog, alpha);
-}
-
 let grainTile = null;
 function drawGrain(g, view) {
   if (!grainTile) {
@@ -1363,15 +1536,21 @@ function drawGrain(g, view) {
     gg.putImageData(img, 0, 0);
   }
   g.save();
-  g.globalAlpha = 0.07;
+  g.globalAlpha = 0.08;
   g.globalCompositeOperation = "overlay";
   g.fillStyle = g.createPattern(grainTile, "repeat");
   g.fillRect(0, 0, view.W, view.H);
   g.restore();
-  // Gentle lavender vignette pulls focus toward the explorer.
-  const v = g.createRadialGradient(view.W / 2, view.H * 0.55, view.H * 0.3, view.W / 2, view.H * 0.55, view.H * 0.8);
+  // Warm glow from the sun side and a soft violet vignette, as in the reference.
+  const sx = view.W * (0.5 + 0.4 * SUN_SIDE);
+  const glow = g.createRadialGradient(sx, view.H * 0.45, 0, sx, view.H * 0.45, view.W * 1.1);
+  glow.addColorStop(0, css(PAL.horizon, 0.16));
+  glow.addColorStop(1, css(PAL.horizon, 0));
+  g.fillStyle = glow;
+  g.fillRect(0, 0, view.W, view.H);
+  const v = g.createRadialGradient(view.W / 2, view.H * 0.55, view.H * 0.32, view.W / 2, view.H * 0.55, view.H * 0.85);
   v.addColorStop(0, css(PAL.fur[0], 0));
-  v.addColorStop(1, css(PAL.fur[0], 0.22));
+  v.addColorStop(1, css(PAL.fur[0], 0.28));
   g.fillStyle = v;
   g.fillRect(0, 0, view.W, view.H);
 }
@@ -1495,39 +1674,59 @@ function worldToScreen(view, x, y, par) {
 // ==== src/70-scene.js ====
 // ---- Scene: composites sky, cloud sea, depth layers, explorer, foreground ---
 
-const LAYER_DEFS = {
-  tail: { par: 0.2, fog: 0.72, clumpCell: 1.2, fringeCell: 1.6, minClumpPx: 7, minLockPx: 9, flow: [0.3, -0.95], gridPx: 6, moss: false, props: false, seedOffset: 300, maxTiles: 12 },
-  flank: { par: 0.55, fog: 0.4, clumpCell: 0.5, fringeCell: 1.0, minClumpPx: 7, minLockPx: 9, flow: [0.5, -0.87], gridPx: 5, moss: true, props: false, seedOffset: 200, maxTiles: 16 },
-  play: { par: 1, fog: 0.05, clumpCell: 0.2, fringeCell: 0.5, minClumpPx: 7, minLockPx: 10, flow: [0.53, -0.85], gridPx: 4, moss: true, props: true, seedOffset: 100, maxTiles: 24 },
-  fore: { par: 1.5, fog: 0, valueShift: -0.34, clumpCell: 0.25, fringeCell: 0.5, minClumpPx: 9, minLockPx: 14, flow: [0.3, -0.95], gridPx: 5, moss: false, props: false, seedOffset: 400, maxTiles: 10 }
+// Brush passes per layer (CSS px): broad strokes everywhere, fine strokes on detail.
+const BRUSH = {
+  sky: [{ cell: 9, len: 30, width: 9, jitter: 0.05, sat: 0.06, alpha: 0.75, edge: 999 }],
+  far: [{ cell: 5, len: 14, width: 5, jitter: 0.08, sat: 0.08, alpha: 0.82 }],
+  mid: [{ cell: 4.5, len: 12, width: 4.5, jitter: 0.1, sat: 0.1, alpha: 0.85 },
+    { cell: 2.5, len: 6, width: 2, jitter: 0.1, sat: 0.1, alpha: 0.85, minGrad: 16 }],
+  near: [{ cell: 4, len: 11, width: 4, jitter: 0.12, sat: 0.12, alpha: 0.88 },
+    { cell: 2, len: 5.5, width: 1.8, jitter: 0.12, sat: 0.12, alpha: 0.9, minGrad: 14 }],
+  fore: [{ cell: 7, len: 18, width: 7, jitter: 0.1, sat: 0.15, alpha: 0.9 }]
 };
+
+// Depth layers, back to front. par = depth scale (1 = the climbable body).
+const LAYER_DEFS = [
+  { name: "cloudSea", par: 0.045, fog: 0, paint: paintCloudSeaTile, flow: [1, 0], seedOffset: 500, maxTiles: 6, repaint: BRUSH.far },
+  { name: "cloudsFar", par: 0.22, fog: 0.35, paint: paintCloudTile, banks: (w) => w.clouds.far, flow: [1, 0], seedOffset: 600, maxTiles: 10, repaint: BRUSH.far },
+  { name: "tail", par: 0.2, fog: 0.66, fogCool: true, clumpCell: 1.2, fringeCell: 1.6, minClumpPx: 7, minLockPx: 9, flow: [0.3, -0.95], gridPx: 6, seedOffset: 300, maxTiles: 12, repaint: BRUSH.far },
+  { name: "far", par: 0.22, fog: 0.6, fogCool: true, clumpCell: 0.8, fringeCell: 1.2, minClumpPx: 7, minLockPx: 9, flow: [0.2, -0.98], gridPx: 5, seedOffset: 700, maxTiles: 14, repaint: BRUSH.far },
+  { name: "cloudsMid", par: 0.45, fog: 0.15, paint: paintCloudTile, banks: (w) => w.clouds.mid, flow: [1, 0], seedOffset: 800, maxTiles: 12, repaint: BRUSH.mid },
+  { name: "flank", par: 0.55, fog: 0.32, clumpCell: 0.5, fringeCell: 1.0, minClumpPx: 7, minLockPx: 9, flow: [0.5, -0.87], gridPx: 5, moss: true, seedOffset: 200, maxTiles: 16, repaint: BRUSH.mid },
+  { name: "play", par: 1, fog: 0.04, clumpCell: 0.2, fringeCell: 0.5, minClumpPx: 7, minLockPx: 10, flow: [0.53, -0.85], gridPx: 4, moss: true, props: true, seedOffset: 100, maxTiles: 24, repaint: BRUSH.near },
+  { name: "fore", par: 1.5, fog: 0, valueShift: -0.48, clumpCell: 0.25, fringeCell: 0.5, minClumpPx: 9, minLockPx: 14, flow: [0.3, -0.95], gridPx: 5, seedOffset: 400, maxTiles: 10, repaint: BRUSH.fore }
+];
 
 class Scene {
   constructor(world) {
     this.world = world;
+    this.sky = new SkyBackdrop(world.seed);
     this.layers = {};
-    for (const name of Object.keys(LAYER_DEFS)) {
-      const L = Object.assign({ name, anatomy: world.layers[name], paint: paintAnatomyTile }, LAYER_DEFS[name]);
-      this.layers[name] = new PaintedLayer(L, world);
+    for (const def of LAYER_DEFS) {
+      const L = Object.assign({ anatomy: world.layers[def.name], paint: paintAnatomyTile }, def);
+      this.layers[def.name] = new PaintedLayer(L, world);
     }
   }
 
   render(g, view, opts) {
-    const w = this.world, s = w.seed;
+    const w = this.world;
     const ey = view.explorer.y;
-    drawSky(g, view, s);
-    drawCloudSea(g, view, s);
-    drawMistBand(g, view, 20, 0.2, 40, PAL.mistWarm, 0.55);
-    this.layers.tail.draw(g, view);
-    drawCloudWrap(g, view, 96, 8, 0.2, 40, s + 1, 0.3, 0.9);
-    drawMistBand(g, view, ey - 4, 0.45, 30, PAL.mistWarm, 0.4);
-    this.layers.flank.draw(g, view);
-    drawMistBand(g, view, ey - 14, 0.8, 9, PAL.mistWarm, 0.55);
-    drawCloudWrap(g, view, view.explorer.x + 14, ey - 16, 0.55, 14, s + 2, 0.25, 0.85);
-    this.layers.play.draw(g, view);
+    const Ls = this.layers;
+    this.sky.draw(g, view);
+    Ls.cloudSea.draw(g, view);
+    drawMistBand(g, view, 10, 0.12, 60, PAL.mistWarm, 0.5);
+    Ls.tail.draw(g, view);
+    drawMistBand(g, view, ey - 30, 0.3, 30, PAL.mistWarm, 0.35);
+    Ls.far.draw(g, view);
+    Ls.cloudsFar.draw(g, view);
+    drawMistBand(g, view, ey - 26, 0.3, 26, PAL.mistWarm, 0.45);
+    Ls.cloudsMid.draw(g, view);
+    Ls.flank.draw(g, view);
+    drawMistBand(g, view, ey - 14, 0.8, 8, PAL.mistWarm, 0.35);
+    Ls.play.draw(g, view);
     const [sx, sy] = worldToScreen(view, view.explorer.x, view.explorer.y, 1);
     drawExplorer(g, sx, sy, EXPLORER_HEIGHT * view.ppm * view.pr, view.explorer.facing, "idle");
-    this.layers.fore.draw(g, view);
+    Ls.fore.draw(g, view);
     drawGrain(g, view);
     if (opts && opts.collision) drawCollisionOverlay(g, view, w.layers.play);
   }

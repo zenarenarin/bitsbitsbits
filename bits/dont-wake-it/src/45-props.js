@@ -13,7 +13,7 @@ function propsInRect(world, x0, y0, x1, y1) {
 
 function drawProps(g, world, x0, yTop, k, L, seed) {
   const P = (X, Y) => [(X - x0) * k, (yTop - Y) * k];
-  const span = TILE / k;
+  const span = g.canvas.width / k;
   const inRect = (ax, ay, bx, by) => bx > x0 - 1 && ax < x0 + span + 1 && by > yTop - span - 1 && ay < yTop + 1;
   for (const t of world.props.trees) {
     if (inRect(t.x - t.h, t.y - 0.5, t.x + t.h, t.y + t.h)) drawTree(g, P, k, t, L);
@@ -21,8 +21,14 @@ function drawProps(g, world, x0, yTop, k, L, seed) {
   for (const m of world.props.mushrooms) {
     if (inRect(m.top.x - m.capR - 1, m.root.y - 1, m.top.x + m.capR + 1, m.top.y + m.capR)) drawMushroom(g, P, k, m, L, seed);
   }
+}
+
+// Fine features drawn after the repaint so they stay crisp (the lash line).
+function drawPostProps(g, world, x0, yTop, k, L, seed) {
+  const P = (X, Y) => [(X - x0) * k, (yTop - Y) * k];
+  const span = g.canvas.width / k;
   for (const e of world.props.eyes) {
-    if (inRect(e.x - e.w, e.y - e.w, e.x + e.w, e.y + e.w)) drawClosedEye(g, P, k, e, L, seed);
+    if (e.x + e.w > x0 - 1 && e.x - e.w < x0 + span + 1 && e.y + e.w > yTop - span - 1 && e.y - e.w < yTop + 1) drawClosedEye(g, P, k, e, L, seed);
   }
 }
 
@@ -132,13 +138,7 @@ function drawClosedEye(g, P, k, e, L, seed) {
   g.rotate(-e.tilt);
   g.scale(-(e.outer || -1), 1); // drawn with the outer corner on local -x
   // Socket: a lavender hollow above the lid, warm swell of the lid itself.
-  for (let i = 0; i < 6; i++) {
-    const s = 1 - i * 0.12;
-    dab(g, 0, -w * 0.1, w * 0.66 * s, w * 0.26 * s, 0, fin(PAL.fur[1]), 0.06);
-  }
-  dab(g, -w * 0.04, -w * 0.07, w * 0.42, w * 0.09, 0, fin(PAL.fur[3]), 0.3);
-  dab(g, -w * 0.1, -w * 0.09, w * 0.22, w * 0.035, 0, fin(PAL.fur[4]), 0.35);
-  for (let i = 0; i < 4; i++) dab(g, 0, w * 0.1, w * (0.5 - i * 0.08), w * (0.09 - i * 0.015), 0, fin(PAL.fur[1]), 0.07);
+  for (let i = 0; i < 5; i++) dab(g, 0, w * 0.06, w * (0.58 - i * 0.07), w * (0.1 - i * 0.015), 0, fin(PAL.fur[0]), 0.05);
   // Lid crease: a tapered crescent sagging downward.
   const lw = w * 0.03;
   g.beginPath();
