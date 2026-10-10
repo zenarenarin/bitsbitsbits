@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "Don't Wake It",
+  "description": "Climb higher. Stay quiet. Scale a colossal sleeping creature, read its breathing, gather Dream Seeds and slowly uncover its memory without waking it.",
+  "tags": ["game", "stealth", "climbing", "endless", "atmospheric"],
+  "permissions": ["audio", "haptics", "storage"],
+  "dependencies": [],
+  "onboarding": {
+    "kind": "immersive",
+    "version": 1
+  },
+  "memory": {
+    "records": {
+      "height": {
+        "label": "Highest Climb",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": ["daily", "weekly", "all_time"],
+        "scopes": ["following", "global"],
+        "dedupe": "best_per_user"
+      }
+    }
+  },
+  "tuning": {
+    "schemaVersion": 1,
+    "groups": {
+      "movement": { "label": "Movement" },
+      "creature": { "label": "Creature" },
+      "world": { "label": "World & Seeds" },
+      "feel": { "label": "Camera & Audio" }
+    },
+    "knobs": {
+      "walk_speed": { "label": "Careful walk speed", "type": "number", "default": 70, "min": 45, "max": 110, "step": 5, "group": "movement", "intent": "feel", "apply": "restart" },
+      "run_speed": { "label": "Hurry speed", "type": "number", "default": 140, "min": 90, "max": 200, "step": 5, "group": "movement", "intent": "feel", "apply": "restart" },
+      "jump_force": { "label": "Jump force", "type": "number", "default": 505, "min": 440, "max": 600, "step": 5, "group": "movement", "intent": "feel", "apply": "restart" },
+      "gravity": { "label": "Gravity", "type": "number", "default": 1380, "min": 1000, "max": 1800, "step": 20, "group": "movement", "intent": "feel", "apply": "restart" },
+      "noise_scale": { "label": "Creature sensitivity", "type": "number", "default": 1, "min": 0.4, "max": 2, "step": 0.05, "group": "creature", "intent": "difficulty", "apply": "restart" },
+      "calm_rate": { "label": "How fast it settles", "type": "number", "default": 6.5, "min": 2, "max": 14, "step": 0.5, "group": "creature", "intent": "difficulty", "apply": "restart" },
+      "breathing_speed": { "label": "Breathing speed", "type": "number", "default": 1, "min": 0.4, "max": 2, "step": 0.05, "group": "creature", "intent": "feel", "apply": "restart" },
+      "creature_movement": { "label": "Body movement", "type": "number", "default": 1, "min": 0, "max": 2, "step": 0.05, "group": "creature", "intent": "feel", "apply": "restart" },
+      "seed_frequency": { "label": "Dream Seed frequency", "type": "percent", "default": 0.55, "min": 0.1, "max": 1, "step": 0.05, "group": "world", "intent": "gameplay", "apply": "restart" },
+      "rare_seed_chance": { "label": "Rare seed chance", "type": "percent", "default": 0.35, "min": 0, "max": 1, "step": 0.05, "group": "world", "intent": "gameplay", "apply": "restart" },
+      "terrain_variation": { "label": "Terrain variation", "type": "number", "default": 1, "min": 0.5, "max": 1.6, "step": 0.05, "group": "world", "intent": "visual", "apply": "restart" },
+      "environment_speed": { "label": "Environment transition speed", "type": "number", "default": 1, "min": 0.5, "max": 3, "step": 0.1, "group": "world", "intent": "visual", "apply": "restart" },
+      "camera_follow": { "label": "Camera follow", "type": "number", "default": 4.5, "min": 1.5, "max": 10, "step": 0.5, "group": "feel", "intent": "feel", "apply": "restart" },
+      "master_volume": { "label": "Volume", "type": "percent", "default": 0.8, "min": 0, "max": 1, "step": 0.05, "group": "feel", "intent": "audio", "apply": "restart" }
+    },
+    "curves": {
+      "difficulty_ramp": {
+        "label": "Difficulty by height (m)",
+        "domain": "custom",
+        "range": [0, 1],
+        "default": [
+          { "x": 0, "y": 0 },
+          { "x": 60, "y": 0.08 },
+          { "x": 180, "y": 0.28 },
+          { "x": 450, "y": 0.6 },
+          { "x": 900, "y": 0.86 },
+          { "x": 1600, "y": 1 }
+        ],
+        "easing": "smooth",
+        "group": "creature",
+        "apply": "restart"
+      }
+    },
+    "presets": {
+      "gentle": { "label": "Gentle sleeper", "values": { "noise_scale": 0.7, "calm_rate": 9, "seed_frequency": 0.7 } },
+      "light_sleeper": { "label": "Light sleeper", "values": { "noise_scale": 1.4, "calm_rate": 5, "creature_movement": 1.4 } }
+    }
+  }
+}
