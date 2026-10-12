@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Move it (local preview)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #08090C; overflow: hidden; }
+  #bit { position: fixed; inset: 0; margin: 0 auto; max-width: 520px; overflow: hidden; }
+  /* Stand-in for Plethora's one_line onboarding pointer. */
+  #hint { position: fixed; left: 50%; top: 64px; transform: translateX(-50%); z-index: 50; pointer-events: none;
+    font: 500 13px system-ui, sans-serif; color: #F2F3F6; background: #1A1C22; padding: 8px 14px; border-radius: 14px;
+    transition: opacity .3s; white-space: nowrap; }
+  #hint.gone { opacity: 0; }
+</style>
+</head>
+<body>
+<div id="bit"></div>
+<div id="hint">Drag their hands, move their bodies, make something.</div>
+<script src="../main.js"></script>
+<script src="harness.js"></script>
+</body>
+</html>

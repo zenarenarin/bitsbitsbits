@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "Move it",
+  "description": "Pose two little figures, save poses, press play and watch your scene come alive. Export it as a GIF.",
+  "tags": [
+    "animation",
+    "creative",
+    "characters",
+    "toy"
+  ],
+  "permissions": [
+    "storage",
+    "haptics"
+  ],
+  "dependencies": [],
+  "onboarding": {
+    "kind": "one_line",
+    "version": 1,
+    "message": "Drag their hands, move their bodies, make something."
+  }
+}
