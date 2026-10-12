@@ -154,6 +154,22 @@ const browser = await chromium.launch();
   await page.screenshot({ path: path.join(out, "phone-dense.png") });
   await noGreen(page, "phone dense");
 
+  // Worst-case density: pins clustered at the minimum legal spacing.
+  await page.evaluate(() => {
+    const core = window.plethoraBit.core, st = window.__game.st;
+    let lo = 0, hi = 0.5;
+    for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (core.pinGap(m, 0, core.G.CLEARANCE) < core.G.CLEARANCE) lo = m; else hi = m; }
+    window.__saved = { a: Array.from(st.angles.slice(0, st.count)), c: st.count };
+    let n = 0, a = 0.3;
+    for (let cl = 0; cl < 5; cl++) { for (let k = 0; k < 7; k++) { st.angles[n++] = a; a += hi * 1.01; } a += 0.32; }
+    st.count = n;
+    window.__packedOk = core.staticOk(st.angles, st.count, 0);
+  });
+  await page.waitForTimeout(120);
+  await page.screenshot({ path: path.join(out, "phone-packed.png") });
+  ok("packed stress structure is legal", await page.evaluate(() => window.__packedOk));
+  await page.evaluate(() => { const st = window.__game.st; st.angles.set(window.__saved.a); st.count = window.__saved.c; });
+
   // Transition frame.
   await page.evaluate(async () => {
     const st = window.__game.st;

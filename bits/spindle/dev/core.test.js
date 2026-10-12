@@ -77,6 +77,33 @@ const rng = Core.mulberry32(12345);
   check("pinGap matches brute-force reference (40k random poses)", mism === 0, { mism });
 }
 
+// 1b. The drawn blade silhouette (with its outline stroke) lies inside the
+// collision polygon: nothing visible ever extends past what collides.
+{
+  const P0 = poly(0, 0);
+  const prof = Core.PIN_PROFILE;
+  const half = Core.PIN_OUTLINE / 2;
+  const pts = [];
+  for (let i = 0; i < prof.length; i += 2) pts.push([G.R + prof[i], prof[i + 1]]);
+  const outline = pts.concat(pts.slice().reverse().map(p => [p[0], -p[1]]));
+  let worst = Infinity, outside = 0;
+  for (let i = 0; i < outline.length; i++) {
+    const a = outline[i], b = outline[(i + 1) % outline.length];
+    for (let k = 0; k <= 40; k++) {
+      const p = [a[0] + (b[0] - a[0]) * k / 40, a[1] + (b[1] - a[1]) * k / 40];
+      if (!inside(p, P0)) { outside++; continue; }
+      let d = Infinity;
+      for (let j = 0; j < P0.length; j++) d = Math.min(d, segDist(p, P0[j], P0[(j + 1) % P0.length]));
+      worst = Math.min(worst, d);
+    }
+  }
+  check("visual blade + outline stay inside the collision polygon", outside === 0 && worst >= half - 1e-9, { outside, worst, half });
+  // ...and the visual hugs the collision width where pins actually meet
+  // (collar / shoulder region), so contact reads as contact.
+  const shoulder = Math.max(...pts.filter(p => p[0] > G.R + 13 && p[0] < G.R + 31).map(p => p[1]));
+  check("visible width at collar/shoulder within 0.2u of collision width", G.W / 2 - (shoulder + half) <= 0.2, { shoulder });
+}
+
 // 2. Static threshold: the smallest legal angular spacing between two
 // attached pins is well defined and symmetric.
 const STATIC = (() => {

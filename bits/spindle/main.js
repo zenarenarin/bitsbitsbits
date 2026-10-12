@@ -54,6 +54,24 @@
     })();
     const PIN_N = PIN_POLY.length / 2;
 
+    // Visual silhouette of the blade, drawn mirrored about the pin axis as
+    // [radial offset from R, half-width] pairs from the root to the tip. It is
+    // decoration only and stays inside PIN_POLY (outline stroke included,
+    // checked in tests), so what you see never exceeds what collides.
+    const PIN_PROFILE = Object.freeze([
+      0.3, 0.40,    // needle root, seated in the core
+      12.2, 1.80,   // end of the neck
+      13.0, 1.80,   // collar chamfer starts
+      14.2, 2.13,   // machined collar
+      18.0, 2.13,
+      18.6, 1.72,   // step down into the blade
+      30.0, 2.12,   // shoulder: the widest point
+      G.L - 7, 1.62,
+      G.L - 0.5, 0.82,
+      G.L - 0.25, 0 // chisel point
+    ]);
+    const PIN_OUTLINE = 0.3; // outline stroke width (world units)
+
     // Pin edge normals (outward), precomputed.
     const PIN_NORMALS = (function () {
       const out = new Float64Array(PIN_POLY.length);
@@ -599,7 +617,7 @@
     }
 
     return {
-      G, PIN_POLY, BROAD_ANGLE, TRANSITION_SEC, DEFAULT_TUNE, ANALYSIS_MARGIN,
+      G, PIN_POLY, PIN_PROFILE, PIN_OUTLINE, BROAD_ANGLE, TRANSITION_SEC, DEFAULT_TUNE, ANALYSIS_MARGIN,
       wrapPi, wrap2Pi, pinGap, simulateLaunch, badInterval, gridInterval, goodIntervals,
       spindleSpec, omegaFor, greedyCapacity, generateSpindle, staticOk,
       mulberry32, createGame
@@ -861,50 +879,130 @@
         hud.layout();
       }
 
-      // ---- Rendering: cached paints (world units) ----------------------------
-      const pinPath = (function () {
-        const p = new Path2D();
-        const P = Core.PIN_POLY;
-        p.moveTo(P[0], P[1]);
-        for (let i = 2; i < P.length; i += 2) p.lineTo(P[i], P[i + 1]);
-        p.closePath();
-        return p;
-      })();
-      const H = G.W / 2;
-      const COLLAR_X = G.R + G.L - 12;
-      const COLLAR_W = 2.6;
+      // ---- Rendering: pins as faceted blades (world units) ---------------------
+      // Pin-local frame: x runs out from the centre, y across the pin. The
+      // blade is a shallow diamond in cross-section: a ridge along y = 0
+      // splits it into two long facets. The light (upper left, fixed in the
+      // world) picks which facet is lit and where along the length the
+      // specular hotspot sits, so every pin reads differently as it turns.
+      const PROF = Core.PIN_PROFILE;
+      const NP = PROF.length / 2;
+      const px = i => G.R + PROF[2 * i];
+      const ph = i => PROF[2 * i + 1];
+      const PROF_COLLAR_A = 2, PROF_COLLAR_B = 5; // collar spans profile points 2..5
+      const INSET_X0 = G.R + G.L - 27.5, INSET_X1 = G.R + G.L - 19.5, INSET_H = 0.62;
+      const HW = ph(3);
 
-      // Cylinder shading across the shaft. The light comes from the upper
-      // left, so the highlight slides across the shaft depending on how the
-      // pin is oriented: 9 cached gradients, picked per pin.
-      const LIGHT = { x: -0.6, y: -0.8 };
-      const shaftGrads = [];
-      for (let i = 0; i < 9; i++) {
-        const l = i / 4 - 1; // -1..1: light along local +y
-        const gr = g.createLinearGradient(0, -H, 0, H);
-        const hp = 0.5 + l * 0.26;
-        const k = 0.75 + 0.25 * Math.abs(l);
-        gr.addColorStop(0, "#3B414C");
-        gr.addColorStop(Math.max(0.02, hp - 0.34), "#7D8697");
-        gr.addColorStop(Math.max(0.04, hp - 0.12), C.shaft);
-        gr.addColorStop(hp, k > 0.9 ? C.hi : "#DDE2EC");
-        gr.addColorStop(Math.min(0.96, hp + 0.14), "#9AA3B4");
-        gr.addColorStop(Math.min(0.98, hp + 0.36), "#5F6776");
-        gr.addColorStop(1, "#2C3139");
-        shaftGrads.push(gr);
-      }
-      function shaftGrad(worldAngle) {
-        const l = LIGHT.x * -Math.sin(worldAngle) + LIGHT.y * Math.cos(worldAngle);
-        return shaftGrads[Math.max(0, Math.min(8, Math.round((l + 1) * 4)))];
-      }
-      const capPath = (function () {
+      function profilePath(scaleH, from, to) {
         const p = new Path2D();
-        const x1 = G.R + G.L, c = G.CHAMFER;
-        p.moveTo(x1 - 2.2, -H); p.lineTo(x1 - c, -H); p.lineTo(x1, -H + c);
-        p.lineTo(x1, H - c); p.lineTo(x1 - c, H); p.lineTo(x1 - 2.2, H);
+        p.moveTo(px(from), -ph(from) * scaleH);
+        for (let i = from + 1; i <= to; i++) p.lineTo(px(i), -ph(i) * scaleH);
+        for (let i = to; i >= from; i--) p.lineTo(px(i), ph(i) * scaleH);
+        p.closePath();
+        return p;
+      }
+      // One side (sign -1: y < 0, +1: y > 0) between the ridge and scaled edge.
+      function sidePath(sign, hIn, hOut, from, to) {
+        const p = new Path2D();
+        p.moveTo(px(from), sign * ph(from) * hIn);
+        for (let i = from + 1; i <= to; i++) p.lineTo(px(i), sign * ph(i) * hIn);
+        for (let i = to; i >= from; i--) p.lineTo(px(i), sign * ph(i) * hOut);
+        p.closePath();
+        return p;
+      }
+      const silhouette = profilePath(1, 0, NP - 1);
+      const facet = { "-1": sidePath(-1, 0, 1, 0, NP - 1), "1": sidePath(1, 0, 1, 0, NP - 1) };
+      const bevel = { "-1": sidePath(-1, 0.7, 1, 5, NP - 1), "1": sidePath(1, 0.7, 1, 5, NP - 1) };
+      const ridge = { "-1": sidePath(-1, 0, 0.2, 5, NP - 2), "1": sidePath(1, 0, 0.2, 5, NP - 2) };
+      const collarPath = (function () {
+        const p = new Path2D();
+        p.moveTo(px(PROF_COLLAR_A), -ph(PROF_COLLAR_A));
+        for (let i = PROF_COLLAR_A + 1; i <= PROF_COLLAR_B; i++) p.lineTo(px(i), -ph(i));
+        for (let i = PROF_COLLAR_B; i >= PROF_COLLAR_A; i--) p.lineTo(px(i), ph(i));
         p.closePath();
         return p;
       })();
+      const insetPath = (function () {
+        const p = new Path2D();
+        const xm = (INSET_X0 + INSET_X1) / 2;
+        p.moveTo(INSET_X0, 0); p.lineTo(xm - 1.2, -INSET_H); p.lineTo(xm + 1.2, -INSET_H);
+        p.lineTo(INSET_X1, 0); p.lineTo(xm + 1.2, INSET_H); p.lineTo(xm - 1.2, INSET_H);
+        p.closePath();
+        return p;
+      })();
+      const insetSeat = (function () {
+        const p = new Path2D();
+        const xm = (INSET_X0 + INSET_X1) / 2, e = 0.32;
+        p.moveTo(INSET_X0 - e, 0); p.lineTo(xm - 1.2, -INSET_H - e); p.lineTo(xm + 1.2, -INSET_H - e);
+        p.lineTo(INSET_X1 + e, 0); p.lineTo(xm + 1.2, INSET_H + e); p.lineTo(xm - 1.2, INSET_H + e);
+        p.closePath();
+        return p;
+      })();
+
+      const LIGHT = { x: -0.6, y: -0.8 };
+      const DARK = [20, 23, 29], STEEL = [150, 159, 175], HOT = [243, 245, 250], DEEP = [9, 10, 13];
+      const mix = (a, b, t) => "rgb(" + Math.round(a[0] + (b[0] - a[0]) * t) + "," +
+        Math.round(a[1] + (b[1] - a[1]) * t) + "," + Math.round(a[2] + (b[2] - a[2]) * t) + ")";
+      const clamp01 = v => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+      // Paint sets cached per 5 degree orientation bucket (gradients live in
+      // pin-local coordinates, so one set serves every pin at that angle).
+      const BUCKETS = 72;
+      const paintCache = new Array(BUCKETS);
+      function paintsFor(worldAngle) {
+        let i = Math.round((((worldAngle % TAU) + TAU) % TAU) / TAU * BUCKETS) % BUCKETS;
+        if (paintCache[i]) return paintCache[i];
+        const a = (i / BUCKETS) * TAU;
+        // l: light across the pin (+ lights the y > 0 facet); r: light along it.
+        const l = LIGHT.x * -Math.sin(a) + LIGHT.y * Math.cos(a);
+        const r = LIGHT.x * Math.cos(a) + LIGHT.y * Math.sin(a);
+        const hotX = 0.32 + 0.42 * (0.5 + 0.5 * r); // hotspot slides along the blade
+        const x0 = G.R, x1 = G.R + G.L;
+        function facetGrad(k) {
+          const gr = g.createLinearGradient(x0, 0, x1, 0);
+          const base = clamp01(k);
+          const hot = clamp01(k * (0.55 + 0.45 * Math.abs(r)) + 0.12);
+          gr.addColorStop(0, mix(DEEP, DARK, 0.6));
+          gr.addColorStop(0.16, mix(DARK, STEEL, base * 0.55));
+          gr.addColorStop(Math.max(0.2, hotX - 0.2), mix(DARK, STEEL, base * 0.8));
+          gr.addColorStop(hotX, mix(mix3(DARK, STEEL, base), HOT, hot * 0.75));
+          gr.addColorStop(Math.min(0.94, hotX + 0.18), mix(DARK, STEEL, base * 0.78));
+          gr.addColorStop(1, mix(DARK, STEEL, base * 0.5));
+          return gr;
+        }
+        function ridgeGrad(strength) {
+          const gr = g.createLinearGradient(x0, 0, x1, 0);
+          const pk = (0.35 + 0.6 * strength).toFixed(3);
+          gr.addColorStop(0.2, "rgba(243,245,250,0.06)");
+          gr.addColorStop(Math.max(0.24, hotX - 0.16), "rgba(243,245,250,0.18)");
+          gr.addColorStop(hotX, "rgba(243,245,250," + pk + ")");
+          gr.addColorStop(Math.min(0.95, hotX + 0.14), "rgba(243,245,250,0.18)");
+          gr.addColorStop(1, "rgba(243,245,250,0.04)");
+          return gr;
+        }
+        // Collar: a turned cylinder, so its band highlight moves across it.
+        const cg = g.createLinearGradient(0, -HW, 0, HW);
+        const hp = 0.5 + l * 0.3;
+        cg.addColorStop(0, "#22262E");
+        cg.addColorStop(clamp01(hp - 0.3), "#6E7787");
+        cg.addColorStop(hp, "#E9EDF4");
+        cg.addColorStop(clamp01(hp + 0.24), "#7A8393");
+        cg.addColorStop(1, "#1A1D23");
+        const litSide = l >= 0 ? 1 : -1;
+        const set = {
+          lit: litSide,
+          pos: facetGrad(Math.max(0.16, 0.5 + 0.62 * l)),   // y > 0 facet
+          neg: facetGrad(Math.max(0.16, 0.5 - 0.62 * l)),   // y < 0 facet
+          ridge: ridgeGrad(Math.abs(l)),
+          collar: cg,
+          edgeLit: "rgba(243,245,250," + (0.10 + 0.22 * Math.abs(l)).toFixed(3) + ")"
+        };
+        paintCache[i] = set;
+        return set;
+      }
+      function mix3(a, b, t) {
+        return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+      }
 
       const targetBody = g.createRadialGradient(-G.R * 0.38, -G.R * 0.44, G.R * 0.05, 0, 0, G.R);
       targetBody.addColorStop(0, "#2C313C");
@@ -919,19 +1017,39 @@
       hubGrad.addColorStop(1, "#0A0B0E");
 
       // Draw one pin in the current (structure) frame.
-      function drawPin(angle, worldAngle, offset, collar, tint) {
+      function drawPin(angle, worldAngle, offset, inset, tint) {
+        const P = paintsFor(worldAngle);
         g.save();
         g.rotate(angle);
         if (offset) g.translate(offset, 0);
-        g.fillStyle = shaftGrad(worldAngle);
-        g.fill(pinPath);
-        g.fillStyle = collar;
-        g.fillRect(COLLAR_X, -H, COLLAR_W, G.W);
-        g.fillStyle = "rgba(243,245,250,0.55)";
-        g.fill(capPath);
+        // Two long facets: lit and dark underside.
+        g.fillStyle = P.pos; g.fill(facet["1"]);
+        g.fillStyle = P.neg; g.fill(facet["-1"]);
+        // Edge bevels: the lit edge catches a crisp line, the far edge sinks.
+        g.fillStyle = P.edgeLit; g.fill(bevel[P.lit]);
+        g.fillStyle = "rgba(6,7,9,0.38)"; g.fill(bevel[-P.lit]);
+        // Silver highlight running along the ridge on the lit facet.
+        g.fillStyle = P.ridge; g.fill(ridge[P.lit]);
+        // Machined collar where the needle seats into the core.
+        g.fillStyle = P.collar; g.fill(collarPath);
+        g.fillStyle = "rgba(8,9,12,0.75)";
+        g.fillRect(px(3) + 1.65, -HW, 0.42, 2 * HW);
+        g.fillStyle = "rgba(243,245,250,0.35)";
+        g.fillRect(px(3) + 0.2, -HW, 0.28, 2 * HW);
+        g.fillRect(px(4) - 0.5, -HW, 0.28, 2 * HW);
+        // The single electric-blue inset, sunk into a dark seat.
+        g.fillStyle = "#0B0D11"; g.fill(insetSeat);
+        g.fillStyle = inset; g.fill(insetPath);
+        g.fillStyle = "rgba(243,245,250,0.45)";
+        g.fillRect(INSET_X0 + 2.4, P.lit > 0 ? 0.12 : -0.42, 3.2, 0.3);
+        // Dark outline keeps neighbours separate when the structure is dense.
+        g.lineJoin = "round";
+        g.lineWidth = Core.PIN_OUTLINE;
+        g.strokeStyle = "rgba(4,5,7,0.9)";
+        g.stroke(silhouette);
         if (tint) {
           g.fillStyle = tint;
-          g.fill(pinPath);
+          g.fill(silhouette);
         }
         g.restore();
       }
