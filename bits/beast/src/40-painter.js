@@ -334,9 +334,11 @@ class PaintScheduler {
     this.jobs.delete(entry);
   }
 
-  // Loading: finish only what the first frame shows; the rest streams in.
+  // Loading: finish what the first frame shows plus the walkable body around
+  // it (priority >= 6: visible tiles, and the play layer's ring); the rest
+  // streams in.
   finishVisible() {
-    for (const j of [...this.jobs]) if (j.priority >= 10) this.finish(j);
+    for (const j of [...this.jobs]) if (j.priority >= 6) this.finish(j);
   }
 
   pump(budgetMs) {
@@ -410,6 +412,21 @@ class PaintedLayer {
       this.tiles.delete(e.key);
       this.sched.jobs.delete(e);
       if (e.canvas && e.canvas.close) e.canvas.close();
+    }
+  }
+
+  // Requests (without drawing) every tile a view will need: used to paint a
+  // view in the background before cutting to it.
+  request(view, priority) {
+    const k = view.ppm * view.pr * this.L.par;
+    const ox = Math.round(view.W / 2 - view.camX * k);
+    const oy = Math.round(view.horizon + view.camY * k);
+    for (let ty = Math.floor(-oy / TILE); ty <= Math.floor((view.H - oy) / TILE); ty++) {
+      for (let tx = Math.floor(-ox / TILE); tx <= Math.floor((view.W - ox) / TILE); tx++) {
+        const e = this.entry(tx, ty, k, view.pr);
+        e.used = this.frame + 1; // keep through the next draw's eviction
+        if (!e.done) this.sched.request(e, priority);
+      }
     }
   }
 

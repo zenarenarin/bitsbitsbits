@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "runtime": "plethora-bit@2",
   "entry": "main.js",
-  "title": "Don't Wake It",
-  "description": "A tiny explorer climbs an impossibly enormous sleeping creature. Climb higher. Stay quiet.",
+  "title": "Beast",
+  "description": "A tiny explorer climbs an impossibly enormous sleeping beast. Climb higher. Stay quiet.",
   "tags": [
     "adventure",
     "climbing",
@@ -24,6 +24,9 @@
       },
       "preview": {
         "label": "Testing"
+      },
+      "beast": {
+        "label": "The beast"
       }
     },
     "knobs": {
@@ -60,6 +63,28 @@
         "intent": "feel",
         "apply": "live"
       },
+      "noise_scale": {
+        "label": "How easily it wakes",
+        "type": "number",
+        "default": 1,
+        "min": 0.4,
+        "max": 2,
+        "step": 0.05,
+        "group": "beast",
+        "intent": "difficulty",
+        "apply": "live"
+      },
+      "recovery_rate": {
+        "label": "How fast it settles",
+        "type": "number",
+        "default": 1,
+        "min": 0.4,
+        "max": 2,
+        "step": 0.05,
+        "group": "beast",
+        "intent": "difficulty",
+        "apply": "live"
+      },
       "start": {
         "label": "Start on",
         "type": "choice",
@@ -75,6 +100,14 @@
       },
       "collision_overlay": {
         "label": "Show collision on the body",
+        "type": "boolean",
+        "default": false,
+        "group": "preview",
+        "intent": "debug",
+        "apply": "live"
+      },
+      "show_alertness": {
+        "label": "Show alertness readout",
         "type": "boolean",
         "default": false,
         "group": "preview",

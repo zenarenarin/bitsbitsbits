@@ -1,16 +1,16 @@
 #!/usr/bin/env node
-// Headless movement check for Don't Wake It: runs the real Explorer controller
+// Headless movement check for Beast: runs the real Explorer controller
 // against the real creature anatomy (no rendering) and verifies that
 //   - the explorer never sinks into the body (both collision circles),
 //   - positions/velocities stay finite,
 //   - a simple climbing bot (hold uphill, jump when stalled) makes progress,
 //   - walking downhill stays grounded on the fur instead of skipping off.
-//   node tools/sim-dont-wake-it.cjs [seconds]
+//   node tools/sim-beast.cjs [seconds]
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-const src = fs.readFileSync(path.join(__dirname, "..", "bits", "dont-wake-it", "main.js"), "utf8");
+const src = fs.readFileSync(path.join(__dirname, "..", "bits", "beast", "main.js"), "utf8");
 let api = null;
 const sandbox = { window: {}, console, Math, performance: { now: () => 0 }, globalThis: {} };
 sandbox.globalThis.__dwTestHook = (x) => { api = x; };
@@ -81,5 +81,49 @@ run("wander + random jumps on the back", spots.gameplay, wanderer);
 const r5 = run("walk downhill from the back", spots.gameplay, downhill);
 if (r1 && r1.maxY - r1.startY < 8) { console.log("FAIL climber made too little progress from the back"); failures++; }
 if (r3 && r3.maxY - r3.startY < 8) { console.log("FAIL climber made too little progress from the base"); failures++; }
-console.log(failures ? `${failures} problem(s)` : "all movement checks passed");
+
+// ---- Alertness balance ------------------------------------------------------
+// Drives the same controller with the real Alertness model and reports how
+// quickly the beast stirs/wakes for different ways of climbing.
+const { Alertness } = api;
+function alertRun(name, spot, script, secs) {
+  const ex = new Explorer(world.layers.play, spot, world.props.mushrooms.map((m) => m.cap));
+  const al = new Alertness(world);
+  const input = { dir: 0, run: false, jumpPressed: false };
+  let firstDisturbed = null, firstStirring = null, woke = null, peak = 0;
+  const c = {};
+  for (let i = 0; i < secs / dt; i++) {
+    const t = i * dt;
+    script(ex, input, c, t);
+    ex.step(dt, input);
+    input.jumpPressed = false;
+    al.update(dt, ex, input);
+    ex.events.length = 0;
+    peak = Math.max(peak, al.level);
+    if (al.state === "disturbed" && firstDisturbed === null) firstDisturbed = t;
+    if (al.state === "stirring" && firstStirring === null) firstStirring = t;
+    if (al.state === "awake") { woke = t; break; }
+  }
+  const f = (v) => (v === null ? "never" : `${v.toFixed(0)} s`);
+  console.log(`  ${name}: disturbed ${f(firstDisturbed)}, stirring ${f(firstStirring)}, awake ${f(woke)}, ` +
+    `end level ${al.level.toFixed(2)} (floor ${al.floor.toFixed(2)}), climbed ${(ex.y - spot.y).toFixed(0)} m`);
+  return { woke, firstStirring, level: al.level, floor: al.floor, peak };
+}
+console.log("alertness:");
+const careful = alertRun("careful climb, never pausing (120 s)", spots.base, climber(false), 120);
+const fast = alertRun("fast climb, never pausing (120 s)", spots.base, climber(true), 120);
+const paced = alertRun("fast climb with 6 s pauses every 10 s (120 s)", spots.base, (ex, input, c, t) => {
+  if (t % 16 < 10) climber(true)(ex, input, c); else { input.dir = 0; input.run = false; }
+}, 120);
+const settle = alertRun("run 12 s, then stand still 40 s", spots.base, (ex, input, c, t) => {
+  if (t < 12) climber(true)(ex, input, c); else { input.dir = 0; input.run = false; }
+}, 52);
+const leaps = alertRun("jumping constantly (60 s)", spots.gameplay, (ex, input) => { input.dir = 0; input.jumpPressed = ex.grounded; }, 60);
+const expect = (ok, msg) => { if (!ok) { console.log("FAIL " + msg); failures++; } };
+expect(careful.woke === null, "careful climbing alone should not wake the beast within 2 minutes");
+expect(fast.woke !== null && fast.woke > 15, "nonstop fast climbing should wake it, but not within 15 s");
+expect(paced.woke === null || paced.woke > fast.woke + 10, "pausing should buy real time");
+expect(settle.level < settle.peak - 0.15 && settle.level > 0, "stillness should settle it, but not to zero");
+expect(leaps.woke !== null, "constant jumping should wake it");
+console.log(failures ? `${failures} problem(s)` : "all movement and alertness checks passed");
 process.exit(failures ? 1 : 0);

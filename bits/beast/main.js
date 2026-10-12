@@ -1232,9 +1232,11 @@ class PaintScheduler {
     this.jobs.delete(entry);
   }
 
-  // Loading: finish only what the first frame shows; the rest streams in.
+  // Loading: finish what the first frame shows plus the walkable body around
+  // it (priority >= 6: visible tiles, and the play layer's ring); the rest
+  // streams in.
   finishVisible() {
-    for (const j of [...this.jobs]) if (j.priority >= 10) this.finish(j);
+    for (const j of [...this.jobs]) if (j.priority >= 6) this.finish(j);
   }
 
   pump(budgetMs) {
@@ -1308,6 +1310,21 @@ class PaintedLayer {
       this.tiles.delete(e.key);
       this.sched.jobs.delete(e);
       if (e.canvas && e.canvas.close) e.canvas.close();
+    }
+  }
+
+  // Requests (without drawing) every tile a view will need: used to paint a
+  // view in the background before cutting to it.
+  request(view, priority) {
+    const k = view.ppm * view.pr * this.L.par;
+    const ox = Math.round(view.W / 2 - view.camX * k);
+    const oy = Math.round(view.horizon + view.camY * k);
+    for (let ty = Math.floor(-oy / TILE); ty <= Math.floor((view.H - oy) / TILE); ty++) {
+      for (let tx = Math.floor(-ox / TILE); tx <= Math.floor((view.W - ox) / TILE); tx++) {
+        const e = this.entry(tx, ty, k, view.pr);
+        e.used = this.frame + 1; // keep through the next draw's eviction
+        if (!e.done) this.sched.request(e, priority);
+      }
     }
   }
 
@@ -2260,7 +2277,12 @@ class Explorer {
 
     // Walk-cycle phase advances with distance travelled.
     const speed = Math.hypot(this.vx, this.vy);
-    if (this.grounded) this.phase += (speed * dt / (run ? 0.62 : 0.42)) * Math.PI;
+    if (this.grounded) {
+      const before = Math.floor(this.phase / Math.PI);
+      this.phase += (speed * dt / (run ? 0.62 : 0.42)) * Math.PI;
+      // A footfall each half stride: the noise system listens for these.
+      if (Math.floor(this.phase / Math.PI) !== before) this.events.push({ type: "step", run, speed });
+    }
 
     if (this.anticipate > 0) this.state = "anticipate";
     else if (!this.grounded) this.state = wall ? "brace" : "air";
@@ -2272,6 +2294,18 @@ class Explorer {
       this.events.push({ type: "fell" });
       this.reset(this.safe);
     }
+  }
+
+  // What the feet are on: "cap", "skin", "ear", "moss" or "fur". Moss is the
+  // same patch mask the painter uses, so painted moss really is quieter.
+  surface(mossSeed) {
+    if (this.onCap) return "cap";
+    this.sd(this.x, this.y - 0.05);
+    const m = this.o.mat;
+    if (m === MAT_SKIN) return "skin";
+    if (m === MAT_EAR) return "ear";
+    if (mossSeed !== undefined && fbm(this.x * 0.09, this.y * 0.09, mossSeed + 29, 3) > 0.6 && this.ny > 0.45) return "moss";
+    return "fur";
   }
 
   // Everything the renderer needs to pose the figure.
@@ -2290,6 +2324,260 @@ class Explorer {
       brace: s === "brace",
       slope: this.grounded ? Math.atan2(-this.nx, this.ny) : 0
     };
+  }
+}
+
+// ==== src/66-alertness.js ====
+// ---- Alertness: the beast hears every step ---------------------------------
+// One continuous level, 0 (deep sleep) .. 1 (awake). Noise comes from the
+// explorer's footsteps, launches and landings, scaled by what the feet are on
+// (moss is soft, mushroom caps spring, the ears and face are sensitive) and
+// by height - the closer to the head, the lighter the sleep.
+// Stillness lets it settle, slowly, down to a floor that rises with every
+// disturbance the beast remembers, so waiting can never erase all tension.
+//
+//   DEEP SLEEP  < 0.3   slow breathing, quiet, still fur
+//   DISTURBED   < 0.62  quicker breath, fur ripples, small reactions
+//   STIRRING    < 1     heaving body, falling dust, wind - the warning
+//   AWAKE       = 1     irreversible: the awakening begins
+
+const NOISE = {
+  stepCareful: 0.0016,
+  stepRun: 0.0085,
+  launch: 0.004,
+  landSoft: 0.012, // an ordinary jump landing on fur
+  landPerSpeed: 0.006, // extra per m/s of impact above 5 m/s
+  hardFall: 0.16, // impact above 12 m/s
+  surface: { fur: 1, moss: 0.55, cap: 0.7, skin: 2.2, ear: 2.6 },
+  recoverPerSec: 0.03,
+  stillAfter: 0.7, // seconds of stillness before the beast starts to settle
+  memory: 0.14, // share of each noise that raises the floor
+  floorMax: 0.42,
+  disturbed: 0.3,
+  stirring: 0.62
+};
+
+const ALERT_STATES = ["sleep", "disturbed", "stirring", "awake"];
+
+class Alertness {
+  constructor(world) {
+    this.world = world;
+    this.mossSeed = world.seed + 100;
+    this.rng = rngFrom(world.seed + 5);
+    this.reset();
+  }
+
+  reset() {
+    this.level = 0;
+    this.floor = 0;
+    this.still = 0;
+    this.state = "sleep";
+    this.breath = 0; // breathing phase (radians)
+    this.heave = 0; // current body rise (m)
+    this.hitch = 0; // a caught breath while stirring
+    this.pulses = []; // recent noises, for fur ripples and footstep rings
+    this.time = 0;
+  }
+
+  // Sleep grows lighter toward the head, and the face itself is sensitive.
+  get sensitivity() {
+    return 1 + clamp(this.explorerY / 320, 0, 1) * 0.8 + (this.nearHead ? 0.8 : 0);
+  }
+
+  noise(amount, ex, surface) {
+    if (this.state === "awake" || amount <= 0) return;
+    const n = amount * (NOISE.surface[surface] || 1) * this.sensitivity * (this.scale || 1);
+    this.level = Math.min(1, this.level + n);
+    this.floor = Math.min(NOISE.floorMax, this.floor + n * NOISE.memory);
+    this.still = 0;
+    this.pulses.push({ x: ex.x, y: ex.y, amount: n, surface, t: this.time });
+    if (this.pulses.length > 24) this.pulses.shift();
+  }
+
+  update(dt, ex, input) {
+    this.time += dt;
+    this.explorerY = ex.y;
+    const h = this.world.focus.head;
+    this.nearHead = Math.hypot(ex.x - h.x, ex.y - h.y) < 18;
+    const surface = ex.grounded ? ex.surface(this.mossSeed) : "fur";
+
+    for (const e of ex.events) {
+      if (e.type === "step") this.noise(e.run ? NOISE.stepRun : NOISE.stepCareful, ex, surface);
+      else if (e.type === "launch") this.noise(NOISE.launch, ex, surface);
+      else if (e.type === "fell") this.noise(NOISE.hardFall * 1.5, ex, "fur");
+      else if (e.type === "land") {
+        const extra = Math.max(0, e.impact - 5) * NOISE.landPerSpeed;
+        this.noise(NOISE.landSoft + extra + (e.impact > 12 ? NOISE.hardFall : 0), ex, surface);
+      }
+    }
+
+    // Stillness: no input, standing on something. Settling is slow, slower
+    // still once the beast is stirring, and never below the remembered floor.
+    const idle = ex.grounded && input.dir === 0 && Math.hypot(ex.vx, ex.vy) < 0.1;
+    this.still = idle ? this.still + dt : 0;
+    if (this.state !== "awake" && this.still > NOISE.stillAfter) {
+      const rate = NOISE.recoverPerSec * (this.recovery || 1) * (this.level > NOISE.stirring ? 0.55 : 1);
+      this.level = Math.max(this.floor, this.level - rate * dt);
+    }
+
+    const prev = this.state;
+    if (this.level >= 1) this.state = "awake";
+    else if (this.state !== "awake") {
+      this.state = this.level >= NOISE.stirring ? "stirring" : this.level >= NOISE.disturbed ? "disturbed" : "sleep";
+    }
+    if (prev !== this.state) this.changed = { from: prev, to: this.state, t: this.time };
+
+    // Breathing: slow and deep asleep, quicker and shallower when disturbed,
+    // heaving with caught breaths when stirring.
+    const a = this.level;
+    const period = lerp(6.5, 2.8, smoothstep(0.1, 0.9, a));
+    if (this.state === "stirring" && this.hitch <= 0 && this.rng() < dt * 0.25) this.hitch = 0.9;
+    this.hitch -= dt;
+    if (this.hitch <= 0) this.breath += (dt / period) * Math.PI * 2;
+    const amp = lerp(0.05, 0.2, smoothstep(0.2, 0.95, a));
+    this.heave = Math.sin(this.breath) * amp;
+  }
+
+  // 0..1 intensity of a band, for effects.
+  get stir() {
+    return smoothstep(NOISE.disturbed, 1, this.level);
+  }
+}
+
+// ==== src/68-life.js ====
+// ---- Life: the beast reacting, drawn live over the painted world -----------
+// - Live fur: tufts along the silhouette near the explorer that sway in the
+//   wind, ripple outward from each noise (with a slight delay, like fur) and
+//   bristle as the beast stirs; still and calm when it sleeps.
+// - Footstep rings: soft rings on the fur, sized by how loud a step was, so
+//   the player learns what is quiet without a meter.
+// - Dust and pebbles shaken loose while stirring; spores puffed from caps.
+// - A violet edge-darkening that grows as the beast nears waking.
+// All bounded: tufts rebuilt only when the camera moves, particles capped.
+
+class Life {
+  constructor(world) {
+    this.world = world;
+    this.anat = world.layers.play;
+    this.tufts = [];
+    this.tuftKey = "";
+    this.parts = [];
+    this.rng = rngFrom(world.seed + 4242);
+    this.time = 0;
+    this.lastPulse = 0;
+  }
+
+  // Tufts along the walkable silhouette around the explorer (rebuilt per 3 m
+  // cell of travel, over a small window, so it stays cheap).
+  rebuildTufts(view, ex) {
+    const key = `${Math.round(ex.x / 3)}|${Math.round(ex.y / 3)}`;
+    if (key === this.tuftKey) return;
+    this.tuftKey = key;
+    const segs = collisionSegments(this.anat, ex.x - 7, ex.y - 4, ex.x + 7, ex.y + 5, 0.4);
+    const tufts = [];
+    for (const s of segs) {
+      if (s.ny < 0.35) continue; // walkable ground only, not risers
+      const mx = (s.ax + s.bx) / 2, my = (s.ay + s.by) / 2;
+      const r = rngFrom(hash2(Math.round(mx * 10), Math.round(my * 10), this.world.seed + 61));
+      if (r() < 0.5) continue;
+      const nx = s.nx, ny = s.ny; // outward surface normal
+      const lit = clamp(0.35 + nx * LIGHT2[0] * 0.5 + ny * LIGHT2[1] * 0.5 + (r() - 0.5) * 0.25, 0, 1);
+      tufts.push({ x: mx - nx * 0.05, y: my - ny * 0.05, nx, ny, len: 0.16 + r() * 0.16, w: 0.05 + r() * 0.03, col: ramp(PAL.fur, 0.3 + lit * 0.45), phase: r() * 6.28 });
+    }
+    this.tufts = tufts;
+  }
+
+  update(dt, alert, ex, view) {
+    this.time += dt;
+    const stir = alert.stir;
+    // Spores when landing on a cap; dust motes and pebbles while stirring.
+    for (const p of alert.pulses) {
+      if (p.t <= this.lastPulse) continue;
+      if (p.surface === "cap") for (let i = 0; i < 10; i++) this.spawn("spore", p.x + (this.rng() - 0.5) * 0.8, p.y + 0.1, (this.rng() - 0.5) * 0.6, 0.4 + this.rng() * 0.6);
+      this.lastPulse = p.t;
+    }
+    if (view) {
+      const k = view.ppm * view.pr, hw = view.W / 2 / k, hh = view.H / 2 / k;
+      const rate = stir * stir * 26 + (alert.state === "awake" ? 60 : 0);
+      for (let n = this.rng() < (rate * dt) % 1 ? 1 : 0, i = 0; i < Math.floor(rate * dt) + n; i++) {
+        const x = view.camX + (this.rng() - 0.5) * hw * 2.2, y = view.camY + hh + 1;
+        this.spawn(this.rng() < 0.25 ? "pebble" : "dust", x, y, (this.rng() - 0.3) * 0.6, -0.5 - this.rng());
+      }
+    }
+    for (const p of this.parts) {
+      p.age += dt;
+      if (p.kind === "pebble") p.vy -= 14 * dt;
+      else p.vy += ((p.kind === "spore" ? 0.15 : -0.6) - p.vy) * dt * 1.5;
+      p.vx += (Math.sin(this.time * 0.7 + p.y * 0.3) * 0.4 * (0.3 + stir) - p.vx) * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+    }
+    this.parts = this.parts.filter((p) => p.age < p.life);
+  }
+
+  spawn(kind, x, y, vx, vy) {
+    if (this.parts.length > 140) return;
+    const life = kind === "spore" ? 1.6 + this.rng() : kind === "pebble" ? 2.5 : 4 + this.rng() * 2;
+    this.parts.push({ kind, x, y, vx, vy, age: 0, life, s: kind === "pebble" ? 0.035 + this.rng() * 0.035 : 0.03 + this.rng() * 0.04 });
+  }
+
+  // Under the explorer: swaying fur and footstep rings.
+  drawGround(g, view, alert, ex) {
+    this.rebuildTufts(view, ex);
+    const k = view.ppm * view.pr, t = this.time, stir = alert.stir;
+    for (const tf of this.tufts) {
+      const [sx, sy] = worldToScreen(view, tf.x, tf.y, 1);
+      if (sx < -40 || sx > view.W + 40 || sy < -40 || sy > view.H + 40) continue;
+      let sway = Math.sin(t * (1.1 + stir * 2.5) + tf.phase + tf.x * 0.6) * (0.08 + stir * 0.35);
+      for (const p of alert.pulses) {
+        const age = t - p.t;
+        if (age < 0 || age > 1.6) continue;
+        const front = age * 5; // ripple travels ~5 m/s along the fur
+        const d = Math.hypot(tf.x - p.x, tf.y - p.y);
+        sway += Math.exp(-((d - front) * (d - front)) / 0.6) * Math.exp(-age * 2) * Math.min(0.9, p.amount * 70);
+      }
+      // Lean downslope like the painted fur, plus the sway.
+      // Lie mostly along the slope (downhill), lifting with the sway.
+      let dx = tf.nx * 0.35 + tf.ny * 0.75 * SUN_SIDE, dy = tf.ny * 0.35 - tf.nx * 0.75 * SUN_SIDE - 0.2;
+      const ca = Math.cos(sway), sa = Math.sin(sway);
+      [dx, dy] = [dx * ca - dy * sa, dx * sa + dy * ca];
+      const l = Math.hypot(dx, dy) || 1;
+      drawLock(g, sx, sy, dx / l, -dy / l, tf.len * k, tf.w * k, sway * 0.3, tf.col, 0.7);
+    }
+    for (const p of alert.pulses) {
+      const age = t - p.t;
+      if (age < 0 || age > 0.9 || p.amount < 0.0015) continue;
+      const [sx, sy] = worldToScreen(view, p.x, p.y, 1);
+      const r = (0.25 + age * (1.2 + p.amount * 90)) * k;
+      const a = Math.min(0.5, p.amount * 30) * (1 - age / 0.9);
+      g.beginPath();
+      g.ellipse(sx, sy, r, r * 0.32, 0, Math.PI * 1.05, Math.PI * 1.95);
+      g.lineWidth = Math.max(1, 0.05 * k);
+      g.strokeStyle = css(mixRGB([255, 244, 228], [255, 170, 150], alert.stir), a);
+      g.stroke();
+    }
+  }
+
+  // Over everything in the body group: dust, pebbles, spores.
+  drawAir(g, view) {
+    const k = view.ppm * view.pr;
+    for (const p of this.parts) {
+      const [sx, sy] = worldToScreen(view, p.x, p.y, 1);
+      const fade = Math.min(1, p.age * 3) * (1 - p.age / p.life);
+      const col = p.kind === "pebble" ? hex("#a8868a") : p.kind === "spore" ? hex("#ffe6a8") : hex("#fbe6d4");
+      dab(g, sx, sy, p.s * k, p.s * k * (p.kind === "dust" ? 0.7 : 1), 0, col, (p.kind === "pebble" ? 0.75 : 0.6) * fade);
+    }
+  }
+
+  // The warning at the edges of the screen.
+  drawWarning(g, view, alert) {
+    const w = smoothstep(0.45, 1, alert.level) * (0.75 + 0.25 * Math.sin(alert.breath));
+    if (w <= 0.01) return;
+    const v = g.createRadialGradient(view.W / 2, view.H * 0.55, view.H * 0.25, view.W / 2, view.H * 0.55, view.H * 0.75);
+    v.addColorStop(0, css(PAL.fur[0], 0));
+    v.addColorStop(1, css([46, 30, 70], 0.55 * w));
+    g.fillStyle = v;
+    g.fillRect(0, 0, view.W, view.H);
   }
 }
 
@@ -2332,6 +2620,11 @@ class Scene {
     }
   }
 
+  // Paint a view in the background (e.g. the restart point during a fade).
+  prefetch(view) {
+    for (const L of Object.values(this.layers)) L.request(view, L.L.name === "play" ? 14 : 9);
+  }
+
   // Paints every layer the view needs right now (used while loading).
   prepare(view, explorer) {
     this.render(makeCanvas(1, 1).getContext("2d"), view, { explorer: { x: explorer.x, y: explorer.y, facing: explorer.facing } });
@@ -2364,13 +2657,23 @@ class Scene {
     g.drawImage(this.back, 0, 0, bw, bh, 0, 0, bw * 2, bh * 2);
     Ls.cloudsMid.draw(g, view);
     drawMistBand(g, view, ey - 14, 0.8, 8, PAL.mistWarm, 0.35 * haze);
+    // The beast's body (and everything on it) rises and falls with its breath.
+    const alert = opts.alert, life = opts.life;
+    // Whole device pixels: a fractional offset would resample every tile.
+    const heavePx = Math.round((alert ? alert.heave : 0) * view.ppm * view.pr);
+    g.save();
+    g.translate(0, -heavePx);
     Ls.ridge.draw(g, view);
     Ls.play.draw(g, view, true); // the walkable body is never left unpainted
+    if (life) life.drawGround(g, view, alert, ex);
     const [sx, sy] = worldToScreen(view, ex.x, ex.y, 1);
     drawExplorer(g, sx, sy, EXPLORER_HEIGHT * view.ppm * view.pr, ex.facing, ex.pose);
+    if (life) life.drawAir(g, view);
     Ls.fore.draw(g, view);
-    this.finish.draw(g, view);
     if (opts.collision) drawCollisionOverlay(g, view, w.layers.play, ex, w.props.mushrooms);
+    g.restore();
+    this.finish.draw(g, view);
+    if (life) life.drawWarning(g, view, alert);
   }
 }
 
@@ -2401,7 +2704,7 @@ function collisionSegments(anat, x0, y0, x1, y1, step) {
         const gx = anat.eval(mx + e, my, prims, o).sd - anat.eval(mx - e, my, prims, o).sd;
         const gy = anat.eval(mx, my + e, prims, o).sd - anat.eval(mx, my - e, prims, o).sd;
         const l = Math.hypot(gx, gy) || 1;
-        segs.push({ ax, ay, bx, by, ny: gy / l });
+        segs.push({ ax, ay, bx, by, nx: gx / l, ny: gy / l });
       }
     }
   }
@@ -2448,9 +2751,10 @@ function drawCollisionOverlay(g, view, anat, ex, mushrooms) {
 
 // ==== src/90-main.js ====
 // ---- Bit entry -------------------------------------------------------------
-// Stage 2 (movement): the explorer walks, runs, jumps and lands on the
-// creature's painted body; the camera follows; painting streams in ahead of
-// the camera within a per-frame budget. Interface stays hidden for now.
+// Beast. Stage 3 (alertness): the explorer climbs the sleeping beast's body;
+// every step, launch and landing makes noise; the beast breathes, stirs and
+// settles; stillness lets it calm, slowly, never fully. Interface stays
+// hidden; the world itself is the feedback.
 
 const WORLD_SEED = 7331;
 // Painting gets what is left of a ~14 ms frame after drawing (3-10 ms).
@@ -2458,7 +2762,7 @@ const FRAME_TARGET_MS = 14;
 
 window.plethoraBit = {
   meta: {
-    title: "Don't Wake It",
+    title: "Beast",
     runtime: "plethora-bit@2",
     tags: ["adventure", "climbing", "atmospheric"],
     permissions: []
@@ -2473,6 +2777,11 @@ window.plethoraBit = {
       return v === undefined || v === null ? d : v;
     };
     const DEFAULT_PHYS = { walk: PHYS.walk, run: PHYS.run, jumpHeight: PHYS.jumpHeight };
+    const applyNoise = () => {
+      if (!alert) return;
+      alert.scale = knob("noise_scale", 1);
+      alert.recovery = knob("recovery_rate", 1);
+    };
     const applyPhys = () => {
       PHYS.walk = DEFAULT_PHYS.walk * knob("walk_speed", 1);
       PHYS.run = DEFAULT_PHYS.run * knob("run_speed", 1);
@@ -2480,7 +2789,7 @@ window.plethoraBit = {
     };
 
     let stage = "world";
-    let world, scene, ex, cam;
+    let world, scene, ex, cam, alert, life;
     let disposed = false;
     ctx.onDestroy(() => { disposed = true; });
 
@@ -2505,6 +2814,8 @@ window.plethoraBit = {
       stage = "explorer";
       ex = new Explorer(world.layers.play, startSpot(), world.props.mushrooms.map((m) => m.cap));
       cam = new FollowCamera(ex);
+      alert = new Alertness(world);
+      life = new Life(world);
       stage = "first-frame";
       scene.prepare(currentView(), ex); // paint everything the first frame needs
       scene.sched.syncMs = 0;
@@ -2515,14 +2826,46 @@ window.plethoraBit = {
     }
 
     const controls = new Controls(ctx, canvas, () => ctx.platform.start());
+    applyNoise();
 
+    // Temporary stand-in for the awakening (Stage 6 builds the real
+    // sequence): the body heaves, one impact, the explorer loses footing,
+    // the world fades into mist, and the climb restarts.
+    let wake = null, shake = 0, fade = 0;
+    const still = { dir: 0, run: false, jumpPressed: false };
+    const restart = () => {
+      ex.reset(startSpot());
+      alert.reset();
+      cam.snap(ex);
+      life.parts.length = 0;
+      wake = null;
+    };
+
+    let lastView = null;
     const draw = () => {
       if (disposed || !canvas.width || !canvas.height) return;
       const view = currentView();
+      if (shake > 0.01) {
+        view.camX += Math.sin(alert.time * 47) * shake * 0.35;
+        view.camY += Math.cos(alert.time * 39) * shake * 0.25;
+      }
+      lastView = view;
       scene.render(g, view, {
         explorer: { x: ex.x, y: ex.y, facing: ex.facing, pose: ex.pose() },
-        collision: !!knob("collision_overlay", false)
+        collision: !!knob("collision_overlay", false),
+        alert,
+        life
       });
+      if (fade > 0.001) {
+        g.fillStyle = css(PAL.mistWarm, fade);
+        g.fillRect(0, 0, view.W, view.H);
+      }
+      if (knob("show_alertness", false)) {
+        const s = view.pr;
+        g.font = `${12 * s}px sans-serif`;
+        g.fillStyle = "rgba(40,30,60,0.75)";
+        g.fillText(`${alert.state} ${alert.level.toFixed(2)}  floor ${alert.floor.toFixed(2)}  height ${ex.y.toFixed(0)} m`, 12 * s, (ctx.safeArea.top + 22) * s);
+      }
       // Faint marks where fingers are held: feedback without a HUD.
       for (const p of controls.touches()) {
         const s = view.pr;
@@ -2533,8 +2876,10 @@ window.plethoraBit = {
         globalThis.__dwState = {
           x: ex.x, y: ex.y, vx: ex.vx, vy: ex.vy, grounded: ex.grounded, state: ex.state,
           feetSd: ex.sd(ex.x, ex.y + PHYS.feetR) - PHYS.feetR, bodySd: ex.sd(ex.x, ex.y + PHYS.bodyY) - PHYS.bodyR,
-          pending: scene.sched.jobs.size, syncMs: scene.sched.syncMs || 0, syncCount: scene.sched.syncCount || 0
+          pending: scene.sched.jobs.size, syncMs: scene.sched.syncMs || 0, syncCount: scene.sched.syncCount || 0,
+          alert: alert.level, alertState: alert.state, floor: alert.floor
         };
+        globalThis.__dwAlert = alert; // test harness only (profile flag)
       }
     };
 
@@ -2542,11 +2887,38 @@ window.plethoraBit = {
       fixedHz: 120,
       maxSubsteps: 8,
       fixedUpdate: (stepMs) => {
-        ex.step(stepMs / 1000, controls);
+        ex.step(stepMs / 1000, wake ? still : controls);
         controls.consume();
       },
       update: (dtMs) => {
-        cam.update(Math.min(dtMs, 100) / 1000, ex);
+        const dt = Math.min(dtMs, 100) / 1000;
+        cam.update(dt, ex);
+        alert.update(dt, ex, wake ? still : controls);
+        if (alert.state === "awake" && !wake) wake = { t: 0, hit: false };
+        if (wake) {
+          wake.t += dt;
+          alert.heave = Math.sin(wake.t * 3.4) * 0.9 * smoothstep(0, 0.6, wake.t);
+          if (!wake.hit && wake.t > 1) {
+            wake.hit = true;
+            shake = 1;
+            ex.vx = -ex.facing * 2.5;
+            ex.vy = 7;
+            ex.grounded = false;
+            ex.airLock = 0.3;
+          }
+          fade = smoothstep(1.9, 2.9, wake.t);
+          // Paint the restart point while the world fades, so the cut is clean.
+          if (wake.t > 0.8 && lastView) {
+            const s = startSpot();
+            const v = makeView("gameplay", world, lastView.W, lastView.H, lastView.pr, { x: s.x, y: s.y });
+            scene.prefetch(v);
+          }
+          if (wake.t > 3.1) restart();
+        } else {
+          fade = Math.max(0, fade - dt * 1.2);
+        }
+        shake *= Math.exp(-dt * 5);
+        life.update(dt, alert, ex, lastView);
         ex.events.length = 0;
       },
       render: () => {
@@ -2565,16 +2937,17 @@ window.plethoraBit = {
     if (tune) {
       tune.onChange(["start"], () => { ex.reset(startSpot()); cam.snap(ex); });
       tune.onChange(["walk_speed", "run_speed", "jump_height"], applyPhys);
+      tune.onChange(["noise_scale", "recovery_rate"], applyNoise);
     }
     draw();
-    ctx.markVisualReady("stage2-first-frame");
+    ctx.markVisualReady("first-frame");
     ctx.platform.ready();
   }
 };
 
 // Test hook: lets offline tools drive the world and controller headlessly.
 if (typeof globalThis.__dwTestHook === "function") {
-  globalThis.__dwTestHook({ buildWorld, Explorer, PHYS, WORLD_SEED });
+  globalThis.__dwTestHook({ buildWorld, Explorer, PHYS, WORLD_SEED, Alertness, NOISE });
 }
 
 })();

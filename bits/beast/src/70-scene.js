@@ -36,6 +36,11 @@ class Scene {
     }
   }
 
+  // Paint a view in the background (e.g. the restart point during a fade).
+  prefetch(view) {
+    for (const L of Object.values(this.layers)) L.request(view, L.L.name === "play" ? 14 : 9);
+  }
+
   // Paints every layer the view needs right now (used while loading).
   prepare(view, explorer) {
     this.render(makeCanvas(1, 1).getContext("2d"), view, { explorer: { x: explorer.x, y: explorer.y, facing: explorer.facing } });
@@ -68,13 +73,23 @@ class Scene {
     g.drawImage(this.back, 0, 0, bw, bh, 0, 0, bw * 2, bh * 2);
     Ls.cloudsMid.draw(g, view);
     drawMistBand(g, view, ey - 14, 0.8, 8, PAL.mistWarm, 0.35 * haze);
+    // The beast's body (and everything on it) rises and falls with its breath.
+    const alert = opts.alert, life = opts.life;
+    // Whole device pixels: a fractional offset would resample every tile.
+    const heavePx = Math.round((alert ? alert.heave : 0) * view.ppm * view.pr);
+    g.save();
+    g.translate(0, -heavePx);
     Ls.ridge.draw(g, view);
     Ls.play.draw(g, view, true); // the walkable body is never left unpainted
+    if (life) life.drawGround(g, view, alert, ex);
     const [sx, sy] = worldToScreen(view, ex.x, ex.y, 1);
     drawExplorer(g, sx, sy, EXPLORER_HEIGHT * view.ppm * view.pr, ex.facing, ex.pose);
+    if (life) life.drawAir(g, view);
     Ls.fore.draw(g, view);
-    this.finish.draw(g, view);
     if (opts.collision) drawCollisionOverlay(g, view, w.layers.play, ex, w.props.mushrooms);
+    g.restore();
+    this.finish.draw(g, view);
+    if (life) life.drawWarning(g, view, alert);
   }
 }
 
@@ -105,7 +120,7 @@ function collisionSegments(anat, x0, y0, x1, y1, step) {
         const gx = anat.eval(mx + e, my, prims, o).sd - anat.eval(mx - e, my, prims, o).sd;
         const gy = anat.eval(mx, my + e, prims, o).sd - anat.eval(mx, my - e, prims, o).sd;
         const l = Math.hypot(gx, gy) || 1;
-        segs.push({ ax, ay, bx, by, ny: gy / l });
+        segs.push({ ax, ay, bx, by, nx: gx / l, ny: gy / l });
       }
     }
   }

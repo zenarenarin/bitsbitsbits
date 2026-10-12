@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Renders a Bit in headless Chromium at phone size and saves a screenshot.
-//   NODE_PATH=$(npm root -g) node tools/preview/shoot.cjs --bit dont-wake-it \
+//   NODE_PATH=$(npm root -g) node tools/preview/shoot.cjs --bit beast \
 //     --out shot.png [--width 390 --height 844 --dpr 2] [knob=value ...]
 const http = require("node:http");
 const fs = require("node:fs");

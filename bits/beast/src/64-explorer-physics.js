@@ -234,7 +234,12 @@ class Explorer {
 
     // Walk-cycle phase advances with distance travelled.
     const speed = Math.hypot(this.vx, this.vy);
-    if (this.grounded) this.phase += (speed * dt / (run ? 0.62 : 0.42)) * Math.PI;
+    if (this.grounded) {
+      const before = Math.floor(this.phase / Math.PI);
+      this.phase += (speed * dt / (run ? 0.62 : 0.42)) * Math.PI;
+      // A footfall each half stride: the noise system listens for these.
+      if (Math.floor(this.phase / Math.PI) !== before) this.events.push({ type: "step", run, speed });
+    }
 
     if (this.anticipate > 0) this.state = "anticipate";
     else if (!this.grounded) this.state = wall ? "brace" : "air";
@@ -246,6 +251,18 @@ class Explorer {
       this.events.push({ type: "fell" });
       this.reset(this.safe);
     }
+  }
+
+  // What the feet are on: "cap", "skin", "ear", "moss" or "fur". Moss is the
+  // same patch mask the painter uses, so painted moss really is quieter.
+  surface(mossSeed) {
+    if (this.onCap) return "cap";
+    this.sd(this.x, this.y - 0.05);
+    const m = this.o.mat;
+    if (m === MAT_SKIN) return "skin";
+    if (m === MAT_EAR) return "ear";
+    if (mossSeed !== undefined && fbm(this.x * 0.09, this.y * 0.09, mossSeed + 29, 3) > 0.6 && this.ny > 0.45) return "moss";
+    return "fur";
   }
 
   // Everything the renderer needs to pose the figure.

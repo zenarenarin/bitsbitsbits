@@ -1,7 +1,8 @@
 // ---- Bit entry -------------------------------------------------------------
-// Stage 2 (movement): the explorer walks, runs, jumps and lands on the
-// creature's painted body; the camera follows; painting streams in ahead of
-// the camera within a per-frame budget. Interface stays hidden for now.
+// Beast. Stage 3 (alertness): the explorer climbs the sleeping beast's body;
+// every step, launch and landing makes noise; the beast breathes, stirs and
+// settles; stillness lets it calm, slowly, never fully. Interface stays
+// hidden; the world itself is the feedback.
 
 const WORLD_SEED = 7331;
 // Painting gets what is left of a ~14 ms frame after drawing (3-10 ms).
@@ -9,7 +10,7 @@ const FRAME_TARGET_MS = 14;
 
 window.plethoraBit = {
   meta: {
-    title: "Don't Wake It",
+    title: "Beast",
     runtime: "plethora-bit@2",
     tags: ["adventure", "climbing", "atmospheric"],
     permissions: []
@@ -24,6 +25,11 @@ window.plethoraBit = {
       return v === undefined || v === null ? d : v;
     };
     const DEFAULT_PHYS = { walk: PHYS.walk, run: PHYS.run, jumpHeight: PHYS.jumpHeight };
+    const applyNoise = () => {
+      if (!alert) return;
+      alert.scale = knob("noise_scale", 1);
+      alert.recovery = knob("recovery_rate", 1);
+    };
     const applyPhys = () => {
       PHYS.walk = DEFAULT_PHYS.walk * knob("walk_speed", 1);
       PHYS.run = DEFAULT_PHYS.run * knob("run_speed", 1);
@@ -31,7 +37,7 @@ window.plethoraBit = {
     };
 
     let stage = "world";
-    let world, scene, ex, cam;
+    let world, scene, ex, cam, alert, life;
     let disposed = false;
     ctx.onDestroy(() => { disposed = true; });
 
@@ -56,6 +62,8 @@ window.plethoraBit = {
       stage = "explorer";
       ex = new Explorer(world.layers.play, startSpot(), world.props.mushrooms.map((m) => m.cap));
       cam = new FollowCamera(ex);
+      alert = new Alertness(world);
+      life = new Life(world);
       stage = "first-frame";
       scene.prepare(currentView(), ex); // paint everything the first frame needs
       scene.sched.syncMs = 0;
@@ -66,14 +74,46 @@ window.plethoraBit = {
     }
 
     const controls = new Controls(ctx, canvas, () => ctx.platform.start());
+    applyNoise();
 
+    // Temporary stand-in for the awakening (Stage 6 builds the real
+    // sequence): the body heaves, one impact, the explorer loses footing,
+    // the world fades into mist, and the climb restarts.
+    let wake = null, shake = 0, fade = 0;
+    const still = { dir: 0, run: false, jumpPressed: false };
+    const restart = () => {
+      ex.reset(startSpot());
+      alert.reset();
+      cam.snap(ex);
+      life.parts.length = 0;
+      wake = null;
+    };
+
+    let lastView = null;
     const draw = () => {
       if (disposed || !canvas.width || !canvas.height) return;
       const view = currentView();
+      if (shake > 0.01) {
+        view.camX += Math.sin(alert.time * 47) * shake * 0.35;
+        view.camY += Math.cos(alert.time * 39) * shake * 0.25;
+      }
+      lastView = view;
       scene.render(g, view, {
         explorer: { x: ex.x, y: ex.y, facing: ex.facing, pose: ex.pose() },
-        collision: !!knob("collision_overlay", false)
+        collision: !!knob("collision_overlay", false),
+        alert,
+        life
       });
+      if (fade > 0.001) {
+        g.fillStyle = css(PAL.mistWarm, fade);
+        g.fillRect(0, 0, view.W, view.H);
+      }
+      if (knob("show_alertness", false)) {
+        const s = view.pr;
+        g.font = `${12 * s}px sans-serif`;
+        g.fillStyle = "rgba(40,30,60,0.75)";
+        g.fillText(`${alert.state} ${alert.level.toFixed(2)}  floor ${alert.floor.toFixed(2)}  height ${ex.y.toFixed(0)} m`, 12 * s, (ctx.safeArea.top + 22) * s);
+      }
       // Faint marks where fingers are held: feedback without a HUD.
       for (const p of controls.touches()) {
         const s = view.pr;
@@ -84,8 +124,10 @@ window.plethoraBit = {
         globalThis.__dwState = {
           x: ex.x, y: ex.y, vx: ex.vx, vy: ex.vy, grounded: ex.grounded, state: ex.state,
           feetSd: ex.sd(ex.x, ex.y + PHYS.feetR) - PHYS.feetR, bodySd: ex.sd(ex.x, ex.y + PHYS.bodyY) - PHYS.bodyR,
-          pending: scene.sched.jobs.size, syncMs: scene.sched.syncMs || 0, syncCount: scene.sched.syncCount || 0
+          pending: scene.sched.jobs.size, syncMs: scene.sched.syncMs || 0, syncCount: scene.sched.syncCount || 0,
+          alert: alert.level, alertState: alert.state, floor: alert.floor
         };
+        globalThis.__dwAlert = alert; // test harness only (profile flag)
       }
     };
 
@@ -93,11 +135,38 @@ window.plethoraBit = {
       fixedHz: 120,
       maxSubsteps: 8,
       fixedUpdate: (stepMs) => {
-        ex.step(stepMs / 1000, controls);
+        ex.step(stepMs / 1000, wake ? still : controls);
         controls.consume();
       },
       update: (dtMs) => {
-        cam.update(Math.min(dtMs, 100) / 1000, ex);
+        const dt = Math.min(dtMs, 100) / 1000;
+        cam.update(dt, ex);
+        alert.update(dt, ex, wake ? still : controls);
+        if (alert.state === "awake" && !wake) wake = { t: 0, hit: false };
+        if (wake) {
+          wake.t += dt;
+          alert.heave = Math.sin(wake.t * 3.4) * 0.9 * smoothstep(0, 0.6, wake.t);
+          if (!wake.hit && wake.t > 1) {
+            wake.hit = true;
+            shake = 1;
+            ex.vx = -ex.facing * 2.5;
+            ex.vy = 7;
+            ex.grounded = false;
+            ex.airLock = 0.3;
+          }
+          fade = smoothstep(1.9, 2.9, wake.t);
+          // Paint the restart point while the world fades, so the cut is clean.
+          if (wake.t > 0.8 && lastView) {
+            const s = startSpot();
+            const v = makeView("gameplay", world, lastView.W, lastView.H, lastView.pr, { x: s.x, y: s.y });
+            scene.prefetch(v);
+          }
+          if (wake.t > 3.1) restart();
+        } else {
+          fade = Math.max(0, fade - dt * 1.2);
+        }
+        shake *= Math.exp(-dt * 5);
+        life.update(dt, alert, ex, lastView);
         ex.events.length = 0;
       },
       render: () => {
@@ -116,14 +185,15 @@ window.plethoraBit = {
     if (tune) {
       tune.onChange(["start"], () => { ex.reset(startSpot()); cam.snap(ex); });
       tune.onChange(["walk_speed", "run_speed", "jump_height"], applyPhys);
+      tune.onChange(["noise_scale", "recovery_rate"], applyNoise);
     }
     draw();
-    ctx.markVisualReady("stage2-first-frame");
+    ctx.markVisualReady("first-frame");
     ctx.platform.ready();
   }
 };
 
 // Test hook: lets offline tools drive the world and controller headlessly.
 if (typeof globalThis.__dwTestHook === "function") {
-  globalThis.__dwTestHook({ buildWorld, Explorer, PHYS, WORLD_SEED });
+  globalThis.__dwTestHook({ buildWorld, Explorer, PHYS, WORLD_SEED, Alertness, NOISE });
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Bundles bits/<name>/src/*.js (in filename order) into the single-file
 // bits/<name>/main.js that Plethora runs. No dependencies.
-//   node tools/build-bit.mjs dont-wake-it
+//   node tools/build-bit.mjs beast
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
