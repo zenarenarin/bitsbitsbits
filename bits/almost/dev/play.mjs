@@ -185,16 +185,13 @@ const browser = await chromium.launch();
   });
   await page.screenshot({ path: path.join(out, "phone-flight.png") });
 
-  // One continuous run with real pointer events, watched every frame.
-  const reached = await runLong(page, "__bot", 30);
-  ok("bot reached 30 placements in one run with real taps", reached >= 30, reached);
-  const mon = await page.evaluate(() => ({ v: window.__mon.violations, f: window.__mon.frames, m: window.__mon.milestones, count: window.__game.st.count, init: window.__game.st.initialCount, score: window.__game.st.score }));
-  ok("no pin lost/moved and count = initial + score on every rendered frame", mon.v === 0, mon);
-  for (const m of [5, 10, 20, 30]) ok(`after ${m} placements all ${m} remain attached (browser)`, mon.m[m] === true, mon.m);
-  ok("structure holds every pin of the run", mon.count === mon.init + mon.score, mon);
-  await page.waitForTimeout(250);
-  await page.screenshot({ path: path.join(out, "phone-dense.png") });
-  await noGreen(page, "phone dense");
+  // A few more real-time placements before the crash test.
+  await runLong(page, "__bot", 4);
+  await page.evaluate(() => new Promise(r => { const w = () => window.__game.st.phase !== "flying" ? r() : requestAnimationFrame(w); w(); }));
+  if (await page.evaluate(() => window.__game.st.phase === "over")) { // bot mistimed: tap to retry
+    await page.waitForTimeout(800);
+    await page.evaluate(() => window.__tap());
+  }
 
   // Worst-case density: pins clustered at the minimum legal spacing.
   await page.evaluate(() => {
@@ -270,6 +267,55 @@ const browser = await chromium.launch();
   ok("no page errors (phone)", errors.length === 0, errors);
   const jsErr = await page.evaluate(() => window.__events.filter(e => e[0] === "jsError" || e[0] === "initError"));
   ok("no runtime errors", jsErr.length === 0, jsErr);
+  await ctx.close();
+}
+
+// ---------------- Extended continuity: one long run on a stepped clock ---------
+// Real pointer events dispatched at exact simulated instants, so the bot can
+// pack like a skilled player and the run can go long. The monitor checks the
+// invariants on every rendered frame.
+{
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on("pageerror", e => errors.push(String(e)));
+  await page.goto(harness + "?manual=1&st=47&sb=34");
+  await page.waitForFunction(() => window.__ready === true);
+  await page.evaluate(helpers);
+  await page.evaluate(() => {
+    const core = window.plethoraBit.core, HALF = Math.PI / 2;
+    const frame = ms => new Promise(r => { window.__clock.step = ms; requestAnimationFrame(() => requestAnimationFrame(r)); });
+    window.__stepBot = async goal => {
+      const g = window.__game, st = g.st, f = g.tune.flightMs / 1000;
+      while (st.score < goal && st.phase !== "over") {
+        if (st.phase === "flying") { await frame(16); continue; }
+        const gi = core.goodIntervals(st.angles, st.count, st.omega, f);
+        let best = null;
+        for (const x of gi) if (!best || x.len > best.len) best = x;
+        if (!best) { window.__tap(); await frame(16); continue; }
+        const m = Math.min(0.02, best.len / 2);
+        const target = st.omega > 0 ? best.start + m : best.start + best.len - m;
+        const beta = __wrap(HALF - g.theta(st.simT));
+        const wait = __wrap(st.omega > 0 ? beta - target : target - beta) / Math.abs(st.omega);
+        if (wait > 0.04) { await frame(Math.min(40, (wait - 0.02) * 1000)); continue; }
+        await frame(wait * 1000);
+        window.__tap(); // real pointerdown on the canvas
+        await frame(16);
+      }
+      return st.score;
+    };
+  });
+  await page.evaluate(() => { window.__done = undefined; window.__stepBot(40).then(v => { window.__done = v; }); });
+  await page.waitForFunction(() => window.__done !== undefined, null, { timeout: 600000, polling: 500 });
+  const res = await page.evaluate(() => ({ score: window.__done, phase: window.__game.st.phase, v: window.__mon.violations, frames: window.__mon.frames, m: window.__mon.milestones, count: window.__game.st.count, init: window.__game.st.initialCount }));
+  ok("extended run: 40 placements in one continuous run (real pointer events)", res.score >= 40 && res.phase !== "over", res);
+  ok("extended run: no pin lost/moved, count = initial + score on every rendered frame", res.v === 0 && res.frames > 1000, { v: res.v, frames: res.frames });
+  for (const m of [5, 10, 20, 30]) ok(`extended run: after ${m} placements all ${m} remain attached`, res.m[m] === true, res.m);
+  ok("extended run: structure holds every pin of the run", res.count === res.init + res.score, res);
+  await page.evaluate(() => new Promise(r => { window.__clock.step = 16; requestAnimationFrame(() => requestAnimationFrame(r)); }));
+  await page.screenshot({ path: path.join(out, "phone-extended.png") });
+  await noGreen(page, "phone extended");
+  ok("no page errors (extended)", errors.length === 0, errors);
   await ctx.close();
 }
 
