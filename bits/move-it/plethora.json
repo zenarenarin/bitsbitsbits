@@ -17,7 +17,7 @@
   "dependencies": [],
   "onboarding": {
     "kind": "one_line",
-    "version": 1,
-    "message": "Drag their hands, move their bodies, make something."
+    "version": 2,
+    "message": "Drag any body part to pose it. Hold to move a figure."
   }
 }

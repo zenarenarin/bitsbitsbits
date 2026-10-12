@@ -3,16 +3,17 @@
  *
  * Pose two figures, save poses, press play. Everything lives in one file, split
  * into sections that each own one concern:
- *   1. Constants            6. Rendering (canvas + timeline thumbnails)
- *   2. Character geometry   7. Pointer manipulation
+ *   1. Constants            6. Rendering (soft bodies + timeline thumbnails)
+ *   2. Character rig        7. Direct manipulation
  *   3. Project + poses      8. Timeline UI
  *   4. Undo / redo          9. Persistence
- *   5. Playback            10. GIF export
+ *   5. Animation engine    10. GIF export
  *
  * Data rule: `project.poses` is the only source of truth for the animation.
- * The canvas shows `edit` (a private copy of the selected pose) while editing,
- * or freshly interpolated `play` characters during playback. Neither is ever
- * shared with a stored pose, and playback never writes back into poses.
+ * Editing works on `edit` (a private copy of the selected pose); playback
+ * samples `play` from the poses. Secondary motion (momentum, follow-through,
+ * squash) is layered on top into `disp` for display only. None of these
+ * ever write back into stored poses.
  */
 window.plethoraBit = {
   meta: {
@@ -36,19 +37,32 @@ window.plethoraBit = {
     // rewritten on resize; only the view transform changes.
     const STAGE_W = 440;
     const STAGE_H = 600;
+    // Rig dimensions. The spine has three segments so the torso can curve;
+    // shoulders and hips have width so limbs don't sprout from one point.
     const BODY = {
-      sp1: 48, sp2: 46, neck: 8, headR: 30,
-      ua: 50, fa: 46, th: 58, sh: 54, foot: 15,
-      hand: 7.5, limb: 12, torso: 15
+      spine: [33, 32, 29], neck: 8, headR: 30,
+      shW: 15, shDrop: 5, shLift: 7, hipW: 5.5,
+      ua: 50, fa: 46, hand: 5, th: 58, sh: 54, foot: 16
     };
-    // Character state: pelvis position + joint angles (radians, y-down).
-    // sp = lower spine (absolute), ch = upper spine (relative), hd = head
-    // (relative to upper spine), arms relative to the upper spine, legs
-    // absolute from the pelvis, elbows/knees relative to their parent bone.
-    const KEYS = ["x", "y", "sp", "ch", "hd", "lsh", "lel", "rsh", "rel", "lhp", "lkn", "rhp", "rkn"];
+    // Body surface half-widths: [root, middle joint, end].
+    const ARM_R = [7.2, 5.5, 4.4];
+    const LEG_R = [8.2, 6.6, 5.2];
+    const HAND_R = 6.4;
+    const FOOT_R = 4.6;
+    const NECK_R = 6.4;
+    const CAP_R = [9.5, 7.2];
+    // Torso half-width along the spine (u: 0 = hips, 1 = neck).
+    const TORSO_W = [[-0.12, 9.5], [0, 13.2], [0.32, 10.8], [0.64, 13.2], [0.86, 12.4], [1, 7.6]];
+    // Character state: hip position + joint angles (radians, y-down).
+    // sp = lower spine (absolute), s2/s3 = spine bends, hd = head (relative
+    // to the top of the spine), arms relative to the top of the spine, legs
+    // absolute from the hips, elbows/knees relative to their parent bone.
+    const KEYS = ["x", "y", "sp", "s2", "s3", "hd", "lsh", "lel", "rsh", "rel", "lhp", "lkn", "rhp", "rkn"];
     const ANGLE_KEYS = KEYS.slice(2);
-    const DEFAULT_BEND = { ch: 1, lel: -1, rel: 1, lkn: -1, rkn: 1 };
-    const BASE_TRANSITION = 0.55; // seconds per pose transition at 1×
+    // Keeps playful exaggeration possible while preventing a folded spine.
+    const LIMIT = { s2: 1.15, s3: 1.15, hd: 1.35 };
+    const DEFAULT_BEND = { lel: -1, rel: 1, lkn: -1, rkn: 1 };
+    const BASE_TRANSITION = 0.6; // seconds per pose transition at 1×
     const SPEEDS = [0.5, 0.75, 1, 1.5, 2];
     const HOLDS = [0, 0.5, 1, 2]; // extra seconds a pose is held at 1×
     const HISTORY_MAX = 80;
@@ -56,29 +70,28 @@ window.plethoraBit = {
     const MAX_POSES = 240;
     const TAU = Math.PI * 2;
     const DEG = Math.PI / 180;
-    // Playback-only secondary motion: distal joints start a little later
-    // (follow-through) and swing a touch past their target before settling.
-    // Keyframes are always reached exactly.
-    const LAG = { sp: 0, ch: 0.04, hd: 0.12, lsh: 0.03, lel: 0.1, rsh: 0.03, rel: 0.1, lhp: 0, lkn: 0.06, rhp: 0, rkn: 0.06 };
-    const SWING = { sp: 0, ch: 0.03, hd: 0.07, lsh: 0.02, lel: 0.06, rsh: 0.02, rel: 0.06, lhp: 0, lkn: 0.03, rhp: 0, rkn: 0.03 };
+    // Overlapping action: how many seconds (at 1×) each channel trails the
+    // hips, so the body leads and the head, forearms and shins follow.
+    const LAG = {
+      x: 0, y: 0, sp: 0.015, s2: 0.035, s3: 0.055, hd: 0.1,
+      lsh: 0.04, lel: 0.085, rsh: 0.04, rel: 0.085,
+      lhp: 0, lkn: 0, rhp: 0, rkn: 0 // legs move with the hips (and planted feet)
+    };
+    const MAX_LAG = 0.1;
+    const TENSION = 0.9; // Catmull–Rom tangent scale; 1 = classic
 
-    // Joint slots in a Float64Array produced by forward kinematics (x at i, y at i+1).
-    const P = 0, CH = 2, NK = 4, HD = 6, LE = 8, LH = 10, RE = 12, RH = 14,
-      LK = 16, LA = 18, LT = 20, RK = 22, RA = 24, RT = 26, JLEN = 28;
-
-    // Draggable handles. Segments map a touched bone to the handle that moves it.
-    const HANDLES = [
-      ["head", HD], ["neck", NK], ["pelvis", P],
-      ["lel", LE], ["lhand", LH], ["rel", RE], ["rhand", RH],
-      ["lkn", LK], ["lfoot", LA], ["rkn", RK], ["rfoot", RA]
-    ];
-    const SEGMENTS = [
-      [P, CH, "body"], [CH, NK, "body"],
-      [NK, LE, "lel"], [LE, LH, "lhand"], [NK, RE, "rel"], [RE, RH, "rhand"],
-      [P, LK, "lkn"], [LK, LA, "lfoot"], [LA, LT, "lfoot"],
-      [P, RK, "rkn"], [RK, RA, "rfoot"], [RA, RT, "rfoot"]
-    ];
-    const HANDLE_JOINT = Object.fromEntries(HANDLES);
+    // Geometry slots in a Float64Array: points (x at i, y at i + 1), then the
+    // world angles of the spine, head and limb bones.
+    const P0 = 0, S1 = 2, S2 = 4, S3 = 6, HC = 8,
+      LSH = 10, LEL = 12, LWR = 14, RSH = 16, REL = 18, RWR = 20,
+      LHP = 22, LKN = 24, LAN = 26, LTO = 28, RHP = 30, RKN = 32, RAN = 34, RTO = 36,
+      NPTS = 38,
+      A1 = 38, A2 = 39, A3 = 40, AH = 41, LUA = 42, LFA = 43, RUA = 44, RFA = 45,
+      LTH = 46, LSN = 47, RTH = 48, RSN = 49, GLEN = 50;
+    const SIDE = {
+      l: { sh: LSH, el: LEL, wr: LWR, hp: LHP, kn: LKN, an: LAN, to: LTO, ua: LUA, fa: LFA, th: LTH, sn: LSN },
+      r: { sh: RSH, el: REL, wr: RWR, hp: RHP, kn: RKN, an: RAN, to: RTO, ua: RUA, fa: RFA, th: RTH, sn: RSN }
+    };
 
     const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
     const norm = (a) => {
@@ -87,10 +100,13 @@ window.plethoraBit = {
       return a - Math.PI;
     };
     const angDelta = (from, to) => norm(to - from);
-    const ease = (t) => 0.5 - 0.5 * Math.cos(Math.PI * t);
+    const smooth = (e0, e1, x) => {
+      const t = clamp((x - e0) / (e1 - e0), 0, 1);
+      return t * t * (3 - 2 * t);
+    };
     const round3 = (v) => Math.round(v * 1000) / 1000;
 
-    // ───────────────────────────────────────────── 2. Character geometry
+    // ───────────────────────────────────────────── 2. Character rig
 
     function makeChar(x, y, d) {
       // d holds absolute angles in degrees, which are easier to author.
@@ -98,11 +114,12 @@ window.plethoraBit = {
       return {
         x, y,
         sp: norm(r(d.spine[0])),
-        ch: norm(r(d.spine[1] - d.spine[0])),
-        hd: norm(r(d.head - d.spine[1])),
-        lsh: norm(r(d.lArm[0] - d.spine[1])),
+        s2: norm(r(d.spine[1] - d.spine[0])),
+        s3: norm(r(d.spine[2] - d.spine[1])),
+        hd: norm(r(d.head - d.spine[2])),
+        lsh: norm(r(d.lArm[0] - d.spine[2])),
         lel: norm(r(d.lArm[1] - d.lArm[0])),
-        rsh: norm(r(d.rArm[0] - d.spine[1])),
+        rsh: norm(r(d.rArm[0] - d.spine[2])),
         rel: norm(r(d.rArm[1] - d.rArm[0])),
         lhp: norm(r(d.lLeg[0])),
         lkn: norm(r(d.lLeg[1] - d.lLeg[0])),
@@ -127,45 +144,108 @@ window.plethoraBit = {
       return true;
     }
 
-    // Forward kinematics: angles → joint positions.
-    function fk(c, J) {
-      const px = c.x, py = c.y;
-      J[P] = px; J[P + 1] = py;
-      const a1 = c.sp, a2 = a1 + c.ch, ah = a2 + c.hd;
-      const cx = px + BODY.sp1 * Math.cos(a1), cy = py + BODY.sp1 * Math.sin(a1);
-      J[CH] = cx; J[CH + 1] = cy;
-      const nx = cx + BODY.sp2 * Math.cos(a2), ny = cy + BODY.sp2 * Math.sin(a2);
-      J[NK] = nx; J[NK + 1] = ny;
-      const hr = BODY.neck + BODY.headR;
-      J[HD] = nx + hr * Math.cos(ah); J[HD + 1] = ny + hr * Math.sin(ah);
-      limb(J, LE, nx, ny, a2 + c.lsh, c.lel, BODY.ua, BODY.fa);
-      limb(J, RE, nx, ny, a2 + c.rsh, c.rel, BODY.ua, BODY.fa);
-      let sh = limb(J, LK, px, py, c.lhp, c.lkn, BODY.th, BODY.sh);
-      J[LT] = J[LA] + BODY.foot * Math.cos(sh + Math.PI / 2);
-      J[LT + 1] = J[LA + 1] + BODY.foot * Math.sin(sh + Math.PI / 2);
-      sh = limb(J, RK, px, py, c.rhp, c.rkn, BODY.th, BODY.sh);
-      J[RT] = J[RA] + BODY.foot * Math.cos(sh - Math.PI / 2);
-      J[RT + 1] = J[RA + 1] + BODY.foot * Math.sin(sh - Math.PI / 2);
-      return J;
+    // How far a thigh is lifted away from hanging under the hips (0..1).
+    function liftOf(thigh, spine) {
+      return smooth(0.35, 1.7, Math.abs(norm(thigh - spine - Math.PI)));
     }
 
-    // Writes a two-bone limb at slots i (middle joint) and i+2 (end joint).
-    function limb(J, i, ox, oy, a1, rel, l1, l2) {
-      const mx = ox + l1 * Math.cos(a1), my = oy + l1 * Math.sin(a1);
-      const a2 = a1 + rel;
-      J[i] = mx; J[i + 1] = my;
-      J[i + 2] = mx + l2 * Math.cos(a2); J[i + 3] = my + l2 * Math.sin(a2);
-      return a2;
+    // How far an arm is raised from hanging along the body (0..1).
+    function raiseOf(rel) {
+      return smooth(1.2, 2.9, Math.abs(norm(rel - Math.PI)));
+    }
+
+    // Forward kinematics with built-in anatomical assistance: lifting a leg
+    // tips the pelvis and counter-leans the torso, and raising an arm lifts
+    // its shoulder. `q` squashes (<1) or stretches (>1) the spine.
+    function fk(c, G, q) {
+      q = q || 1;
+      const liftL = liftOf(c.lhp, c.sp), liftR = liftOf(c.rhp, c.sp);
+      const a1 = c.sp + 0.1 * (liftL - liftR);
+      const a2 = a1 + c.s2, a3 = a2 + c.s3, ah = a3 + c.hd;
+      const L = BODY.spine;
+      G[P0] = c.x; G[P0 + 1] = c.y;
+      G[S1] = c.x + L[0] * q * Math.cos(a1); G[S1 + 1] = c.y + L[0] * q * Math.sin(a1);
+      G[S2] = G[S1] + L[1] * q * Math.cos(a2); G[S2 + 1] = G[S1 + 1] + L[1] * q * Math.sin(a2);
+      G[S3] = G[S2] + L[2] * q * Math.cos(a3); G[S3 + 1] = G[S2 + 1] + L[2] * q * Math.sin(a3);
+      const hr = BODY.neck + BODY.headR;
+      G[HC] = G[S3] + hr * Math.cos(ah); G[HC + 1] = G[S3 + 1] + hr * Math.sin(ah);
+      G[A1] = a1; G[A2] = a2; G[A3] = a3; G[AH] = ah;
+
+      // shoulders sit just below the neck and rise as the arm goes up
+      const ux = Math.cos(a3), uy = Math.sin(a3), nx = -uy, ny = ux;
+      armFK(G, SIDE.l, -1, c.lsh, c.lel, a3, ux, uy, nx, ny);
+      armFK(G, SIDE.r, 1, c.rsh, c.rel, a3, ux, uy, nx, ny);
+
+      // the pelvis tips up on the side of a lifted leg
+      const tilt = 0.24 * (liftL - liftR);
+      const hx = -Math.sin(a1 + tilt), hy = Math.cos(a1 + tilt);
+      legFK(G, SIDE.l, -1, c.lhp, c.lkn, hx, hy);
+      legFK(G, SIDE.r, 1, c.rhp, c.rkn, hx, hy);
+      return G;
+    }
+
+    function armFK(G, S, side, sh, el, a3, ux, uy, nx, ny) {
+      const drop = BODY.shDrop - BODY.shLift * raiseOf(sh);
+      const sx = G[S3] + side * nx * BODY.shW - ux * drop;
+      const sy = G[S3 + 1] + side * ny * BODY.shW - uy * drop;
+      const ua = a3 + sh, fa = ua + el;
+      G[S.sh] = sx; G[S.sh + 1] = sy;
+      G[S.el] = sx + BODY.ua * Math.cos(ua); G[S.el + 1] = sy + BODY.ua * Math.sin(ua);
+      G[S.wr] = G[S.el] + BODY.fa * Math.cos(fa); G[S.wr + 1] = G[S.el + 1] + BODY.fa * Math.sin(fa);
+      G[S.ua] = ua; G[S.fa] = fa;
+    }
+
+    function legFK(G, S, side, th, kn, hx, hy) {
+      const px = G[P0] + side * hx * BODY.hipW, py = G[P0 + 1] + side * hy * BODY.hipW;
+      const sn = th + kn;
+      G[S.hp] = px; G[S.hp + 1] = py;
+      G[S.kn] = px + BODY.th * Math.cos(th); G[S.kn + 1] = py + BODY.th * Math.sin(th);
+      G[S.an] = G[S.kn] + BODY.sh * Math.cos(sn); G[S.an + 1] = G[S.kn + 1] + BODY.sh * Math.sin(sn);
+      const fd = sn - side * Math.PI / 2; // feet point outward
+      G[S.to] = G[S.an] + BODY.foot * Math.cos(fd); G[S.to + 1] = G[S.an + 1] + BODY.foot * Math.sin(fd);
+      G[S.th] = th; G[S.sn] = sn;
+    }
+
+    // Point at distance u (0 = hips, 1 = neck) along the spine.
+    function spinePoint(G, u, out) {
+      const pts = [P0, S1, S2, S3];
+      let lens = 0;
+      const seg = [0, 0, 0];
+      for (let i = 0; i < 3; i++) {
+        seg[i] = Math.hypot(G[pts[i + 1]] - G[pts[i]], G[pts[i + 1] + 1] - G[pts[i] + 1]);
+        lens += seg[i];
+      }
+      let s = clamp(u, 0, 1) * lens;
+      for (let i = 0; i < 3; i++) {
+        if (s <= seg[i] || i === 2) {
+          const f = seg[i] ? clamp(s / seg[i], 0, 1) : 0;
+          out.x = G[pts[i]] + (G[pts[i + 1]] - G[pts[i]]) * f;
+          out.y = G[pts[i] + 1] + (G[pts[i + 1] + 1] - G[pts[i] + 1]) * f;
+          return out;
+        }
+        s -= seg[i];
+      }
+      return out;
+    }
+
+    // Soft reach: within `soft` of full length the reach eases towards the
+    // limb length asymptotically. Used for automatically planted feet so a
+    // knee straightens smoothly instead of popping when the hips rise.
+    const PIN_SOFT = 0.04;
+    function softReach(d, L, soft) {
+      const s = soft * L, d0 = L - s;
+      return soft > 0 && d > d0 ? d0 + s * (1 - Math.exp(-(d - d0) / s)) : d;
     }
 
     // Two-bone inverse kinematics. `bend` (+1/-1) picks which side the middle
     // joint sits on; it is captured at drag start so limbs never flip mid-drag.
     // Out-of-reach targets straighten the limb towards the target.
     const ikOut = { a1: 0, a2: 0 };
-    function ik2(ox, oy, tx, ty, l1, l2, bend) {
+    function ik2(ox, oy, tx, ty, l1, l2, bend, soft) {
       const dx = tx - ox, dy = ty - oy;
       const base = Math.atan2(dy, dx);
-      const d = clamp(Math.hypot(dx, dy), Math.abs(l1 - l2) + 0.01, l1 + l2 - 0.001);
+      const L = l1 + l2;
+      const d = clamp(softReach(Math.hypot(dx, dy), L, soft || 0), Math.abs(l1 - l2) + 0.01, L - 0.001);
       const cosA = clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1, 1);
       const a1 = base - bend * Math.acos(cosA);
       const mx = ox + l1 * Math.cos(a1), my = oy + l1 * Math.sin(a1);
@@ -179,6 +259,73 @@ window.plethoraBit = {
       return Math.abs(v) < 0.03 ? DEFAULT_BEND[key] : Math.sign(v);
     }
 
+    // Bend side for automatic (non-drag) knee solves. A nearly straight knee
+    // carries no reliable side, so it falls back to the natural default
+    // instead of flickering between solutions frame to frame.
+    function steadyBend(v, key) {
+      return Math.abs(v) < 0.2 ? DEFAULT_BEND[key] : Math.sign(v);
+    }
+
+    // Scratch geometry for solvers (never rendered).
+    const GW = new Float64Array(GLEN);
+    const EF = { x: 0, y: 0 };
+
+    // Shoulders and hips move with the limb (raise / tilt), so each solver
+    // runs twice to settle that small feedback.
+    function solveArm(c, side, tx, ty, g, bend) {
+      const S = SIDE[side];
+      for (let i = 0; i < 2; i++) {
+        fk(c, GW);
+        const r = ik2(GW[S.sh], GW[S.sh + 1], tx, ty, BODY.ua, g, bend);
+        c[side + "sh"] = norm(r.a1 - GW[A3]);
+        c[side + "el"] = norm(r.a2 - r.a1);
+      }
+    }
+
+    function aimUpperArm(c, side, tx, ty) {
+      const S = SIDE[side];
+      for (let i = 0; i < 2; i++) {
+        fk(c, GW);
+        c[side + "sh"] = norm(Math.atan2(ty - GW[S.sh + 1], tx - GW[S.sh]) - GW[A3]);
+      }
+    }
+
+    function solveLeg(c, side, tx, ty, g, bend, soft) {
+      const S = SIDE[side];
+      for (let i = 0; i < 3; i++) {
+        fk(c, GW);
+        const r = ik2(GW[S.hp], GW[S.hp + 1], tx, ty, BODY.th, g, bend, soft);
+        c[side + "hp"] = norm(r.a1);
+        c[side + "kn"] = norm(r.a2 - r.a1);
+      }
+    }
+
+    function aimThigh(c, side, tx, ty) {
+      const S = SIDE[side];
+      for (let i = 0; i < 2; i++) {
+        fk(c, GW);
+        c[side + "hp"] = norm(Math.atan2(ty - GW[S.hp + 1], tx - GW[S.hp]));
+      }
+    }
+
+    // Cyclic-coordinate-descent over spine/head joints. Weights spread the
+    // bend so the torso curves instead of hinging at one point.
+    const PIVOT = { sp: P0, s2: S1, s3: S2, hd: S3 };
+    function ccd(c, joints, weights, effector, tx, ty, iters) {
+      for (let it = 0; it < iters; it++) {
+        for (const j of joints) {
+          fk(c, GW);
+          effector(GW, EF);
+          const p = PIVOT[j];
+          const px = GW[p], py = GW[p + 1];
+          if (Math.hypot(EF.x - px, EF.y - py) < 3) continue;
+          const d = angDelta(Math.atan2(EF.y - py, EF.x - px), Math.atan2(ty - py, tx - px));
+          c[j] = norm(c[j] + clamp(d * weights[j], -0.4, 0.4));
+          if (LIMIT[j]) c[j] = clamp(c[j], -LIMIT[j], LIMIT[j]);
+        }
+      }
+    }
+
     // ───────────────────────────────────────────── 3. Project + poses
 
     let nextId = 1;
@@ -186,13 +333,13 @@ window.plethoraBit = {
     function defaultChars() {
       return {
         a: makeChar(150, 356, {
-          spine: [-92, -87], head: -80,
-          lArm: [113, 96], rArm: [68, 92],
-          lLeg: [100, 94], rLeg: [80, 86]
+          spine: [-94, -90, -85], head: -78,
+          lArm: [116, 100], rArm: [64, 82],
+          lLeg: [99, 94], rLeg: [81, 86]
         }),
         b: makeChar(292, 356, {
-          spine: [-88, -94], head: -101,
-          lArm: [110, 94], rArm: [40, 112],
+          spine: [-86, -91, -96], head: -104,
+          lArm: [114, 98], rArm: [38, 114],
           lLeg: [99, 93], rLeg: [81, 87]
         })
       };
@@ -221,6 +368,7 @@ window.plethoraBit = {
     function syncEdit() {
       project.sel = clamp(project.sel, 0, project.poses.length - 1);
       edit = clonePose(project.poses[project.sel]);
+      resetMotions();
     }
 
     function isPristine() {
@@ -365,7 +513,17 @@ window.plethoraBit = {
       toast("Fresh start. Undo brings the old one back.");
     }
 
-    // ───────────────────────────────────────────── 5. Playback
+    // ───────────────────────────────────────────── 5. Animation engine
+    //
+    // Two layers. The base layer is a pure function of time: every channel
+    // (hip position, each joint angle) follows a Catmull–Rom curve through
+    // the poses, so the body moves *through* poses instead of stopping at
+    // each one (unless the pose has a hold). Distal channels trail slightly
+    // (overlap), and feet that rest in the same place in neighbouring poses
+    // are pinned there. The motion layer then adds secondary motion with
+    // time-stepped springs: hip momentum drives sway, squash and stretch,
+    // the head and forearms follow through, and the hips dip ahead of big
+    // accelerations (anticipation). Neither layer writes to stored poses.
 
     let playing = false;
     let playTime = 0; // seconds into the schedule; kept while paused
@@ -376,33 +534,77 @@ window.plethoraBit = {
       schedule = null;
     }
 
-    // Holds and transitions in play order. With looping on, the last pose
-    // eases back into the first unless they already match.
+    function posesEqual(p, q) {
+      return charsEqual(p.a, q.a) && charsEqual(p.b, q.b);
+    }
+
     function buildSchedule() {
-      const poses = project.poses;
-      const n = poses.length;
+      const all = project.poses;
+      const loop = project.loop && all.length > 1;
+      const idx = all.map((_, i) => i);
+      // a final pose that repeats the first one *is* the loop point
+      if (loop && all.length > 2 && posesEqual(all[all.length - 1], all[0])) idx.pop();
+      const K = idx.length;
       const speed = SPEEDS[project.speed];
-      const trans = BASE_TRANSITION / speed;
-      const segs = [];
+      const D = BASE_TRANSITION / speed;
+      const arrive = new Float64Array(K), leave = new Float64Array(K), held = new Uint8Array(K);
       let t = 0;
-      for (let i = 0; i < n; i++) {
-        const hold = HOLDS[poses[i].h | 0] / speed;
-        if (hold > 0) {
-          segs.push({ i, j: i, t0: t, d: hold });
-          t += hold;
-        }
-        if (i < n - 1) {
-          segs.push({ i, j: i + 1, t0: t, d: trans });
-          t += trans;
-        } else if (project.loop && n > 1) {
-          const first = poses[0];
-          if (!(charsEqual(poses[i].a, first.a) && charsEqual(poses[i].b, first.b))) {
-            segs.push({ i, j: 0, t0: t, d: trans });
-            t += trans;
+      for (let i = 0; i < K; i++) {
+        arrive[i] = t;
+        const hold = HOLDS[all[idx[i]].h | 0] / speed;
+        held[i] = hold > 0 ? 1 : 0;
+        t += hold;
+        leave[i] = t;
+        if (i < K - 1 || loop) t += D;
+      }
+      const lagScale = D / BASE_TRANSITION;
+      const total = loop ? t : t + MAX_LAG * lagScale + 0.02;
+
+      const chans = [{}, {}];
+      const feet = [[], []];
+      const knees = [[], []];
+      for (let ci = 0; ci < 2; ci++) {
+        const who = ci ? "b" : "a";
+        for (const k of KEYS) {
+          const angle = k !== "x" && k !== "y";
+          const step = (a, b) => (angle ? swing(k, a, b) : b - a);
+          const v = idx.map((i) => all[i][who][k]);
+          // unwrap angles so curves always take the short way round
+          const u = new Float64Array(K + 1), m = new Float64Array(K + 1);
+          u[0] = v[0];
+          for (let i = 1; i < K; i++) u[i] = u[i - 1] + step(v[i - 1], v[i]);
+          const close = K > 1 ? step(v[K - 1], v[0]) : 0;
+          u[K] = loop ? u[K - 1] + close : u[K - 1];
+          for (let i = 0; i < K; i++) {
+            const prev = i > 0 ? u[i - 1] : loop ? u[0] - close : null;
+            const next = i < K - 1 ? u[i + 1] : loop ? u[K] : null;
+            m[i] = held[i] || prev === null || next === null ? 0 : (TENSION * (next - prev)) / (2 * D);
           }
+          m[K] = m[0];
+          chans[ci][k] = { u, m };
+        }
+        for (let i = 0; i < K; i++) {
+          fk(all[idx[i]][who], GW);
+          feet[ci].push([GW[LAN], GW[LAN + 1], GW[RAN], GW[RAN + 1]]);
+          const kp = all[idx[i]][who];
+          knees[ci].push([steadyBend(kp.lkn, "lkn"), steadyBend(kp.rkn, "rkn")]);
         }
       }
-      return { segs, total: t };
+      return { idx, K, D, arrive, leave, held, total, loop, chans, feet, knees, lagScale };
+    }
+
+    // Shoulders never swing *through* the body: a big arm move that would
+    // sweep across the torso goes round the outside instead.
+    const AVOID = { lsh: 150 * DEG, rsh: -150 * DEG };
+    function swing(k, a, b) {
+      let d = angDelta(a, b);
+      const f = AVOID[k];
+      if (f === undefined || Math.abs(d) < 1.2) return d;
+      let r = angDelta(a, f);
+      if (d > 0 && r < 0) r += TAU;
+      if (d < 0 && r > 0) r -= TAU;
+      const crosses = d > 0 ? r > 0 && r < d : r < 0 && r > d;
+      return crosses ? (d > 0 ? d - TAU : d + TAU) : d;
     }
 
     function getSchedule() {
@@ -410,55 +612,214 @@ window.plethoraBit = {
       return schedule;
     }
 
-    function lerpChar(c0, c1, t, out) {
-      const e = ease(t);
-      out.x = c0.x + (c1.x - c0.x) * e;
-      out.y = c0.y + (c1.y - c0.y) * e;
-      for (const k of ANGLE_KEYS) {
-        const d = angDelta(c0[k], c1[k]);
-        if (d === 0) {
-          out[k] = c0[k];
-          continue;
+    function wrapTime(S, t) {
+      if (!(S.total > 0)) return 0;
+      return S.loop ? ((t % S.total) + S.total) % S.total : clamp(t, 0, S.total);
+    }
+
+    // Where time t falls: a hold on key i, or the transition i → j.
+    const SEG = { i: 0, j: 0, f: 0, hold: true };
+    function locate(S, t) {
+      for (let i = 0; i < S.K; i++) {
+        if (t < S.arrive[i]) {
+          SEG.i = i - 1; SEG.j = i; SEG.hold = false;
+          SEG.f = clamp((t - S.leave[i - 1]) / S.D, 0, 1);
+          return SEG;
         }
-        const lag = LAG[k];
-        const tk = clamp((t - lag) / (1 - lag), 0, 1);
-        const swing = -SWING[k] * Math.sin(TAU * tk) * tk * tk;
-        out[k] = c0[k] + d * (ease(tk) + swing);
+        if (t <= S.leave[i]) {
+          SEG.i = SEG.j = i; SEG.hold = true; SEG.f = 0;
+          return SEG;
+        }
       }
+      if (S.loop) {
+        SEG.i = S.K - 1; SEG.j = S.K; SEG.hold = false;
+        SEG.f = clamp((t - S.leave[S.K - 1]) / S.D, 0, 1);
+      } else {
+        SEG.i = SEG.j = S.K - 1; SEG.hold = true; SEG.f = 0;
+      }
+      return SEG;
+    }
+
+    // Cubic Hermite with Catmull–Rom tangents: continuous position and
+    // velocity through every pose that isn't deliberately held.
+    function chan(S, ch, t) {
+      const s = locate(S, t);
+      if (s.hold) return ch.u[s.i];
+      const f = s.f, f2 = f * f, f3 = f2 * f;
+      return (2 * f3 - 3 * f2 + 1) * ch.u[s.i] + (f3 - 2 * f2 + f) * ch.m[s.i] * S.D +
+        (-2 * f3 + 3 * f2) * ch.u[s.j] + (f3 - f2) * ch.m[s.j] * S.D;
+    }
+
+    function sample(time, out) {
+      const S = getSchedule();
+      const t = wrapTime(S, time);
+      for (let ci = 0; ci < 2; ci++) {
+        const c = ci ? out.b : out.a, ch = S.chans[ci];
+        for (const k of KEYS) c[k] = chan(S, ch[k], wrapTime(S, t - LAG[k] * S.lagScale));
+        for (const k of ANGLE_KEYS) c[k] = norm(c[k]);
+        pinFeet(S, ci, c, t);
+      }
+      const s = locate(S, t);
+      const from = S.idx[s.i];
+      const to = s.j < S.K ? S.idx[s.j] : S.idx[S.K - 1] + 1;
+      out.pos = s.hold ? from : from + s.f * (to - from);
       return out;
     }
 
-    // Samples the animation at time `time` into out.a / out.b. Pure: reads
-    // poses, writes only to `out`.
-    function sample(time, out) {
-      const poses = project.poses;
-      const { segs, total } = getSchedule();
-      if (!segs.length) {
-        copyChar(poses[0].a, out.a);
-        copyChar(poses[0].b, out.b);
-        out.pos = 0;
-        return out;
-      }
-      const t = clamp(time, 0, total);
-      let s = segs[segs.length - 1];
-      for (const seg of segs) {
-        if (t < seg.t0 + seg.d) {
-          s = seg;
-          break;
+    // A foot resting at (nearly) the same spot in both neighbouring poses
+    // stays planted through the transition, gliding only by whatever tiny
+    // amount the poses differ; the knee absorbs the body's movement.
+    // A moving foot eases into its next planted spot (touching down with no
+    // speed) and peels off a planted spot gently when it lifts.
+    function pinFeet(S, ci, c, t) {
+      const s = locate(S, t);
+      const F = S.feet[ci];
+      const key = (i) => (S.loop ? ((i % S.K) + S.K) % S.K : clamp(i, 0, S.K - 1));
+      const planted = (i, o) => {
+        if (!S.loop && (i < 0 || i >= S.K - 1)) return i === S.K - 1 && S.K > 0 && i >= 0;
+        const a = F[key(i)], b = F[key(i + 1)];
+        return Math.hypot(a[o] - b[o], a[o + 1] - b[o + 1]) <= 2.5;
+      };
+      const a = F[s.i], b = F[key(s.j)];
+      for (let side = 0; side < 2; side++) {
+        const o = side * 2, sd = side ? "r" : "l";
+        const bend = S.knees[ci][s.i][side];
+        if (s.hold || planted(s.i, o)) {
+          const e = s.hold ? 0 : 0.5 - 0.5 * Math.cos(Math.PI * s.f);
+          solveLeg(c, sd, a[o] + (b[o] - a[o]) * e, a[o + 1] + (b[o + 1] - a[o + 1]) * e, BODY.sh, bend);
+          continue;
         }
+        const land = planted(s.i + 1, o) ? smooth(0.55, 1, s.f) : 0;
+        const lift = planted(s.i - 1, o) ? 1 - smooth(0, 0.45, s.f) : 0;
+        const w = Math.max(land, lift);
+        if (w <= 0) continue;
+        const cx = land >= lift ? b[o] : a[o], cy = land >= lift ? b[o + 1] : a[o + 1];
+        fk(c, GW);
+        const S2 = SIDE[sd];
+        const fx = GW[S2.an], fy = GW[S2.an + 1];
+        // soft only while the foot is in the air part of the blend, fading
+        // to exact at contact, so contact itself lands on the planted spot
+        solveLeg(c, sd, fx + (cx - fx) * w, fy + (cy - fy) * w, BODY.sh, bend, PIN_SOFT * (1 - w));
       }
-      const f = clamp((t - s.t0) / s.d, 0, 1);
-      const p0 = poses[s.i], p1 = poses[s.j];
-      if (s.i === s.j) {
-        copyChar(p0.a, out.a);
-        copyChar(p0.b, out.b);
-        out.pos = s.i;
-      } else {
-        lerpChar(p0.a, p1.a, f, out.a);
-        lerpChar(p0.b, p1.b, f, out.b);
-        out.pos = s.i + f;
-      }
+    }
+
+    // Anticipation and weight: the hips dip or shift against the coming
+    // acceleration, so big moves wind up first and landings sink in.
+    function anticipation(S, ci, t, out) {
+      out.x = out.y = 0;
+      if (!(S.total > 0) || S.K < 2) return out;
+      const ch = S.chans[ci], e = 0.07, tl = t + 0.09;
+      const at = (k) => (chan(S, ch[k], wrapTime(S, tl + e)) - 2 * chan(S, ch[k], wrapTime(S, tl)) +
+        chan(S, ch[k], wrapTime(S, tl - e))) / (e * e);
+      out.x = clamp(-0.003 * at("x"), -10, 10);
+      out.y = clamp(-0.0034 * at("y"), -9, 14);
       return out;
+    }
+
+    function makeMotion() {
+      return {
+        live: false, rx: 0, ry: 0, vx: 0, vy: 0, h: 0, hv: 0, fl: 0, flv: 0, fr: 0, frv: 0, q: 1, ws: 1,
+        tx: 0, ty: 0, th: 0, tl: 0, tr: 0 // previous targets, for sub-step interpolation
+      };
+    }
+    const NOFREEZE = { head: false, l: false, r: false };
+    const GM = new Float64Array(GLEN);
+
+    // Secondary motion for one character. Reads `base`, writes the displayed
+    // body to `out`, returns how lively it still is (0 when at rest).
+    function stepMotion(m, base, dt, out, antic, freeze) {
+      fk(base, GM);
+      const hT = GM[AH], lT = GM[LFA], rT = GM[RFA];
+      if (!m.live) {
+        m.live = true;
+        m.rx = m.tx = base.x; m.ry = m.ty = base.y; m.vx = m.vy = 0;
+        m.h = m.th = hT; m.fl = m.tl = lT; m.fr = m.tr = rT; m.hv = m.flv = m.frv = 0;
+      }
+      // Fixed 240 Hz sub-steps with targets interpolated across the frame,
+      // so 20 fps and 144 fps devices produce the same motion.
+      const n = clamp(Math.ceil(dt * 240), 1, 40);
+      const h = dt / n;
+      const dhT = angDelta(m.th, hT), dlT = angDelta(m.tl, lT), drT = angDelta(m.tr, rT);
+      for (let i = 1; i <= n; i++) {
+        const k = i / n;
+        const bx = m.tx + (base.x - m.tx) * k, by = m.ty + (base.y - m.ty) * k;
+        // the body's mass lags behind the hips, then overshoots and settles
+        m.vx += (-144 * (m.rx - bx) - 9.1 * m.vx) * h; m.rx += m.vx * h;
+        m.vy += (-144 * (m.ry - by) - 9.1 * m.vy) * h; m.ry += m.vy * h;
+        // head and forearms follow through
+        m.hv += (-256 * angDelta(m.th + dhT * k, m.h) - 14.4 * m.hv) * h; m.h += m.hv * h;
+        m.flv += (-225 * angDelta(m.tl + dlT * k, m.fl) - 12 * m.flv) * h; m.fl += m.flv * h;
+        m.frv += (-225 * angDelta(m.tr + drT * k, m.fr) - 12 * m.frv) * h; m.fr += m.frv * h;
+      }
+      m.tx = base.x; m.ty = base.y; m.th = hT; m.tl = lT; m.tr = rT;
+      if (freeze.head) { m.h = hT; m.hv = 0; }
+      if (freeze.l) { m.fl = lT; m.flv = 0; }
+      if (freeze.r) { m.fr = rT; m.frv = 0; }
+      m.h = hT + angDelta(hT, m.h);
+      m.fl = lT + angDelta(lT, m.fl);
+      m.fr = rT + angDelta(rT, m.fr);
+
+      copyChar(base, out);
+      const ex = clamp(m.rx - base.x, -40, 40), ey = clamp(m.ry - base.y, -40, 40);
+      const lean = clamp(ex * 0.0065, -0.32, 0.32);
+      out.sp = norm(out.sp + lean);
+      out.s3 = clamp(out.s3 + lean * 0.6, -LIMIT.s3, LIMIT.s3);
+      const hOff = clamp(angDelta(hT, m.h), -0.45, 0.45);
+      const lOff = clamp(angDelta(lT, m.fl), -0.5, 0.5), rOff = clamp(angDelta(rT, m.fr), -0.5, 0.5);
+      out.hd += hOff;
+      out.lel = norm(out.lel + lOff);
+      out.rel = norm(out.rel + rOff);
+      // squash while the mass is still sinking, stretch while it rises ahead
+      const sq = clamp(ey * 0.012, -0.1, 0.14);
+      m.q = 1 - sq * 0.5;
+      m.ws = 1 + sq * 0.55;
+      // the hips sink and shift while the feet stay where they are
+      const dx = antic ? antic.x : 0, dy = sq * 36 + (antic ? antic.y : 0);
+      if (Math.abs(dx) + Math.abs(dy) > 0.05) {
+        fk(out, GM);
+        const lx = GM[LAN], ly = GM[LAN + 1], rx = GM[RAN], ry = GM[RAN + 1];
+        // shrink the shift if it would pull a leg straighter than it can go
+        const maxD = (BODY.th + BODY.sh) * 0.995;
+        let k = 1;
+        for (let i = 0; i < 4; i++) {
+          const lh = Math.hypot(GM[LHP] + dx * k - lx, GM[LHP + 1] + dy * k - ly);
+          const rh = Math.hypot(GM[RHP] + dx * k - rx, GM[RHP + 1] + dy * k - ry);
+          if (lh <= maxD && rh <= maxD) break;
+          k *= 0.5;
+        }
+        out.x += dx * k;
+        out.y += dy * k;
+        solveLeg(out, "l", lx, ly, BODY.sh, steadyBend(base.lkn, "lkn"));
+        solveLeg(out, "r", rx, ry, BODY.sh, steadyBend(base.rkn, "rkn"));
+      }
+      return Math.abs(ex) + Math.abs(ey) + 0.05 * (Math.abs(m.vx) + Math.abs(m.vy)) +
+        30 * (Math.abs(hOff) + Math.abs(lOff) + Math.abs(rOff)) + 2 * (Math.abs(m.hv) + Math.abs(m.flv) + Math.abs(m.frv));
+    }
+
+    const motion = [makeMotion(), makeMotion()];
+    const disp = [cloneChar(edit.a), cloneChar(edit.b)];
+    const anticNow = [{ x: 0, y: 0 }, { x: 0, y: 0 }];
+    let activity = 0;
+
+    function resetMotions() {
+      motion[0].live = motion[1].live = false;
+      motion[0].q = motion[1].q = 1;
+      motion[0].ws = motion[1].ws = 1;
+      dirty = true;
+    }
+
+    // Advances the displayed bodies by dt seconds (frame-rate independent).
+    function stepAll(dt) {
+      const S = playing ? getSchedule() : null;
+      const t = playing ? wrapTime(S, playTime) : 0;
+      let act = 0;
+      for (let ci = 0; ci < 2; ci++) {
+        const base = playing ? (ci ? play.b : play.a) : ci ? edit.b : edit.a;
+        const an = playing ? anticipation(S, ci, t, anticNow[ci]) : null;
+        const fr = !playing && drag && drag.ci === ci ? drag.freeze : NOFREEZE;
+        act += stepMotion(motion[ci], base, dt, disp[ci], an, fr);
+      }
+      activity = act;
     }
 
     function startPlayback(fromStart) {
@@ -472,17 +833,17 @@ window.plethoraBit = {
       if (fromStart || playTime >= total) playTime = 0;
       playing = true;
       sample(playTime, play);
+      resetMotions();
       interact("play");
       updateControls();
-      dirty = true;
     }
 
     function pause() {
       if (!playing) return;
       playing = false;
+      resetMotions();
       updateControls();
       renderTimeline(false);
-      dirty = true;
     }
 
     function togglePlay() {
@@ -508,6 +869,7 @@ window.plethoraBit = {
         } else {
           playTime = total;
           playing = false;
+          resetMotions();
           updateControls();
         }
       }
@@ -517,19 +879,24 @@ window.plethoraBit = {
     }
 
     // ───────────────────────────────────────────── 6. Rendering
+    //
+    // Each body part is a chain of circles (centre + radius); the chain and
+    // the tangent hulls between neighbouring circles are filled together.
+    // That gives tapered limbs, a curved torso and rounded elbows/knees with
+    // no visible hinges. The same chains drive hit testing, so anything you
+    // can see you can grab.
 
     const canvas = ctx.createCanvas2D({ layer: "content", maxDpr: 2, alpha: false, touchAction: "none" });
     const g = canvas.getContext("2d");
     canvas.style.touchAction = "none";
     const view = { s: 1, ox: 0, oy: 0 };
-    const JA = new Float64Array(JLEN), JB = new Float64Array(JLEN);
-    const JGA = new Float64Array(JLEN), JGB = new Float64Array(JLEN);
     const ghostA = mixHex(COLOR.bg, COLOR.a, 0.24);
     const ghostB = mixHex(COLOR.bg, COLOR.b, 0.24);
+    const tintA = [mixHex(COLOR.a, "#FFFFFF", 0.16), mixHex(COLOR.a, "#FFFFFF", 0.32)];
+    const tintB = [mixHex(COLOR.b, "#FFFFFF", 0.16), mixHex(COLOR.b, "#FFFFFF", 0.32)];
     const haloColor = mixHex(COLOR.bg, "#FFFFFF", 0.13);
     let dirty = true;
-    let hover = null; // { ci, handle }
-    let settle = null; // { x, y, t } release ripple in world units
+    let hover = null; // { ci, parts }
 
     function mixHex(h1, h2, t) {
       const a = parseInt(h1.slice(1), 16), b = parseInt(h2.slice(1), 16);
@@ -538,89 +905,152 @@ window.plethoraBit = {
       return "rgb(" + m(16) + "," + m(8) + "," + m(0) + ")";
     }
 
-    function drawFigure(c2, J, color, extra) {
-      const w = extra || 0;
-      c2.strokeStyle = color;
+    const PART_NAMES = ["torso", "lcap", "rcap", "neck", "head", "larm", "rarm", "lleg", "rleg"];
+    function makeBody() {
+      const b = {};
+      for (const p of PART_NAMES) {
+        b[p] = { n: 0, x: new Float64Array(16), y: new Float64Array(16), r: new Float64Array(16), s: new Float64Array(16) };
+      }
+      return b;
+    }
+    function push(p, x, y, r, s) {
+      const i = p.n++;
+      p.x[i] = x; p.y[i] = y; p.r[i] = r; p.s[i] = s;
+    }
+
+    function torsoHalfWidth(u) {
+      const W = TORSO_W;
+      if (u <= W[0][0]) return W[0][1];
+      for (let i = 1; i < W.length; i++) {
+        if (u <= W[i][0]) {
+          const t = (u - W[i - 1][0]) / (W[i][0] - W[i - 1][0]);
+          return W[i - 1][1] + (W[i][1] - W[i - 1][1]) * (0.5 - 0.5 * Math.cos(Math.PI * t));
+        }
+      }
+      return W[W.length - 1][1];
+    }
+
+    // A limb: two bones joined by a soft fillet, tapering root → joint → end.
+    // s runs 0 (root) → 1 (elbow/knee) → 2 (wrist/ankle).
+    function limbPart(p, G, a, b, c, R, fillet) {
+      p.n = 0;
+      const ax = G[a], ay = G[a + 1], bx = G[b], by = G[b + 1], cx = G[c], cy = G[c + 1];
+      const la = Math.hypot(bx - ax, by - ay) || 1, lc = Math.hypot(cx - bx, cy - by) || 1;
+      const f = Math.min(fillet, la * 0.4, lc * 0.4);
+      const p1x = bx - ((bx - ax) / la) * f, p1y = by - ((by - ay) / la) * f;
+      const p2x = bx + ((cx - bx) / lc) * f, p2y = by + ((cy - by) / lc) * f;
+      const rr = (s) => (s <= 1 ? R[0] + (R[1] - R[0]) * s : R[1] + (R[2] - R[1]) * (s - 1));
+      const s1 = 1 - f / la, s2 = 1 + f / lc;
+      push(p, ax, ay, R[0], 0);
+      push(p, p1x, p1y, rr(s1), s1);
+      for (let k = 1; k < 4; k++) {
+        const t = k / 4, it = 1 - t;
+        const s = s1 + (s2 - s1) * t;
+        push(p, it * it * p1x + 2 * it * t * bx + t * t * p2x, it * it * p1y + 2 * it * t * by + t * t * p2y, rr(s), s);
+      }
+      push(p, p2x, p2y, rr(s2), s2);
+      push(p, cx, cy, R[2], 2);
+    }
+
+    // Catmull–Rom point between control points i and i+1 of a flat array.
+    const CR = { x: 0, y: 0 };
+    function catmull(pts, n, i, t) {
+      const i0 = Math.max(0, i - 1), i2 = Math.min(n - 1, i + 1), i3 = Math.min(n - 1, i + 2);
+      const t2 = t * t, t3 = t2 * t;
+      for (let d = 0; d < 2; d++) {
+        const p0 = pts[i0 * 2 + d], p1 = pts[i * 2 + d], p2 = pts[i2 * 2 + d], p3 = pts[i3 * 2 + d];
+        const v = 0.5 * (2 * p1 + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (3 * p1 - p0 - 3 * p2 + p3) * t3);
+        if (d) CR.y = v; else CR.x = v;
+      }
+      return CR;
+    }
+
+    const TORSO_PTS = new Float64Array(10);
+    const TORSO_U = [-0.12, 0, 1 / 3, 2 / 3, 1];
+    function buildBody(G, B, ws) {
+      // torso: a curve through a point below the hips, the hips, waist, chest and neck
+      const T = B.torso;
+      T.n = 0;
+      const a1 = G[A1];
+      TORSO_PTS[0] = G[P0] - Math.cos(a1) * 7; TORSO_PTS[1] = G[P0 + 1] - Math.sin(a1) * 7;
+      TORSO_PTS[2] = G[P0]; TORSO_PTS[3] = G[P0 + 1];
+      TORSO_PTS[4] = G[S1]; TORSO_PTS[5] = G[S1 + 1];
+      TORSO_PTS[6] = G[S2]; TORSO_PTS[7] = G[S2 + 1];
+      TORSO_PTS[8] = G[S3]; TORSO_PTS[9] = G[S3 + 1];
+      for (let k = 0; k < 4; k++) {
+        const steps = k === 0 ? 1 : 3;
+        for (let j = 0; j < steps; j++) {
+          const t = j / steps;
+          const u = TORSO_U[k] + (TORSO_U[k + 1] - TORSO_U[k]) * t;
+          const pt = catmull(TORSO_PTS, 5, k, t);
+          push(T, pt.x, pt.y, torsoHalfWidth(u) * ws, u);
+        }
+      }
+      push(T, G[S3], G[S3 + 1], torsoHalfWidth(1) * ws, 1);
+      // shoulder caps blend the chest into the arms
+      const chx = G[S2] + (G[S3] - G[S2]) * 0.55, chy = G[S2 + 1] + (G[S3 + 1] - G[S2 + 1]) * 0.55;
+      for (const [name, sl] of [["lcap", LSH], ["rcap", RSH]]) {
+        const p = B[name];
+        p.n = 0;
+        push(p, chx, chy, CAP_R[0] * ws, 0);
+        push(p, G[sl], G[sl + 1], CAP_R[1], 1);
+      }
+      // a short neck tucks up into the head
+      const N = B.neck, H = B.head, ah = G[AH], nl = BODY.neck + BODY.headR * 0.5;
+      N.n = 0;
+      push(N, G[S3], G[S3 + 1], NECK_R, 0);
+      push(N, G[S3] + nl * Math.cos(ah), G[S3 + 1] + nl * Math.sin(ah), NECK_R * 0.9, 1);
+      H.n = 0;
+      push(H, G[HC], G[HC + 1], BODY.headR, 1);
+      // limbs, with a mitten hand and a rounded foot
+      for (const sd of ["l", "r"]) {
+        const S = SIDE[sd];
+        const arm = B[sd + "arm"];
+        limbPart(arm, G, S.sh, S.el, S.wr, ARM_R, 11);
+        push(arm, G[S.wr] + BODY.hand * Math.cos(G[S.fa]), G[S.wr + 1] + BODY.hand * Math.sin(G[S.fa]), HAND_R, 2.4);
+        const leg = B[sd + "leg"];
+        limbPart(leg, G, S.hp, S.kn, S.an, LEG_R, 13);
+        push(leg, G[S.to], G[S.to + 1], FOOT_R, 2.6);
+      }
+      return B;
+    }
+
+    function addCircle(c2, x, y, r) {
+      c2.moveTo(x + r, y);
+      c2.arc(x, y, r, 0, TAU);
+    }
+
+    // Outer tangent hull of two circles, wound the same way as arc() so the
+    // union fills cleanly under the nonzero rule.
+    function addHull(c2, x1, y1, r1, x2, y2, r2) {
+      const dx = x2 - x1, dy = y2 - y1, d = Math.hypot(dx, dy);
+      if (d <= Math.abs(r1 - r2) + 1e-6) return;
+      const base = Math.atan2(dy, dx), phi = Math.acos(clamp((r1 - r2) / d, -1, 1));
+      const ax = Math.cos(base + phi), ay = Math.sin(base + phi);
+      const bx = Math.cos(base - phi), by = Math.sin(base - phi);
+      c2.moveTo(x1 + r1 * bx, y1 + r1 * by);
+      c2.lineTo(x2 + r2 * bx, y2 + r2 * by);
+      c2.lineTo(x2 + r2 * ax, y2 + r2 * ay);
+      c2.lineTo(x1 + r1 * ax, y1 + r1 * ay);
+      c2.closePath();
+    }
+
+    function tracePart(c2, p, extra) {
+      for (let i = 0; i < p.n; i++) {
+        addCircle(c2, p.x[i], p.y[i], p.r[i] + extra);
+        if (i) addHull(c2, p.x[i - 1], p.y[i - 1], p.r[i - 1] + extra, p.x[i], p.y[i], p.r[i] + extra);
+      }
+    }
+
+    function fillParts(c2, B, names, color, extra) {
+      c2.beginPath();
+      for (const n of names) tracePart(c2, B[n], extra || 0);
       c2.fillStyle = color;
-      c2.lineCap = "round";
-      c2.lineJoin = "round";
-      // legs + feet
-      c2.lineWidth = BODY.limb + w;
-      c2.beginPath();
-      c2.moveTo(J[P], J[P + 1]);
-      c2.lineTo(J[LK], J[LK + 1]);
-      c2.lineTo(J[LA], J[LA + 1]);
-      c2.lineTo(J[LT], J[LT + 1]);
-      c2.moveTo(J[P], J[P + 1]);
-      c2.lineTo(J[RK], J[RK + 1]);
-      c2.lineTo(J[RA], J[RA + 1]);
-      c2.lineTo(J[RT], J[RT + 1]);
-      c2.stroke();
-      // torso: a curve through the chest so bending reads as a spine
-      c2.lineWidth = BODY.torso + w;
-      c2.beginPath();
-      c2.moveTo(J[P], J[P + 1]);
-      c2.quadraticCurveTo(
-        2 * J[CH] - (J[P] + J[NK]) / 2, 2 * J[CH + 1] - (J[P + 1] + J[NK + 1]) / 2,
-        J[NK], J[NK + 1]
-      );
-      c2.stroke();
-      // neck + arms
-      c2.lineWidth = BODY.limb + w;
-      c2.beginPath();
-      c2.moveTo(J[NK], J[NK + 1]);
-      c2.lineTo(J[HD], J[HD + 1]);
-      c2.moveTo(J[NK], J[NK + 1]);
-      c2.lineTo(J[LE], J[LE + 1]);
-      c2.lineTo(J[LH], J[LH + 1]);
-      c2.moveTo(J[NK], J[NK + 1]);
-      c2.lineTo(J[RE], J[RE + 1]);
-      c2.lineTo(J[RH], J[RH + 1]);
-      c2.stroke();
-      // hands + head
-      c2.beginPath();
-      c2.arc(J[LH], J[LH + 1], BODY.hand + w / 2, 0, TAU);
-      c2.moveTo(J[RH] + BODY.hand + w / 2, J[RH + 1]);
-      c2.arc(J[RH], J[RH + 1], BODY.hand + w / 2, 0, TAU);
-      c2.moveTo(J[HD] + BODY.headR + w / 2, J[HD + 1]);
-      c2.arc(J[HD], J[HD + 1], BODY.headR + w / 2, 0, TAU);
       c2.fill();
     }
 
-    function drawJoints(J, ci) {
-      const s = view.s;
-      const active = drag && drag.ci === ci ? drag.handle : null;
-      const hov = !drag && hover && hover.ci === ci ? hover.handle : null;
-      g.fillStyle = "rgba(8,9,12,0.62)";
-      g.beginPath();
-      for (const [name, j] of HANDLES) {
-        if (name === "head" || name === active) continue;
-        g.moveTo(J[j] + 3.4 / s, J[j + 1]);
-        g.arc(J[j], J[j + 1], 3.4 / s, 0, TAU);
-      }
-      g.fill();
-      const ring = (name, alpha, r) => {
-        if (!name || name === "body") return;
-        const j = HANDLE_JOINT[name];
-        const rr = name === "head" ? BODY.headR + 5 / s : r / s;
-        g.strokeStyle = "rgba(255,255,255," + alpha + ")";
-        g.lineWidth = 2 / s;
-        g.beginPath();
-        g.arc(J[j], J[j + 1], rr, 0, TAU);
-        g.stroke();
-      };
-      ring(hov, 0.35, 11);
-      if (active && active !== "body") {
-        ring(active, 0.55, 13);
-        if (active !== "head") {
-          const j = HANDLE_JOINT[active];
-          g.fillStyle = COLOR.ink;
-          g.beginPath();
-          g.arc(J[j], J[j + 1], 4.6 / s, 0, TAU);
-          g.fill();
-        }
-      }
-    }
+    const BODY_A = makeBody(), BODY_B = makeBody(), BODY_G = makeBody();
+    const GA = new Float64Array(GLEN), GB = new Float64Array(GLEN), GG = new Float64Array(GLEN);
 
     function render() {
       const cssW = ctx.width || canvas.clientWidth || 1;
@@ -630,56 +1060,48 @@ window.plethoraBit = {
       g.fillRect(0, 0, canvas.width, canvas.height);
       g.setTransform(k * view.s, 0, 0, k * view.s, k * view.ox, k * view.oy);
 
-      if (playing) {
-        drawFigure(g, fk(play.a, JA), COLOR.a);
-        drawFigure(g, fk(play.b, JB), COLOR.b);
-        return;
-      }
-
-      if (project.ghost && project.sel > 0) {
+      if (!playing && project.ghost && project.sel > 0) {
         const prev = project.poses[project.sel - 1];
-        drawFigure(g, fk(prev.a, JGA), ghostA);
-        drawFigure(g, fk(prev.b, JGB), ghostB);
+        fillParts(g, buildBody(fk(prev.a, GG), BODY_G, 1), PART_NAMES, ghostA);
+        fillParts(g, buildBody(fk(prev.b, GG), BODY_G, 1), PART_NAMES, ghostB);
       }
-      fk(edit.a, JA);
-      fk(edit.b, JB);
-      const bodyHalo = drag ? (drag.handle === "body" ? drag.ci : -1) : hover && hover.handle === "body" ? hover.ci : -1;
-      if (bodyHalo >= 0) drawFigure(g, bodyHalo ? JB : JA, haloColor, 7 / view.s);
-      drawFigure(g, JA, COLOR.a);
-      drawFigure(g, JB, COLOR.b);
-      drawJoints(JA, 0);
-      drawJoints(JB, 1);
-
-      if (settle) {
-        const t = (performance.now() - settle.t) / 260;
-        if (t >= 1) {
-          settle = null;
-        } else {
-          g.strokeStyle = "rgba(255,255,255," + (0.4 * (1 - t)) + ")";
-          g.lineWidth = 2 / view.s;
-          g.beginPath();
-          g.arc(settle.x, settle.y, (8 + 14 * ease(t)) / view.s, 0, TAU);
-          g.stroke();
-          dirty = true;
+      buildBody(fk(disp[0], GA, motion[0].q), BODY_A, motion[0].ws);
+      buildBody(fk(disp[1], GB, motion[1].q), BODY_B, motion[1].ws);
+      const active = playing ? null : drag ? { ci: drag.ci, parts: drag.parts, level: 1 } : hover ? { ci: hover.ci, parts: hover.parts, level: 0 } : null;
+      if (active && active.parts === PART_NAMES) {
+        fillParts(g, active.ci ? BODY_B : BODY_A, PART_NAMES, haloColor, 6 / view.s);
+      }
+      for (let ci = 0; ci < 2; ci++) {
+        const B = ci ? BODY_B : BODY_A;
+        fillParts(g, B, PART_NAMES, ci ? COLOR.b : COLOR.a);
+        if (active && active.ci === ci && active.parts !== PART_NAMES) {
+          fillParts(g, B, active.parts, (ci ? tintB : tintA)[active.level]);
         }
+      }
+      if (drag && !playing) {
+        // a soft ring where the finger holds the body
+        g.strokeStyle = "rgba(255,255,255,0.32)";
+        g.lineWidth = 2 / view.s;
+        g.beginPath();
+        g.arc(drag.wx, drag.wy, 15 / view.s, 0, TAU);
+        g.stroke();
       }
     }
 
     // Small inline SVG of both characters for the timeline.
-    const JT = new Float64Array(JLEN);
+    const GT = new Float64Array(GLEN);
     const f1 = (v) => Math.round(v * 10) / 10;
     function figureSVG(c, color) {
-      const J = fk(c, JT);
-      const pt = (i) => f1(J[i]) + " " + f1(J[i + 1]);
-      const qx = 2 * J[CH] - (J[P] + J[NK]) / 2, qy = 2 * J[CH + 1] - (J[P + 1] + J[NK + 1]) / 2;
+      const G = fk(c, GT);
+      const pt = (i) => f1(G[i]) + " " + f1(G[i + 1]);
       return (
         '<g stroke="' + color + '" fill="none" stroke-linecap="round" stroke-linejoin="round">' +
-        '<path stroke-width="17" d="M' + pt(P) + "L" + pt(LK) + "L" + pt(LA) + "L" + pt(LT) +
-        "M" + pt(P) + "L" + pt(RK) + "L" + pt(RA) + "L" + pt(RT) +
-        "M" + pt(NK) + "L" + pt(LE) + "L" + pt(LH) + "M" + pt(NK) + "L" + pt(RE) + "L" + pt(RH) +
-        "M" + pt(NK) + "L" + pt(HD) + '"/>' +
-        '<path stroke-width="20" d="M' + pt(P) + "Q" + f1(qx) + " " + f1(qy) + " " + pt(NK) + '"/>' +
-        '<circle fill="' + color + '" stroke="none" cx="' + f1(J[HD]) + '" cy="' + f1(J[HD + 1]) + '" r="' + BODY.headR + '"/>' +
+        '<path stroke-width="15" d="M' + pt(LHP) + "L" + pt(LKN) + "L" + pt(LAN) + "L" + pt(LTO) +
+        "M" + pt(RHP) + "L" + pt(RKN) + "L" + pt(RAN) + "L" + pt(RTO) +
+        "M" + pt(LSH) + "L" + pt(LEL) + "L" + pt(LWR) + "M" + pt(RSH) + "L" + pt(REL) + "L" + pt(RWR) +
+        "M" + pt(LSH) + "L" + pt(S3) + "L" + pt(RSH) + "M" + pt(S3) + "L" + pt(HC) + '"/>' +
+        '<path stroke-width="24" d="M' + pt(P0) + "L" + pt(S1) + "L" + pt(S2) + "L" + pt(S3) + '"/>' +
+        '<circle fill="' + color + '" stroke="none" cx="' + f1(G[HC]) + '" cy="' + f1(G[HC + 1]) + '" r="' + BODY.headR + '"/>' +
         "</g>"
       );
     }
@@ -689,13 +1111,13 @@ window.plethoraBit = {
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
       for (const p of project.poses) {
         for (const c of [p.a, p.b]) {
-          const J = fk(c, JT);
-          for (let i = 0; i < JLEN; i += 2) {
-            x0 = Math.min(x0, J[i]); x1 = Math.max(x1, J[i]);
-            y0 = Math.min(y0, J[i + 1]); y1 = Math.max(y1, J[i + 1]);
+          const G = fk(c, GT);
+          for (let i = 0; i < NPTS; i += 2) {
+            x0 = Math.min(x0, G[i]); x1 = Math.max(x1, G[i]);
+            y0 = Math.min(y0, G[i + 1]); y1 = Math.max(y1, G[i + 1]);
           }
-          x0 = Math.min(x0, J[HD] - BODY.headR); x1 = Math.max(x1, J[HD] + BODY.headR);
-          y0 = Math.min(y0, J[HD + 1] - BODY.headR); y1 = Math.max(y1, J[HD + 1] + BODY.headR);
+          x0 = Math.min(x0, G[HC] - BODY.headR); x1 = Math.max(x1, G[HC] + BODY.headR);
+          y0 = Math.min(y0, G[HC + 1] - BODY.headR); y1 = Math.max(y1, G[HC + 1] + BODY.headR);
         }
       }
       const pad = 26;
@@ -707,11 +1129,34 @@ window.plethoraBit = {
       return f1(cx - w / 2) + " " + f1(cy - h / 2) + " " + f1(w) + " " + f1(h);
     }
 
-    // ───────────────────────────────────────────── 7. Pointer manipulation
+    // ───────────────────────────────────────────── 7. Direct manipulation
+    //
+    // Every visible surface is grabbable. What a drag does depends on where
+    // the finger lands:
+    //   head            tilts the head; the neck and upper spine follow
+    //   chest           bends and curves the spine around the hips
+    //   belly           leans the whole torso (steered from the chest)
+    //   hips            shifts weight with the feet planted (crouch, sit);
+    //                   pulling past the legs' reach brings the body along
+    //   upper arm/thigh swings the limb from the shoulder/hip
+    //   forearm, hand,  inverse kinematics on the whole limb; a hand pulled
+    //   shin, foot      out of reach makes the body lean into the reach
+    //   hold (≈0.4 s)   picks the whole figure up to move it
+    // The grabbed point keeps its offset from the finger, so nothing jumps.
 
+    const HOLD_MS = 380;
+    const BOTH = ["l", "r"];
+    const BEND_W = { sp: 0.3, s2: 0.65, s3: 0.85 };
+    const LEAN_W = { sp: 0.6, s2: 0.25, s3: 0.2 };
+    const HEAD_W = { hd: 1, s3: 0.4, s2: 0.2 };
+    const REACH_W = { s3: 0.35, s2: 0.3, sp: 0.25 };
+    // Extremities win where parts overlap (an arm in front of the torso).
+    const PRIORITY = { torso: 0, lcap: 0.5, rcap: 0.5, neck: 1, head: 1.5, larm: 3, rarm: 3, lleg: 2.5, rleg: 2.5 };
     let drag = null;
     let started = false;
-    const JW = new Float64Array(JLEN);
+    let lastPointerType = "touch";
+    const GP = new Float64Array(GLEN);
+    const PICK = makeBody();
 
     function toLocal(e) {
       const r = canvas.getBoundingClientRect();
@@ -722,57 +1167,104 @@ window.plethoraBit = {
       return { x: (p.x - view.ox) / view.s, y: (p.y - view.oy) / view.s };
     }
 
-    function distSeg(px, py, ax, ay, bx, by) {
-      const dx = bx - ax, dy = by - ay;
-      const l2 = dx * dx + dy * dy;
-      const t = l2 ? clamp(((px - ax) * dx + (py - ay) * dy) / l2, 0, 1) : 0;
-      return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+    // Distance from a point to a part's surface (negative inside) and the
+    // part coordinate `s` of the closest point on its centreline.
+    const NEAR = { d: 0, s: 0 };
+    function nearPart(p, wx, wy) {
+      NEAR.d = Infinity;
+      for (let i = 0; i < p.n; i++) {
+        const dc = Math.hypot(wx - p.x[i], wy - p.y[i]) - p.r[i];
+        if (dc < NEAR.d) { NEAR.d = dc; NEAR.s = p.s[i]; }
+        if (!i) continue;
+        const ax = p.x[i - 1], ay = p.y[i - 1], dx = p.x[i] - ax, dy = p.y[i] - ay;
+        const l2 = dx * dx + dy * dy;
+        if (!l2) continue;
+        const t = clamp(((wx - ax) * dx + (wy - ay) * dy) / l2, 0, 1);
+        const d = Math.hypot(wx - ax - t * dx, wy - ay - t * dy) - (p.r[i - 1] + (p.r[i] - p.r[i - 1]) * t);
+        if (d < NEAR.d) { NEAR.d = d; NEAR.s = p.s[i - 1] + (p.s[i] - p.s[i - 1]) * t; }
+      }
+      return NEAR;
     }
 
-    // Nearest target wins. Joints beat the bones they sit on, a touched bone
-    // selects the joint it moves, and the pink figure (drawn on top) wins ties.
     function pick(w) {
-      const s = view.s;
-      const hitR = 26 / s;
-      const segBias = 9 / s;
-      let best = null, bestD = hitR;
+      const slop = (lastPointerType === "mouse" ? 6 : 16) / view.s;
+      let best = null, bestScore = Infinity;
       for (const ci of [1, 0]) {
-        const J = fk(ci ? edit.b : edit.a, JW);
-        for (const [name, j] of HANDLES) {
-          let d = Math.hypot(w.x - J[j], w.y - J[j + 1]);
-          if (name === "head") d = Math.max(0, d - BODY.headR);
-          if (d < bestD) { bestD = d; best = { ci, handle: name }; }
-        }
-        for (const [a, b, name] of SEGMENTS) {
-          const d = distSeg(w.x, w.y, J[a], J[a + 1], J[b], J[b + 1]) + segBias;
-          if (d < bestD) { bestD = d; best = { ci, handle: name }; }
+        buildBody(fk(ci ? edit.b : edit.a, GP), PICK, 1);
+        for (const name of PART_NAMES) {
+          const n = nearPart(PICK[name], w.x, w.y);
+          if (n.d > slop) continue;
+          // limbs win over the torso, except right at their roots
+          const score = Math.max(n.d, 0) - (n.s > 0.3 ? PRIORITY[name] : 0);
+          if (score < bestScore) {
+            bestScore = score;
+            best = { ci, part: name, s: n.s };
+          }
         }
       }
       return best;
     }
 
+    function dragKind(hit) {
+      const p = hit.part, s = hit.s;
+      if (p === "head" || p === "neck") return { kind: "head", parts: ["neck", "head"] };
+      if (p === "torso") {
+        if (s < 0.2) return { kind: "hips", parts: ["torso"] };
+        // the belly steers the chest, a longer lever, so the lean stays gentle
+        if (s < 0.5) return { kind: "lean", u: 0.8, parts: ["torso", "lcap", "rcap"] };
+        return { kind: "bend", u: s, parts: ["torso", "lcap", "rcap"] };
+      }
+      if (p === "lcap" || p === "rcap") return { kind: "bend", u: 0.95, parts: ["torso", "lcap", "rcap"] };
+      const side = p[0];
+      if (p.slice(1) === "arm") {
+        return s < 1
+          ? { kind: "upper", side, g: Math.max(0.35, s) * BODY.ua, parts: [p] }
+          : { kind: "lower", side, g: clamp(s - 1, 0.3, 1.15) * BODY.fa, parts: [p] };
+      }
+      return s < 1
+        ? { kind: "thigh", side, g: Math.max(0.35, s) * BODY.th, parts: [p] }
+        : { kind: "shin", side, g: clamp(s - 1, 0.3, 1) * BODY.sh, parts: [p] };
+    }
+
+    // The point on the body that follows the finger for a given drag.
+    function effector(d, G, out) {
+      const S = d.side ? SIDE[d.side] : null;
+      switch (d.kind) {
+        case "bend": case "lean": return spinePoint(G, d.u, out);
+        case "head": out.x = G[HC]; out.y = G[HC + 1]; return out;
+        case "upper": out.x = G[S.sh] + d.g * Math.cos(G[S.ua]); out.y = G[S.sh + 1] + d.g * Math.sin(G[S.ua]); return out;
+        case "lower": out.x = G[S.el] + d.g * Math.cos(G[S.fa]); out.y = G[S.el + 1] + d.g * Math.sin(G[S.fa]); return out;
+        case "thigh": out.x = G[S.hp] + d.g * Math.cos(G[S.th]); out.y = G[S.hp + 1] + d.g * Math.sin(G[S.th]); return out;
+        case "shin": out.x = G[S.kn] + d.g * Math.cos(G[S.sn]); out.y = G[S.kn + 1] + d.g * Math.sin(G[S.sn]); return out;
+        default: out.x = G[P0]; out.y = G[P0 + 1]; return out;
+      }
+    }
+
     function beginDrag(e) {
-      const w = toWorld(toLocal(e));
-      const target = pick(w);
-      if (!target) return false;
-      const c = target.ci ? edit.b : edit.a;
-      const J = fk(c, new Float64Array(JLEN));
-      const j = target.handle === "body" ? P : HANDLE_JOINT[target.handle];
-      drag = {
-        pointerId: e.pointerId,
-        ci: target.ci,
-        handle: target.handle,
-        before: snapshot(),
-        offX: J[j] - w.x,
-        offY: J[j + 1] - w.y,
-        // feet stay planted while the hips move
-        ankL: { x: J[LA], y: J[LA + 1] },
-        ankR: { x: J[RA], y: J[RA + 1] },
-        bend: {
-          ch: bendOf(c, "ch"), lel: bendOf(c, "lel"), rel: bendOf(c, "rel"),
-          lkn: bendOf(c, "lkn"), rkn: bendOf(c, "rkn")
-        }
+      lastPointerType = e.pointerType || "mouse";
+      const p = toLocal(e), w = toWorld(p);
+      const hit = pick(w);
+      if (!hit) return false;
+      const c = hit.ci ? edit.b : edit.a;
+      const d = dragKind(hit);
+      fk(c, GW);
+      effector(d, GW, EF);
+      d.pointerId = e.pointerId;
+      d.ci = hit.ci;
+      d.before = snapshot();
+      d.start = cloneChar(c);
+      d.offX = EF.x - w.x;
+      d.offY = EF.y - w.y;
+      d.x0 = p.x; d.y0 = p.y; d.moved = 0;
+      d.wx = w.x; d.wy = w.y;
+      d.bend = { lel: bendOf(c, "lel"), rel: bendOf(c, "rel"), lkn: bendOf(c, "lkn"), rkn: bendOf(c, "rkn") };
+      d.feet = [GW[LAN], GW[LAN + 1], GW[RAN], GW[RAN + 1]];
+      d.freeze = {
+        head: d.kind === "head",
+        l: d.side === "l" && (d.kind === "upper" || d.kind === "lower"),
+        r: d.side === "r" && (d.kind === "upper" || d.kind === "lower")
       };
+      drag = d;
       hover = null;
       try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* capture is best-effort */ }
       canvas.style.cursor = "grabbing";
@@ -781,68 +1273,125 @@ window.plethoraBit = {
         ctx.platform.start();
       }
       interact("pose_drag");
+      ctx.timeout(() => {
+        if (drag === d && d.kind !== "carry" && d.moved < 8) startCarry(d);
+      }, HOLD_MS);
       dirty = true;
       return true;
+    }
+
+    // Press and hold: pick the whole figure up, pose untouched.
+    function startCarry(d) {
+      const c = d.ci ? edit.b : edit.a;
+      copyChar(d.start, c);
+      d.kind = "carry";
+      d.parts = PART_NAMES;
+      d.freeze = NOFREEZE;
+      d.offX = c.x - d.wx;
+      d.offY = c.y - d.wy;
+      haptic("light");
+      dirty = true;
     }
 
     function applyDrag(w) {
       const d = drag;
       const c = d.ci ? edit.b : edit.a;
+      d.wx = w.x; d.wy = w.y;
       const tx = w.x + d.offX, ty = w.y + d.offY;
-      const J = fk(c, JW);
-      const nx = J[NK], ny = J[NK + 1];
-      const upper = c.sp + c.ch;
-      let r;
-      switch (d.handle) {
-        case "body":
+      switch (d.kind) {
+        case "carry":
           c.x = clamp(tx, 10, STAGE_W - 10);
           c.y = clamp(ty, 30, STAGE_H - 10);
           break;
-        case "pelvis":
-          c.x = clamp(tx, 10, STAGE_W - 10);
-          c.y = clamp(ty, 30, STAGE_H - 10);
-          r = ik2(c.x, c.y, d.ankL.x, d.ankL.y, BODY.th, BODY.sh, d.bend.lkn);
-          c.lhp = norm(r.a1); c.lkn = norm(r.a2 - r.a1);
-          r = ik2(c.x, c.y, d.ankR.x, d.ankR.y, BODY.th, BODY.sh, d.bend.rkn);
-          c.rhp = norm(r.a1); c.rkn = norm(r.a2 - r.a1);
+        case "hips":
+          moveHips(c, d, clamp(tx, 10, STAGE_W - 10), clamp(ty, 30, STAGE_H - 10));
           break;
-        case "neck":
-          r = ik2(c.x, c.y, tx, ty, BODY.sp1, BODY.sp2, d.bend.ch);
-          c.sp = norm(r.a1); c.ch = norm(r.a2 - r.a1);
+        case "bend": {
+          const js = d.u > 2 / 3 ? ["s3", "s2", "sp"] : d.u > 1 / 3 ? ["s2", "sp"] : ["sp"];
+          ccd(c, js, BEND_W, (G, o) => spinePoint(G, d.u, o), tx, ty, 4);
+          keepFeet(c, d, BOTH);
+          break;
+        }
+        case "lean":
+          ccd(c, ["s3", "s2", "sp"], LEAN_W, (G, o) => spinePoint(G, d.u, o), tx, ty, 4);
+          keepFeet(c, d, BOTH);
           break;
         case "head":
-          c.hd = norm(Math.atan2(ty - ny, tx - nx) - upper);
+          ccd(c, ["hd", "s3", "s2"], HEAD_W, (G, o) => { o.x = G[HC]; o.y = G[HC + 1]; }, tx, ty, 4);
           break;
-        case "lel":
-          c.lsh = norm(Math.atan2(ty - ny, tx - nx) - upper);
+        case "upper":
+          aimUpperArm(c, d.side, tx, ty);
           break;
-        case "rel":
-          c.rsh = norm(Math.atan2(ty - ny, tx - nx) - upper);
+        case "lower":
+          reach(c, d, tx, ty);
+          keepFeet(c, d, BOTH);
           break;
-        case "lhand":
-          r = ik2(nx, ny, tx, ty, BODY.ua, BODY.fa, d.bend.lel);
-          c.lsh = norm(r.a1 - upper); c.lel = norm(r.a2 - r.a1);
+        case "thigh":
+          aimThigh(c, d.side, tx, ty);
+          keepFeet(c, d, d.side === "l" ? ["r"] : ["l"]);
           break;
-        case "rhand":
-          r = ik2(nx, ny, tx, ty, BODY.ua, BODY.fa, d.bend.rel);
-          c.rsh = norm(r.a1 - upper); c.rel = norm(r.a2 - r.a1);
-          break;
-        case "lkn":
-          c.lhp = norm(Math.atan2(ty - c.y, tx - c.x));
-          break;
-        case "rkn":
-          c.rhp = norm(Math.atan2(ty - c.y, tx - c.x));
-          break;
-        case "lfoot":
-          r = ik2(c.x, c.y, tx, ty, BODY.th, BODY.sh, d.bend.lkn);
-          c.lhp = norm(r.a1); c.lkn = norm(r.a2 - r.a1);
-          break;
-        case "rfoot":
-          r = ik2(c.x, c.y, tx, ty, BODY.th, BODY.sh, d.bend.rkn);
-          c.rhp = norm(r.a1); c.rkn = norm(r.a2 - r.a1);
+        case "shin":
+          solveLeg(c, d.side, tx, ty, d.g, d.bend[d.side + "kn"]);
+          keepFeet(c, d, d.side === "l" ? ["r"] : ["l"]);
           break;
       }
       dirty = true;
+    }
+
+    // Planted feet stay exactly where they were while the rest of the body
+    // moves (leaning or lifting a leg tips the pelvis). A nearly straight
+    // standing leg has almost no slack, so if a foot can't quite be reached
+    // the hips settle a little lower, as a real body would.
+    function keepFeet(c, d, sides) {
+      for (let it = 0; it < 4; it++) {
+        let short = 0;
+        for (const side of sides) {
+          const o = side === "l" ? 0 : 2, S = SIDE[side];
+          solveLeg(c, side, d.feet[o], d.feet[o + 1], BODY.sh, d.bend[side + "kn"]);
+          fk(c, GW);
+          short = Math.max(short, Math.hypot(GW[S.an] - d.feet[o], GW[S.an + 1] - d.feet[o + 1]));
+        }
+        if (short < 0.15) return;
+        c.y = Math.min(c.y + short, STAGE_H - 10);
+      }
+    }
+
+    // Arm IK; if the hand is pulled out of reach, the body leans a little
+    // into the reach (bounded, so it never undoes the creator's own posture).
+    function reach(c, d, tx, ty) {
+      const side = d.side, bend = d.bend[side + "el"];
+      solveArm(c, side, tx, ty, d.g, bend);
+      if (d.g < 0.7 * BODY.fa) return;
+      const eff = (G, o) => effector(d, G, o);
+      for (let i = 0; i < 3; i++) {
+        fk(c, GW);
+        eff(GW, EF);
+        if (Math.hypot(EF.x - tx, EF.y - ty) < 2) break;
+        ccd(c, ["s3", "s2", "sp"], REACH_W, eff, tx, ty, 1);
+        c.sp = norm(d.start.sp + clamp(angDelta(d.start.sp, c.sp), -0.45, 0.45));
+        c.s2 = clamp(c.s2, d.start.s2 - 0.35, d.start.s2 + 0.35);
+        c.s3 = clamp(c.s3, d.start.s3 - 0.35, d.start.s3 + 0.35);
+        solveArm(c, side, tx, ty, d.g, bend);
+      }
+    }
+
+    // Hips follow the finger with the feet planted; once a leg can't reach
+    // its foot any more, the whole figure comes along.
+    function moveHips(c, d, tx, ty) {
+      const F = d.feet, maxReach = BODY.th + BODY.sh - 0.6;
+      const ox = c.x, oy = c.y;
+      c.x = tx;
+      c.y = ty;
+      fk(c, GW);
+      const okL = Math.hypot(GW[LHP] - F[0], GW[LHP + 1] - F[1]) <= maxReach;
+      const okR = Math.hypot(GW[RHP] - F[2], GW[RHP + 1] - F[3]) <= maxReach;
+      if (okL && okR) {
+        solveLeg(c, "l", F[0], F[1], BODY.sh, d.bend.lkn);
+        solveLeg(c, "r", F[2], F[3], BODY.sh, d.bend.rkn);
+      } else {
+        const dx = tx - ox, dy = ty - oy;
+        F[0] += dx; F[1] += dy; F[2] += dx; F[3] += dy;
+      }
     }
 
     function endDrag(commit) {
@@ -851,15 +1400,8 @@ window.plethoraBit = {
       drag = null;
       try { canvas.releasePointerCapture(d.pointerId); } catch (err) { /* already released */ }
       canvas.style.cursor = "";
-      if (commit) {
-        if (commitPoseEdit(d.before)) {
-          const J = fk(d.ci ? edit.b : edit.a, JW);
-          const j = d.handle === "body" ? P : HANDLE_JOINT[d.handle];
-          settle = { x: J[j], y: J[j + 1], t: performance.now() };
-        }
-      } else {
-        syncEdit();
-      }
+      if (commit) commitPoseEdit(d.before);
+      else syncEdit();
       dirty = true;
     }
 
@@ -878,16 +1420,20 @@ window.plethoraBit = {
     ctx.listen(canvas, "pointermove", (e) => {
       if (drag) {
         if (e.pointerId !== drag.pointerId) return;
-        applyDrag(toWorld(toLocal(e)));
+        const p = toLocal(e);
+        drag.moved = Math.max(drag.moved, Math.hypot(p.x - drag.x0, p.y - drag.y0));
+        applyDrag(toWorld(p));
         e.preventDefault();
         return;
       }
       if (e.pointerType === "mouse" && !playing) {
+        lastPointerType = "mouse";
         const h = pick(toWorld(toLocal(e)));
-        const same = h && hover && h.ci === hover.ci && h.handle === hover.handle;
-        if (!same && (h || hover)) {
-          hover = h;
-          canvas.style.cursor = h ? "grab" : "";
+        const next = h ? { ci: h.ci, parts: dragKind(h).parts } : null;
+        const same = next && hover && next.ci === hover.ci && next.parts.join() === hover.parts.join();
+        if (!same && (next || hover)) {
+          hover = next;
+          canvas.style.cursor = next ? "grab" : "";
           dirty = true;
         }
       }
@@ -1062,7 +1608,7 @@ window.plethoraBit = {
       btn("speed").textContent = SPEEDS[project.speed] + "×";
       const n = project.poses.length;
       countEl.innerHTML = playing ? "<b>Playing</b>" : "Pose <b>" + (project.sel + 1) + "</b> of " + n;
-      tipEl.textContent = playing ? "Tap the stage to pause" : n > 1 ? "Tap selected pose for more" : "";
+      tipEl.textContent = playing ? "Tap the stage to pause" : n > 1 ? "Tap selected pose for more" : "Hold a figure to move it";
       updatePlayhead();
     }
 
@@ -1404,20 +1950,27 @@ window.plethoraBit = {
     function packChar(c) {
       return KEYS.map((k) => round3(c[k]));
     }
-    function unpackChar(arr) {
-      if (!Array.isArray(arr) || arr.length !== KEYS.length) return null;
-      const c = {};
-      for (let i = 0; i < KEYS.length; i++) {
+    // v1 projects had a two-segment spine with one bend ("ch").
+    const V1_KEYS = ["x", "y", "sp", "ch", "hd", "lsh", "lel", "rsh", "rel", "lhp", "lkn", "rhp", "rkn"];
+    function unpackChar(arr, version) {
+      const keys = version === 1 ? V1_KEYS : KEYS;
+      if (!Array.isArray(arr) || arr.length !== keys.length) return null;
+      const o = {};
+      for (let i = 0; i < keys.length; i++) {
         const v = Number(arr[i]);
         if (!Number.isFinite(v)) return null;
-        c[KEYS[i]] = i < 2 ? clamp(v, -STAGE_W, STAGE_W * 2) : norm(v);
+        o[keys[i]] = v;
       }
+      if (version === 1) o.s2 = o.s3 = o.ch / 2;
+      const c = {};
+      for (const k of KEYS) c[k] = k === "x" || k === "y" ? clamp(o[k], -STAGE_W, STAGE_W * 2) : norm(o[k]);
+      for (const k in LIMIT) c[k] = clamp(c[k], -LIMIT[k], LIMIT[k]);
       return c;
     }
 
     function serialize() {
       return {
-        v: 1,
+        v: 2,
         sel: project.sel,
         speed: project.speed,
         loop: project.loop,
@@ -1434,10 +1987,10 @@ window.plethoraBit = {
       } catch (err) {
         return false;
       }
-      if (!data || data.v !== 1 || !Array.isArray(data.poses) || !data.poses.length) return false;
+      if (!data || (data.v !== 1 && data.v !== 2) || !Array.isArray(data.poses) || !data.poses.length) return false;
       const poses = [];
       for (const raw of data.poses.slice(0, MAX_POSES)) {
-        const a = raw && unpackChar(raw.a), b = raw && unpackChar(raw.b);
+        const a = raw && unpackChar(raw.a, data.v), b = raw && unpackChar(raw.b, data.v);
         if (!a || !b) return false;
         poses.push({ id: nextId++, h: clamp(raw.h | 0, 0, HOLDS.length - 1), a, b });
       }
@@ -1564,33 +2117,45 @@ window.plethoraBit = {
       a.remove();
     }
 
-    // Renders every frame of the animation off-screen and streams it into a
-    // GIF89a encoder. Uses the same sampling as on-screen playback.
+    // Renders the animation off-screen frame by frame, with the same base
+    // sampling and secondary motion as on-screen playback, and streams it into
+    // a GIF89a encoder. Looping animations run one silent lap first so the
+    // springs are already in their looping rhythm and the GIF loops cleanly.
     async function encodeAnimation(job, onProgress) {
       const W = EXPORT_W, H = EXPORT_H;
       const off = new OffscreenCanvas(W, H);
       const c2 = off.getContext("2d", { willReadFrequently: true });
-      const { total } = getSchedule();
-      const loops = project.loop && project.poses.length > 1;
-      const tail = loops ? 0 : 0.6;
-      const frameCount = clamp(Math.ceil((total + tail) * EXPORT_FPS), 1, 1800);
+      const S = getSchedule();
+      const tail = S.loop ? 0 : 0.6;
+      const frameCount = clamp(Math.ceil((S.total + tail) * EXPORT_FPS), 1, 1800);
       const dt = 1 / EXPORT_FPS;
       const pal = buildPalette();
       const gif = gifWriter(W, H, pal.rgb);
-      const out = { a: cloneChar(edit.a), b: cloneChar(edit.b), pos: 0 };
-      const J1 = new Float64Array(JLEN), J2 = new Float64Array(JLEN);
+      const base = { a: cloneChar(edit.a), b: cloneChar(edit.b), pos: 0 };
+      const mo = [makeMotion(), makeMotion()];
+      const shown = [cloneChar(edit.a), cloneChar(edit.b)];
+      const an = [{ x: 0, y: 0 }, { x: 0, y: 0 }];
+      const G = new Float64Array(GLEN), B = makeBody();
+      const step = (t) => {
+        sample(t, base);
+        for (let ci = 0; ci < 2; ci++) {
+          anticipation(S, ci, wrapTime(S, t), an[ci]);
+          stepMotion(mo[ci], ci ? base.b : base.a, dt, shown[ci], an[ci], NOFREEZE);
+        }
+      };
+      if (S.loop) for (let f = 0; f < frameCount; f++) step(f * dt);
       const scale = W / STAGE_W;
       const indices = new Uint8Array(W * H);
       for (let f = 0; f < frameCount; f++) {
         if (job.cancelled) throw new Error("cancelled");
-        const t = Math.min(f * dt, total);
-        sample(t, out);
+        step(f * dt);
         c2.setTransform(1, 0, 0, 1, 0, 0);
         c2.fillStyle = COLOR.bg;
         c2.fillRect(0, 0, W, H);
         c2.setTransform(scale, 0, 0, scale, 0, 0);
-        drawFigure(c2, fk(out.a, J1), COLOR.a);
-        drawFigure(c2, fk(out.b, J2), COLOR.b);
+        for (let ci = 0; ci < 2; ci++) {
+          fillParts(c2, buildBody(fk(shown[ci], G, mo[ci].q), B, mo[ci].ws), PART_NAMES, ci ? COLOR.b : COLOR.a);
+        }
         const px = c2.getImageData(0, 0, W, H).data;
         for (let i = 0, p = 0; i < indices.length; i++, p += 4) {
           indices[i] = pal.lookup(px[p], px[p + 1], px[p + 2]);
@@ -1754,33 +2319,126 @@ window.plethoraBit = {
     }, { immediate: true });
     layout();
 
+    let frozen = false; // test harness only
     ctx.game.loop({
       update(dtMs) {
-        advancePlayback(Math.min(dtMs, 100) / 1000);
+        if (frozen) return;
+        const dt = Math.min(dtMs, 100) / 1000;
+        advancePlayback(dt);
+        // secondary motion keeps stepping until the bodies have settled
+        if (playing || drag || dirty || activity > 0.02) {
+          stepAll(dt);
+          dirty = true;
+        }
       },
       render() {
-        if (!dirty && !playing) return;
+        if (!dirty || frozen) return;
         dirty = false;
         render();
       }
     });
 
+    stepAll(0);
     render();
 
     // Read-only inspection for the local test harness; inert in Plethora.
     if (ctx.__testHooks) {
+      const named = (G, name, out) => {
+        const S = SIDE[name[0]] || SIDE.l;
+        const mid = (a, b) => { out.x = (G[a] + G[b]) / 2; out.y = (G[a + 1] + G[b + 1]) / 2; return out; };
+        const at = (a) => { out.x = G[a]; out.y = G[a + 1]; return out; };
+        switch (name) {
+          case "head": return at(HC);
+          case "neck": return at(S3);
+          case "pelvis": return at(P0);
+          case "belly": return spinePoint(G, 0.3, out);
+          case "chest": return spinePoint(G, 0.78, out);
+        }
+        switch (name.slice(1)) {
+          case "hand": return at(S.wr);
+          case "elbow": return at(S.el);
+          case "shoulder": return at(S.sh);
+          case "uarm": return mid(S.sh, S.el);
+          case "farm": return mid(S.el, S.wr);
+          case "thigh": return mid(S.hp, S.kn);
+          case "shin": return mid(S.kn, S.an);
+          case "knee": return at(S.kn);
+          case "foot": return at(S.an);
+          case "hip": return at(S.hp);
+        }
+        throw new Error("unknown point " + name);
+      };
+      const tmp = new Float64Array(GLEN);
       ctx.__testHooks.moveIt = {
-        joint(ci, handle) {
-          const J = fk(ci ? edit.b : edit.a, new Float64Array(JLEN));
-          const j = HANDLE_JOINT[handle] !== undefined ? HANDLE_JOINT[handle] : handle === "chest" || handle === "body" ? CH : P;
+        // screen position of a named spot on the editable pose
+        joint(ci, name) {
+          const o = named(fk(ci ? edit.b : edit.a, tmp), name, { x: 0, y: 0 });
           const r = canvas.getBoundingClientRect();
-          return { x: r.left + view.ox + J[j] * view.s, y: r.top + view.oy + J[j + 1] * view.s };
+          return { x: r.left + view.ox + o.x * view.s, y: r.top + view.oy + o.y * view.s };
+        },
+        // world position on the body as currently displayed (with motion)
+        shown(ci, name) {
+          return named(fk(disp[ci], tmp, motion[ci].q), name, { x: 0, y: 0 });
         },
         state() {
-          return JSON.parse(JSON.stringify({ poses: project.poses, sel: project.sel, playing, playTime, edit, undo: undoStack.length, redo: redoStack.length, loop: project.loop }));
+          return JSON.parse(JSON.stringify({ poses: project.poses, sel: project.sel, playing, playTime, edit, undo: undoStack.length, redo: redoStack.length, loop: project.loop, activity, total: getSchedule().total }));
         },
         playPos() {
           return play.pos;
+        },
+        // freezes the live loop and renders playback time t (simulated from 0)
+        showAt(t, fps) {
+          frozen = true;
+          playing = false;
+          const S = getSchedule();
+          const base = { a: cloneChar(edit.a), b: cloneChar(edit.b), pos: 0 };
+          resetMotions();
+          const dt = 1 / (fps || 60);
+          for (let tt = dt; tt <= t + 1e-9; tt += dt) {
+            sample(tt, base);
+            for (let ci = 0; ci < 2; ci++) {
+              anticipation(S, ci, wrapTime(S, tt), anticNow[ci]);
+              stepMotion(motion[ci], ci ? base.b : base.a, dt, disp[ci], anticNow[ci], NOFREEZE);
+            }
+          }
+          playing = true; // hides editing feedback and the ghost
+          render();
+          playing = false;
+        },
+        scale() {
+          return view.s;
+        },
+        // Deterministic playback simulation with an arbitrary frame-time
+        // sequence; returns displayed body measurements per frame.
+        trace(dts, names) {
+          const S = getSchedule();
+          const base = { a: cloneChar(edit.a), b: cloneChar(edit.b), pos: 0 };
+          const mo = [makeMotion(), makeMotion()], shown = [cloneChar(edit.a), cloneChar(edit.b)];
+          const an = [{ x: 0, y: 0 }, { x: 0, y: 0 }];
+          const G = new Float64Array(GLEN);
+          const frames = [];
+          let t = 0;
+          for (const dt of dts) {
+            t += dt;
+            sample(t, base);
+            const fr = { t, pos: base.pos, ch: [] };
+            for (let ci = 0; ci < 2; ci++) {
+              anticipation(S, ci, wrapTime(S, t), an[ci]);
+              stepMotion(mo[ci], ci ? base.b : base.a, dt, shown[ci], an[ci], NOFREEZE);
+              fk(shown[ci], G, mo[ci].q);
+              const pts = {};
+              for (const n of names) pts[n] = named(G, n, { x: 0, y: 0 });
+              const len = (a, b) => Math.hypot(G[a] - G[b], G[a + 1] - G[b + 1]);
+              pts.bones = [len(LSH, LEL), len(LEL, LWR), len(RSH, REL), len(REL, RWR), len(LHP, LKN), len(LKN, LAN), len(RHP, RKN), len(RKN, RAN)];
+              pts.spine = len(P0, S1) + len(S1, S2) + len(S2, S3);
+              pts.state = cloneChar(shown[ci]);
+              pts.base = cloneChar(ci ? base.b : base.a);
+              pts.q = mo[ci].q;
+              fr.ch.push(pts);
+            }
+            frames.push(fr);
+          }
+          return { total: S.total, frames };
         }
       };
     }

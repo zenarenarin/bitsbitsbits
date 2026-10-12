@@ -39,8 +39,9 @@ const joint = (ci, h) => page.evaluate(([ci, h]) => window.__testHooks.moveIt.jo
 const shot = async (name) => shots && page.screenshot({ path: path.join(shots, name + ".png") });
 
 // Real touch drags through CDP so pointerType is "touch".
-async function touchDrag(from, to, steps = 12) {
+async function touchDrag(from, to, steps = 12, hold = 0) {
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: from.x, y: from.y }] });
+  if (hold) await page.waitForTimeout(hold);
   for (let i = 1; i <= steps; i++) {
     const t = i / steps;
     await cdp.send("Input.dispatchTouchEvent", {
@@ -55,6 +56,11 @@ async function touchDrag(from, to, steps = 12) {
 async function dragJoint(ci, h, dx, dy) {
   const p = await joint(ci, h);
   await touchDrag(p, { x: p.x + dx, y: p.y + dy });
+}
+// press and hold on the body, then drag: moves the whole figure
+async function carry(ci, dx, dy) {
+  const p = await joint(ci, "belly");
+  await touchDrag(p, { x: p.x + dx, y: p.y + dy }, 12, 480);
 }
 async function tap(sel) {
   await page.locator(sel).first().tap();
@@ -84,24 +90,18 @@ ok(Math.abs(s.poses[0].a.x - 150) < 1e-6 && Math.abs(s.poses[0].a.y - 356) < 1e-
 ok(s.undo === 1, "2. one drag = one undo entry");
 ok(await page.locator("#hint").evaluate((e) => e.classList.contains("gone")), "2. hint clears once the user interacts");
 // limb lengths preserved
-const neckA = await joint(0, "neck"), elbA = await joint(0, "rel");
-const scale = await page.evaluate(() => {
-  const h = window.__testHooks.moveIt;
-  const a = h.joint(0, "pelvis"), b = h.joint(0, "lkn");
-  return Math.hypot(a.x - b.x, a.y - b.y) / 58;
-});
-ok(Math.abs(Math.hypot(elbA.x - neckA.x, elbA.y - neckA.y) / scale - 50) < 0.5 &&
+const shA = await joint(0, "rshoulder"), elbA = await joint(0, "relbow");
+const scale = await page.evaluate(() => window.__testHooks.moveIt.scale());
+ok(Math.abs(Math.hypot(elbA.x - shA.x, elbA.y - shA.y) / scale - 50) < 0.5 &&
    Math.abs(Math.hypot(handA1.x - elbA.x, handA1.y - elbA.y) / scale - 46) < 0.5, "2. arm segment lengths preserved by IK");
 
-// 3. move B closer to A by dragging the torso (between pelvis and neck)
-const pB = await joint(1, "pelvis"), nB = await joint(1, "neck");
-const torsoB = { x: (pB.x + nB.x) / 2, y: (pB.y + nB.y) / 2 };
+// 3. move B closer to A: press and hold on the body, then drag
 const bBefore = (await state()).poses[0].b;
-await touchDrag(torsoB, { x: torsoB.x - 45, y: torsoB.y });
+await carry(1, -45, 0);
 s = await state();
 const bAfter = s.poses[0].b;
 ok(bAfter.x < bBefore.x - 30, "3. dragging B's torso moves B");
-ok(["sp", "ch", "hd", "lsh", "lel", "rsh", "rel", "lhp", "lkn", "rhp", "rkn"].every((k) => Math.abs(bAfter[k] - bBefore[k]) < 1e-9), "3. B's pose preserved while moving");
+ok(["sp", "s2", "s3", "hd", "lsh", "lel", "rsh", "rel", "lhp", "lkn", "rhp", "rkn"].every((k) => Math.abs(bAfter[k] - bBefore[k]) < 1e-9), "3. B's pose preserved while moving");
 ok(same(s.poses[0].a, (await state()).poses[0].a) && Math.abs(s.poses[0].a.x - 150) < 1e-6, "3. A untouched when B moves");
 
 // 4. add pose
@@ -124,7 +124,7 @@ await shot("02-pose2");
 // 7. add pose
 await tap('[data-a="add"]');
 // 8. dramatically different arrangement: A leaps left/up, B crouches right
-await dragJoint(0, "body", -60, -120);
+await carry(0, -60, -120);
 const pelB = await joint(1, "pelvis");
 await touchDrag(pelB, { x: pelB.x + 50, y: pelB.y + 70 });
 const headB = await joint(1, "head");
@@ -190,10 +190,11 @@ ok(Math.abs(s.playTime - pausedAt) < 0.1, "6.3 play resumes from the paused posi
 await tap('[data-a="restart"]');
 s = await state();
 ok(s.playing && s.playTime < 0.15, "16. restart begins from the first pose");
-// loop: total = 3 transitions + closing transition (pose 4 != pose 1) = 4 × 0.55s
-await page.waitForTimeout(2600);
+// loop: 3 transitions + closing transition back to pose 1 (pose 4 != pose 1)
+const cycle = s.total;
+await page.waitForTimeout((cycle + 0.3) * 1000);
 s = await state();
-ok(s.playing && s.playTime < 2.2, "16. animation looped back to the start (t=" + s.playTime.toFixed(2) + ")");
+ok(s.playing && s.playTime < 0.9, "16. animation looped back to the start (t=" + s.playTime.toFixed(2) + " of " + cycle.toFixed(2) + ")");
 await tap('[data-a="play"]');
 
 // 17–18. save + reload
@@ -282,7 +283,7 @@ s = await state();
 ok(!s.playing, "single pose: play explains instead of playing");
 // ghost renders previous pose only (pixel probe)
 await tap('[data-a="add"]');
-await dragJoint(0, "body", 0, -250);
+await carry(0, 0, -250);
 const ghostPixel = await page.evaluate(() => {
   const h = window.__testHooks.moveIt;
   const st = h.state();
@@ -290,8 +291,7 @@ const ghostPixel = await page.evaluate(() => {
   const c = document.querySelector("canvas");
   const r = c.getBoundingClientRect();
   const now = h.joint(0, "chest");
-  const pel = h.joint(0, "pelvis"), kn = h.joint(0, "lkn");
-  const s = Math.hypot(pel.x - kn.x, pel.y - kn.y) / 58;
+  const s = h.scale();
   const k = c.width / r.width;
   const d = c.getContext("2d").getImageData((now.x - r.left) * k, (now.y - r.top + 250 * s) * k, 1, 1).data;
   return [d[0], d[1], d[2]];
@@ -305,8 +305,7 @@ const noGhost = await page.evaluate(() => {
   const c = document.querySelector("canvas");
   const r = c.getBoundingClientRect();
   const now = h.joint(0, "chest");
-  const pel = h.joint(0, "pelvis"), kn = h.joint(0, "lkn");
-  const s = Math.hypot(pel.x - kn.x, pel.y - kn.y) / 58;
+  const s = h.scale();
   const k = c.width / r.width;
   const d = c.getContext("2d").getImageData((now.x - r.left) * k, (now.y - r.top + 250 * s) * k, 1, 1).data;
   return [d[0], d[1], d[2]];
@@ -337,13 +336,13 @@ await page.evaluate(() => localStorage.clear());
 await open();
 await dragJoint(0, "rhand", 30, -80);
 await tap('[data-a="add"]');
-await dragJoint(1, "body", -60, 0);
+await carry(1, -60, 0);
 await tap('[data-a="loop"]');
 ok((await state()).loop === false, "loop toggles off");
 await tap('[data-a="play"]');
-await page.waitForTimeout(900);
+await page.waitForTimeout(((await state()).total + 0.35) * 1000);
 s = await state();
-ok(!s.playing && Math.abs(s.playTime - 0.55) < 0.01, "loop off: stops at the end (t=" + s.playTime.toFixed(2) + ")");
+ok(!s.playing && Math.abs(s.playTime - s.total) < 0.01, "loop off: stops at the end (t=" + s.playTime.toFixed(2) + ")");
 ok(same(s.edit, s.poses[s.sel]), "loop off: editing state restored after it ends");
 await tap('[data-a="play"]');
 s = await state();
@@ -358,11 +357,11 @@ await tap(thumb(1));
 await tap('[data-p="right"]');
 s = await state();
 ok(same(s.poses[0].a, s.poses[2].a) && same(s.poses[0].b, s.poses[2].b), "set up: last pose matches first");
-const total = await page.evaluate(() => {
+const seam = await page.evaluate(() => {
   document.querySelector('[data-a="restart"]').click();
-  return new Promise((r) => setTimeout(() => r(window.__testHooks.moveIt.state()), 1500));
+  return new Promise((r) => setTimeout(() => r(window.__testHooks.moveIt.state()), 300));
 });
-ok(total.playing && total.playTime < 1.12 && total.playTime > 0.3, "seamless loop: 2 transitions per cycle, no extra return (t=" + total.playTime.toFixed(2) + ")");
+ok(seam.playing && Math.abs(seam.total - 2 * 0.6) < 1e-6, "seamless loop: 2 transitions per cycle, no extra return (cycle " + seam.total.toFixed(2) + "s)");
 await tap('[data-a="play"]');
 
 // page must not scroll while dragging on the canvas
