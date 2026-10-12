@@ -2,11 +2,11 @@
   "use strict";
 
   // ===================================================================
-  // SPINDLE — endless radial pin arcade
+  // ALMOST — endless radial pin arcade
   //
   // Layout of this file:
   //   1. Core      — pure gameplay model: geometry, swept collision,
-  //                  rotation, difficulty, spindle generation, game state.
+  //                  rotation, difficulty, opening-structure generation, game state.
   //                  No DOM, no canvas. Exposed as plethoraBit.core so it
   //                  can be tested headlessly.
   //   2. init(ctx) — Plethora runtime glue: canvas setup/resizing,
@@ -261,7 +261,7 @@
     // (verified in tests). It is not centred on 0: an attached pin can rotate
     // out of the way before the incoming pin arrives. All pins are identical,
     // so one interval per rotation speed describes the whole structure.
-    // Used only to generate fair spindles; play always uses the full sweep.
+    // Used only to generate a fair opening structure; play always uses the full sweep.
     // The analysis samples more coarsely and then widens the interval by a
     // margin that covers anything the coarse sweep could miss, so it is
     // conservative (it never reports room that is not there).
@@ -307,19 +307,6 @@
       const lo = Math.min(A.lo, B.lo), hi = Math.max(A.hi, B.hi);
       return omega >= 0 ? { lo, hi } : { lo: -hi, hi: -lo };
     }
-    // Grid speeds a spindle will need, for idle-time warming.
-    function gridNeeds(spec, tune) {
-      const out = [];
-      const f = tune.flightMs / 1000;
-      for (let p = 0; p <= spec.quota + 1; p++) {
-        const a = Math.abs(omegaFor(spec, p, tune)) / GRID;
-        for (const i of [Math.floor(a + 1e-9), Math.ceil(a - 1e-9)]) {
-          if (!badCache.has(gridKey(i, f)) && out.indexOf(i) < 0) out.push(i);
-        }
-      }
-      return out;
-    }
-
     // Free launch windows (in launch-relative angle) for a structure.
     function goodIntervals(angles, count, omega, flightSec) {
       if (count === 0) return [{ start: 0, len: TAU }];
@@ -356,11 +343,11 @@
 
     // ---- Difficulty --------------------------------------------------------
     const DEFAULT_TUNE = Object.freeze({
-      startSpeed: 1.35,   // rad/s on the first spindle
+      startSpeed: 1.35,   // rad/s at the start of a run
       maxSpeed: 2.5,      // readability ceiling
       flightMs: 150,      // launch animation length
-      quota: 6,           // pins to add on the first spindle
-      spindleGrowth: 0.09 // speed growth per completed spindle
+      quota: 6,           // opening room the generator guarantees (pins)
+      spindleGrowth: 0.09 // only used by spindleSpec(k > 0); runs use k = 0
     });
 
     function spindleSpec(k, tune) {
@@ -378,7 +365,8 @@
       };
     }
 
-    // Speed for the i-th placement on a spindle (gradual ramp, capped).
+    // Speed after the i-th placement of a run (gradual ramp, capped). It
+    // reaches the ceiling around 39 placements.
     function omegaFor(spec, placed, tune) {
       return spec.dir * Math.min(tune.maxSpeed, spec.base * (1 + 0.022 * placed));
     }
@@ -419,10 +407,10 @@
       return true;
     }
 
-    // A new spindle: random initial pins (never overlapping, spaced by the
-    // spindle's minSep) whose remaining room is proven by construction to
-    // take the whole quota. If an arrangement cannot, it is rejected; the
-    // quota only shrinks as a last resort, so a spindle is never impossible.
+    // A run's opening structure: random initial pins (never overlapping,
+    // spaced by minSep) whose remaining room is proven by construction to
+    // take at least `quota` more pins with comfortable launch windows. If an
+    // arrangement cannot, it is rejected, so a run never starts impossible.
     function generateSpindle(k, rng, tune, out) {
       const spec = spindleSpec(k, tune);
       const angles = out || new Float64Array(G.MAX_PINS);
@@ -468,8 +456,6 @@
     }
 
     // ---- Game state ----------------------------------------------------------
-    const TRANSITION_SEC = 0.62;
-
     function createGame(opts) {
       const tune = Object.assign({}, DEFAULT_TUNE, (opts && opts.tune) || {});
       const hooks = (opts && opts.hooks) || {};
@@ -478,11 +464,15 @@
       const result = {};
 
       const st = {
-        phase: "ready",      // ready | flying | transition | over
+        phase: "ready",      // ready | flying | over
         simT: 0,
         thetaBase: 0, tBase: 0, omega: 0,
+        // The single authoritative attached-pin collection for the run.
+        // Written in exactly two places: reset() seeds it, a successful
+        // landing appends one pin. Invariant: count === initialCount + score.
         angles: new Float64Array(G.MAX_PINS),
         count: 0,
+        initialCount: 0,
         spec: null,
         placed: 0,
         score: 0,
@@ -490,32 +480,22 @@
         launches: 0,
         flight: { tL: 0, tEnd: 0, hit: false },
         lastAttach: { t: -10, angle: 0 },
-        fail: null,
-        trans: null,
-        oldAngles: new Float64Array(G.MAX_PINS)
+        fail: null
       };
 
       function theta(t) { return st.thetaBase + st.omega * (t - st.tBase); }
       function setOmega(t, w) { st.thetaBase = theta(t); st.tBase = t; st.omega = w; }
 
-      let warmQueue = [];
-      function startSpindle(k, t) {
-        const gen = generateSpindle(k, rng, tune, st.angles);
+      // Seed a run's starting structure. Called only from reset().
+      function seedStructure(t) {
+        const gen = generateSpindle(0, rng, tune, st.angles);
         st.spec = gen.spec;
         st.count = gen.count;
+        st.initialCount = gen.count;
         st.placed = 0;
         st.thetaBase = rng() * TAU;
         st.tBase = t;
         st.omega = omegaFor(st.spec, 0, tune);
-        // Analyse the next spindle's speeds ahead of time, a bit per idle frame,
-        // so the hand-over never stalls.
-        warmQueue = gridNeeds(spindleSpec(k + 1, tune), tune);
-      }
-      // Do one small unit of background analysis. Returns true if work was done.
-      function idleWork() {
-        if (!warmQueue.length || st.phase === "transition") return false;
-        gridInterval(warmQueue.shift(), flight());
-        return true;
       }
 
       function reset(seedRng) {
@@ -524,10 +504,9 @@
         st.score = 0;
         st.launches = 0;
         st.fail = null;
-        st.trans = null;
         st.phase = "ready";
         st.lastAttach.t = -10;
-        startSpindle(0, st.simT);
+        seedStructure(st.simT);
       }
 
       // offsetSec: real time elapsed since the last simulated frame, so the
@@ -568,28 +547,19 @@
           if (hooks.onFail) hooks.onFail(st.score);
           return;
         }
-        // Attach exactly where the trajectory put it.
+        // Attach exactly where the trajectory put it: one pin, one point.
+        // The structure is never regenerated mid-run; it only grows. (The
+        // swept geometry caps it at about 2*PI / 0.102 pins, well inside
+        // MAX_PINS, so the run always ends in a real collision first.)
         st.angles[st.count++] = st.flight.beta;
         st.placed++;
         st.score++;
         st.lastAttach.t = t;
         st.lastAttach.angle = st.flight.beta;
+        // Difficulty only changes speed: it never touches the pins.
         setOmega(t, omegaFor(st.spec, st.placed, tune));
         st.phase = "ready";
-        if (hooks.onAttach) hooks.onAttach(st.score, st.placed, st.spec.quota);
-        if (st.placed >= st.spec.quota || st.count >= G.MAX_PINS - 1) {
-          st.trans = {
-            t0: t,
-            count: st.count,
-            theta0: theta(t),
-            omega: st.omega,
-            index: st.spec.index
-          };
-          st.oldAngles.set(st.angles.subarray(0, st.count));
-          startSpindle(st.spec.index + 1, t);
-          st.phase = "transition";
-          if (hooks.onSpindle) hooks.onSpindle(st.trans.index + 1);
-        }
+        if (hooks.onAttach) hooks.onAttach(st.score, st.placed);
       }
 
       function advance(dt) {
@@ -598,9 +568,6 @@
           if (st.phase === "flying" && st.flight.tEnd <= target) {
             st.simT = Math.max(st.simT, st.flight.tEnd);
             resolveFlight();
-          } else if (st.phase === "transition" && st.trans.t0 + TRANSITION_SEC <= target) {
-            st.simT = Math.max(st.simT, st.trans.t0 + TRANSITION_SEC);
-            st.phase = "ready";
           } else break;
         }
         st.simT = target;
@@ -613,11 +580,11 @@
         return Math.max(0, G.S0 - (G.S0 / f) * tau);
       }
 
-      return { st, tune, theta, launch, advance, reset, flightOffset, idleWork };
+      return { st, tune, theta, launch, advance, reset, flightOffset };
     }
 
     return {
-      G, PIN_POLY, PIN_PROFILE, PIN_OUTLINE, BROAD_ANGLE, TRANSITION_SEC, DEFAULT_TUNE, ANALYSIS_MARGIN,
+      G, PIN_POLY, PIN_PROFILE, PIN_OUTLINE, BROAD_ANGLE, DEFAULT_TUNE, ANALYSIS_MARGIN,
       wrapPi, wrap2Pi, pinGap, simulateLaunch, badInterval, gridInterval, goodIntervals,
       spindleSpec, omegaFor, greedyCapacity, generateSpindle, staticOk,
       mulberry32, createGame
@@ -642,7 +609,7 @@
 
   window.plethoraBit = {
     meta: {
-      title: "Spindle",
+      title: "Almost",
       runtime: "plethora-bit@2",
       tags: ["arcade", "timing", "endless", "minimal"],
       permissions: ["haptics", "storage", "audio"]
@@ -770,12 +737,6 @@
             tone(1430, t, 0.22, 0.06, "sine", 1310);
             tone(1517, t, 0.22, 0.05, "sine", 1390);
           },
-          complete() {
-            if (muted || !ensure()) return;
-            const t = ac.currentTime;
-            tone(1318.5, t, 0.32, 0.06, "sine");
-            tone(1975.5, t + 0.07, 0.42, 0.05, "sine");
-          },
           dispose() {
             if (ac) { try { ac.close(); } catch (e) { /* ignore */ } ac = null; }
           }
@@ -804,7 +765,7 @@
             audio.launch();
             firstLaunchDone = true;
           },
-          onAttach(score, placed, quota) {
+          onAttach(score, placed) {
             if (scoreTrack) { try { scoreTrack.add(1); } catch (e) { /* ignore */ } }
             if (score > best) {
               best = score;
@@ -813,12 +774,6 @@
             fx.scorePop = game.st.simT;
             audio.attach(placed);
             haptic("light");
-          },
-          onSpindle(index) {
-            fx.completeT = game.st.simT;
-            audio.complete();
-            haptic("success");
-            try { ctx.platform.milestone("spindle_complete", { spindle: index }); } catch (e) { /* ignore */ }
           },
           onFail(score) {
             audio.fail();
@@ -1156,7 +1111,7 @@
         const theta = game.theta(t);
 
         // Launch axis hairline: shows exactly where the pin will strike.
-        if (st.phase === "ready" || st.phase === "transition") {
+        if (st.phase === "ready") {
           const y0 = G.R + 2, y1 = G.R + G.S0 - 4;
           const lg = g.createLinearGradient(0, y0, 0, y1);
           lg.addColorStop(0, "rgba(198,217,255,0.16)");
@@ -1166,33 +1121,11 @@
           g.beginPath(); g.moveTo(0, y0); g.lineTo(0, y1); g.stroke();
         }
 
-        // Structure (with spindle hand-over when a spindle completes).
-        if (st.trans && t - st.trans.t0 < Core.TRANSITION_SEC) {
-          const p = Math.max(0, (t - st.trans.t0) / Core.TRANSITION_SEC);
-          const out = Math.min(1, p / 0.62);
-          const e = out * out;
-          const tt = t - st.trans.t0;
-          const oldTheta = st.trans.theta0 + st.trans.omega * tt + Math.sign(st.trans.omega || 1) * 5.5 * tt * tt;
-          g.globalAlpha = 1 - e;
-          drawStructure(st.oldAngles, st.trans.count, oldTheta, { scale: 1 + 0.16 * e });
-          const inp = Math.max(0, (p - 0.35) / 0.65);
-          const ein = 1 - Math.pow(1 - inp, 3);
-          g.globalAlpha = ein;
-          drawStructure(st.angles, st.count, theta, { scale: 0.86 + 0.14 * ein });
-          g.globalAlpha = 1;
-          // Completion ring.
-          const ra = tt / 0.5;
-          if (ra < 1) {
-            g.strokeStyle = "rgba(114,167,255," + (0.45 * (1 - ra)).toFixed(3) + ")";
-            g.lineWidth = 1.2 * (1 - ra) + 0.3;
-            g.beginPath(); g.arc(0, 0, G.R + (G.L + 14) * (1 - Math.pow(1 - ra, 2)), 0, TAU); g.stroke();
-          }
-        } else {
-          drawStructure(st.angles, st.count, theta, { live: true, flashAge: t - st.lastAttach.t });
-        }
+        // Structure: every pin in the authoritative collection, every frame.
+        drawStructure(st.angles, st.count, theta, { live: true, flashAge: t - st.lastAttach.t });
 
         // Attach flash at the contact point on the rim.
-        if (sinceAttach >= 0 && sinceAttach < 0.2 && !(st.trans && t - st.trans.t0 < 0.05)) {
+        if (sinceAttach >= 0 && sinceAttach < 0.2) {
           const a = st.lastAttach.angle + theta;
           const px = Math.cos(a) * G.R, py = Math.sin(a) * G.R;
           const k = 1 - sinceAttach / 0.2;
@@ -1213,8 +1146,7 @@
           // Reload slide: purely cosmetic, the launch always starts from S0.
           const age = t - Math.max(st.lastAttach.t, st.flight.tEnd || -10);
           const k = Math.max(0, 1 - age / 0.09);
-          const blocked = st.phase === "transition";
-          drawPin(HALF_PI, HALF_PI, G.S0 + 22 * k * k, blocked ? "#4A5A78" : C.blue, null);
+          drawPin(HALF_PI, HALF_PI, G.S0 + 22 * k * k, C.blue, null);
         }
 
         // Failure flash at the exact contact point.
@@ -1237,17 +1169,6 @@
           g.beginPath(); g.arc(px, py, 3.2, 0, TAU); g.stroke();
         }
 
-        // Remaining pins on this spindle, below the launcher.
-        if (st.phase !== "over" && st.spec) {
-          const remaining = st.phase === "transition" ? st.spec.quota : st.spec.quota - st.placed;
-          const y = G.R + G.S0 + G.L + 14;
-          const gap = 7;
-          const x0 = -((remaining - 1) * gap) / 2;
-          for (let i = 0; i < remaining; i++) {
-            g.fillStyle = i === 0 ? C.blue : "rgba(174,183,199,0.42)";
-            g.beginPath(); g.arc(x0 + i * gap, y, i === 0 ? 1.5 : 1.2, 0, TAU); g.fill();
-          }
-        }
         g.restore();
 
         // Brief red wash on failure (restrained).
@@ -1297,7 +1218,7 @@
         if ("letterSpacing" in g) g.letterSpacing = "4px";
         g.fillStyle = C.dim;
         const sa = ctx.safeArea || { top: 0, left: 0 };
-        g.fillText("SPINDLE", (sa.left || 0) + 18, (sa.top || 0) + 34);
+        g.fillText("ALMOST", (sa.left || 0) + 18, (sa.top || 0) + 34);
         if ("letterSpacing" in g) g.letterSpacing = "0px";
       }
 
@@ -1306,11 +1227,11 @@
         const root = ctx.createRoot({
           layer: "overlay",
           input: "passthrough",
-          className: "spindle-hud",
+          className: "almost-hud",
           style: "font-family:" + FONT.replace(/"/g, "'") + ";color:" + C.hi + ";"
         });
         const css =
-          ".spindle-hud button{pointer-events:auto;-webkit-tap-highlight-color:transparent;font:inherit;cursor:pointer}" +
+          ".almost-hud button{pointer-events:auto;-webkit-tap-highlight-color:transparent;font:inherit;cursor:pointer}" +
           ".sp-mute{position:absolute;width:40px;height:40px;border-radius:20px;border:1px solid rgba(174,183,199,0.16);background:rgba(8,9,12,0.6);color:#AEB7C7;display:flex;align-items:center;justify-content:center;padding:0}" +
           ".sp-mute:focus-visible,.sp-retry:focus-visible{outline:1px solid #72A7FF;outline-offset:3px}" +
           ".sp-panel{position:absolute;transform:translate(-50%,8px);display:flex;flex-direction:column;align-items:center;gap:14px;opacity:0;transition:opacity .22s ease,transform .22s ease;pointer-events:none}" +
@@ -1466,9 +1387,8 @@
 
       ctx.game.loop({
         maxDeltaMs: 50,
-        update(dtMs, state) {
+        update(dtMs) {
           game.advance(Math.max(0, dtMs) / 1000);
-          if (state && state.frame % 4 === 2) game.idleWork();
           lastFrameWall = now();
         },
         render

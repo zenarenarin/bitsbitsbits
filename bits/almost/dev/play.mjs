@@ -1,4 +1,4 @@
-// Browser acceptance run for SPINDLE. Run: node bits/spindle/dev/play.mjs [outDir]
+// Browser acceptance run for ALMOST. Run: node bits/almost/dev/play.mjs [outDir]
 import { createRequire } from "module";
 import path from "path";
 import fs from "fs";
@@ -41,19 +41,60 @@ const helpers = () => {
     const r = c.getBoundingClientRect();
     c.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerType: "touch", isPrimary: true, clientX: r.left + r.width / 2, clientY: r.top + r.height * 0.8 }));
   };
-  // Bot: plays perfectly until `goal` score, using real pointer events.
+  // Packing aim: tight against the edge of the widest window, with a margin
+  // that covers one frame of tap-timing error.
+  window.__timeToPack = () => {
+    const g = window.__game, st = g.st, f = g.tune.flightMs / 1000;
+    const gi = core.goodIntervals(st.angles, st.count, st.omega, f);
+    let best = null;
+    for (const x of gi) if (!best || x.len > best.len) best = x;
+    if (!best) return null; // no room left anywhere
+    const m = Math.min(0.035, best.len / 2);
+    const target = st.omega > 0 ? best.start + m : best.start + best.len - m;
+    const beta = __wrap(HALF - g.theta(st.simT));
+    return __wrap(st.omega > 0 ? beta - target : target - beta) / Math.abs(st.omega);
+  };
+  // Bot: plays until `goal` score with real pointer events, timed by setTimeout
+  // (the game launches at the true tap time, not the frame time).
   window.__bot = goal => new Promise(resolve => {
+    let pending = false;
     function step() {
       const st = window.__game.st;
       if (st.score >= goal || st.phase === "over") return resolve(st.score);
-      if (st.phase === "ready") {
-        const { wait } = window.__timeToBest();
-        if (wait < 0.02) window.__tap();
+      if (st.phase === "ready" && !pending) {
+        const wait = window.__timeToPack();
+        if (wait === null) window.__tap();
+        else if (wait < 0.03) {
+          pending = true;
+          setTimeout(() => { pending = false; window.__tap(); }, Math.max(0, wait * 1000 - 0.5));
+        }
       }
       requestAnimationFrame(step);
     }
     step();
   });
+  // Continuity monitor: checked on every rendered frame.
+  window.__mon = { violations: 0, frames: 0, placed: [], prev: null, prevScore: 0, milestones: {} };
+  (function watch() {
+    const st = window.__game.st, M = window.__mon;
+    M.frames++;
+    const cur = Array.from(st.angles.subarray(0, st.count));
+    if (M.prev && st.score >= M.prevScore) {
+      if (cur.length < M.prev.length) M.violations++;
+      for (let i = 0; i < M.prev.length; i++) if (cur[i] !== M.prev[i]) { M.violations++; break; }
+      if (cur.length - M.prev.length !== st.score - M.prevScore) M.violations++;
+      for (let i = M.prev.length; i < cur.length; i++) M.placed.push(cur[i]);
+    }
+    if (st.count !== st.initialCount + st.score) M.violations++;
+    for (const m of [5, 10, 20, 30]) {
+      if (M.milestones[m] === undefined && st.score === m) {
+        const tail = cur.slice(st.initialCount);
+        M.milestones[m] = tail.length === m && tail.every((a, i) => a === M.placed[M.placed.length - m + i]);
+      }
+    }
+    M.prev = cur; M.prevScore = st.score;
+    requestAnimationFrame(watch);
+  })();
   window.__crash = () => new Promise(resolve => {
     function step() {
       const st = window.__game.st;
@@ -65,6 +106,14 @@ const helpers = () => {
   });
 };
 
+
+// Long in-page tasks run detached and are polled: a single long-awaited
+// page.evaluate promise can lose its execution context in Playwright.
+async function runLong(page, fn, arg) {
+  await page.evaluate(([fn, arg]) => { window.__done = undefined; window[fn](arg).then(v => { window.__done = v; }); }, [fn, arg]);
+  await page.waitForFunction(() => window.__done !== undefined, null, { timeout: 600000, polling: 250 });
+  return page.evaluate(() => window.__done);
+}
 
 async function noGreen(page, name) {
   // Sample canvas + DOM pixels via a screenshot decoded in-page.
@@ -136,21 +185,14 @@ const browser = await chromium.launch();
   });
   await page.screenshot({ path: path.join(out, "phone-flight.png") });
 
-  // Bot plays through a few spindles with real pointer events.
-  const reached = await page.evaluate(() => window.__bot(20));
-  ok("bot reached 20 with real taps", reached >= 20, reached);
-  const st1 = await page.evaluate(() => ({ score: window.__game.st.score, spindle: window.__game.st.spec.index, ev: window.__events.filter(e => e[0] === "milestone").length }));
-  ok("spindle milestones fired", st1.ev >= 2, st1);
-
-  // Dense structure screenshot: play to near the end of a spindle.
-  await page.evaluate(async () => {
-    const st = window.__game.st;
-    while (!(st.phase === "ready" && st.placed >= st.spec.quota - 2 && st.spec.index >= 3)) {
-      if (st.phase === "ready" && window.__timeToBest().wait < 0.02) window.__tap();
-      await new Promise(r => requestAnimationFrame(r));
-    }
-    await new Promise(r => setTimeout(r, 250));
-  });
+  // One continuous run with real pointer events, watched every frame.
+  const reached = await runLong(page, "__bot", 30);
+  ok("bot reached 30 placements in one run with real taps", reached >= 30, reached);
+  const mon = await page.evaluate(() => ({ v: window.__mon.violations, f: window.__mon.frames, m: window.__mon.milestones, count: window.__game.st.count, init: window.__game.st.initialCount, score: window.__game.st.score }));
+  ok("no pin lost/moved and count = initial + score on every rendered frame", mon.v === 0, mon);
+  for (const m of [5, 10, 20, 30]) ok(`after ${m} placements all ${m} remain attached (browser)`, mon.m[m] === true, mon.m);
+  ok("structure holds every pin of the run", mon.count === mon.init + mon.score, mon);
+  await page.waitForTimeout(250);
   await page.screenshot({ path: path.join(out, "phone-dense.png") });
   await noGreen(page, "phone dense");
 
@@ -170,21 +212,10 @@ const browser = await chromium.launch();
   ok("packed stress structure is legal", await page.evaluate(() => window.__packedOk));
   await page.evaluate(() => { const st = window.__game.st; st.angles.set(window.__saved.a); st.count = window.__saved.c; });
 
-  // Transition frame.
-  await page.evaluate(async () => {
-    const st = window.__game.st;
-    while (st.phase !== "transition") {
-      if (st.phase === "ready" && window.__timeToBest().wait < 0.02) window.__tap();
-      await new Promise(r => requestAnimationFrame(r));
-    }
-    await new Promise(r => setTimeout(r, 160));
-  });
-  await page.screenshot({ path: path.join(out, "phone-transition.png") });
-
   // Crash on purpose: collision ends the run and shows the panel.
   const pre = await page.evaluate(() => window.__game.st.score);
   await page.evaluate(() => new Promise(r => { const w = () => window.__game.st.phase === "ready" ? r() : requestAnimationFrame(w); w(); }));
-  await page.evaluate(() => window.__crash());
+  await runLong(page, "__crash");
   // Frantic taps right after the collision are ignored: no launch, no instant retry.
   const blocked = await page.evaluate(() => { const l = window.__game.st.launches; window.__tap(); window.__tap(); return [window.__game.st.phase, window.__game.st.launches - l]; });
   ok("taps during the post-collision lockout do nothing", blocked[0] === "over" && blocked[1] === 0, blocked);
@@ -201,6 +232,8 @@ const browser = await chromium.launch();
     submit: window.__events.filter(e => e[0] === "submit")
   }));
   ok("collision ends run", over.phase === "over", over);
+  const mon2 = await page.evaluate(() => window.__mon.violations);
+  ok("collision does not remove pins", mon2 === 0, mon2);
   ok("no points for the collision", over.score === pre, { pre, over: over.score });
   ok("game-over panel visible", Number(over.panel) > 0.95, over.panel);
   ok("personal best stored", Number(over.best) === over.score, over);
@@ -210,7 +243,9 @@ const browser = await chromium.launch();
   await page.click(".sp-retry");
   await page.waitForTimeout(150);
   const reset = await page.evaluate(() => { const st = window.__game.st; return { phase: st.phase, score: st.score, spindle: st.spec.index, count: st.count, placed: st.placed }; });
-  ok("retry resets to a fresh gentle run", reset.phase === "ready" && reset.score === 0 && reset.spindle === 0 && reset.count === 3 && reset.placed === 0, reset);
+  ok("retry resets to a fresh gentle run", reset.phase === "ready" && reset.score === 0 && reset.count === 3 && reset.placed === 0, reset);
+  const inherit = await page.evaluate(() => { const st = window.__game.st; const now = Array.from(st.angles.slice(0, st.count)); return window.__mon.placed.filter(a => now.indexOf(a) >= 0).length; });
+  ok("new run inherits no pins from the previous run", inherit === 0, inherit);
 
   // Best persists across reloads.
   const bestBefore = over.best;
@@ -223,7 +258,7 @@ const browser = await chromium.launch();
 
   // Resize mid-run keeps the state intact.
   await page.evaluate(helpers);
-  await page.evaluate(() => window.__bot(3));
+  await runLong(page, "__bot", 3);
   const sBefore = await page.evaluate(() => ({ s: window.__game.st.score, c: window.__game.st.count, a: Array.from(window.__game.st.angles.slice(0, window.__game.st.count)) }));
   await page.setViewportSize({ width: 360, height: 700 });
   await page.waitForTimeout(200);
@@ -266,11 +301,11 @@ const browser = await chromium.launch();
   await page.mouse.click(720, 700);
   const l1 = await page.evaluate(() => window.__game.st.launches);
   ok("mouse click launches", l1 - l0 === 1, { l0, l1 });
-  await page.evaluate(() => window.__bot(9));
+  await runLong(page, "__bot", 9);
   await page.waitForTimeout(200);
   await page.screenshot({ path: path.join(out, "desktop-play.png") });
   await noGreen(page, "desktop");
-  await page.evaluate(() => window.__crash());
+  await runLong(page, "__crash");
   await page.waitForTimeout(900);
   await page.screenshot({ path: path.join(out, "desktop-over.png") });
   // Enter retries on desktop.
@@ -289,10 +324,10 @@ for (const vp of [{ width: 844, height: 390, name: "landscape" }, { width: 320, 
   await page.goto(harness);
   await page.waitForFunction(() => window.__ready === true);
   await page.evaluate(helpers);
-  await page.evaluate(() => window.__bot(4));
+  await runLong(page, "__bot", 4);
   await page.waitForTimeout(150);
   await page.screenshot({ path: path.join(out, vp.name + ".png") });
-  await page.evaluate(() => window.__crash());
+  await runLong(page, "__crash");
   await page.waitForTimeout(800);
   await page.screenshot({ path: path.join(out, vp.name + "-over.png") });
   const fits = await page.evaluate(() => {

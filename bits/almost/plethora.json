@@ -2,10 +2,19 @@
   "schemaVersion": 1,
   "runtime": "plethora-bit@2",
   "entry": "main.js",
-  "title": "Spindle",
-  "description": "Time each tap to fit silver pins into a spinning steel core. Touch another pin and the run ends. How many can you fit?",
-  "tags": ["arcade", "timing", "endless", "minimal"],
-  "permissions": ["haptics", "storage", "audio"],
+  "title": "Almost",
+  "description": "Time each tap to fit silver blades into a spinning steel core. Every pin stays; touch one and the run ends. How many can you fit?",
+  "tags": [
+    "arcade",
+    "timing",
+    "endless",
+    "minimal"
+  ],
+  "permissions": [
+    "haptics",
+    "storage",
+    "audio"
+  ],
   "dependencies": [],
   "memory": {
     "records": {
@@ -14,8 +23,15 @@
         "valueType": "number",
         "order": "desc",
         "format": "integer",
-        "periods": ["daily", "weekly", "all_time"],
-        "scopes": ["following", "global"],
+        "periods": [
+          "daily",
+          "weekly",
+          "all_time"
+        ],
+        "scopes": [
+          "following",
+          "global"
+        ],
         "dedupe": "best_per_user"
       }
     }
@@ -23,8 +39,12 @@
   "tuning": {
     "schemaVersion": 1,
     "groups": {
-      "difficulty": { "label": "Difficulty" },
-      "feel": { "label": "Feel" }
+      "difficulty": {
+        "label": "Difficulty"
+      },
+      "feel": {
+        "label": "Feel"
+      }
     },
     "knobs": {
       "start_speed": {
@@ -50,7 +70,7 @@
         "apply": "restart"
       },
       "first_spindle_pins": {
-        "label": "Pins to add on the first spindle",
+        "label": "Guaranteed opening room (pins)",
         "type": "integer",
         "default": 6,
         "min": 3,

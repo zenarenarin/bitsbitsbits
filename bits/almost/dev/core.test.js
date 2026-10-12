@@ -1,4 +1,4 @@
-// Headless tests for SPINDLE's gameplay core.  Run: node bits/spindle/dev/core.test.js
+// Headless tests for ALMOST's gameplay core.  Run: node bits/almost/dev/core.test.js
 "use strict";
 const fs = require("fs");
 const path = require("path");
@@ -331,7 +331,7 @@ console.log("static min spacing (rad):", STATIC.toFixed(5), "=> max pins on a ci
   const st = game.st;
   // Bot that launches into the centre of the widest window.
   let safety = 0;
-  while (st.score < 30 && safety++ < 20000) {
+  while (st.score < 12 && safety++ < 20000) {
     if (st.phase !== "ready") { game.advance(1 / 60); continue; }
     const gi = goodIntervals(st.angles, st.count, st.omega, FLIGHT);
     let best = gi[0];
@@ -350,7 +350,7 @@ console.log("static min spacing (rad):", STATIC.toFixed(5), "=> max pins on a ci
     if (st.phase === "over") break;
     check("score +1 exactly", st.score === scoreBefore + 1, { scoreBefore, now: st.score });
   }
-  check("bot reached 30 by aiming at window centres", st.score >= 30, st.score);
+  check("bot reached 12 by aiming at window centres", st.score >= 12, st.score);
   check("attach hook count == score", attaches === st.score, { attaches, score: st.score });
   // Now force a collision: aim dead-on at an existing pin.
   while (st.phase !== "ready") game.advance(1 / 60);
@@ -389,6 +389,93 @@ console.log("static min spacing (rad):", STATIC.toFixed(5), "=> max pins on a ci
     if (!Core.staticOk(st.angles, st.count, 0)) violations++;
   }
   check("attached pins never overlap", violations === 0, violations);
+}
+
+// 12. CONTINUITY REGRESSION: one run is one structure. Pins are never lost,
+// moved, regenerated or replaced while the run is active; each successful
+// landing adds exactly one pin and exactly one point; only reset() clears.
+{
+  // Skilled-player bot: aims tight against the edge of the widest window.
+  function aimWait(game, margin) {
+    const st = game.st;
+    const gi = goodIntervals(st.angles, st.count, st.omega, FLIGHT);
+    let best = null;
+    for (const x of gi) if (!best || x.len > best.len) best = x;
+    if (!best || best.len < 2 * margin) return null;
+    const target = st.omega > 0 ? best.start + margin : best.start + best.len - margin;
+    const beta = wrap2Pi(HALF_PI - game.theta(st.simT));
+    return wrap2Pi(st.omega > 0 ? beta - target : target - beta) / Math.abs(st.omega);
+  }
+  let worstViolations = 0;
+  for (const seed of [11, 22, 33, 44, 55, 66]) {
+    const attached = [];
+    let hookScores = [];
+    const game = Core.createGame({ hooks: { onAttach(score) { attached.push(game.st.lastAttach.angle); hookScores.push(score); } } });
+    game.reset(Core.mulberry32(seed));
+    const st = game.st;
+    const initial = st.initialCount;
+    const seeded = Array.from(st.angles.subarray(0, initial));
+    let violations = 0;
+    const milestones = {};
+    let prevCount = st.count, prevScore = st.score;
+    let prev = Float64Array.from(st.angles.subarray(0, st.count));
+    const frame = dt => {
+      game.advance(dt);
+      // never shrinks, never rewrites an existing pin
+      if (st.count < prevCount) violations++;
+      for (let i = 0; i < prevCount; i++) if (st.angles[i] !== prev[i]) { violations++; break; }
+      // grows by at most one, always with exactly one point
+      if (st.count - prevCount > 1) violations++;
+      if (st.score - prevScore !== st.count - prevCount) violations++;
+      if (st.count !== initial + st.score) violations++;
+      if (st.phase === "over" && st.score !== prevScore) violations++;
+      prevCount = st.count; prevScore = st.score;
+      prev = Float64Array.from(st.angles.subarray(0, st.count));
+      for (const m of [5, 10, 20, 30, 40]) {
+        if (!milestones[m] && st.score === m) {
+          // every pin placed so far is still attached, in order, unchanged
+          const placed = Array.from(st.angles.subarray(initial, st.count));
+          const seedOk = seeded.every((a, i) => st.angles[i] === a);
+          milestones[m] = seedOk && placed.length === m && placed.every((a, i) => a === attached[i]);
+        }
+      }
+    };
+    let guard = 0;
+    while (st.phase !== "over" && guard++ < 200000) {
+      if (st.phase !== "ready") { frame(1 / 60); continue; }
+      const wait = aimWait(game, 0.006);
+      if (wait === null) {           // structure full: a real collision must end it
+        const before = st.count;
+        game.launch(0);
+        for (let i = 0; i < 20 && st.phase === "flying"; i++) frame(1 / 60);
+        check("seed " + seed + ": full structure ends in a genuine collision", st.phase === "over" && st.count === before, { phase: st.phase });
+        break;
+      }
+      if (wait > 1 / 60) { frame(Math.min(wait - 1e-7, 1 / 60)); continue; }
+      frame(Math.max(0, wait));
+      game.launch(0);
+      // duplicate input while flying is ignored
+      if (game.launch(0)) violations++;
+    }
+    worstViolations += violations;
+    for (const m of [5, 10, 20, 30, 40]) check(`seed ${seed}: after ${m} placements all ${m} pins remain attached`, milestones[m] === true, { reached: st.score });
+    check(`seed ${seed}: no pin lost/moved, count = initial + score on every frame`, violations === 0, violations);
+    check(`seed ${seed}: onAttach fired once per point`, hookScores.length === st.score && hookScores.every((v, i) => v === i + 1));
+    check(`seed ${seed}: run ended only by collision`, st.phase === "over" && st.fail !== null);
+    console.log(`seed ${seed}: extended run placed ${st.score} pins (structure ${st.count}) before the circle was full`);
+
+    // Rotation keeps going but never touches pins.
+    // Retry: everything resets, nothing is inherited.
+    const oldPlaced = Array.from(st.angles.subarray(initial, st.count));
+    game.reset(Core.mulberry32(seed + 1000));
+    check(`seed ${seed}: retry resets score, pins and speed`, st.score === 0 && st.placed === 0 && st.count === st.initialCount && st.count === Core.spindleSpec(0, T).initial && st.phase === "ready" && st.fail === null && st.omega === Core.omegaFor(st.spec, 0, T));
+    check(`seed ${seed}: new run inherits no placed pins`, oldPlaced.every(a => Array.from(st.angles.subarray(0, st.count)).indexOf(a) < 0));
+    // Idle rotation for 30 s with no input: structure untouched.
+    const snap = Array.from(st.angles.subarray(0, st.count));
+    for (let i = 0; i < 1800; i++) game.advance(1 / 60);
+    check(`seed ${seed}: 30 s of rotation leaves the structure untouched`, st.count === snap.length && snap.every((a, i) => st.angles[i] === a));
+  }
+  check("continuity: zero violations across all extended runs", worstViolations === 0, worstViolations);
 }
 
 console.log(`\n${passes} passed, ${failures} failed`);
