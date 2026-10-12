@@ -552,7 +552,10 @@ window.plethoraBit = {
       if (typeof OffscreenCanvas !== "undefined") {
         try { const c = new OffscreenCanvas(w, h); if (c.getContext("2d")) return c; } catch (e) { /* fallthrough */ }
       }
-      const c = document.createElement("canvas"); c.width = w; c.height = h; return c;
+      // fallback: a hidden SDK-managed 2D surface used purely as a texture source
+      const c = ctx.createCanvas2D({ layer: "background", input: "passthrough" });
+      c.style.display = "none"; c.width = w; c.height = h;
+      return c;
     }
     const disposables = [];
     function canvasTexture(w, h, draw, opts) {
