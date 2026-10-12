@@ -193,7 +193,11 @@ const browser = await chromium.launch();
     await page.evaluate(() => window.__tap());
   }
 
-  // Worst-case density: pins clustered at the minimum legal spacing.
+  const vBefore = await page.evaluate(() => window.__mon.violations);
+  ok("no continuity violations during real-time play", vBefore === 0, vBefore);
+  // Worst-case density: pins clustered at the minimum legal spacing. This
+  // step writes the pin array directly (a rendering stress test), so the
+  // continuity monitor is re-baselined afterwards.
   await page.evaluate(() => {
     const core = window.plethoraBit.core, st = window.__game.st;
     let lo = 0, hi = 0.5;
@@ -208,6 +212,7 @@ const browser = await chromium.launch();
   await page.screenshot({ path: path.join(out, "phone-packed.png") });
   ok("packed stress structure is legal", await page.evaluate(() => window.__packedOk));
   await page.evaluate(() => { const st = window.__game.st; st.angles.set(window.__saved.a); st.count = window.__saved.c; });
+  await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => { window.__mon.violations = 0; window.__mon.prev = null; r(); }))));
 
   // Crash on purpose: collision ends the run and shows the panel.
   const pre = await page.evaluate(() => window.__game.st.score);
@@ -284,7 +289,7 @@ const browser = await chromium.launch();
   await page.evaluate(helpers);
   await page.evaluate(() => {
     const core = window.plethoraBit.core, HALF = Math.PI / 2;
-    const frame = ms => new Promise(r => { window.__clock.step = ms; requestAnimationFrame(() => requestAnimationFrame(r)); });
+    const frame = (ms, after) => new Promise(r => { window.__clock.step = ms; window.__clock.after = after || null; requestAnimationFrame(() => requestAnimationFrame(r)); });
     window.__stepBot = async goal => {
       const g = window.__game, st = g.st, f = g.tune.flightMs / 1000;
       while (st.score < goal && st.phase !== "over") {
@@ -298,8 +303,9 @@ const browser = await chromium.launch();
         const beta = __wrap(HALF - g.theta(st.simT));
         const wait = __wrap(st.omega > 0 ? beta - target : target - beta) / Math.abs(st.omega);
         if (wait > 0.04) { await frame(Math.min(40, (wait - 0.02) * 1000)); continue; }
-        await frame(wait * 1000);
-        window.__tap(); // real pointerdown on the canvas
+        // Real pointerdown on the canvas, dispatched right after the update
+        // that lands the clock on the aim instant.
+        await frame(Math.max(0.001, wait * 1000), () => window.__tap());
         await frame(16);
       }
       return st.score;

@@ -109,6 +109,9 @@
           }
           dt = Math.min(dt, o.maxDeltaMs || 100);
           if (o.update) o.update(dt, { frame: frame++, dtMs: dt });
+          // Test hook: run an action synchronously right after the update
+          // (e.g. a pointer event exactly at this simulated instant).
+          if (window.__clock.after) { const fn = window.__clock.after; window.__clock.after = null; fn(); }
           if (o.render) o.render();
           requestAnimationFrame(tick);
         }
