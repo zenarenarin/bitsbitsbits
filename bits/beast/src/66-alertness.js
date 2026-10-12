@@ -46,6 +46,7 @@ class Alertness {
     this.heave = 0; // current body rise (m)
     this.hitch = 0; // a caught breath while stirring
     this.pulses = []; // recent noises, for fur ripples and footstep rings
+    this.seq = 0; // pulses numbered, so listeners never miss two in one frame
     this.time = 0;
   }
 
@@ -54,13 +55,14 @@ class Alertness {
     return 1 + clamp(this.explorerY / 320, 0, 1) * 0.8 + (this.nearHead ? 0.8 : 0);
   }
 
-  noise(amount, ex, surface) {
+  noise(amount, ex, surface, kind) {
     if (this.state === "awake" || amount <= 0) return;
-    const n = amount * (NOISE.surface[surface] || 1) * this.sensitivity * (this.scale || 1);
+    const raw = amount * (NOISE.surface[surface] || 1); // the sound itself, before how lightly it sleeps
+    const n = raw * this.sensitivity * (this.scale || 1);
     this.level = Math.min(1, this.level + n);
     this.floor = Math.min(NOISE.floorMax, this.floor + n * NOISE.memory);
     this.still = 0;
-    this.pulses.push({ x: ex.x, y: ex.y, amount: n, surface, t: this.time });
+    this.pulses.push({ x: ex.x, y: ex.y, amount: n, raw, kind, surface, t: this.time, seq: ++this.seq });
     if (this.pulses.length > 24) this.pulses.shift();
   }
 
@@ -72,12 +74,12 @@ class Alertness {
     const surface = ex.grounded ? ex.surface(this.mossSeed) : "fur";
 
     for (const e of ex.events) {
-      if (e.type === "step") this.noise(e.run ? NOISE.stepRun : NOISE.stepCareful, ex, surface);
-      else if (e.type === "launch") this.noise(NOISE.launch, ex, surface);
-      else if (e.type === "fell") this.noise(NOISE.hardFall * 1.5, ex, "fur");
+      if (e.type === "step") this.noise(e.run ? NOISE.stepRun : NOISE.stepCareful, ex, surface, e.run ? "run" : "step");
+      else if (e.type === "launch") this.noise(NOISE.launch, ex, surface, "launch");
+      else if (e.type === "fell") this.noise(NOISE.hardFall * 1.5, ex, "fur", "fell");
       else if (e.type === "land") {
         const extra = Math.max(0, e.impact - 5) * NOISE.landPerSpeed;
-        this.noise(NOISE.landSoft + extra + (e.impact > 12 ? NOISE.hardFall : 0), ex, surface);
+        this.noise(NOISE.landSoft + extra + (e.impact > 12 ? NOISE.hardFall : 0), ex, surface, "land");
       }
     }
 

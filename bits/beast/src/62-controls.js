@@ -19,6 +19,7 @@ class Controls {
     this.speedScale = 1;
     this.jumpScale = 1;
     this.first = onFirstGesture;
+    this.intercept = null; // (x, y) -> true when an interface tap takes the touch
     const L = (t, ev, fn, o) => ctx.listen(t, ev, fn, o);
     L(target, "pointerdown", (e) => this.down(e));
     L(target, "pointermove", (e) => this.move(e));
@@ -38,6 +39,7 @@ class Controls {
     this.gesture();
     const r = this.target.getBoundingClientRect();
     const x = e.clientX - r.left;
+    if (this.intercept && this.intercept(x, e.clientY - r.top)) return;
     this.pointers.set(e.pointerId, {
       x, y: e.clientY - r.top, sx: x, sy: e.clientY - r.top, t0: performance.now(),
       side: x < r.width / 2 ? -1 : 1, swiped: false, order: performance.now()
@@ -66,9 +68,11 @@ class Controls {
 
   key(e, isDown) {
     const k = e.key.toLowerCase();
-    const known = ["arrowleft", "arrowright", "arrowup", "a", "d", "w", " ", "shift"];
+    const known = ["arrowleft", "arrowright", "arrowup", "a", "d", "w", " ", "shift", "enter", "m", "escape"];
     if (!known.includes(k)) return;
     if (e.preventDefault) e.preventDefault();
+    // Keyboard stand-ins for the interface taps: Enter (retry/close), M (memory).
+    if (isDown && this.intercept && (k === "enter" || k === "m" || k === "escape") && this.intercept(null, null, k)) return;
     if (isDown) {
       this.gesture();
       if ((k === " " || k === "w" || k === "arrowup") && !e.repeat) this.jumpPressed = true;
@@ -100,6 +104,13 @@ class Controls {
   }
 
   consume() {
+    this.jumpPressed = false;
+  }
+
+  // Lift every finger and key (e.g. when an overlay opens).
+  release() {
+    this.pointers.clear();
+    this.keys.clear();
     this.jumpPressed = false;
   }
 

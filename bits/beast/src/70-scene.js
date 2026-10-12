@@ -82,6 +82,7 @@ class Scene {
     Ls.ridge.draw(g, view);
     Ls.play.draw(g, view, true); // the walkable body is never left unpainted
     if (life) life.drawGround(g, view, alert, ex);
+    if (opts.seeds) opts.seeds.draw(g, view, alert);
     const [sx, sy] = worldToScreen(view, ex.x, ex.y, 1);
     drawExplorer(g, sx, sy, EXPLORER_HEIGHT * view.ppm * view.pr, ex.facing, ex.pose);
     if (life) life.drawAir(g, view);

@@ -198,6 +198,7 @@ function buildWorld(seed) {
     base: { x: base.x, y: base.y, facing: -1 }
   };
   const focus = { head: { x: HX - 4, y: 285 } };
+  const seeds = placeDreamSeeds(play, shelves, props, addMushroom, standOn, nearestShelf, seed);
 
   // -- Far layer: the creature's far-side dorsal spires through the haze -----
   // Tall rounded monoliths rising from a rolling far-back ridge, placed along
@@ -252,6 +253,7 @@ function buildWorld(seed) {
     layers: { play, tail, far, fore, ridge },
     clouds,
     props,
+    seeds,
     explorerSpots,
     focus
   };

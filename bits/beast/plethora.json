@@ -3,13 +3,16 @@
   "runtime": "plethora-bit@2",
   "entry": "main.js",
   "title": "Beast",
-  "description": "A tiny explorer climbs an impossibly enormous sleeping beast. Climb higher. Stay quiet.",
+  "description": "A tiny explorer climbs an impossibly enormous sleeping beast. Climb higher, gather Dream Seeds, and stay quiet.",
   "tags": [
     "adventure",
     "climbing",
     "atmospheric"
   ],
-  "permissions": [],
+  "permissions": [
+    "storage",
+    "audio"
+  ],
   "dependencies": [],
   "onboarding": {
     "kind": "one_line",

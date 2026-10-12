@@ -1,8 +1,9 @@
 // ---- Bit entry -------------------------------------------------------------
-// Beast. Stage 3 (alertness): the explorer climbs the sleeping beast's body;
+// Beast. Stage 4 (discovery): the explorer climbs the sleeping beast's body;
 // every step, launch and landing makes noise; the beast breathes, stirs and
-// settles; stillness lets it calm, slowly, never fully. Interface stays
-// hidden; the world itself is the feedback.
+// settles. Dream Seeds grow along the climb, careful climbing earns a Quiet
+// Streak bonus, and the Creature's Memory keeps what every climb has found.
+// The interface is a few inked marks; the world itself is the feedback.
 
 const WORLD_SEED = 7331;
 // Painting gets what is left of a ~14 ms frame after drawing (3-10 ms).
@@ -13,7 +14,7 @@ window.plethoraBit = {
     title: "Beast",
     runtime: "plethora-bit@2",
     tags: ["adventure", "climbing", "atmospheric"],
-    permissions: []
+    permissions: ["storage", "audio"]
   },
 
   async init(ctx) {
@@ -42,7 +43,9 @@ window.plethoraBit = {
     };
 
     let stage = "world";
-    let world, scene, ex, cam, alert, life;
+    let world, scene, ex, cam, alert, life, seeds, quiet, memory;
+    const hud = new Hud();
+    const chime = new Chime(ctx);
     let disposed = false;
     ctx.onDestroy(() => { disposed = true; });
 
@@ -69,6 +72,9 @@ window.plethoraBit = {
       cam = new FollowCamera(ex);
       alert = new Alertness(world);
       life = new Life(world);
+      seeds = new DreamSeeds(world);
+      quiet = new QuietStreak();
+      memory = new Memory(makeStore(ctx), world);
       stage = "first-frame";
       scene.prepare(currentView(), ex); // paint everything the first frame needs
       scene.sched.syncMs = 0;
@@ -78,13 +84,17 @@ window.plethoraBit = {
       throw err;
     }
 
-    const controls = new Controls(ctx, canvas, () => ctx.platform.start());
+    const controls = new Controls(ctx, canvas, () => {
+      ctx.platform.start();
+      if (chime.ok) { try { chime.build(); } catch (err) { chime.ok = false; } }
+    });
     applyNoise();
 
     // Temporary stand-in for the awakening (Stage 6 builds the real
     // sequence): the body heaves, one impact, the explorer loses footing,
     // the world fades into mist, and the climb restarts.
     let wake = null, shake = 0, fade = 0;
+    let results = null, resultsT = 0, journalOpen = false, journal = 0, runMaxY = ex.y;
     const still = { dir: 0, run: false, jumpPressed: false };
     const restart = () => {
       ex.reset(startSpot());
@@ -92,6 +102,30 @@ window.plethoraBit = {
       cam.snap(ex);
       life.parts.length = 0;
       wake = null;
+      seeds.reset();
+      quiet.reset();
+      memory.startRun();
+      runMaxY = ex.y;
+      results = null;
+    };
+    const replay = () => {
+      restart();
+      ctx.platform.start();
+    };
+    // Interface taps: the Memory mark opens the journal (pausing the climb);
+    // any tap closes it; after the beast wakes, a tap climbs again.
+    controls.intercept = (x, y, key) => {
+      if (journalOpen) { journalOpen = false; return true; }
+      if (key === "m" || (x !== null && hud.hitJournal(ctx, x, y))) {
+        journalOpen = true;
+        controls.release();
+        return true;
+      }
+      if (results) {
+        if (resultsT > 0.6 && (x !== null || key === "enter")) replay();
+        return true;
+      }
+      return false;
     };
 
     let lastView = null;
@@ -103,24 +137,41 @@ window.plethoraBit = {
         view.camY += Math.cos(alert.time * 39) * shake * 0.25;
       }
       lastView = view;
+      const prof = globalThis.__dwProfile ? (globalThis.__dwParts = globalThis.__dwParts || {}) : null;
+      const tA = prof ? performance.now() : 0;
       scene.render(g, view, {
         explorer: { x: ex.x, y: ex.y, facing: ex.facing, pose: ex.pose() },
         collision: !!knob("collision_overlay", false),
         alert,
-        life
+        life,
+        seeds
       });
       if (fade > 0.001) {
         g.fillStyle = css(PAL.mistWarm, fade);
         g.fillRect(0, 0, view.W, view.H);
       }
+      const tB = prof ? performance.now() : 0;
+      const pr = view.pr, safe = ctx.safeArea || { top: 0, bottom: 0, left: 0, right: 0 };
+      if (results) {
+        drawResults(g, view.W, view.H, pr, safe, results, resultsT);
+        hud.drawJournalMark(g, hud.layout(ctx).journal, pr);
+      } else if (fade < 0.6) {
+        hud.draw(g, ctx, pr, ex.y, seeds, quiet, 1 - fade / 0.6);
+      }
+      if (journal > 0.001) drawJournal(g, view.W, view.H, pr, safe, memory, journal, hud.time);
+      if (prof) {
+        prof.scene = (prof.scene || 0) + tB - tA;
+        prof.hud = (prof.hud || 0) + performance.now() - tB;
+      }
       if (knob("show_alertness", false)) {
         const s = view.pr;
         g.font = `${12 * s}px sans-serif`;
         g.fillStyle = "rgba(40,30,60,0.75)";
-        g.fillText(`${alert.state} ${alert.level.toFixed(2)}  floor ${alert.floor.toFixed(2)}  height ${ex.y.toFixed(0)} m`, 12 * s, (ctx.safeArea.top + 22) * s);
+        g.textAlign = "left";
+        g.fillText(`${alert.state} ${alert.level.toFixed(2)}  floor ${alert.floor.toFixed(2)}  quiet ${quiet.metres.toFixed(1)} m`, 12 * s, (safe.top + 120) * s);
       }
       // Faint marks where fingers are held: feedback without a HUD.
-      for (const p of controls.touches()) {
+      for (const p of journalOpen ? [] : controls.touches()) {
         const s = view.pr;
         dab(g, p.sx * s, p.sy * s, 22 * s, 22 * s, 0, [255, 244, 228], 0.12);
         dab(g, p.x * s, p.y * s, 7 * s, 7 * s, 0, [255, 244, 228], 0.28);
@@ -130,8 +181,11 @@ window.plethoraBit = {
           x: ex.x, y: ex.y, vx: ex.vx, vy: ex.vy, grounded: ex.grounded, state: ex.state,
           feetSd: ex.sd(ex.x, ex.y + PHYS.feetR) - PHYS.feetR, bodySd: ex.sd(ex.x, ex.y + PHYS.bodyY) - PHYS.bodyR,
           pending: scene.sched.jobs.size, syncMs: scene.sched.syncMs || 0, syncCount: scene.sched.syncCount || 0,
-          alert: alert.level, alertState: alert.state, floor: alert.floor
+          alert: alert.level, alertState: alert.state, floor: alert.floor,
+          seeds: seeds.count, quiet: quiet.metres, quietTier: quiet.tier, remembered: memory.count, results: !!results, journal: journalOpen
         };
+        // Test harness only (profile flag): drive the interface from scripts.
+        globalThis.__dwGame = { seeds, quiet, memory, world, ex, openJournal: (v) => { journalOpen = v !== false; }, wake: () => { alert.level = 1; alert.state = "awake"; } };
         globalThis.__dwAlert = alert; // test harness only (profile flag)
       }
     };
@@ -140,13 +194,32 @@ window.plethoraBit = {
       fixedHz: 120,
       maxSubsteps: 8,
       fixedUpdate: (stepMs) => {
+        if (journalOpen || results) return; // paused, or the run is over
         ex.step(stepMs / 1000, wake ? still : controls);
         controls.consume();
       },
       update: (dtMs) => {
         const dt = Math.min(dtMs, 100) / 1000;
+        journal = clamp(journal + (journalOpen ? dt : -dt) * 5, 0, 1);
+        if (journalOpen) return; // the climb waits while the journal is open
+        if (results) resultsT += dt;
         cam.update(dt, ex);
         alert.update(dt, ex, wake ? still : controls);
+        if (!wake) {
+          seeds.update(dt, ex);
+          quiet.update(dt, ex, alert);
+          runMaxY = Math.max(runMaxY, ex.y);
+          for (const b of quiet.blooms) {
+            seeds.bloom(ex.x, ex.y, b.n);
+            hud.blooms.push({ n: b.n, age: 0 });
+            chime.play("bloom");
+          }
+          quiet.blooms.length = 0;
+          for (const s of seeds.collected) chime.play(s.kind);
+        }
+        memory.observe(dt, ex, alert, seeds, quiet);
+        while (memory.queue.length) hud.remember(memory.queue.shift());
+        hud.update(dt, seeds);
         if (alert.state === "awake" && !wake) wake = { t: 0, hit: false };
         if (wake) {
           wake.t += dt;
@@ -166,7 +239,11 @@ window.plethoraBit = {
             const v = makeView("gameplay", world, lastView.W, lastView.H, lastView.pr, { x: s.x, y: s.y });
             scene.paintAhead(v);
           }
-          if (wake.t > 3.1) restart();
+          if (wake.t > 3.1 && !results) {
+            results = memory.endRun(runMaxY, seeds.count);
+            resultsT = 0;
+            try { ctx.platform.fail({ score: Math.round(runMaxY), result: "woke" }); } catch (err) { /* lifecycle only */ }
+          }
         } else {
           fade = Math.max(0, fade - dt * 1.2);
         }
@@ -188,7 +265,7 @@ window.plethoraBit = {
     });
 
     if (tune) {
-      tune.onChange(["start"], () => { ex.reset(startSpot()); cam.snap(ex); });
+      tune.onChange(["start"], restart);
       tune.onChange(["walk_speed", "run_speed", "jump_height"], applyPhys);
       tune.onChange(["noise_scale", "recovery_rate"], applyNoise);
     }
@@ -200,5 +277,5 @@ window.plethoraBit = {
 
 // Test hook: lets offline tools drive the world and controller headlessly.
 if (typeof globalThis.__dwTestHook === "function") {
-  globalThis.__dwTestHook({ buildWorld, Explorer, PHYS, WORLD_SEED, Alertness, NOISE });
+  globalThis.__dwTestHook({ buildWorld, Explorer, PHYS, WORLD_SEED, Alertness, NOISE, seedTouches, capTop, DreamSeeds, QuietStreak, Memory, makeStore });
 }

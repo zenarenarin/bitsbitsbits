@@ -539,6 +539,7 @@ function buildWorld(seed) {
     base: { x: base.x, y: base.y, facing: -1 }
   };
   const focus = { head: { x: HX - 4, y: 285 } };
+  const seeds = placeDreamSeeds(play, shelves, props, addMushroom, standOn, nearestShelf, seed);
 
   // -- Far layer: the creature's far-side dorsal spires through the haze -----
   // Tall rounded monoliths rising from a rolling far-back ridge, placed along
@@ -593,9 +594,95 @@ function buildWorld(seed) {
     layers: { play, tail, far, fore, ridge },
     clouds,
     props,
+    seeds,
     explorerSpots,
     focus
   };
+}
+
+// ==== module 27-seed-places ====
+// ---- Dream Seed placement ----------------------------------------------------
+// Common seeds grow on the treads of the climb, so the main route passes over
+// them. Rare lantern seeds crown mushroom caps grown out over the drop beside
+// the route: a jump - and so a noise - away. Ancient fronds sit at the end of
+// two-cap chains, reachable only from the first cap. Placement has its own random
+// stream, so adding seeds never changes the rest of the world.
+
+const SEED_KINDS = {
+  common: { value: 1, h: 0.8 },
+  rare: { value: 3, h: 1.0 },
+  ancient: { value: 7, h: 1.15 }
+};
+
+function placeDreamSeeds(play, shelves, props, addMushroom, standOn, nearestShelf, seed) {
+  const rnd = rngFrom(seed + 77);
+  const R = (a, b) => a + (b - a) * rnd();
+  const seeds = [];
+  const add = (kind, x, y, extra) => {
+    seeds.push(Object.assign({ id: seeds.length, kind, x, y, value: SEED_KINDS[kind].value, phase: rnd() * 6.28, lean: R(-0.2, 0.2) }, extra));
+  };
+  const clear = (x, y, d) =>
+    !props.trees.some((t) => Math.abs(t.x - x) < d && Math.abs(t.y - y) < 1.5) &&
+    !props.mushrooms.some((m) => Math.abs(m.root.x - x) < d && Math.abs(m.root.y - y) < 1.5) &&
+    !seeds.some((s) => Math.abs(s.x - x) < d * 2 && Math.abs(s.y - y) < 2);
+  const normalY = (x, y) => {
+    const e = 0.05;
+    const gx = play.sdAt(x + e, y) - play.sdAt(x - e, y), gy = play.sdAt(x, y + e) - play.sdAt(x, y - e);
+    return gy / (Math.hypot(gx, gy) || 1);
+  };
+  const ground = (x, yHint) => play.surfaceBelow(x, yHint + 8, yHint - 10);
+
+  // Common: every few treads from just above the cloud sea to the neck.
+  let gap = 1;
+  for (const s of shelves) {
+    if (s.y < 4 || --gap > 0) continue;
+    for (const f of [R(0.05, 0.6), 0.25, 0.45, 0.65]) {
+      const x = s.x + s.a * f;
+      const y = ground(x, s.y + s.b);
+      if (y === null || y < s.y - s.b * 0.5 || normalY(x, y + 0.02) < 0.72 || !clear(x, y, 0.9)) continue;
+      add("common", x, y);
+      gap = 1 + Math.floor(rnd() * 3);
+      break;
+    }
+  }
+
+  // A cap grown out over the drop at the downhill end of a tread, its top
+  // `rise` metres above the fur 2 m uphill (the back rises to the left),
+  // where the explorer takes off to reach it.
+  const capBeside = (s, rise, out, capR) => {
+    if (!s) return null;
+    const x = s.x + s.a * out;
+    const y = ground(x, s.y);
+    const from = ground(x - 2, s.y + 2);
+    if (y === null || from === null) return null;
+    const stemH = clamp(from + rise - y - capR * 0.44, 0.9, 7);
+    if (!addMushroom(x, s.y, capR, stemH, R(0.2, 0.45))) return null;
+    return props.mushrooms[props.mushrooms.length - 1];
+  };
+  const onCap = (kind, m) => add(kind, m.cap.x, m.cap.y + m.cap.b, { cap: props.mushrooms.indexOf(m) });
+
+  // Rare: lantern seeds on single caps beside the route.
+  for (const y of [28, 52, 76, 100, 150, 192, 214]) {
+    const m = capBeside(nearestShelf(y, (s) => standOn(s)), R(1.3, 1.6), R(0.95, 1.15), R(1.3, 1.6));
+    if (m) onCap("rare", m);
+  }
+  // The tallest cap by the starting grove carries one too.
+  const grove = props.mushrooms.slice(0, 4).sort((a, b) => b.cap.y - a.cap.y)[0];
+  if (grove) onCap("rare", grove);
+
+  // Ancient: two-cap chains out over the drop - the second cap only from the first.
+  for (const y of [112, 170, 232]) {
+    const s = nearestShelf(y, (q) => standOn(q));
+    const a = capBeside(s, 1.2, 1.0, 1.5);
+    if (!a) continue;
+    const bx = a.cap.x + 2.3;
+    const by = ground(bx, a.root.y);
+    if (by === null) continue;
+    const capR = 1.4;
+    const stemH = a.cap.y + a.cap.b + 1.45 - by - capR * 0.44;
+    if (addMushroom(bx, a.root.y, capR, stemH, 0.3)) onCap("ancient", props.mushrooms[props.mushrooms.length - 1]);
+  }
+  return seeds;
 }
 
 // ==== module 30-brush ====
@@ -1954,6 +2041,7 @@ class Controls {
     this.speedScale = 1;
     this.jumpScale = 1;
     this.first = onFirstGesture;
+    this.intercept = null; // (x, y) -> true when an interface tap takes the touch
     const L = (t, ev, fn, o) => ctx.listen(t, ev, fn, o);
     L(target, "pointerdown", (e) => this.down(e));
     L(target, "pointermove", (e) => this.move(e));
@@ -1973,6 +2061,7 @@ class Controls {
     this.gesture();
     const r = this.target.getBoundingClientRect();
     const x = e.clientX - r.left;
+    if (this.intercept && this.intercept(x, e.clientY - r.top)) return;
     this.pointers.set(e.pointerId, {
       x, y: e.clientY - r.top, sx: x, sy: e.clientY - r.top, t0: performance.now(),
       side: x < r.width / 2 ? -1 : 1, swiped: false, order: performance.now()
@@ -2001,9 +2090,11 @@ class Controls {
 
   key(e, isDown) {
     const k = e.key.toLowerCase();
-    const known = ["arrowleft", "arrowright", "arrowup", "a", "d", "w", " ", "shift"];
+    const known = ["arrowleft", "arrowright", "arrowup", "a", "d", "w", " ", "shift", "enter", "m", "escape"];
     if (!known.includes(k)) return;
     if (e.preventDefault) e.preventDefault();
+    // Keyboard stand-ins for the interface taps: Enter (retry/close), M (memory).
+    if (isDown && this.intercept && (k === "enter" || k === "m" || k === "escape") && this.intercept(null, null, k)) return;
     if (isDown) {
       this.gesture();
       if ((k === " " || k === "w" || k === "arrowup") && !e.repeat) this.jumpPressed = true;
@@ -2035,6 +2126,13 @@ class Controls {
   }
 
   consume() {
+    this.jumpPressed = false;
+  }
+
+  // Lift every finger and key (e.g. when an overlay opens).
+  release() {
+    this.pointers.clear();
+    this.keys.clear();
     this.jumpPressed = false;
   }
 
@@ -2380,6 +2478,7 @@ class Alertness {
     this.heave = 0; // current body rise (m)
     this.hitch = 0; // a caught breath while stirring
     this.pulses = []; // recent noises, for fur ripples and footstep rings
+    this.seq = 0; // pulses numbered, so listeners never miss two in one frame
     this.time = 0;
   }
 
@@ -2388,13 +2487,14 @@ class Alertness {
     return 1 + clamp(this.explorerY / 320, 0, 1) * 0.8 + (this.nearHead ? 0.8 : 0);
   }
 
-  noise(amount, ex, surface) {
+  noise(amount, ex, surface, kind) {
     if (this.state === "awake" || amount <= 0) return;
-    const n = amount * (NOISE.surface[surface] || 1) * this.sensitivity * (this.scale || 1);
+    const raw = amount * (NOISE.surface[surface] || 1); // the sound itself, before how lightly it sleeps
+    const n = raw * this.sensitivity * (this.scale || 1);
     this.level = Math.min(1, this.level + n);
     this.floor = Math.min(NOISE.floorMax, this.floor + n * NOISE.memory);
     this.still = 0;
-    this.pulses.push({ x: ex.x, y: ex.y, amount: n, surface, t: this.time });
+    this.pulses.push({ x: ex.x, y: ex.y, amount: n, raw, kind, surface, t: this.time, seq: ++this.seq });
     if (this.pulses.length > 24) this.pulses.shift();
   }
 
@@ -2406,12 +2506,12 @@ class Alertness {
     const surface = ex.grounded ? ex.surface(this.mossSeed) : "fur";
 
     for (const e of ex.events) {
-      if (e.type === "step") this.noise(e.run ? NOISE.stepRun : NOISE.stepCareful, ex, surface);
-      else if (e.type === "launch") this.noise(NOISE.launch, ex, surface);
-      else if (e.type === "fell") this.noise(NOISE.hardFall * 1.5, ex, "fur");
+      if (e.type === "step") this.noise(e.run ? NOISE.stepRun : NOISE.stepCareful, ex, surface, e.run ? "run" : "step");
+      else if (e.type === "launch") this.noise(NOISE.launch, ex, surface, "launch");
+      else if (e.type === "fell") this.noise(NOISE.hardFall * 1.5, ex, "fur", "fell");
       else if (e.type === "land") {
         const extra = Math.max(0, e.impact - 5) * NOISE.landPerSpeed;
-        this.noise(NOISE.landSoft + extra + (e.impact > 12 ? NOISE.hardFall : 0), ex, surface);
+        this.noise(NOISE.landSoft + extra + (e.impact > 12 ? NOISE.hardFall : 0), ex, surface, "land");
       }
     }
 
@@ -2670,6 +2770,7 @@ class Scene {
     Ls.ridge.draw(g, view);
     Ls.play.draw(g, view, true); // the walkable body is never left unpainted
     if (life) life.drawGround(g, view, alert, ex);
+    if (opts.seeds) opts.seeds.draw(g, view, alert);
     const [sx, sy] = worldToScreen(view, ex.x, ex.y, 1);
     drawExplorer(g, sx, sy, EXPLORER_HEIGHT * view.ppm * view.pr, ex.facing, ex.pose);
     if (life) life.drawAir(g, view);
@@ -2753,12 +2854,1074 @@ function drawCollisionOverlay(g, view, anat, ex, mushrooms) {
   g.restore();
 }
 
+// ==== module 72-seeds ====
+// ---- Dream Seeds: luminous growths in the fur --------------------------------
+// Drawn live over the painted body (they glow, sway with the breath and are
+// picked), in the same brush language: a stalk rooted in the fur, small
+// leaves, and a translucent pod lit from inside.
+//   common  - one ivory pod with a muted gold core          (1 seed)
+//   rare    - an arching stalk hung with three turquoise lanterns (3 seeds)
+//   ancient - a curled frond threaded with seven lavender beads   (7 seeds)
+// Collecting is brief: the pod brightens and opens, a ring and a few motes
+// rise, the fur around it catches the light, a chime, and the counter ticks.
+// Nothing pauses. The spent stalk stays, unlit.
+
+const SEED_LOOK = {
+  common: { glow: hex("#fff1cf"), core: hex("#f1cf86"), pod: hex("#fbf0dc"), shade: hex("#c9a986") },
+  rare: { glow: hex("#d6fbf2"), core: hex("#9fe3d6"), pod: hex("#e3f7f1"), shade: hex("#7fb5b4") },
+  ancient: { glow: hex("#efe4ff"), core: hex("#bba5ea"), pod: hex("#f1e9ff"), shade: hex("#8f7cbc") }
+};
+const SEED_STALK = hex("#6c5a6e"), SEED_STALK_LIT = hex("#a58a86"), SEED_LEAF = hex("#76884a");
+
+// Does the explorer (feet at ex.x, ex.y) touch seed s? The body is about
+// 1.5 m tall; the seed sits in the lower half of it when standing on its tread.
+function seedTouches(s, ex) {
+  const dx = (ex.x - s.x) / 0.8;
+  const dy = (ex.y + 0.7 - (s.y + SEED_KINDS[s.kind].h * 0.6)) / 1.05;
+  return dx * dx + dy * dy < 1;
+}
+
+class DreamSeeds {
+  constructor(world) {
+    this.world = world;
+    this.list = world.seeds;
+    this.fx = [];
+    this.reset();
+  }
+
+  reset() {
+    this.taken = new Set();
+    this.count = 0;
+    this.found = { common: 0, rare: 0, ancient: 0 };
+    this.fx.length = 0;
+    this.time = 0;
+    this.collected = []; // seeds picked since the last drain (for Memory, HUD)
+  }
+
+  update(dt, ex) {
+    this.time += dt;
+    for (const s of this.list) {
+      if (this.taken.has(s.id) || Math.abs(s.y - ex.y) > 3 || Math.abs(s.x - ex.x) > 3) continue;
+      if (seedTouches(s, ex)) this.collect(s);
+    }
+    for (const f of this.fx) f.age += dt;
+    this.fx = this.fx.filter((f) => f.age < 1.6);
+  }
+
+  collect(s) {
+    this.taken.add(s.id);
+    this.count += s.value;
+    this.found[s.kind]++;
+    this.collected.push(s);
+    const r = rngFrom(s.id * 7919 + 13);
+    const motes = [];
+    for (let i = 0; i < 7 + s.value * 2; i++) {
+      motes.push({ a: r() * 6.28, sp: 0.4 + r() * 0.7, rise: 0.7 + r() * 0.9, s: 0.025 + r() * 0.03 });
+    }
+    this.fx.push({ s, age: 0, motes });
+  }
+
+  // Bonus seeds bloomed by the Quiet Streak, at the explorer's feet.
+  bloom(x, y, n) {
+    this.count += n;
+    const r = rngFrom(Math.floor(this.time * 1000) + n);
+    const motes = [];
+    for (let i = 0; i < 6 + n * 3; i++) motes.push({ a: r() * 6.28, sp: 0.6 + r() * 0.9, rise: 0.5 + r() * 0.8, s: 0.025 + r() * 0.025 });
+    this.fx.push({ s: { kind: "common", x, y, value: n, bloom: true }, age: 0, motes });
+  }
+
+  draw(g, view, alert) {
+    const k = view.ppm * view.pr;
+    const hw = view.W / 2 / k + 2, top = view.camY + view.horizon / k + 2, bot = view.camY - (view.H - view.horizon) / k - 2;
+    const breath = alert ? Math.sin(alert.breath) : 0;
+    for (const s of this.list) {
+      if (s.y > top || s.y < bot || Math.abs(s.x - view.camX) > hw) continue;
+      const [sx, sy] = worldToScreen(view, s.x, s.y, 1);
+      drawSeedPlant(g, sx, sy, k, s, this.taken.has(s.id) ? 0 : 1, this.time, breath);
+    }
+    for (const f of this.fx) this.drawCollect(g, view, k, f);
+  }
+
+  drawCollect(g, view, k, f) {
+    const s = f.s, look = SEED_LOOK[s.kind], t = f.age;
+    const h = SEED_KINDS[s.kind].h;
+    const [sx, sy] = worldToScreen(view, s.x, s.y, 1);
+    const cy = sy - h * 0.75 * k;
+    g.save();
+    g.globalCompositeOperation = "screen";
+    // The fur catches the light: a warm pool that swells and fades.
+    const pool = Math.sin(clamp(t / 1.1, 0, 1) * Math.PI) * (0.45 + s.value * 0.05);
+    if (pool > 0.01) {
+      const rad = (1.6 + s.value * 0.25) * k;
+      const gr = g.createRadialGradient(sx, cy, 0, sx, cy, rad);
+      gr.addColorStop(0, css(look.glow, 0.55 * pool));
+      gr.addColorStop(0.45, css(look.core, 0.22 * pool));
+      gr.addColorStop(1, css(look.core, 0));
+      g.fillStyle = gr;
+      g.fillRect(sx - rad, cy - rad, rad * 2, rad * 2);
+    }
+    g.restore();
+    // A soft ring travelling out across the fur.
+    if (t < 0.9) {
+      const rr = (0.3 + t * 2.4) * k;
+      g.beginPath();
+      g.ellipse(sx, sy - 0.05 * k, rr, rr * 0.3, 0, 0, Math.PI * 2);
+      g.lineWidth = Math.max(1, 0.045 * k);
+      g.strokeStyle = css(look.glow, 0.55 * (1 - t / 0.9));
+      g.stroke();
+    }
+    // Motes spiralling up and away.
+    for (const m of f.motes) {
+      const u = t / 1.6;
+      const a = m.a + t * 2.2;
+      const x = sx + Math.cos(a) * m.sp * u * k * 0.9;
+      const y = cy - (m.rise * Math.sqrt(u) * 1.6) * k + Math.sin(a) * m.sp * u * k * 0.25;
+      const fade = Math.min(1, t * 8) * (1 - u);
+      dab(g, x, y, m.s * k * 1.6, m.s * k * 1.6, 0, look.glow, 0.25 * fade);
+      dab(g, x, y, m.s * k * 0.6, m.s * k * 0.6, 0, [255, 252, 240], 0.9 * fade);
+    }
+  }
+}
+
+// One seed plant, rooted at (x, y) in px. lit 1 = ripe, 0 = spent.
+function drawSeedPlant(g, x, y, k, s, lit, time, breath) {
+  const look = SEED_LOOK[s.kind];
+  const h = SEED_KINDS[s.kind].h * k;
+  const sway = Math.sin(time * 0.9 + s.phase) * 0.05 + breath * 0.03 + s.lean;
+  const glowPulse = 0.82 + 0.18 * Math.sin(time * 1.3 + s.phase);
+  // Root shadow; while ripe, its light pools warmly on the fur around it.
+  dab(g, x, y + 0.02 * k, 0.22 * k, 0.05 * k, 0, PAL.fur[1], 0.35);
+  if (lit > 0) {
+    g.save();
+    g.globalCompositeOperation = "screen";
+    const value = SEED_KINDS[s.kind].value;
+    const rx = (0.75 + value * 0.04) * k, ry = rx * 0.4;
+    g.translate(x, y - 0.05 * k);
+    g.scale(1, ry / rx);
+    const gr = g.createRadialGradient(0, 0, 0, 0, 0, rx);
+    gr.addColorStop(0, css(look.glow, 0.45 * glowPulse));
+    gr.addColorStop(0.5, css(look.core, 0.16 * glowPulse));
+    gr.addColorStop(1, css(look.core, 0));
+    g.fillStyle = gr;
+    g.fillRect(-rx, -rx, rx * 2, rx * 2);
+    g.restore();
+  }
+  if (s.kind === "ancient") drawAncient(g, x, y, k, s, h, look, lit, sway, glowPulse, time);
+  else drawStalkSeed(g, x, y, k, s, h, look, lit, sway, glowPulse, time);
+  // A few motes of light drifting up from a ripe seed.
+  if (lit > 0) {
+    for (let i = 0; i < 2 + Math.min(SEED_KINDS[s.kind].value, 3); i++) {
+      const u = (time * 0.22 + i / 3.3 + s.phase) % 1;
+      const mx = x + Math.sin(u * 5 + i * 2.1 + s.phase) * 0.22 * k + (i - 1) * 0.08 * k;
+      const my = y - (0.25 + u * 1.1) * h;
+      const a = Math.sin(u * Math.PI);
+      dab(g, mx, my, 0.03 * k, 0.03 * k, 0, look.glow, 0.3 * a);
+      dab(g, mx, my, 0.012 * k, 0.012 * k, 0, [255, 252, 240], 0.85 * a);
+    }
+  }
+}
+
+function drawStalkSeed(g, x, y, k, s, h, look, lit, sway, glowPulse, time) {
+  // Stalk: a tapered curve; rare stalks arch over to hang their lanterns.
+  const arch = s.kind === "rare" ? 0.55 : 0.12;
+  const tipX = x + (Math.sin(sway) + arch * 0.6) * h * 0.55, tipY = y - h * (s.kind === "rare" ? 0.86 : 0.78);
+  const ctrlX = x + sway * h * 0.2 - arch * h * 0.05, ctrlY = y - h * 0.62;
+  g.beginPath();
+  g.moveTo(x - 0.035 * k, y);
+  g.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
+  g.quadraticCurveTo(ctrlX + 0.045 * k, ctrlY + 0.02 * k, x + 0.035 * k, y);
+  g.closePath();
+  g.fillStyle = css(mixRGB(SEED_STALK, SEED_STALK_LIT, 0.35 * lit), 1);
+  g.fill();
+  // Two small leaves low on the stalk.
+  const lx = lerp(x, ctrlX, 0.35), ly = lerp(y, ctrlY, 0.35);
+  drawLock(g, lx, ly, -0.85, -0.5, 0.22 * k, 0.1 * k, 0.25, mixRGB(SEED_LEAF, PAL.fur[2], 0.25), 0.95);
+  drawLock(g, lx + 0.01 * k, ly - 0.05 * k, 0.9, -0.45, 0.18 * k, 0.085 * k, -0.25, mixRGB(SEED_LEAF, PAL.fur[3], 0.2), 0.95);
+  if (s.kind === "rare") {
+    // Three lanterns hanging from the arch on fine threads.
+    for (let i = 0; i < 3; i++) {
+      const u = 0.55 + i * 0.22;
+      const qx = lerp(lerp(x, ctrlX, u), lerp(ctrlX, tipX, u), u), qy = lerp(lerp(y, ctrlY, u), lerp(ctrlY, tipY, u), u);
+      const hang = (0.16 + ((i * 37) % 5) * 0.03) * k;
+      const px = qx + Math.sin(time * 1.6 + s.phase + i) * 0.015 * k, py = qy + hang;
+      streak(g, qx, qy, (px - qx) / hang, 1, hang, Math.max(0.6, 0.008 * k), SEED_STALK, 0.7);
+      drawPod(g, px, py + 0.07 * k, 0.085 * k, 0.115 * k, look, lit, glowPulse, "top");
+    }
+  } else {
+    drawBud(g, tipX, tipY - 0.12 * k, 0.12 * k, 0.17 * k, look, lit, glowPulse);
+  }
+}
+
+// The common seed: a closed bud of translucent petals with light inside,
+// glowing through the gaps. Spent, the petals fall open and dull.
+function drawBud(g, x, y, rx, ry, look, lit, pulse) {
+  if (lit > 0) {
+    g.save();
+    g.globalCompositeOperation = "screen";
+    const rad = ry * 5.5;
+    const gr = g.createRadialGradient(x, y, 0, x, y, rad);
+    gr.addColorStop(0, css(look.glow, 0.8 * pulse));
+    gr.addColorStop(0.25, css(look.core, 0.32 * pulse));
+    gr.addColorStop(1, css(look.core, 0));
+    g.fillStyle = gr;
+    g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+    g.restore();
+  }
+  const base = y + ry * 0.95;
+  const open = lit > 0 ? 0 : 0.55;
+  const petal = (dx, bend, col, a, w, len) => drawLock(g, x + dx * rx, base, dx * (0.5 + open) , -1, ry * len, rx * w, bend, col, a);
+  // Back petals in shadow, the light, then the front petal catching the sun.
+  petal(-0.35, -0.12, lit > 0 ? look.shade : PAL.fur[1], 0.95, 1.25, 1.85);
+  petal(0.35, 0.12, lit > 0 ? mixRGB(look.shade, look.pod, 0.4) : PAL.fur[1], 0.95, 1.25, 1.85);
+  if (lit > 0) {
+    dab(g, x, y + ry * 0.05, rx * 0.62, ry * 0.85, 0, look.core, 0.95);
+    dab(g, x, y - ry * 0.05, rx * 0.36, ry * 0.55, 0, look.glow, 0.95 * pulse);
+  }
+  petal(-0.08, 0.06, lit > 0 ? look.pod : mixRGB(look.shade, PAL.fur[1], 0.5), 0.9, 0.95, 1.6);
+  if (lit > 0) streak(g, x - rx * 0.28, base - ry * 0.4, 0.15, -1, ry * 1.0, Math.max(1, rx * 0.12), [255, 252, 240], 0.7);
+  // Two small sepals at the base.
+  for (const side of [-1, 1]) drawLock(g, x, base - ry * 0.05, side * 0.8, -0.35, ry * 0.65, rx * 0.5, side * 0.2, mixRGB(SEED_LEAF, PAL.fur[2], 0.3), 0.95);
+}
+
+// A translucent pod: soft halo, shaded body, petal sheath, inner light.
+function drawPod(g, x, y, rx, ry, look, lit, pulse, sepal) {
+  if (lit > 0) {
+    g.save();
+    g.globalCompositeOperation = "screen";
+    const rad = ry * 5;
+    const gr = g.createRadialGradient(x, y, 0, x, y, rad);
+    gr.addColorStop(0, css(look.glow, 0.75 * pulse));
+    gr.addColorStop(0.3, css(look.core, 0.3 * pulse));
+    gr.addColorStop(1, css(look.core, 0));
+    g.fillStyle = gr;
+    g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+    g.restore();
+  }
+  const body = lit > 0 ? look.pod : mixRGB(look.shade, PAL.fur[1], 0.5);
+  dab(g, x, y, rx, ry, 0, lit > 0 ? look.shade : PAL.fur[1], 0.9);
+  dab(g, x - rx * 0.12, y - ry * 0.08, rx * 0.86, ry * 0.88, 0, body, 0.95);
+  if (lit > 0) {
+    dab(g, x - rx * 0.1, y + ry * 0.05, rx * 0.5, ry * 0.55, 0, look.core, 0.85 * pulse);
+    dab(g, x - rx * 0.25, y - ry * 0.3, rx * 0.22, ry * 0.2, 0, [255, 252, 240], 0.9);
+  }
+  // Sepal petals cupping the pod (over the top of a hanging lantern).
+  if (!sepal) return;
+  const hanging = sepal === "top";
+  const sy = hanging ? y - ry * 0.85 : y + ry * 0.75;
+  const dir = hanging ? 1 : -1;
+  for (const side of [-1, 1]) {
+    drawLock(g, x, sy, side * 0.55, dir * 0.85, ry * 0.95, rx * 0.7, side * 0.2, mixRGB(SEED_STALK_LIT, PAL.fur[2], 0.4), 0.85);
+  }
+}
+
+// The ancient frond: a curled crozier threaded with seven beads of light.
+function drawAncient(g, x, y, k, s, h, look, lit, sway, pulse, time) {
+  const pts = [];
+  const n = 26;
+  for (let i = 0; i <= n; i++) {
+    const u = i / n;
+    // Rise, then curl inward (a fiddlehead): radius shrinks along the spiral.
+    if (u < 0.55) {
+      const v = u / 0.55;
+      pts.push([x + Math.sin(sway) * v * h * 0.35 + v * v * h * 0.12, y - v * h * 0.82]);
+    } else {
+      const v = (u - 0.55) / 0.45;
+      const ang = Math.PI + v * Math.PI * 1.6;
+      const rad = h * 0.22 * (1 - v * 0.7);
+      const c = [x + Math.sin(sway) * h * 0.35 + h * 0.12 + h * 0.22, y - h * 0.82];
+      pts.push([c[0] + Math.cos(ang) * rad, c[1] + Math.sin(ang) * rad]);
+    }
+  }
+  g.lineCap = "round";
+  g.lineJoin = "round";
+  for (const [w, col, a] of [[0.05, SEED_STALK, 1], [0.022, SEED_STALK_LIT, 0.8]]) {
+    g.beginPath();
+    g.moveTo(pts[0][0], pts[0][1]);
+    for (const p of pts) g.lineTo(p[0], p[1]);
+    g.lineWidth = Math.max(1, w * k);
+    g.strokeStyle = css(col, a);
+    g.stroke();
+  }
+  // Small pinnae along the rising stem.
+  for (let i = 3; i < 13; i += 2) {
+    const [px, py] = pts[i];
+    const side = i % 4 === 1 ? 1 : -1;
+    drawLock(g, px, py, side * 0.9, -0.4, 0.1 * k, 0.045 * k, side * 0.3, mixRGB(SEED_LEAF, PAL.fur[2], 0.3), 0.9);
+  }
+  // Seven beads along the curl; the innermost is the heart of the seed.
+  for (let i = 0; i < 7; i++) {
+    const p = pts[Math.min(n, 15 + i + (i > 4 ? 1 : 0))];
+    const big = i === 6;
+    const r = (big ? 0.1 : 0.06) * k;
+    const pp = pulse * (0.85 + 0.15 * Math.sin(time * 2 + i));
+    drawPod(g, p[0], p[1], r, r, look, lit, pp, null);
+  }
+}
+
+// ==== module 74-quiet ====
+// ---- Quiet Streak --------------------------------------------------------------
+// Sustained careful climbing earns a modest bonus. The streak counts new
+// height gained since the last loud sound: a running step, a landing on bare
+// fur or skin (moss and mushroom caps take a landing softly), a fall, or the
+// beast beginning to stir. Careful steps and take-offs never break it, and a
+// break costs only the bonus to come - never seeds, never progress.
+// Each tier reached blooms Dream Seeds at the explorer's feet:
+//   15 m -> 1, 40 m -> 2, 80 m -> 3, then 3 more every 40 m after that.
+
+const QUIET = { tiers: [15, 40, 80], every: 40, loud: 0.0095 };
+
+class QuietStreak {
+  constructor() {
+    this.reset();
+  }
+
+  reset() {
+    this.metres = 0;
+    this.peak = null;
+    this.tier = 0;
+    this.prevAt = 0;
+    this.nextAt = QUIET.tiers[0];
+    this.seq = 0;
+    this.stirT = -1;
+    this.broken = null; // { t, metres, tier } of the last break, for the HUD
+    this.best = 0; // longest streak this run (m)
+    this.blooms = []; // tier rewards waiting to be paid out
+    this.time = 0;
+  }
+
+  update(dt, ex, alert) {
+    this.time += dt;
+    if (this.peak === null) this.peak = ex.y;
+    for (const p of alert.pulses) {
+      if (p.seq <= this.seq) continue;
+      this.seq = p.seq;
+      if (p.kind === "run" || p.kind === "fell" || p.raw >= QUIET.loud) this.break(ex);
+    }
+    if (alert.changed && alert.changed.to === "stirring" && alert.changed.t !== this.stirT) {
+      this.stirT = alert.changed.t;
+      this.break(ex);
+    }
+    // Only new height counts, and only once the feet are down again.
+    if ((ex.grounded || ex.onCap) && ex.y > this.peak) {
+      this.metres += ex.y - this.peak;
+      this.peak = ex.y;
+      this.best = Math.max(this.best, this.metres);
+      while (this.metres >= this.nextAt) {
+        this.tier++;
+        this.blooms.push({ tier: this.tier, n: Math.min(this.tier, 3) });
+        this.prevAt = this.nextAt;
+        this.nextAt = this.tier < QUIET.tiers.length ? QUIET.tiers[this.tier] : this.nextAt + QUIET.every;
+      }
+    }
+  }
+
+  break(ex) {
+    if (this.metres > 1.5) this.broken = { t: this.time, metres: this.metres, tier: this.tier };
+    this.metres = 0;
+    this.tier = 0;
+    this.prevAt = 0;
+    this.nextAt = QUIET.tiers[0];
+    this.peak = ex.y;
+  }
+
+  // 0..1 progress toward the next tier.
+  get progress() {
+    return clamp((this.metres - this.prevAt) / (this.nextAt - this.prevAt), 0, 1);
+  }
+}
+
+// ==== module 76-memory ====
+// ---- The Creature's Memory ---------------------------------------------------
+// A persistent field journal of what the climbs have found: twelve
+// illustrated fragments of the beast and the life on it. Each is remembered
+// the first time it happens and stays remembered; the journal also keeps the
+// best height and every seed ever gathered. Stored with ctx.storage (viewer
+// local); where storage is unavailable it lasts for the session.
+
+const MEMORY_ENTRIES = [
+  { id: "seed", name: "Dream Seed", note: "A pod of warm light, rooted in the fur." },
+  { id: "lantern", name: "Lantern Seed", note: "Three lights, hung where only a jump will reach." },
+  { id: "frond", name: "Ancient Frond", note: "Seven beads on one curl, older than any climb." },
+  { id: "breath", name: "Its Breath", note: "Stand still, and the whole hill rises and falls." },
+  { id: "caps", name: "Cap Gardens", note: "Mushrooms root in its fur. They spring, and do not tell." },
+  { id: "moss", name: "Hush Moss", note: "Moss swallows a footstep whole." },
+  { id: "spires", name: "The Spires", note: "Rose-stone spines along its back, warm to the touch." },
+  { id: "shoulder", name: "The Shoulder", note: "The back steepens here, and the wind finds you." },
+  { id: "eye", name: "The Closed Eye", note: "A lid the size of a valley. Something moves beneath." },
+  { id: "quiet", name: "Quiet Ways", note: "Eighty metres without a sound. It never knew you." },
+  { id: "settle", name: "A Lighter Sleep", note: "It stirred. You waited. It slept again." },
+  { id: "waking", name: "The Waking", note: "It is not a hill. It never was." }
+];
+const MEMORY_KEY = "creature-memory";
+
+function makeStore(ctx) {
+  const mem = {};
+  const s = ctx.storage;
+  return {
+    get(key) {
+      try {
+        if (s && typeof s.get === "function") {
+          const v = s.get(key);
+          if (v !== undefined && v !== null) return v;
+        }
+      } catch (err) { /* storage unavailable: keep the session copy */ }
+      return mem[key] === undefined ? null : mem[key];
+    },
+    set(key, v) {
+      mem[key] = v;
+      try {
+        if (s && typeof s.set === "function") s.set(key, v);
+      } catch (err) { /* storage unavailable: keep the session copy */ }
+    }
+  };
+}
+
+class Memory {
+  constructor(store, world) {
+    this.store = store;
+    this.world = world;
+    const saved = store.get(MEMORY_KEY);
+    const ok = saved && typeof saved === "object" && saved.v === 1;
+    this.data = ok ? saved : { v: 1, found: {}, bestHeight: 0, bestSeeds: 0, seeds: 0, runs: 0 };
+    if (!this.data.found || typeof this.data.found !== "object") this.data.found = {};
+    this.newly = []; // discovered this run, in order
+    this.queue = []; // waiting to be announced
+    this.dirty = false;
+    this.saveT = 0;
+    this.startRun();
+  }
+
+  startRun() {
+    this.newly = [];
+    this.seq = 0;
+    this.mossSteps = 0;
+    this.sawStir = false;
+  }
+
+  has(id) {
+    return !!this.data.found[id];
+  }
+
+  get count() {
+    return MEMORY_ENTRIES.filter((e) => this.has(e.id)).length;
+  }
+
+  discover(id) {
+    if (this.has(id)) return;
+    this.data.found[id] = Date.now();
+    const entry = MEMORY_ENTRIES.find((e) => e.id === id);
+    this.newly.push(entry);
+    this.queue.push(entry);
+    this.dirty = true;
+  }
+
+  // Watches the run for first discoveries. Cheap: a few comparisons a frame.
+  observe(dt, ex, alert, seeds, quiet) {
+    for (const s of seeds.collected) this.discover(s.kind === "rare" ? "lantern" : s.kind === "ancient" ? "frond" : "seed");
+    seeds.collected.length = 0;
+    for (const p of alert.pulses) {
+      if (p.seq <= this.seq) continue;
+      this.seq = p.seq;
+      if (p.kind === "step" && p.surface === "moss" && ++this.mossSteps >= 10) this.discover("moss");
+    }
+    if (ex.onCap) this.discover("caps");
+    if (alert.state === "sleep" && alert.still > 8) this.discover("breath");
+    if (ex.y >= 150) this.discover("spires");
+    if (ex.y >= 200) this.discover("shoulder");
+    const h = this.world.focus.head;
+    if (Math.hypot(ex.x - h.x, ex.y - h.y) < 24) this.discover("eye");
+    if (quiet.tier >= 3) this.discover("quiet");
+    if (alert.state === "stirring") this.sawStir = true;
+    if (this.sawStir && alert.state === "sleep") this.discover("settle");
+    if (alert.state === "awake") this.discover("waking");
+    // Writes are batched: at most every two seconds, never per frame.
+    this.saveT -= dt;
+    if (this.dirty && this.saveT <= 0) this.save();
+  }
+
+  // End of a run: fold it into the records. Returns what the results show.
+  endRun(height, seedCount) {
+    const d = this.data;
+    const prevBest = d.bestHeight;
+    d.runs++;
+    d.seeds += seedCount;
+    d.bestHeight = Math.max(d.bestHeight, height);
+    d.bestSeeds = Math.max(d.bestSeeds, seedCount);
+    this.dirty = true;
+    this.save();
+    return { height, seeds: seedCount, best: d.bestHeight, newBest: height > prevBest && d.runs > 1, newly: this.newly.slice() };
+  }
+
+  save() {
+    this.store.set(MEMORY_KEY, this.data);
+    this.dirty = false;
+    this.saveT = 2;
+  }
+}
+
+// ---- The journal page -------------------------------------------------------
+// A field journal laid over the paused climb: warm paper, lavender ink, and
+// a grid of fragments painted with the game's own brushes. Fragments not
+// yet found are an empty inked ring.
+
+const ROMAN = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "xi", "xii"];
+const INK = hex("#4a3d68"), INK_SOFT = hex("#8a7aa8"), PAPER = hex("#f7ecdd"), PAPER_EDGE = hex("#e9cdb8");
+const SERIF = "Georgia, 'Times New Roman', serif";
+
+function drawJournal(g, W, H, pr, safe, memory, appear, time) {
+  const a = smoothstep(0, 1, appear);
+  g.save();
+  g.globalAlpha = a;
+  // Paper with a warm painted edge.
+  g.fillStyle = css(PAPER, 1);
+  g.fillRect(0, 0, W, H);
+  const v = g.createRadialGradient(W / 2, H * 0.45, Math.min(W, H) * 0.3, W / 2, H * 0.45, Math.max(W, H) * 0.75);
+  v.addColorStop(0, css(PAPER_EDGE, 0));
+  v.addColorStop(1, css(PAPER_EDGE, 0.75));
+  g.fillStyle = v;
+  g.fillRect(0, 0, W, H);
+  const r = rngFrom(4127);
+  for (let i = 0; i < 70; i++) {
+    dab(g, r() * W, r() * H, (20 + r() * 60) * pr, (6 + r() * 16) * pr, r() * 3, mixRGB(PAPER, PAPER_EDGE, r()), 0.18);
+  }
+
+  const top = (safe.top + 18) * pr, side = Math.max(16 * pr, W * 0.05);
+  g.textAlign = "center";
+  g.textBaseline = "alphabetic";
+  g.fillStyle = css(INK, 0.95);
+  g.font = `italic ${Math.round(22 * pr)}px ${SERIF}`;
+  g.fillText("The Creature’s Memory", W / 2, top + 22 * pr);
+  g.font = `${Math.round(11.5 * pr)}px ${SERIF}`;
+  g.fillStyle = css(INK_SOFT, 0.95);
+  const d = memory.data;
+  g.fillText(`${memory.count} of ${MEMORY_ENTRIES.length} remembered  ·  best ${Math.round(d.bestHeight)} m  ·  ${d.seeds} seeds gathered`, W / 2, top + 42 * pr);
+  // A hand-ruled line under the title.
+  streak(g, W / 2 - 90 * pr, top + 52 * pr, 1, 0.01, 180 * pr, 1 * pr, INK_SOFT, 0.5);
+
+  const cols = 3, rows = 4;
+  const gx0 = side, gx1 = W - side;
+  const gy0 = top + 66 * pr, gy1 = H - (safe.bottom + 40) * pr;
+  const cw = (gx1 - gx0) / cols, ch = (gy1 - gy0) / rows;
+  MEMORY_ENTRIES.forEach((e, i) => {
+    const cx = gx0 + cw * (i % cols + 0.5), cy = gy0 + ch * (Math.floor(i / cols) + 0.5);
+    const rad = Math.min(cw * 0.36, ch * 0.3);
+    const icy = cy - ch * 0.12;
+    const found = memory.has(e.id);
+    if (found) {
+      // Watercolour wash behind the fragment.
+      const w = g.createRadialGradient(cx, icy, 0, cx, icy, rad * 1.15);
+      w.addColorStop(0, css(hex("#fbe3cf"), 0.95));
+      w.addColorStop(0.7, css(hex("#f1cdc0"), 0.55));
+      w.addColorStop(1, css(hex("#e9c3c6"), 0));
+      g.fillStyle = w;
+      g.fillRect(cx - rad * 1.2, icy - rad * 1.2, rad * 2.4, rad * 2.4);
+      g.save();
+      g.beginPath();
+      g.arc(cx, icy, rad * 1.05, 0, Math.PI * 2);
+      g.clip();
+      drawFragment(g, e.id, cx, icy, rad, time);
+      g.restore();
+      g.beginPath();
+      g.arc(cx, icy, rad * 1.05, 0, Math.PI * 2);
+      g.lineWidth = 1 * pr;
+      g.strokeStyle = css(INK_SOFT, 0.45);
+      g.stroke();
+    } else {
+      g.save();
+      g.setLineDash([2 * pr, 5 * pr]);
+      g.beginPath();
+      g.arc(cx, icy, rad * 0.8, 0, Math.PI * 2);
+      g.lineWidth = 1.1 * pr;
+      g.strokeStyle = css(INK_SOFT, 0.5);
+      g.stroke();
+      g.restore();
+    }
+    const fresh = memory.newly.includes(e);
+    g.textAlign = "center";
+    if (!found) {
+      // An unfound fragment is just its numbered ring.
+      g.font = `italic ${Math.round(13 * pr)}px ${SERIF}`;
+      g.fillStyle = css(INK_SOFT, 0.5);
+      g.fillText(ROMAN[i], cx, icy + 5 * pr);
+      return;
+    }
+    g.font = `italic ${Math.round(12.5 * pr)}px ${SERIF}`;
+    g.fillStyle = css(INK, 0.95);
+    g.fillText(e.name, cx, icy + rad * 1.05 + 16 * pr);
+    g.font = `${Math.round(9.5 * pr)}px ${SERIF}`;
+    g.fillStyle = css(INK_SOFT, 0.95);
+    wrapText(g, e.note, cx, icy + rad * 1.05 + 30 * pr, cw * 0.92, 11.5 * pr, 2);
+    if (fresh) {
+      g.font = `italic ${Math.round(9 * pr)}px ${SERIF}`;
+      g.fillStyle = css(hex("#b0705a"), 0.9);
+      g.fillText("new", cx + rad * 0.95, icy - rad * 0.85);
+    }
+  });
+  g.textAlign = "center";
+  g.font = `italic ${Math.round(11 * pr)}px ${SERIF}`;
+  g.fillStyle = css(INK_SOFT, 0.85);
+  g.fillText("tap to return to the climb", W / 2, H - (safe.bottom + 16) * pr);
+  g.restore();
+}
+
+function wrapText(g, text, x, y, maxW, lineH, maxLines) {
+  const words = text.split(" ");
+  let line = "", n = 0;
+  for (let i = 0; i < words.length; i++) {
+    const test = line ? `${line} ${words[i]}` : words[i];
+    if (g.measureText(test).width > maxW && line) {
+      g.fillText(line, x, y + n * lineH);
+      line = words[i];
+      if (++n >= maxLines) return;
+    } else line = test;
+  }
+  if (line) g.fillText(line, x, y + n * lineH);
+}
+
+// One illustrated fragment, centred at (cx, cy), fitting radius rad.
+function drawFragment(g, id, cx, cy, rad, time) {
+  const k = rad / 1.1; // px per metre inside the vignette
+  const mound = (y, w, h) => {
+    dab(g, cx, cy + y * k, w * k, h * k, 0, PAL.fur[2], 0.9);
+    dab(g, cx + 0.1 * k, cy + (y - h * 0.25) * k, w * 0.85 * k, h * 0.7 * k, 0, PAL.fur[3], 0.9);
+    const r = rngFrom(id.length * 31 + 7);
+    for (let i = 0; i < 14; i++) {
+      const u = r() * 2 - 1;
+      drawLock(g, cx + u * w * 0.85 * k, cy + (y - h * 0.55 * (1 - u * u)) * k, 0.3 * u, -1, (0.12 + r() * 0.1) * k, 0.06 * k, u * 0.2, ramp(PAL.fur, 0.55 + r() * 0.4), 0.85);
+    }
+  };
+  const P = (X, Y) => [cx + X * k, cy - Y * k];
+  const seedOf = (kind, scale) => {
+    mound(0.75, 1.3, 0.45);
+    drawSeedPlant(g, cx, cy + 0.55 * k, k * scale, { kind, phase: 1, lean: 0 }, 1, time, 0);
+  };
+  switch (id) {
+    case "seed": seedOf("common", 1.5); break;
+    case "lantern": seedOf("rare", 1.25); break;
+    case "frond": seedOf("ancient", 1.1); break;
+    case "breath": {
+      mound(0.5, 1.4, 0.6);
+      for (let i = 0; i < 3; i++) {
+        g.beginPath();
+        const y = cy - (0.25 + i * 0.28 + Math.sin(time * 0.8) * 0.04) * k;
+        g.moveTo(cx - 0.8 * k, y + 0.12 * k);
+        g.quadraticCurveTo(cx, y - 0.12 * k, cx + 0.8 * k, y + 0.12 * k);
+        g.lineWidth = Math.max(1, 0.035 * k);
+        g.strokeStyle = css(INK_SOFT, 0.55 - i * 0.12);
+        g.stroke();
+      }
+      break;
+    }
+    case "caps": {
+      mound(0.8, 1.3, 0.4);
+      const m = { root: { x: -0.1, y: -0.55 }, top: { x: 0.05, y: 0.5 }, capR: 0.75 };
+      drawMushroom(g, P, k, m, {}, 3);
+      drawMushroom(g, P, k, { root: { x: 0.55, y: -0.6 }, top: { x: 0.7, y: -0.1 }, capR: 0.38 }, {}, 5);
+      break;
+    }
+    case "moss": {
+      mound(0.6, 1.3, 0.55);
+      const r = rngFrom(99);
+      for (let i = 0; i < 46; i++) {
+        const u = r() * 2 - 1;
+        dab(g, cx + u * 0.9 * k, cy + (0.15 - (1 - u * u) * 0.25 - r() * 0.12) * k, (0.05 + r() * 0.07) * k, (0.04 + r() * 0.05) * k, 0, ramp(PAL.moss, 0.25 + r() * 0.6), 0.9);
+      }
+      break;
+    }
+    case "spires": {
+      mound(0.85, 1.4, 0.4);
+      for (const [x, h, w] of [[-0.45, 1.3, 0.16], [0.1, 1.7, 0.2], [0.55, 1.0, 0.13]]) {
+        drawLock(g, cx + x * k, cy + 0.55 * k, 0.04, -1, h * k, w * 2 * k, 0.04, PAL.spire[1], 1);
+        drawLock(g, cx + (x + 0.03) * k, cy + 0.5 * k, 0.04, -1, h * 0.95 * k, w * 1.1 * k, 0.04, PAL.spire[3], 0.8);
+      }
+      break;
+    }
+    case "shoulder": {
+      g.beginPath();
+      g.moveTo(cx - 1.2 * k, cy + 1.1 * k);
+      g.quadraticCurveTo(cx - 0.4 * k, cy - 0.6 * k, cx + 1.2 * k, cy - 0.2 * k);
+      g.lineTo(cx + 1.2 * k, cy + 1.2 * k);
+      g.closePath();
+      g.fillStyle = css(PAL.fur[2], 0.9);
+      g.fill();
+      for (let i = 0; i < 4; i++) streak(g, cx - (0.9 - i * 0.15) * k, cy - (0.55 + i * 0.16) * k, 1, -0.12, (0.9 + i * 0.1) * k, Math.max(1, 0.03 * k), INK_SOFT, 0.45);
+      drawExplorer(g, cx - 0.2 * k, cy + 0.02 * k, 0.5 * k, -1, { time });
+      break;
+    }
+    case "eye": {
+      dab(g, cx, cy + 0.2 * k, 1.3 * k, 1 * k, 0, PAL.fur[2], 0.95);
+      dab(g, cx + 0.15 * k, cy, 1.1 * k, 0.8 * k, 0, PAL.fur[3], 0.9);
+      drawClosedEye(g, P, k, { x: 0, y: 0, w: 1.7, tilt: 0.1, outer: 1 }, {}, 11);
+      break;
+    }
+    case "quiet": {
+      g.beginPath();
+      g.moveTo(cx - 1.2 * k, cy + 1.2 * k);
+      g.lineTo(cx + 1.2 * k, cy - 0.4 * k);
+      g.lineTo(cx + 1.2 * k, cy + 1.2 * k);
+      g.closePath();
+      g.fillStyle = css(PAL.fur[3], 0.9);
+      g.fill();
+      for (let i = 0; i < 6; i++) {
+        const u = i / 6;
+        dab(g, cx + lerp(-1, 0.6, u) * k, cy + lerp(0.95, -0.12, u) * k - (i % 2) * 0.05 * k, 0.05 * k, 0.025 * k, -0.6, INK_SOFT, 0.6);
+      }
+      drawExplorer(g, cx + 0.75 * k, cy - 0.2 * k, 0.55 * k, 1, { time });
+      break;
+    }
+    case "settle": {
+      mound(0.5, 1.4, 0.6);
+      g.beginPath();
+      for (let i = 0; i <= 40; i++) {
+        const u = i / 40;
+        const y = cy - 0.55 * k + Math.sin(u * 18) * (1 - u) * 0.18 * k;
+        if (i) g.lineTo(cx + lerp(-1, 1, u) * k, y); else g.moveTo(cx - k, y);
+      }
+      g.lineWidth = Math.max(1, 0.035 * k);
+      g.strokeStyle = css(INK_SOFT, 0.6);
+      g.stroke();
+      break;
+    }
+    case "waking": {
+      dab(g, cx, cy + 0.2 * k, 1.3 * k, 1 * k, 0, PAL.fur[1], 0.95);
+      dab(g, cx + 0.15 * k, cy, 1.1 * k, 0.8 * k, 0, PAL.fur[2], 0.9);
+      g.save();
+      g.beginPath();
+      g.ellipse(cx, cy, 0.85 * k, 0.32 * k, 0.08, 0, Math.PI * 2);
+      g.clip();
+      dab(g, cx, cy, 0.9 * k, 0.4 * k, 0, hex("#f3e3c8"), 1);
+      dab(g, cx + 0.05 * k, cy, 0.34 * k, 0.34 * k, 0, hex("#d99a4a"), 1);
+      dab(g, cx + 0.05 * k, cy, 0.22 * k, 0.22 * k, 0, hex("#b06a3a"), 1);
+      dab(g, cx + 0.05 * k, cy, 0.05 * k, 0.26 * k, 0, PAL.lash, 1);
+      dab(g, cx - 0.04 * k, cy - 0.1 * k, 0.06 * k, 0.04 * k, 0, [255, 250, 240], 0.9);
+      g.restore();
+      g.beginPath();
+      g.ellipse(cx, cy, 0.85 * k, 0.32 * k, 0.08, Math.PI * 1.02, Math.PI * 1.98);
+      g.lineWidth = Math.max(1.2, 0.05 * k);
+      g.strokeStyle = css(PAL.lash, 0.9);
+      g.stroke();
+      break;
+    }
+  }
+}
+
+// ==== module 78-hud ====
+// ---- Interface: restrained, inked onto the scene -----------------------------
+// Top left: height (the score) and the Dream Seed count with a small pod.
+// Under them, only while it matters, the Quiet Streak as three leaves.
+// Top right: the Creature's Memory (a small pressed-seed journal mark).
+// Text is lavender ink with a soft cream halo, so it holds against both sky
+// and fur. Discoveries are a single fading line; nothing pauses the climb.
+
+class Hud {
+  constructor() {
+    this.seedBump = 0;
+    this.lastSeeds = 0;
+    this.toasts = [];
+    this.journalGlow = 0;
+    this.time = 0;
+    this.blooms = []; // "+n" drifting up from a quiet bloom
+  }
+
+  update(dt, seeds) {
+    this.time += dt;
+    if (seeds.count !== this.lastSeeds) {
+      this.seedBump = 1;
+      this.lastSeeds = seeds.count;
+    }
+    this.seedBump = Math.max(0, this.seedBump - dt * 3);
+    this.journalGlow = Math.max(0, this.journalGlow - dt * 0.4);
+    // At most two discovery lines at once; later ones wait their turn.
+    this.toasts.forEach((t, i) => { if (i < 2) t.age += dt; });
+    this.toasts = this.toasts.filter((t) => t.age < 4);
+    for (const b of this.blooms) b.age += dt;
+    this.blooms = this.blooms.filter((b) => b.age < 1.6);
+  }
+
+  remember(entry) {
+    this.toasts.push({ text: entry.name, age: this.toasts.length ? -0.3 : 0 });
+    this.journalGlow = 1;
+  }
+
+  // Layout in CSS px.
+  layout(ctx) {
+    const s = ctx.safeArea || { top: 0, right: 0, left: 0, bottom: 0 };
+    return { left: s.left + 16, top: s.top + 14, journal: { x: ctx.width - s.right - 30, y: s.top + 32, r: 22 } };
+  }
+
+  hitJournal(ctx, x, y) {
+    const j = this.layout(ctx).journal;
+    return Math.hypot(x - j.x, y - j.y) < j.r + 6;
+  }
+
+  draw(g, ctx, pr, height, seeds, quiet, alpha) {
+    const L = this.layout(ctx);
+    const x = L.left * pr, y = L.top * pr;
+    g.save();
+    g.globalAlpha = alpha;
+    g.textAlign = "left";
+    g.textBaseline = "alphabetic";
+    const hw = inkText(g, `${Math.max(0, Math.round(height))}`, x, y + 24 * pr, `${Math.round(26 * pr)}px ${SERIF}`, 0.95, pr);
+    inkText(g, "m", x + hw + 4 * pr, y + 24 * pr, `italic ${Math.round(14 * pr)}px ${SERIF}`, 0.8, pr);
+    // Seed count with a small glowing pod.
+    const sy = y + 48 * pr;
+    const bump = 1 + this.seedBump * 0.35;
+    const pod = iconSprite(`pod${pr}`, 40 * pr, (t, S) => drawPod(t, S / 2, S / 2, 4.2 * pr, 6 * pr, SEED_LOOK.common, 1, 1, "cup"));
+    const ps = 40 * pr * bump;
+    g.drawImage(pod, x + 7 * pr - ps / 2, sy - 5 * pr - ps / 2, ps, ps);
+    const cw = inkText(g, `${seeds.count}`, x + 18 * pr, sy, `${Math.round(17 * pr)}px ${SERIF}`, 0.92, pr);
+    for (const b of this.blooms) {
+      const a = Math.min(1, b.age * 6) * (1 - b.age / 1.6);
+      inkText(g, `+${b.n}`, x + 18 * pr + cw + 8 * pr, sy - b.age * 10 * pr, `italic ${Math.round(13 * pr)}px ${SERIF}`, 0.85 * a, pr);
+    }
+    this.drawQuiet(g, x, sy + 20 * pr, pr, quiet);
+    this.drawJournalMark(g, L.journal, pr);
+    // Discovery lines under the journal mark, right-aligned.
+    let ty = (L.journal.y + L.journal.r + 22) * pr;
+    for (const t of this.toasts) {
+      if (t.age < 0) continue;
+      const a = Math.min(1, t.age * 3) * (1 - smoothstep(3, 4, t.age));
+      g.textAlign = "right";
+      inkText(g, "remembered", (L.journal.x + L.journal.r) * pr, ty, `italic ${Math.round(10.5 * pr)}px ${SERIF}`, 0.7 * a, pr);
+      inkText(g, t.text, (L.journal.x + L.journal.r) * pr, ty + 17 * pr, `italic ${Math.round(15 * pr)}px ${SERIF}`, 0.95 * a, pr);
+      ty += 40 * pr;
+    }
+    g.restore();
+  }
+
+  // Three leaves: filled for each tier reached, the next one growing in.
+  drawQuiet(g, x, y, pr, quiet) {
+    const since = quiet.broken ? quiet.time - quiet.broken.t : 99;
+    const show = quiet.metres >= 3 ? smoothstep(3, 5, quiet.metres) : since < 2.5 ? 1 - since / 2.5 : 0;
+    if (show <= 0.01) return;
+    const brokenFade = quiet.metres < 3 && since < 2.5;
+    g.textAlign = "left";
+    inkText(g, "quiet", x, y, `italic ${Math.round(12 * pr)}px ${SERIF}`, 0.8 * show, pr);
+    const tiers = brokenFade ? quiet.broken.tier : quiet.tier;
+    const lx = x + 40 * pr;
+    for (let i = 0; i < 3; i++) {
+      const cx = lx + i * 13 * pr, cy = y - 4 * pr;
+      const full = i < Math.min(tiers, 3) ? 1 : i === Math.min(tiers, 3) && !brokenFade ? quiet.progress : 0;
+      // Leaf outline, then the fill growing from its base.
+      drawLock(g, cx - 4 * pr, cy + 3 * pr, 0.8, -0.6, 11 * pr, 5 * pr, 0.15, INK_SOFT, 0.35 * show);
+      if (full > 0.02) drawLock(g, cx - 4 * pr, cy + 3 * pr, 0.8, -0.6, 11 * pr * full, 5 * pr * Math.sqrt(full), 0.15, mixRGB(SEED_LEAF, [255, 244, 228], 0.25), (brokenFade ? 0.5 : 0.95) * show);
+    }
+  }
+
+  drawJournalMark(g, j, pr) {
+    const x = j.x * pr, y = j.y * pr, r = j.r * pr;
+    const glow = this.journalGlow * (0.6 + 0.4 * Math.sin(this.time * 4));
+    if (glow > 0.01) {
+      g.save();
+      g.globalCompositeOperation = "screen";
+      dab(g, x, y, r * 1.5, r * 1.5, 0, SEED_LOOK.common.glow, 0.4 * glow);
+      g.restore();
+    }
+    const S = r * 2.4;
+    g.drawImage(iconSprite(`journal${pr}`, S, (t) => paintJournalMark(t, S / 2, S / 2, r)), x - S / 2, y - S / 2);
+  }
+}
+
+// A small closed book with a Dream Seed pressed on its cover, on a soft
+// paper disc so it reads over any background.
+function paintJournalMark(g, x, y, r) {
+  dab(g, x, y, r, r, 0, PAPER, 0.6);
+  g.save();
+  g.translate(x, y);
+  g.rotate(-0.08);
+  const bw = r * 0.55, bh = r * 0.7;
+  g.beginPath();
+  g.moveTo(-bw, -bh);
+  g.quadraticCurveTo(0, -bh * 1.08, bw, -bh);
+  g.lineTo(bw, bh);
+  g.quadraticCurveTo(0, bh * 1.08, -bw, bh);
+  g.closePath();
+  g.fillStyle = css(mixRGB(INK, PAL.fur[1], 0.35), 0.9);
+  g.fill();
+  streak(g, -bw * 0.62, -bh * 0.92, 0, 1, bh * 1.84, Math.max(1, r * 0.05), PAL.fur[3], 0.5);
+  g.restore();
+  drawPod(g, x + r * 0.08, y + r * 0.02, r * 0.17, r * 0.24, SEED_LOOK.common, 1, 1, "cup");
+}
+
+// Ink text with a soft cream halo for contrast over sky and fur. Each
+// distinct string is rendered once into a small sprite (text is costly to
+// rasterise every frame on phones) and blitted with the alpha it needs.
+const TEXT_SPRITES = new Map();
+let textMeasure = null;
+function inkText(g, text, x, y, font, alpha, pr) {
+  if (alpha <= 0.01) return;
+  const key = `${font}|${text}`;
+  let sp = TEXT_SPRITES.get(key);
+  if (!sp) {
+    if (TEXT_SPRITES.size > 96) {
+      for (const old of TEXT_SPRITES.values()) {
+        if (typeof old.c.close === "function") old.c.close();
+        else discardCanvas(old.c);
+      }
+      TEXT_SPRITES.clear();
+    }
+    if (!textMeasure) textMeasure = makeCanvas(4, 4).getContext("2d");
+    textMeasure.font = font;
+    const size = Number((/(\d+)px/.exec(font) || [0, 16])[1]);
+    const pad = Math.ceil(4 * pr);
+    const w = Math.ceil(textMeasure.measureText(text).width) + pad * 2, h = Math.ceil(size * 1.45) + pad * 2;
+    const c = makeCanvas(w, h);
+    const t = c.getContext("2d");
+    t.font = font;
+    t.textAlign = "left";
+    t.textBaseline = "alphabetic";
+    t.lineJoin = "round";
+    const base = pad + Math.round(size * 1.08);
+    t.lineWidth = 4 * pr;
+    t.strokeStyle = css([255, 244, 228], 0.4);
+    t.strokeText(text, pad, base);
+    t.lineWidth = 2 * pr;
+    t.strokeStyle = css([255, 244, 228], 0.45);
+    t.strokeText(text, pad, base);
+    t.fillStyle = css(INK, 1);
+    t.fillText(text, pad, base);
+    sp = { c: toDrawable(c), w, h, pad, base, tw: w - pad * 2 };
+    TEXT_SPRITES.set(key, sp);
+  }
+  const ax = g.textAlign === "center" ? sp.tw / 2 : g.textAlign === "right" || g.textAlign === "end" ? sp.tw : 0;
+  const prev = g.globalAlpha;
+  g.globalAlpha = prev * clamp(alpha, 0, 1);
+  g.drawImage(sp.c, Math.round(x - ax - sp.pad), Math.round(y - sp.base));
+  g.globalAlpha = prev;
+  return sp.tw;
+}
+
+// Small interface icons, painted once and blitted.
+const ICON_SPRITES = new Map();
+function iconSprite(key, size, paint) {
+  let c = ICON_SPRITES.get(key);
+  if (!c) {
+    const raw = makeCanvas(Math.ceil(size), Math.ceil(size));
+    paint(raw.getContext("2d"), size);
+    c = toDrawable(raw); // a GPU-friendly bitmap: blitting it never stalls the frame
+    ICON_SPRITES.set(key, c);
+  }
+  return c;
+}
+
+// Results after the beast wakes: height, seeds, best and new discoveries,
+// on the settling mist, with an immediate retry (tap anywhere).
+function drawResults(g, W, H, pr, safe, res, appear) {
+  const a = smoothstep(0, 1, appear);
+  if (a <= 0.01) return;
+  g.save();
+  g.globalAlpha = a;
+  // The mist settles: cool below, warm above, with a few soft banks.
+  const mist = g.createLinearGradient(0, 0, 0, H);
+  mist.addColorStop(0, css(PAL.mistWarm, 0));
+  mist.addColorStop(0.55, css(PAL.cloudMid, 0.35));
+  mist.addColorStop(1, css(PAL.mistCool, 0.75));
+  g.fillStyle = mist;
+  g.fillRect(0, 0, W, H);
+  const r = rngFrom(911);
+  for (let i = 0; i < 14; i++) {
+    const bx = r() * W, by = H * (0.55 + r() * 0.5), drift = Math.sin(appear * 0.15 + i) * 12 * pr;
+    dab(g, bx + drift, by, (80 + r() * 140) * pr, (18 + r() * 30) * pr, 0, mixRGB(PAL.cloudLit, PAL.cloudShade, r() * 0.6), 0.16);
+  }
+  const cx = W / 2;
+  let y = H * 0.3;
+  g.textAlign = "center";
+  inkText(g, "It woke.", cx, y, `italic ${Math.round(30 * pr)}px ${SERIF}`, 0.95, pr);
+  y += 48 * pr;
+  const row = (label, value, note) => {
+    inkText(g, label, cx, y, `italic ${Math.round(12 * pr)}px ${SERIF}`, 0.7, pr);
+    inkText(g, value, cx, y + 28 * pr, `${Math.round(26 * pr)}px ${SERIF}`, 0.95, pr);
+    if (note) inkText(g, note, cx, y + 46 * pr, `italic ${Math.round(11 * pr)}px ${SERIF}`, 0.75, pr);
+    y += (note ? 72 : 62) * pr;
+  };
+  row("height reached", `${Math.round(res.height)} m`, res.newBest ? "a new best" : `best ${Math.round(res.best)} m`);
+  row("dream seeds", `${res.seeds}`);
+  if (res.newly.length) {
+    inkText(g, "remembered", cx, y, `italic ${Math.round(12 * pr)}px ${SERIF}`, 0.7, pr);
+    y += 22 * pr;
+    for (const e of res.newly.slice(0, 4)) {
+      inkText(g, e.name, cx, y, `italic ${Math.round(15 * pr)}px ${SERIF}`, 0.92, pr);
+      y += 20 * pr;
+    }
+    if (res.newly.length > 4) inkText(g, `and ${res.newly.length - 4} more`, cx, y, `italic ${Math.round(11 * pr)}px ${SERIF}`, 0.7, pr);
+  }
+  const pulse = 0.75 + 0.25 * Math.sin(appear * 3);
+  inkText(g, "tap to climb again", cx, H - (safe.bottom + 70) * pr, `italic ${Math.round(15 * pr)}px ${SERIF}`, 0.9 * pulse, pr);
+  g.restore();
+}
+
+// ==== module 80-chime ====
+// ---- Chime: a quiet bell for each seed ----------------------------------------
+// Synthesised once at first use into small in-memory WAV clips (no files, no
+// network) and played through ctx.audio. A soft glassy bell: a few inharmonic
+// partials with a gentle attack and long decay. Rare seeds ring a rising
+// three-note figure, ancient ones a low open chord. Silent where audio is
+// unavailable.
+
+const CHIME_RATE = 22050;
+
+function bellClip(notes, dur, volume) {
+  const n = Math.floor(CHIME_RATE * dur);
+  const data = new Float32Array(n);
+  for (const [f, at, amp] of notes) {
+    const s0 = Math.floor(at * CHIME_RATE);
+    for (let i = s0; i < n; i++) {
+      const t = (i - s0) / CHIME_RATE;
+      const env = Math.min(1, t / 0.006) * Math.exp(-t * 3.2);
+      data[i] += amp * env * (Math.sin(6.2832 * f * t) + 0.32 * Math.sin(6.2832 * f * 2.76 * t) * Math.exp(-t * 4) + 0.12 * Math.sin(6.2832 * f * 5.4 * t) * Math.exp(-t * 7));
+    }
+  }
+  // 16-bit mono PCM in a WAV container, as a data URL.
+  const bytes = new Uint8Array(44 + n * 2);
+  const dv = new DataView(bytes.buffer);
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) bytes[o + i] = s.charCodeAt(i); };
+  str(0, "RIFF"); dv.setUint32(4, 36 + n * 2, true); str(8, "WAVE"); str(12, "fmt ");
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, CHIME_RATE, true); dv.setUint32(28, CHIME_RATE * 2, true);
+  dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); str(36, "data"); dv.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) dv.setInt16(44 + i * 2, clamp(data[i] * volume, -1, 1) * 32767, true);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 4096) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 4096));
+  return "data:audio/wav;base64," + btoa(bin);
+}
+
+class Chime {
+  constructor(ctx) {
+    this.ctx = ctx;
+    this.clips = null;
+    this.i = 0;
+    this.ok = !!(ctx.audio && typeof ctx.audio.play === "function" && typeof btoa === "function");
+  }
+
+  build() {
+    // A pentatonic handful so consecutive seeds never repeat the same note.
+    this.clips = {
+      common: [1046.5, 1174.7, 1318.5, 1568].map((f) => bellClip([[f, 0, 0.5]], 1.1, 0.5)),
+      rare: [bellClip([[1046.5, 0, 0.4], [1318.5, 0.09, 0.4], [1568, 0.18, 0.45]], 1.4, 0.5)],
+      ancient: [bellClip([[523.25, 0, 0.4], [784, 0.05, 0.35], [1046.5, 0.1, 0.3], [1568, 0.3, 0.25]], 2, 0.5)],
+      bloom: [bellClip([[1568, 0, 0.3], [2093, 0.07, 0.25]], 0.9, 0.4)]
+    };
+  }
+
+  play(kind) {
+    if (!this.ok) return;
+    try {
+      if (!this.clips) this.build();
+      const set = this.clips[kind] || this.clips.common;
+      this.ctx.audio.play(set[this.i++ % set.length], { volume: 0.45 });
+    } catch (err) {
+      this.ok = false; // audio refused (permission, autoplay): stay silent
+    }
+  }
+}
+
 // ==== module 90-main ====
 // ---- Bit entry -------------------------------------------------------------
-// Beast. Stage 3 (alertness): the explorer climbs the sleeping beast's body;
+// Beast. Stage 4 (discovery): the explorer climbs the sleeping beast's body;
 // every step, launch and landing makes noise; the beast breathes, stirs and
-// settles; stillness lets it calm, slowly, never fully. Interface stays
-// hidden; the world itself is the feedback.
+// settles. Dream Seeds grow along the climb, careful climbing earns a Quiet
+// Streak bonus, and the Creature's Memory keeps what every climb has found.
+// The interface is a few inked marks; the world itself is the feedback.
 
 const WORLD_SEED = 7331;
 // Painting gets what is left of a ~14 ms frame after drawing (3-10 ms).
@@ -2769,7 +3932,7 @@ window.plethoraBit = {
     title: "Beast",
     runtime: "plethora-bit@2",
     tags: ["adventure", "climbing", "atmospheric"],
-    permissions: []
+    permissions: ["storage", "audio"]
   },
 
   async init(ctx) {
@@ -2798,7 +3961,9 @@ window.plethoraBit = {
     };
 
     let stage = "world";
-    let world, scene, ex, cam, alert, life;
+    let world, scene, ex, cam, alert, life, seeds, quiet, memory;
+    const hud = new Hud();
+    const chime = new Chime(ctx);
     let disposed = false;
     ctx.onDestroy(() => { disposed = true; });
 
@@ -2825,6 +3990,9 @@ window.plethoraBit = {
       cam = new FollowCamera(ex);
       alert = new Alertness(world);
       life = new Life(world);
+      seeds = new DreamSeeds(world);
+      quiet = new QuietStreak();
+      memory = new Memory(makeStore(ctx), world);
       stage = "first-frame";
       scene.prepare(currentView(), ex); // paint everything the first frame needs
       scene.sched.syncMs = 0;
@@ -2834,13 +4002,17 @@ window.plethoraBit = {
       throw err;
     }
 
-    const controls = new Controls(ctx, canvas, () => ctx.platform.start());
+    const controls = new Controls(ctx, canvas, () => {
+      ctx.platform.start();
+      if (chime.ok) { try { chime.build(); } catch (err) { chime.ok = false; } }
+    });
     applyNoise();
 
     // Temporary stand-in for the awakening (Stage 6 builds the real
     // sequence): the body heaves, one impact, the explorer loses footing,
     // the world fades into mist, and the climb restarts.
     let wake = null, shake = 0, fade = 0;
+    let results = null, resultsT = 0, journalOpen = false, journal = 0, runMaxY = ex.y;
     const still = { dir: 0, run: false, jumpPressed: false };
     const restart = () => {
       ex.reset(startSpot());
@@ -2848,6 +4020,30 @@ window.plethoraBit = {
       cam.snap(ex);
       life.parts.length = 0;
       wake = null;
+      seeds.reset();
+      quiet.reset();
+      memory.startRun();
+      runMaxY = ex.y;
+      results = null;
+    };
+    const replay = () => {
+      restart();
+      ctx.platform.start();
+    };
+    // Interface taps: the Memory mark opens the journal (pausing the climb);
+    // any tap closes it; after the beast wakes, a tap climbs again.
+    controls.intercept = (x, y, key) => {
+      if (journalOpen) { journalOpen = false; return true; }
+      if (key === "m" || (x !== null && hud.hitJournal(ctx, x, y))) {
+        journalOpen = true;
+        controls.release();
+        return true;
+      }
+      if (results) {
+        if (resultsT > 0.6 && (x !== null || key === "enter")) replay();
+        return true;
+      }
+      return false;
     };
 
     let lastView = null;
@@ -2859,24 +4055,41 @@ window.plethoraBit = {
         view.camY += Math.cos(alert.time * 39) * shake * 0.25;
       }
       lastView = view;
+      const prof = globalThis.__dwProfile ? (globalThis.__dwParts = globalThis.__dwParts || {}) : null;
+      const tA = prof ? performance.now() : 0;
       scene.render(g, view, {
         explorer: { x: ex.x, y: ex.y, facing: ex.facing, pose: ex.pose() },
         collision: !!knob("collision_overlay", false),
         alert,
-        life
+        life,
+        seeds
       });
       if (fade > 0.001) {
         g.fillStyle = css(PAL.mistWarm, fade);
         g.fillRect(0, 0, view.W, view.H);
       }
+      const tB = prof ? performance.now() : 0;
+      const pr = view.pr, safe = ctx.safeArea || { top: 0, bottom: 0, left: 0, right: 0 };
+      if (results) {
+        drawResults(g, view.W, view.H, pr, safe, results, resultsT);
+        hud.drawJournalMark(g, hud.layout(ctx).journal, pr);
+      } else if (fade < 0.6) {
+        hud.draw(g, ctx, pr, ex.y, seeds, quiet, 1 - fade / 0.6);
+      }
+      if (journal > 0.001) drawJournal(g, view.W, view.H, pr, safe, memory, journal, hud.time);
+      if (prof) {
+        prof.scene = (prof.scene || 0) + tB - tA;
+        prof.hud = (prof.hud || 0) + performance.now() - tB;
+      }
       if (knob("show_alertness", false)) {
         const s = view.pr;
         g.font = `${12 * s}px sans-serif`;
         g.fillStyle = "rgba(40,30,60,0.75)";
-        g.fillText(`${alert.state} ${alert.level.toFixed(2)}  floor ${alert.floor.toFixed(2)}  height ${ex.y.toFixed(0)} m`, 12 * s, (ctx.safeArea.top + 22) * s);
+        g.textAlign = "left";
+        g.fillText(`${alert.state} ${alert.level.toFixed(2)}  floor ${alert.floor.toFixed(2)}  quiet ${quiet.metres.toFixed(1)} m`, 12 * s, (safe.top + 120) * s);
       }
       // Faint marks where fingers are held: feedback without a HUD.
-      for (const p of controls.touches()) {
+      for (const p of journalOpen ? [] : controls.touches()) {
         const s = view.pr;
         dab(g, p.sx * s, p.sy * s, 22 * s, 22 * s, 0, [255, 244, 228], 0.12);
         dab(g, p.x * s, p.y * s, 7 * s, 7 * s, 0, [255, 244, 228], 0.28);
@@ -2886,8 +4099,11 @@ window.plethoraBit = {
           x: ex.x, y: ex.y, vx: ex.vx, vy: ex.vy, grounded: ex.grounded, state: ex.state,
           feetSd: ex.sd(ex.x, ex.y + PHYS.feetR) - PHYS.feetR, bodySd: ex.sd(ex.x, ex.y + PHYS.bodyY) - PHYS.bodyR,
           pending: scene.sched.jobs.size, syncMs: scene.sched.syncMs || 0, syncCount: scene.sched.syncCount || 0,
-          alert: alert.level, alertState: alert.state, floor: alert.floor
+          alert: alert.level, alertState: alert.state, floor: alert.floor,
+          seeds: seeds.count, quiet: quiet.metres, quietTier: quiet.tier, remembered: memory.count, results: !!results, journal: journalOpen
         };
+        // Test harness only (profile flag): drive the interface from scripts.
+        globalThis.__dwGame = { seeds, quiet, memory, world, ex, openJournal: (v) => { journalOpen = v !== false; }, wake: () => { alert.level = 1; alert.state = "awake"; } };
         globalThis.__dwAlert = alert; // test harness only (profile flag)
       }
     };
@@ -2896,13 +4112,32 @@ window.plethoraBit = {
       fixedHz: 120,
       maxSubsteps: 8,
       fixedUpdate: (stepMs) => {
+        if (journalOpen || results) return; // paused, or the run is over
         ex.step(stepMs / 1000, wake ? still : controls);
         controls.consume();
       },
       update: (dtMs) => {
         const dt = Math.min(dtMs, 100) / 1000;
+        journal = clamp(journal + (journalOpen ? dt : -dt) * 5, 0, 1);
+        if (journalOpen) return; // the climb waits while the journal is open
+        if (results) resultsT += dt;
         cam.update(dt, ex);
         alert.update(dt, ex, wake ? still : controls);
+        if (!wake) {
+          seeds.update(dt, ex);
+          quiet.update(dt, ex, alert);
+          runMaxY = Math.max(runMaxY, ex.y);
+          for (const b of quiet.blooms) {
+            seeds.bloom(ex.x, ex.y, b.n);
+            hud.blooms.push({ n: b.n, age: 0 });
+            chime.play("bloom");
+          }
+          quiet.blooms.length = 0;
+          for (const s of seeds.collected) chime.play(s.kind);
+        }
+        memory.observe(dt, ex, alert, seeds, quiet);
+        while (memory.queue.length) hud.remember(memory.queue.shift());
+        hud.update(dt, seeds);
         if (alert.state === "awake" && !wake) wake = { t: 0, hit: false };
         if (wake) {
           wake.t += dt;
@@ -2922,7 +4157,11 @@ window.plethoraBit = {
             const v = makeView("gameplay", world, lastView.W, lastView.H, lastView.pr, { x: s.x, y: s.y });
             scene.paintAhead(v);
           }
-          if (wake.t > 3.1) restart();
+          if (wake.t > 3.1 && !results) {
+            results = memory.endRun(runMaxY, seeds.count);
+            resultsT = 0;
+            try { ctx.platform.fail({ score: Math.round(runMaxY), result: "woke" }); } catch (err) { /* lifecycle only */ }
+          }
         } else {
           fade = Math.max(0, fade - dt * 1.2);
         }
@@ -2944,7 +4183,7 @@ window.plethoraBit = {
     });
 
     if (tune) {
-      tune.onChange(["start"], () => { ex.reset(startSpot()); cam.snap(ex); });
+      tune.onChange(["start"], restart);
       tune.onChange(["walk_speed", "run_speed", "jump_height"], applyPhys);
       tune.onChange(["noise_scale", "recovery_rate"], applyNoise);
     }
@@ -2956,7 +4195,7 @@ window.plethoraBit = {
 
 // Test hook: lets offline tools drive the world and controller headlessly.
 if (typeof globalThis.__dwTestHook === "function") {
-  globalThis.__dwTestHook({ buildWorld, Explorer, PHYS, WORLD_SEED, Alertness, NOISE });
+  globalThis.__dwTestHook({ buildWorld, Explorer, PHYS, WORLD_SEED, Alertness, NOISE, seedTouches, capTop, DreamSeeds, QuietStreak, Memory, makeStore });
 }
 
 })();

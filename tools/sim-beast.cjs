@@ -125,5 +125,54 @@ expect(fast.woke !== null && fast.woke > 15, "nonstop fast climbing should wake 
 expect(paced.woke === null || paced.woke > fast.woke + 10, "pausing should buy real time");
 expect(settle.level < settle.peak - 0.15 && settle.level > 0, "stillness should settle it, but not to zero");
 expect(leaps.woke !== null, "constant jumping should wake it");
-console.log(failures ? `${failures} problem(s)` : "all movement and alertness checks passed");
+
+// ---- Discovery: Dream Seeds, Quiet Streak, the Creature's Memory -------------
+const { DreamSeeds, QuietStreak, Memory, makeStore } = api;
+function discoveryRun(name, spot, script, secs, store) {
+  const ex = new Explorer(world.layers.play, spot, world.props.mushrooms.map((m) => m.cap));
+  const al = new Alertness(world);
+  const seeds = new DreamSeeds(world);
+  const quiet = new QuietStreak();
+  const mem = new Memory(store, world);
+  const input = { dir: 0, run: false, jumpPressed: false };
+  let bloomed = 0, breaks = 0, lastBroken = null;
+  const c = {};
+  for (let i = 0; i < secs / dt; i++) {
+    script(ex, input, c, i * dt);
+    ex.step(dt, input);
+    input.jumpPressed = false;
+    al.update(dt, ex, input);
+    seeds.update(dt, ex);
+    quiet.update(dt, ex, al);
+    for (const b of quiet.blooms) { seeds.bloom(ex.x, ex.y, b.n); bloomed += b.n; }
+    quiet.blooms.length = 0;
+    if (quiet.broken !== lastBroken) { breaks++; lastBroken = quiet.broken; }
+    mem.observe(dt, ex, al, seeds, quiet);
+    ex.events.length = 0;
+    if (al.state === "awake") break;
+  }
+  const res = mem.endRun(ex.y, seeds.count);
+  console.log(`  ${name}: ${seeds.count} seeds (${JSON.stringify(seeds.found)}, ${bloomed} from quiet blooms), ` +
+    `quiet best ${quiet.best.toFixed(0)} m, ${breaks} breaks, remembered [${res.newly.map((e) => e.id).join(", ")}]`);
+  return { seeds, quiet, bloomed, breaks, res, mem };
+}
+console.log("discovery:");
+const disk = {};
+const store = { get: (k) => (k in disk ? JSON.parse(disk[k]) : null), set: (k, v) => { disk[k] = JSON.stringify(v); } };
+const calm = discoveryRun("careful climb from the base (120 s)", spots.base, climber(false), 120, store);
+const loud = discoveryRun("fast climb from the base (120 s)", spots.base, climber(true), 120, store);
+expect(calm.seeds.found.common >= 5, "a careful climb along the route should gather common seeds");
+expect(calm.quiet.best >= 80 && calm.bloomed >= 6, "a careful climb should reach the top Quiet Streak tier");
+expect(loud.quiet.best < 15 && loud.bloomed === 0, "running should never build a Quiet Streak");
+expect(calm.res.newly.some((e) => e.id === "seed"), "the first seed should be remembered");
+const reloaded = new Memory(store, world);
+expect(reloaded.count === loud.mem.count && reloaded.count === calm.res.newly.length + loud.res.newly.length && reloaded.data.runs === 2 && reloaded.data.seeds === calm.seeds.count + loud.seeds.count,
+  "the Memory should persist discoveries, runs and seeds across a reload");
+expect(loud.res.newly.every((e) => !calm.res.newly.includes(e)), "a discovery is only new once");
+const refusing = { get: () => { throw new Error("no storage"); }, set: () => { throw new Error("no storage"); } };
+const broken = new Memory(makeStore({ storage: refusing }), world);
+broken.discover("seed");
+broken.save();
+expect(broken.count === 1 && new Memory(makeStore({}), world).count === 0, "unavailable storage should fall back to the session");
+console.log(failures ? `${failures} problem(s)` : "all movement, alertness and discovery checks passed");
 process.exit(failures ? 1 : 0);

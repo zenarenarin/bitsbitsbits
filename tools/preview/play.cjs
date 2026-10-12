@@ -42,7 +42,7 @@ server.listen(0, async () => {
     const log = async (label) => {
       const s = await state();
       const st = s.s || {};
-      console.log(`${label.padEnd(18)} x=${(st.x ?? 0).toFixed(2)} y=${(st.y ?? 0).toFixed(2)} ${st.state} grounded=${st.grounded} feetSd=${(st.feetSd ?? 0).toFixed(3)} pending=${st.pending}${st.alertState ? ` beast=${st.alertState} ${st.alert.toFixed(2)}` : ""}`);
+      console.log(`${label.padEnd(18)} x=${(st.x ?? 0).toFixed(2)} y=${(st.y ?? 0).toFixed(2)} ${st.state} grounded=${st.grounded} feetSd=${(st.feetSd ?? 0).toFixed(3)} pending=${st.pending}${st.alertState ? ` beast=${st.alertState} ${st.alert.toFixed(2)}` : ""}${st.seeds !== undefined ? ` seeds=${st.seeds} quiet=${st.quiet.toFixed(1)}m/t${st.quietTier} remembered=${st.remembered}${st.results ? " RESULTS" : ""}${st.journal ? " JOURNAL" : ""}` : ""}`);
       return s;
     };
     let last = await log("start");
@@ -56,6 +56,12 @@ server.listen(0, async () => {
       else if (cmd === "swipe") { const [x, y] = a.split("/").map(Number); await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(x, y - 30, { steps: 2 }); await page.mouse.move(x, y - 70, { steps: 2 }); await page.mouse.up(); }
       else if (cmd === "wait") { await page.waitForTimeout(+a); }
       else if (cmd === "alert") { await page.evaluate((v) => { globalThis.__dwAlert.level = v; }, +a); }
+      // Beast interface hooks: open/close the journal, wake the beast, move the explorer.
+      else if (cmd === "journal") { await page.evaluate((v) => globalThis.__dwGame.openJournal(v !== "off"), a); }
+      else if (cmd === "remember") { await page.evaluate((ids) => { for (const id of ids.split("+")) globalThis.__dwGame.memory.discover(id); }, a); }
+      else if (cmd === "wake") { await page.evaluate(() => globalThis.__dwGame.wake()); }
+      else if (cmd === "tp") { const [x, y] = a.split("/").map(Number); await page.evaluate(([x2, y2]) => globalThis.__dwGame.ex.reset({ x: x2, y: y2, facing: -1 }), [x, y]); }
+      else if (cmd === "click") { const [x, y] = a.split("/").map(Number); await page.mouse.click(x, y); }
       else if (cmd === "shot") { const f = path.join(opt.out, `shot-${String(++shot).padStart(2, "0")}.png`); await page.screenshot({ path: f }); }
       const s = await log(step);
       const fps = ((s.frames - last.frames) * 1000) / Math.max(1, s.t - last.t);
