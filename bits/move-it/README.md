@@ -1,6 +1,6 @@
 # Move it
 
-A tiny two-character animation playground (Plethora Bit). Drag a figure's hands, feet, knees, elbows, head or hips to pose it, or drag its torso to move the whole figure. Add poses, press play, and export the loop as a GIF.
+A tiny two-character animation playground (Plethora Bit). Drag any part of a figure (head, chest, belly, hips, arms, legs, hands, feet) to pose it, or press and hold to pick the whole figure up and move it. Add poses, press play and the figures move fluidly through them. Export the loop as a GIF.
 
 - `main.js`: the whole Bit (`window.plethoraBit`). Vanilla JS and Canvas 2D, with no dependencies.
 - `plethora.json`: the manifest. It requests `storage` (autosave) and `haptics`, and uses a one-line first-use hint.
