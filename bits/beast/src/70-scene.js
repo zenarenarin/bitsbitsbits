@@ -99,7 +99,7 @@ function collisionSegments(anat, x0, y0, x1, y1, step) {
   const nx = Math.ceil((x1 - x0) / step) + 1, ny = Math.ceil((y1 - y0) / step) + 1;
   const prims = anat.cull(x0 - 1, y0 - 1, x1 + 1, y1 + 1);
   const v = new Float32Array(nx * ny), o = {};
-  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) v[j * nx + i] = anat.eval(x0 + i * step, y0 + j * step, prims, o).sd;
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) v[j * nx + i] = anat.sample(x0 + i * step, y0 + j * step, prims, o).sd;
   const segs = [];
   const cross = (xa, ya, va, xb, yb, vb) => {
     const t = va / (va - vb);
@@ -117,8 +117,8 @@ function collisionSegments(anat, x0, y0, x1, y1, step) {
       for (let p = 0; p + 1 < pts.length; p += 2) {
         const [ax, ay] = pts[p], [bx, by] = pts[p + 1];
         const mx = (ax + bx) / 2, my = (ay + by) / 2, e = step * 0.25;
-        const gx = anat.eval(mx + e, my, prims, o).sd - anat.eval(mx - e, my, prims, o).sd;
-        const gy = anat.eval(mx, my + e, prims, o).sd - anat.eval(mx, my - e, prims, o).sd;
+        const gx = anat.sample(mx + e, my, prims, o).sd - anat.sample(mx - e, my, prims, o).sd;
+        const gy = anat.sample(mx, my + e, prims, o).sd - anat.sample(mx, my - e, prims, o).sd;
         const l = Math.hypot(gx, gy) || 1;
         segs.push({ ax, ay, bx, by, nx: gx / l, ny: gy / l });
       }

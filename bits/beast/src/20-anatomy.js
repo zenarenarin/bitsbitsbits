@@ -85,7 +85,7 @@ class Anatomy {
 
   // Evaluates both fields at (x, y). `out` receives sd, h, mat and prim (the
   // primitive whose surface is frontmost there).
-  eval(x, y, prims, out) {
+  sample(x, y, prims, out) {
     let sd = 1e9, h = -1e9, bestH = -1e9, bestSd = 1e9, front = null, nearest = null;
     for (let i = 0; i < prims.length; i++) {
       const p = prims[i];
@@ -119,7 +119,7 @@ class Anatomy {
 
   sdAt(x, y) {
     const o = {};
-    return this.eval(x, y, this.cull(x - 1, y - 1, x + 1, y + 1), o).sd;
+    return this.sample(x, y, this.cull(x - 1, y - 1, x + 1, y + 1), o).sd;
   }
 
   // Walks down from (x, yFrom) and returns the first surface height, or null.
@@ -127,13 +127,13 @@ class Anatomy {
     const prims = this.cull(x - 1, yTo - 1, x + 1, yFrom + 1);
     const o = {};
     let prev = yFrom;
-    if (this.eval(x, yFrom, prims, o).sd < 0) return null;
+    if (this.sample(x, yFrom, prims, o).sd < 0) return null;
     for (let y = yFrom - 0.2; y >= yTo; y -= 0.2) {
-      if (this.eval(x, y, prims, o).sd < 0) {
+      if (this.sample(x, y, prims, o).sd < 0) {
         let lo = y, hi = prev;
         for (let i = 0; i < 14; i++) {
           const mid = (lo + hi) / 2;
-          if (this.eval(x, mid, prims, o).sd < 0) lo = mid; else hi = mid;
+          if (this.sample(x, mid, prims, o).sd < 0) lo = mid; else hi = mid;
         }
         return hi;
       }
@@ -201,5 +201,5 @@ function addSpine(anat, samples, o) {
 // Relief height of what is already in `anat` at (x, y); used to stack new
 // forms on top of the body so they read as growing out of it.
 function reliefAt(anat, x, y) {
-  return anat.eval(x, y, anat.cull(x - 1, y - 1, x + 1, y + 1), {}).h;
+  return anat.sample(x, y, anat.cull(x - 1, y - 1, x + 1, y + 1), {}).h;
 }

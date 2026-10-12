@@ -74,7 +74,7 @@ class FieldGrid {
           for (let i = bi; i < Math.min(bi + B, N); i++) {
             const idx = j * N + i;
             if (!sub.length) { this.sd[idx] = 1e3; this.h[idx] = -1e3; continue; }
-            anat.eval(this.x0 + (i - mg + 0.5) * step, Y, sub, o);
+            anat.sample(this.x0 + (i - mg + 0.5) * step, Y, sub, o);
             this.sd[idx] = o.sd;
             this.h[idx] = o.h;
             this.mat[idx] = o.mat;

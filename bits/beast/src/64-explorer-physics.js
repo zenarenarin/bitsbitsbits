@@ -65,7 +65,7 @@ class Explorer {
       this.cullAt = { x, y };
       this.prims = this.anat.cull(x - 10, y - 10, x + 10, y + 10);
     }
-    return this.anat.eval(x, y, this.prims, this.o).sd;
+    return this.anat.sample(x, y, this.prims, this.o).sd;
   }
 
   normal(x, y) {

@@ -219,7 +219,7 @@ class Anatomy {
 
   // Evaluates both fields at (x, y). `out` receives sd, h, mat and prim (the
   // primitive whose surface is frontmost there).
-  eval(x, y, prims, out) {
+  sample(x, y, prims, out) {
     let sd = 1e9, h = -1e9, bestH = -1e9, bestSd = 1e9, front = null, nearest = null;
     for (let i = 0; i < prims.length; i++) {
       const p = prims[i];
@@ -253,7 +253,7 @@ class Anatomy {
 
   sdAt(x, y) {
     const o = {};
-    return this.eval(x, y, this.cull(x - 1, y - 1, x + 1, y + 1), o).sd;
+    return this.sample(x, y, this.cull(x - 1, y - 1, x + 1, y + 1), o).sd;
   }
 
   // Walks down from (x, yFrom) and returns the first surface height, or null.
@@ -261,13 +261,13 @@ class Anatomy {
     const prims = this.cull(x - 1, yTo - 1, x + 1, yFrom + 1);
     const o = {};
     let prev = yFrom;
-    if (this.eval(x, yFrom, prims, o).sd < 0) return null;
+    if (this.sample(x, yFrom, prims, o).sd < 0) return null;
     for (let y = yFrom - 0.2; y >= yTo; y -= 0.2) {
-      if (this.eval(x, y, prims, o).sd < 0) {
+      if (this.sample(x, y, prims, o).sd < 0) {
         let lo = y, hi = prev;
         for (let i = 0; i < 14; i++) {
           const mid = (lo + hi) / 2;
-          if (this.eval(x, mid, prims, o).sd < 0) lo = mid; else hi = mid;
+          if (this.sample(x, mid, prims, o).sd < 0) lo = mid; else hi = mid;
         }
         return hi;
       }
@@ -335,7 +335,7 @@ function addSpine(anat, samples, o) {
 // Relief height of what is already in `anat` at (x, y); used to stack new
 // forms on top of the body so they read as growing out of it.
 function reliefAt(anat, x, y) {
-  return anat.eval(x, y, anat.cull(x - 1, y - 1, x + 1, y + 1), {}).h;
+  return anat.sample(x, y, anat.cull(x - 1, y - 1, x + 1, y + 1), {}).h;
 }
 
 // ==== module 25-world ====
@@ -974,7 +974,7 @@ class FieldGrid {
           for (let i = bi; i < Math.min(bi + B, N); i++) {
             const idx = j * N + i;
             if (!sub.length) { this.sd[idx] = 1e3; this.h[idx] = -1e3; continue; }
-            anat.eval(this.x0 + (i - mg + 0.5) * step, Y, sub, o);
+            anat.sample(this.x0 + (i - mg + 0.5) * step, Y, sub, o);
             this.sd[idx] = o.sd;
             this.h[idx] = o.h;
             this.mat[idx] = o.mat;
@@ -2112,7 +2112,7 @@ class Explorer {
       this.cullAt = { x, y };
       this.prims = this.anat.cull(x - 10, y - 10, x + 10, y + 10);
     }
-    return this.anat.eval(x, y, this.prims, this.o).sd;
+    return this.anat.sample(x, y, this.prims, this.o).sd;
   }
 
   normal(x, y) {
@@ -2687,7 +2687,7 @@ function collisionSegments(anat, x0, y0, x1, y1, step) {
   const nx = Math.ceil((x1 - x0) / step) + 1, ny = Math.ceil((y1 - y0) / step) + 1;
   const prims = anat.cull(x0 - 1, y0 - 1, x1 + 1, y1 + 1);
   const v = new Float32Array(nx * ny), o = {};
-  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) v[j * nx + i] = anat.eval(x0 + i * step, y0 + j * step, prims, o).sd;
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) v[j * nx + i] = anat.sample(x0 + i * step, y0 + j * step, prims, o).sd;
   const segs = [];
   const cross = (xa, ya, va, xb, yb, vb) => {
     const t = va / (va - vb);
@@ -2705,8 +2705,8 @@ function collisionSegments(anat, x0, y0, x1, y1, step) {
       for (let p = 0; p + 1 < pts.length; p += 2) {
         const [ax, ay] = pts[p], [bx, by] = pts[p + 1];
         const mx = (ax + bx) / 2, my = (ay + by) / 2, e = step * 0.25;
-        const gx = anat.eval(mx + e, my, prims, o).sd - anat.eval(mx - e, my, prims, o).sd;
-        const gy = anat.eval(mx, my + e, prims, o).sd - anat.eval(mx, my - e, prims, o).sd;
+        const gx = anat.sample(mx + e, my, prims, o).sd - anat.sample(mx - e, my, prims, o).sd;
+        const gy = anat.sample(mx, my + e, prims, o).sd - anat.sample(mx, my - e, prims, o).sd;
         const l = Math.hypot(gx, gy) || 1;
         segs.push({ ax, ay, bx, by, nx: gx / l, ny: gy / l });
       }
