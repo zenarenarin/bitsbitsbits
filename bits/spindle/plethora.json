@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "Spindle",
+  "description": "Time each tap to fit silver pins into a spinning steel core. Touch another pin and the run ends. How many can you fit?",
+  "tags": ["arcade", "timing", "endless", "minimal"],
+  "permissions": ["haptics", "storage", "audio"],
+  "dependencies": [],
+  "memory": {
+    "records": {
+      "score": {
+        "label": "Pins",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": ["daily", "weekly", "all_time"],
+        "scopes": ["following", "global"],
+        "dedupe": "best_per_user"
+      }
+    }
+  },
+  "tuning": {
+    "schemaVersion": 1,
+    "groups": {
+      "difficulty": { "label": "Difficulty" },
+      "feel": { "label": "Feel" }
+    },
+    "knobs": {
+      "start_speed": {
+        "label": "Starting spin (rad/s)",
+        "type": "number",
+        "default": 1.35,
+        "min": 0.8,
+        "max": 2.0,
+        "step": 0.05,
+        "group": "difficulty",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "max_speed": {
+        "label": "Top spin (rad/s)",
+        "type": "number",
+        "default": 2.5,
+        "min": 1.6,
+        "max": 3.2,
+        "step": 0.05,
+        "group": "difficulty",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "first_spindle_pins": {
+        "label": "Pins to add on the first spindle",
+        "type": "integer",
+        "default": 6,
+        "min": 3,
+        "max": 10,
+        "step": 1,
+        "group": "difficulty",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "flight_ms": {
+        "label": "Pin flight time (ms)",
+        "type": "number",
+        "default": 150,
+        "min": 120,
+        "max": 240,
+        "step": 5,
+        "group": "feel",
+        "intent": "feel",
+        "apply": "restart"
+      }
+    }
+  },
+  "onboarding": {
+    "kind": "immersive",
+    "version": 1
+  }
+}

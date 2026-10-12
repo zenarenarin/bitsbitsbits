@@ -1,0 +1,141 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Spindle harness</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  #stage { position: fixed; inset: 0; overflow: hidden; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+// Minimal stand-in for the Plethora runtime surface SPINDLE uses.
+(function () {
+  const params = new URLSearchParams(location.search);
+  const safe = {
+    top: Number(params.get("st") || 0), bottom: Number(params.get("sb") || 0),
+    left: 0, right: 0
+  };
+  const stage = document.getElementById("stage");
+  const events = (window.__events = []);
+  const destroyers = [];
+  const resizeCbs = [];
+  const canvases = [];
+  const layerZ = { background: 0, content: 10, overlay: 20, modal: 30 };
+
+  function fitCanvas(c) {
+    const dpr = Math.min(window.devicePixelRatio || 1, c.__maxDpr || 1);
+    c.width = Math.round(stage.clientWidth * dpr);
+    c.height = Math.round(stage.clientHeight * dpr);
+    c.style.width = stage.clientWidth + "px";
+    c.style.height = stage.clientHeight + "px";
+    const g = c.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  const ctx = {
+    container: stage,
+    get width() { return stage.clientWidth; },
+    get height() { return stage.clientHeight; },
+    get dpr() { return window.devicePixelRatio || 1; },
+    safeArea: safe,
+    capabilities: { audio: true, haptics: true, storage: true },
+    createCanvas2D(opts) {
+      opts = opts || {};
+      const c = document.createElement("canvas");
+      c.__maxDpr = opts.maxDpr || 1;
+      c.style.position = "absolute"; c.style.left = "0"; c.style.top = "0";
+      c.style.zIndex = layerZ[opts.layer || "content"];
+      c.style.touchAction = opts.touchAction || "none";
+      stage.appendChild(c);
+      fitCanvas(c);
+      canvases.push(c);
+      return c;
+    },
+    createRoot(opts) {
+      opts = opts || {};
+      const d = document.createElement("div");
+      d.style.cssText = "position:absolute;inset:0;" + (opts.style || "");
+      d.style.zIndex = layerZ[opts.layer || "content"];
+      if (opts.input === "passthrough") d.style.pointerEvents = "none";
+      if (opts.className) d.className = opts.className;
+      stage.appendChild(d);
+      return d;
+    },
+    listen(t, ev, fn, o) { t.addEventListener(ev, fn, o); destroyers.push(() => t.removeEventListener(ev, fn, o)); },
+    input: {
+      activate(el, fn) {
+        el.addEventListener("click", fn);
+      }
+    },
+    onResize(cb, o) {
+      resizeCbs.push(cb);
+      if (o && o.immediate) cb({ width: ctx.width, height: ctx.height, dpr: ctx.dpr, safeArea: safe });
+    },
+    timeout(fn, ms) { const id = setTimeout(fn, ms); destroyers.push(() => clearTimeout(id)); return id; },
+    onDestroy(fn) { destroyers.push(fn); },
+    markVisualReady(r) { events.push(["visualReady", r]); },
+    tune: { get() { return undefined; }, number() { return undefined; } },
+    storage: {
+      get(k) { const v = localStorage.getItem("bit:" + k); return v === null ? null : JSON.parse(v); },
+      set(k, v) { localStorage.setItem("bit:" + k, JSON.stringify(v)); }
+    },
+    platform: {
+      ready() { events.push(["ready"]); window.__ready = true; },
+      start() { events.push(["start"]); },
+      interact(p) { events.push(["interact", p && p.type]); },
+      fail(p) { events.push(["fail", p && p.score]); },
+      milestone(n, p) { events.push(["milestone", n, p]); },
+      haptic(k) { events.push(["haptic", k]); },
+      error(p) { events.push(["error", p]); }
+    },
+    game: {
+      score() {
+        const t = { value: 0, add(n) { t.value += n; }, reset() { t.value = 0; }, submit(ch, o) { events.push(["submit", t.value, o && o.label]); return Promise.resolve({ ok: true }); } };
+        return t;
+      },
+      loop(o) {
+        let last = performance.now(), frame = 0, stopped = false;
+        window.__clock = { manual: params.get("manual") === "1", step: null };
+        function tick(nowT) {
+          if (stopped) return;
+          let dt = nowT - last; last = nowT;
+          if (window.__clock.manual) {
+            dt = window.__clock.step || 0; window.__clock.step = 0;
+            if (!dt) { requestAnimationFrame(tick); return; }
+          }
+          dt = Math.min(dt, o.maxDeltaMs || 100);
+          if (o.update) o.update(dt, { frame: frame++, dtMs: dt });
+          if (o.render) o.render();
+          requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(tick);
+        destroyers.push(() => { stopped = true; });
+        return { stop() { stopped = true; } };
+      }
+    }
+  };
+  window.addEventListener("resize", () => {
+    canvases.forEach(fitCanvas);
+    resizeCbs.forEach(cb => cb({ width: ctx.width, height: ctx.height, dpr: ctx.dpr, safeArea: safe }));
+  });
+  window.__ctx = ctx;
+  window.__destroy = () => { destroyers.splice(0).forEach(f => { try { f(); } catch (e) {} }); stage.innerHTML = ""; };
+  window.addEventListener("error", e => events.push(["jsError", String(e.message)]));
+})();
+</script>
+<script src="../main.js"></script>
+<script>
+  // Capture the game instance for the test driver (no production hook needed).
+  (function () {
+    const core = window.plethoraBit.core;
+    const orig = core.createGame;
+    core.createGame = o => (window.__game = orig(o));
+  })();
+  window.plethoraBit.init(window.__ctx).catch(e => window.__events.push(["initError", String(e && e.stack || e)]));
+</script>
+</body>
+</html>
