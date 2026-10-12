@@ -352,6 +352,7 @@ window.plethoraBit = {
         }
       },
       stir() { tone({ freq: 62, to: 48, vol: 0.12, dur: 1.2, attack: 0.25 }); },
+      nearWake() { tone({ freq: 55, to: 41, vol: 0.09, dur: 1.8, attack: 0.5 }); noiseBurst({ type: "lowpass", freq: 260, vol: 0.05, dur: 1.4, attack: 0.6 }); },
       settle() { tone({ freq: 523, to: 349, vol: 0.022, dur: 1.1, attack: 0.08 }); },
       streak() { tone({ freq: 1568, vol: 0.02, dur: 0.8 }); tone({ freq: 2349, vol: 0.012, dur: 0.7, delay: 0.06 }); },
       shift() { noiseBurst({ type: "lowpass", freq: 160, q: 0.7, vol: 0.12, dur: 0.9, attack: 0.15 }); },
@@ -799,6 +800,11 @@ window.plethoraBit = {
           }
           C.state = st;
         }
+      }
+      // Almost awake: one soft cue as it nears the threshold, re-armed once it settles.
+      if (game.state === "play") {
+        if (!C.nearWake && C.shown >= 82) { C.nearWake = true; sfx.nearWake(); haptic("warning"); }
+        else if (C.nearWake && C.shown < 72) C.nearWake = false;
       }
       // Breathing: slow and rhythmic in sleep, deeper and irregular as it stirs.
       const lvl = C.shown / 100;
@@ -1512,6 +1518,65 @@ window.plethoraBit = {
     }
 
     // Giant eyes embedded in the climb: the clearest reminder of what this is.
+    // The watching eye: a huge eye behind the terrain that faintly emerges once the
+    // creature is disturbed and slowly opens as it nears waking, following the explorer.
+    const watch = { side: 1, a: 0, open: 0 };
+    function drawWatchingEye(pal, dt) {
+      const lvl = creature.shown;
+      const target = game.state === "play" ? smooth(clamp((lvl - 22) / 38, 0, 1)) : 0;
+      if (watch.a < 0.01 && target > 0) watch.side = P.x < W / 2 ? 1 : -1; // emerge on the far side
+      const k = 1 - Math.exp(-(dt || 0.016) * 3.5);
+      watch.a += (target - watch.a) * k;
+      watch.open += (smooth(clamp((lvl - 55) / 42, 0, 1)) * (game.state === "play" ? 1 : 0) - watch.open) * k * 0.8;
+      if (watch.a < 0.01) return;
+      // a translucent presence over the world, upper area, away from the explorer
+      const open = watch.open;
+      const a = watch.a * (0.32 + 0.3 * open);
+      const side = watch.side;
+      const ew = Math.min(VW * 0.24, VH * 0.13);
+      const cx = VW / 2 + side * VW * 0.2;
+      const cy = SAFE_TOP + VH * 0.24 + creature.breathVal * 3;
+      g.save();
+      g.globalAlpha = a;
+      // a faint shadow of the brow so the lid reads on light fur
+      const bg = g.createRadialGradient(cx, cy, ew * 0.1, cx, cy, ew * 1.5);
+      bg.addColorStop(0, rgba(pal.furLo, 0.55)); bg.addColorStop(1, rgba(pal.furLo, 0));
+      g.fillStyle = bg; g.beginPath(); g.ellipse(cx, cy, ew * 1.5, ew * 0.8, 0, 0, TAU); g.fill();
+      const lidY = cy - ew * 0.42 * open;
+      if (open > 0.02) {
+        g.save();
+        g.beginPath();
+        g.moveTo(cx - ew, cy); g.quadraticCurveTo(cx, lidY - ew * 0.12 * open, cx + ew, cy); g.quadraticCurveTo(cx, cy + ew * 0.16 * open, cx - ew, cy); g.closePath();
+        g.clip();
+        g.fillStyle = "#3a2430"; g.fillRect(cx - ew, cy - ew, ew * 2, ew * 2);
+        // the pupil drifts toward the explorer
+        const px = clamp((toSX(P.x) - cx) / VW, -0.5, 0.5) * ew * 0.5, py = clamp((toSY(P.y) - cy) / VH, -0.5, 0.5) * ew * 0.25;
+        const glow = 0.85 + 0.15 * creature.breathVal;
+        const ig = g.createRadialGradient(cx + px, cy + py, 0, cx + px, cy + py, ew * 0.42);
+        ig.addColorStop(0, "rgba(242,197,106," + glow.toFixed(3) + ")"); ig.addColorStop(0.6, "rgba(201,132,50," + glow.toFixed(3) + ")"); ig.addColorStop(1, "rgba(94,52,32,1)");
+        g.fillStyle = ig; g.beginPath(); g.arc(cx + px, cy + py, ew * 0.4, 0, TAU); g.fill();
+        g.fillStyle = "#140c14"; g.beginPath(); g.ellipse(cx + px, cy + py, ew * 0.05, ew * 0.34, 0, 0, TAU); g.fill();
+        g.fillStyle = "rgba(255,248,230,0.7)"; g.beginPath(); g.ellipse(cx + px - ew * 0.12, cy + py - ew * 0.1, ew * 0.04, ew * 0.025, -0.5, 0, TAU); g.fill();
+        g.restore();
+      }
+      // lid line and lashes, twitching a little as it stirs
+      const tw = creature.state >= 2 ? Math.sin(time * 9) * 0.6 : 0;
+      g.strokeStyle = rgba(mixRgb(mixRgb(INK, pal.furLo, 0.35), pal.furHi, pal.night * 0.75)); g.lineWidth = 2.4; g.lineCap = "round";
+      g.beginPath(); g.moveTo(cx - ew, cy); g.quadraticCurveTo(cx, open > 0.02 ? lidY - ew * 0.12 * open : cy + ew * 0.18 + tw, cx + ew, cy); g.stroke();
+      g.lineWidth = 1.3;
+      g.beginPath();
+      for (let i = 1; i < 10; i++) {
+        const t = i / 10;
+        const ctrlY = open > 0.02 ? lidY - ew * 0.12 * open : cy + ew * 0.18 + tw;
+        const x = (1 - t) * (1 - t) * (cx - ew) + 2 * (1 - t) * t * cx + t * t * (cx + ew);
+        const y = (1 - t) * (1 - t) * cy + 2 * (1 - t) * t * ctrlY + t * t * cy;
+        const dir = open > 0.02 ? -1 : 1;
+        g.moveTo(x, y); g.lineTo(x + (t - 0.5) * 8, y + dir * (7 + open * 3));
+      }
+      g.stroke();
+      g.restore();
+    }
+
     function drawEyes(pal) {
       for (const e of world.eyes) {
         const sy = toSY(e.y);
@@ -2383,6 +2448,7 @@ window.plethoraBit = {
         drawPlatform(p);
       }
       for (const s of world.seeds) drawSeed(s);
+      drawWatchingEye(pal, dt);
       if (game.state === "waking" || game.state === "results") drawWakeEye(pal);
       drawPlayer();
       drawParticles(pal);
@@ -2519,6 +2585,7 @@ window.plethoraBit = {
       Object.assign(creature, { alert: 0, shown: 0, state: 0, sinceNoise: 99, shift: null, shiftCd: R0.range(18, 26), shiftOffset: 0, tremble: 0 });
       Object.assign(run, { seeds: 0, seedLight: 0, discoveries: [], streakStartY: 0, streakTier: 0, bestStreak: 0, lastMilestone: 0 });
       particles.length = 0; birds.length = 0;
+      watch.a = 0; watch.open = 0; creature.nearWake = false;
       game.state = "play"; game.paused = false; game.journal = null; game.runStarted = false; game.wakeT = 0;
       hud.cardA = 0; hud.toast = null; hud.height = 0;
       cam.y = minCamY(); cam.hold = false; cam.shake = 0;
