@@ -52,7 +52,7 @@ server.listen(0, async () => {
     const t0 = Date.now();
     await page.goto(`http://127.0.0.1:${port}/tools/preview/index.html?${q}`);
     await page.waitForFunction(() => window.__bitReady || (window.__bitErrors && window.__bitErrors.length), null, { timeout: +opt.timeout });
-    const info = await page.evaluate(() => ({ errors: window.__bitErrors, initMs: window.__bitInitMs }));
+    const info = await page.evaluate(() => ({ errors: window.__bitErrors, initMs: window.__bitInitMs, profile: globalThis.__dwProfile }));
     await page.screenshot({ path: opt.out });
     console.log(JSON.stringify({ out: opt.out, wallMs: Date.now() - t0, ...info }));
     if (info.errors && info.errors.length) code = 2;

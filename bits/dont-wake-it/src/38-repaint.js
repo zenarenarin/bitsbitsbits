@@ -20,7 +20,7 @@ function scaleRepaint(R, pr, flow) {
   };
 }
 
-function repaintCanvas(g, gx0, gy0, R, seed) {
+function* repaintCanvas(g, gx0, gy0, R, seed) {
   const W = g.canvas.width, H = g.canvas.height;
   const src = g.getImageData(0, 0, W, H).data;
   const lumAt = (x, y) => {
@@ -33,12 +33,14 @@ function repaintCanvas(g, gx0, gy0, R, seed) {
     return src[(y * W + x) * 4 + 3];
   };
   const flowX = (R.flow || [0, -1])[0], flowY = -(R.flow || [0, -1])[1];
+  let work = 0;
   for (let p = 0; p < R.passes.length; p++) {
     const P = R.passes[p];
     const c = P.cell;
     const reach = P.len * 0.75;
     for (let cy = Math.floor((gy0 + reach) / c); cy <= Math.ceil((gy0 + H - reach) / c); cy++) {
       for (let cx = Math.floor((gx0 + reach) / c); cx <= Math.ceil((gx0 + W - reach) / c); cx++) {
+        if ((++work & 47) === 0) yield;
         const r = rngFrom(hash2(cx, cy, seed + p * 7919));
         const x = (cx + r()) * c - gx0, y = (cy + r()) * c - gy0;
         if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1) continue;
@@ -73,7 +75,7 @@ function repaintCanvas(g, gx0, gy0, R, seed) {
         const sx = x - dx * len * 0.5, sy = y - dy * len * 0.5;
         g2Stroke(g, sx, sy, dx, dy, len, w, bend, col, P.alpha * (0.8 + r() * 0.2));
         // Bristle marks: a lighter and a darker hair-line inside the stroke.
-        if (w > 3) {
+        if (w > 3 && !P.minGrad && r() < 0.5) {
           const px = -dy, py = dx;
           for (let b = 0; b < 2; b++) {
             const off = (r() - 0.5) * w * 0.6;
@@ -82,6 +84,7 @@ function repaintCanvas(g, gx0, gy0, R, seed) {
           }
         }
       }
+      yield;
     }
   }
 }

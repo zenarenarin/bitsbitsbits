@@ -4,24 +4,71 @@
   "entry": "main.js",
   "title": "Don't Wake It",
   "description": "A tiny explorer climbs an impossibly enormous sleeping creature. Climb higher. Stay quiet.",
-  "tags": ["adventure", "climbing", "atmospheric"],
+  "tags": [
+    "adventure",
+    "climbing",
+    "atmospheric"
+  ],
   "permissions": [],
   "dependencies": [],
   "onboarding": {
-    "kind": "immersive",
-    "version": 1
+    "kind": "one_line",
+    "version": 1,
+    "message": "Hold left or right to climb. Swipe up to jump."
   },
   "tuning": {
     "schemaVersion": 1,
     "groups": {
-      "preview": { "label": "Stage 1 preview" }
+      "feel": {
+        "label": "Movement feel"
+      },
+      "preview": {
+        "label": "Testing"
+      }
     },
     "knobs": {
-      "view": {
-        "label": "Camera shot",
+      "walk_speed": {
+        "label": "Careful pace",
+        "type": "number",
+        "default": 1,
+        "min": 0.6,
+        "max": 1.6,
+        "step": 0.05,
+        "group": "feel",
+        "intent": "feel",
+        "apply": "live"
+      },
+      "run_speed": {
+        "label": "Faster pace",
+        "type": "number",
+        "default": 1,
+        "min": 0.6,
+        "max": 1.6,
+        "step": 0.05,
+        "group": "feel",
+        "intent": "feel",
+        "apply": "live"
+      },
+      "jump_height": {
+        "label": "Jump height",
+        "type": "number",
+        "default": 1,
+        "min": 0.6,
+        "max": 1.5,
+        "step": 0.05,
+        "group": "feel",
+        "intent": "feel",
+        "apply": "live"
+      },
+      "start": {
+        "label": "Start on",
         "type": "choice",
-        "default": "gameplay",
-        "options": ["gameplay", "establishing"],
+        "default": "back",
+        "options": [
+          "base",
+          "back",
+          "head"
+        ],
         "group": "preview",
         "intent": "debug",
         "apply": "live"

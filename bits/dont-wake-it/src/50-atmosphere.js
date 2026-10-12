@@ -64,7 +64,8 @@ class SkyBackdrop {
       cg.translate(M, M);
       drawSkyGradient(cg, view, this.seed);
       cg.setTransform(1, 0, 0, 1, 0, 0);
-      repaintCanvas(cg, -M, -M, scaleRepaint(BRUSH.sky, view.pr, [1, 0]), this.seed + 77);
+      runSync(repaintCanvas(cg, -M, -M, scaleRepaint(BRUSH.sky, view.pr, [1, 0]), this.seed + 77));
+      this.canvas = toDrawable(this.canvas);
     }
     g.drawImage(this.canvas, M, M, view.W, view.H, 0, 0, view.W, view.H);
   }
@@ -99,7 +100,7 @@ function cloudBank(g, cx, cy, size, r, fog) {
 }
 
 // Tile painter for a layer of world-anchored cloud banks (L.banks).
-function paintCloudTile(tg, x0, yTop, k, L, world) {
+function* paintCloudTile(tg, x0, yTop, k, L, world) {
   const span = tg.canvas.width / k;
   let used = false;
   for (const b of L.banks(world)) {
@@ -107,13 +108,14 @@ function paintCloudTile(tg, x0, yTop, k, L, world) {
     if (b.x + m < x0 || b.x - m > x0 + span || b.y + m < yTop - span || b.y - b.size * 0.3 > yTop) continue;
     cloudBank(tg, (b.x - x0) * k, (yTop - b.y) * k, b.size * k, rngFrom(b.seed), L.fog);
     used = true;
+    yield;
   }
   return used;
 }
 
 // Tile painter for the cloud sea: a lit billowing top at y = 0 over a
 // lavender body that fills everything below.
-function paintCloudSeaTile(tg, x0, yTop, k, L, world) {
+function* paintCloudSeaTile(tg, x0, yTop, k, L, world) {
   const S = tg.canvas.width, span = S / k;
   if (yTop - span > 12) return false;
   const top = (yTop - 2) * k;
@@ -128,6 +130,7 @@ function paintCloudSeaTile(tg, x0, yTop, k, L, world) {
       const r = rngFrom(hash2(c, row, world.seed + 900));
       const bx = (c + r()) * cellW, by = 2 - row * 9 + r() * 4;
       cloudBank(tg, (bx - x0) * k, (yTop - by) * k, cellW * (0.45 + r() * 0.3) * k, r, 0.3 - row * 0.1);
+      yield;
     }
   }
   return true;
@@ -147,35 +150,37 @@ function drawMistBand(g, view, y, par, thickness, color, alpha) {
   g.fillRect(0, sy - t, view.W, t * 2);
 }
 
-let grainTile = null;
-function drawGrain(g, view) {
-  if (!grainTile) {
-    grainTile = makeCanvas(256, 256);
-    const gg = grainTile.getContext("2d");
-    const img = gg.createImageData(256, 256);
-    const r = rngFrom(4242);
-    for (let i = 0; i < 256 * 256; i++) {
-      const v = 128 + (r() + r() - 1) * 70;
-      img.data[i * 4] = v; img.data[i * 4 + 1] = v; img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255;
-    }
-    gg.putImageData(img, 0, 0);
+// Warm glow from the sun side, a soft violet vignette and a little paper
+// grain, baked once per screen size and laid over each frame in one draw.
+class FinishOverlay {
+  constructor() {
+    this.key = "";
+    this.canvas = null;
   }
-  g.save();
-  g.globalAlpha = 0.08;
-  g.globalCompositeOperation = "overlay";
-  g.fillStyle = g.createPattern(grainTile, "repeat");
-  g.fillRect(0, 0, view.W, view.H);
-  g.restore();
-  // Warm glow from the sun side and a soft violet vignette, as in the reference.
-  const sx = view.W * (0.5 + 0.4 * SUN_SIDE);
-  const glow = g.createRadialGradient(sx, view.H * 0.45, 0, sx, view.H * 0.45, view.W * 1.1);
-  glow.addColorStop(0, css(PAL.horizon, 0.16));
-  glow.addColorStop(1, css(PAL.horizon, 0));
-  g.fillStyle = glow;
-  g.fillRect(0, 0, view.W, view.H);
-  const v = g.createRadialGradient(view.W / 2, view.H * 0.55, view.H * 0.32, view.W / 2, view.H * 0.55, view.H * 0.85);
-  v.addColorStop(0, css(PAL.fur[0], 0));
-  v.addColorStop(1, css(PAL.fur[0], 0.28));
-  g.fillStyle = v;
-  g.fillRect(0, 0, view.W, view.H);
+
+  draw(g, view) {
+    const key = `${view.W}|${view.H}`;
+    if (key !== this.key) {
+      this.key = key;
+      this.canvas = makeCanvas(view.W, view.H);
+      const c = this.canvas.getContext("2d");
+      const sx = view.W * (0.5 + 0.4 * SUN_SIDE);
+      const glow = c.createRadialGradient(sx, view.H * 0.45, 0, sx, view.H * 0.45, view.W * 1.1);
+      glow.addColorStop(0, css(PAL.horizon, 0.16));
+      glow.addColorStop(1, css(PAL.horizon, 0));
+      c.fillStyle = glow;
+      c.fillRect(0, 0, view.W, view.H);
+      const v = c.createRadialGradient(view.W / 2, view.H * 0.55, view.H * 0.32, view.W / 2, view.H * 0.55, view.H * 0.85);
+      v.addColorStop(0, css(PAL.fur[0], 0));
+      v.addColorStop(1, css(PAL.fur[0], 0.28));
+      c.fillStyle = v;
+      c.fillRect(0, 0, view.W, view.H);
+      const r = rngFrom(4242);
+      for (let i = 0; i < (view.W * view.H) / 90; i++) {
+        c.fillStyle = r() < 0.5 ? "rgba(255,245,230,0.05)" : "rgba(60,40,90,0.05)";
+        c.fillRect(r() * view.W, r() * view.H, 1 + r() * view.pr, 1 + r() * view.pr);
+      }
+    }
+    g.drawImage(this.canvas, 0, 0);
+  }
 }

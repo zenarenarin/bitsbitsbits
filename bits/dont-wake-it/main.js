@@ -347,7 +347,8 @@ function reliefAt(anat, x, y) {
 //
 // play  (depth 1.0)  - the body the explorer climbs. Its upper-right face is
 //                      the route: fur shelves on the back make the treads.
-// flank (depth 0.55) - the creature's far flank and dorsal spires, behind.
+// ridge (depth 0.9)  - dorsal spires standing just behind the route.
+// far   (depth 0.22) - distant dorsal spires rising out of cloud.
 // tail  (depth 0.2)  - the tail curling up out of the cloud sea.
 // fore  (depth 1.5)  - near fur clumps that frame the bottom of the screen.
 // Props (mushrooms, trees, the closed eye) are rooted on anatomy surfaces.
@@ -373,21 +374,24 @@ function buildWorld(seed) {
   // -- Play layer: the climbable body ---------------------------------------
   const play = new Anatomy("play");
   const spine = sampleSpine([
-    [70, -80, 46], [46, -14, 40], [22, 34, 36], [-2, 78, 33], [-26, 116, 31],
-    [-48, 154, 29], [-62, 192, 25], [-65, 224, 19], [-60, 250, 14], [-57, 270, 12.5]
+    // A broad back rising at ~42 degrees (rolling ridges you can walk), then
+    // a steeper shoulder and neck up to the head.
+    [110, -80, 46], [47, -14, 42], [0, 34, 38], [-48, 78, 34], [-90, 116, 31],
+    [-132, 154, 29], [-170, 192, 25], [-196, 224, 19], [-208, 250, 14], [-210, 270, 12.5]
   ], 8);
   addSpine(play, spine, { k: 8, hk: 6, hs: 0.5 });
 
   // Head, facing left: furred cranium, muzzle, cheek ruff, two ears.
-  const HX = -58; // head sits over the neck, muzzle forward (left)
+  const NX = -153; // the neck/head group sits at the top of the back
+  const HX = -58 + NX; // head sits over the neck, muzzle forward (left)
   // Forelimb stretched up-slope with the chin resting on it: upper arm along
   // the neck, forearm under the jaw, a broad paw with toe lobes.
-  play.seg(-46, 206, 11, -42, 240, 8.5, { k: 5, hk: 4, hs: 0.5, base: 1 });
-  play.seg(-42, 240, 8.5, -58, 260, 6.8, { k: 4, hk: 3, hs: 0.5, base: 2 });
-  play.seg(-58, 260, 6.8, -72, 261, 6, { k: 3, hk: 3, hs: 0.5, base: 2.5 });
-  play.ell(-79, 259.5, 6.5, 4.6, 0.05, { k: 2.5, hk: 2, hz: 3, base: 3 });
+  play.seg(-46 + NX, 206, 11, -42 + NX, 240, 8.5, { k: 5, hk: 4, hs: 0.5, base: 1 });
+  play.seg(-42 + NX, 240, 8.5, -58 + NX, 260, 6.8, { k: 4, hk: 3, hs: 0.5, base: 2 });
+  play.seg(-58 + NX, 260, 6.8, -72 + NX, 261, 6, { k: 3, hk: 3, hs: 0.5, base: 2.5 });
+  play.ell(-79 + NX, 259.5, 6.5, 4.6, 0.05, { k: 2.5, hk: 2, hz: 3, base: 3 });
   for (const [tx, ty, ta] of [[-84.5, 257.5, 2.2], [-83, 262, 2.1], [-79.5, 264.2, 2]]) {
-    play.ell(tx, ty, ta, ta * 0.72, 0.3, { k: 1, hk: 1, hz: 1.4, base: 5, tag: "lobe" });
+    play.ell(tx + NX, ty, ta, ta * 0.72, 0.3, { k: 1, hk: 1, hz: 1.4, base: 5, tag: "lobe" });
   }
   play.ell(HX, 284, 14, 10.5, 0.12, { k: 6, hk: 4, hz: 9, base: 2, tag: "cranium" });
   play.ell(HX - 12.5, 279.5, 7, 4.8, 0.22, { k: 4.5, hk: 4, hz: 2.6, base: 4, tag: "muzzle" });
@@ -410,19 +414,17 @@ function buildWorld(seed) {
       const t = (next - dist) / segLen;
       const x = lerp(p0.x, p1.x, t), y = lerp(p0.y, p1.y, t);
       if (y > 262) break;
+      // Fur steps: rounded lobes set into the slope so each one makes a
+      // tread and a riser of about a metre or two - never an overhang over
+      // the step below, so every step can be reached with a jump.
       const roll = rnd();
       const big = roll < 0.2, tiny = roll > 0.82;
-      const a = big ? R(4.6, 6.6) : tiny ? R(1.6, 2.3) : R(2.3, 3.9);
-      const b = a * R(0.32, 0.5);
-      const cx = x + a * R(0.5, 0.8), cy = y - b * R(0.2, 0.6);
-      play.ell(cx, cy, a, b, -R(0.0, 0.2), { k: R(0.5, 0.9), hk: 1.2, hz: b * 1.3, base: 0.8, tag: "shelf" });
+      const a = big ? R(4.2, 5.6) : tiny ? R(1.8, 2.4) : R(2.4, 3.8);
+      const b = a * R(0.34, 0.46);
+      const cx = x + a * R(-0.25, 0.2), cy = y - b * R(0.15, 0.45);
+      play.ell(cx, cy, a, b, -R(0.0, 0.16), { k: R(0.5, 0.9), hk: 0.8, hz: b * 2.4, base: 1.4, tag: "shelf" });
       shelves.push({ x: cx, y: cy, a, b });
-      if (big && rnd() < 0.6) {
-        // A smaller lobe tucked beside a big one: ledges grow in clusters.
-        const a2 = a * R(0.4, 0.6);
-        play.ell(cx + a * R(0.5, 0.8), cy - b * R(0.5, 1.0), a2, a2 * R(0.35, 0.5), -R(0.05, 0.3), { k: 0.8, hk: 1.2, hz: a2 * 0.5, base: 0.8, tag: "shelf" });
-      }
-      next += (tiny ? R(2.2, 3) : R(3, 5.2)) + (big ? R(0.8, 2.2) : 0);
+      next += (tiny ? R(2.4, 3.2) : R(3, 4.8)) + (big ? R(0.8, 1.8) : 0);
     }
     dist += segLen;
   }
@@ -449,8 +451,10 @@ function buildWorld(seed) {
     }
   }
 
-  // Dorsal spires rising from the back (rose-cream monoliths) - landmarks on
-  // the route, like the reference BACK panel. Placed by height on the back.
+  // Dorsal spires rising from the back (rose-cream monoliths), like the
+  // reference BACK panel. They stand just behind the route in their own
+  // depth layer ("ridge"), so they frame the climb without walling it off.
+  const ridge = new Anatomy("ridge");
   const backAt = (y) => {
     let best = dorsal[0];
     for (const d of dorsal) if (Math.abs(d.y - y) < Math.abs(best.y - y)) best = d;
@@ -460,8 +464,8 @@ function buildWorld(seed) {
     const d = backAt(y);
     const ax = d.x - d.nx * 2.2, ay = d.y - d.ny * 2.2;
     const bx = ax + Math.sin(lean) * len, by = ay + Math.cos(lean) * len;
-    const base = reliefAt(play, ax, ay) + 1.5;
-    play.seg(ax, ay, ra, bx, by, ra * 0.5, { mat: MAT_SPIRE, k: 1.0, hk: 1.2, hs: 0.7, base });
+    ridge.seg(ax, ay - 4, ra, bx, by, ra * 0.5, { mat: MAT_SPIRE, k: 1.0, hk: 1.2, hs: 0.7, base: 8 });
+    ridge.ell(ax, ay - 3, ra * 2.6, ra * 1.3, 0, { k: 2, hk: 2, hz: ra, base: 0.5 });
   }
 
   // -- Props rooted on the body ---------------------------------------------
@@ -473,9 +477,9 @@ function buildWorld(seed) {
     if (y === null) return false;
     const root = { x, y: y - 0.3 };
     const top = { x: x + lean, y: y + stemH };
-    play.seg(root.x, root.y, 0.32 + capR * 0.05, top.x, top.y, 0.24 + capR * 0.04, { mat: MAT_SHROOM, k: 0, hk: 0.01, base: 30 });
-    play.ell(top.x, top.y + capR * 0.12, capR, capR * 0.32, 0, { mat: MAT_SHROOM, k: 0, hk: 0.01, hz: 1, base: 31 });
-    props.mushrooms.push({ root, top, capR });
+    // The cap is a one-way platform: land on it from above, jump up through it.
+    const cap = { x: top.x, y: top.y + capR * 0.12, a: capR, b: capR * 0.32 };
+    props.mushrooms.push({ root, top, capR, cap });
     return true;
   }
   const reserved = [];
@@ -527,30 +531,14 @@ function buildWorld(seed) {
   const ex = HX - 11;
   const ey = play.surfaceBelow(ex, 310, 270);
   if (ey === null) throw new Error("brow has no standing surface");
+  // Where a climb can start (the "start" tuning knob picks one).
+  const base = standOn(nearestShelf(6, (s) => s.y > 2 && standOn(s)));
   const explorerSpots = {
     gameplay: { x: gx, y: gy, facing: -1 },
-    establishing: { x: ex, y: ey, facing: -1 }
+    establishing: { x: ex, y: ey, facing: -1 },
+    base: { x: base.x, y: base.y, facing: -1 }
   };
   const focus = { head: { x: HX - 4, y: 285 } };
-
-  // -- Flank layer: far side of the back curving away, behind mist ----------
-  // A low, broad rolling form (not a second pillar) carrying a few spires.
-  const flank = new Anatomy("flank");
-  const flankSpine = sampleSpine([
-    [130, -100, 46], [100, -20, 40], [70, 48, 34], [48, 88, 26], [38, 108, 16]
-  ], 5);
-  addSpine(flank, flankSpine, { k: 9, hk: 6, hs: 0.45 });
-  for (let i = 1; i < flankSpine.length - 1; i++) {
-    const d = dorsalAt(flankSpine, i);
-    const a = R(5, 10);
-    flank.ell(d.x + a * 0.15, d.y - a * 0.1, a, a * R(0.4, 0.5), -R(0.05, 0.2), { k: 2.5, hk: 2, hz: a * 0.5, base: 0.6 });
-  }
-  for (const [i, len, lean] of [[8, 26, 0.12], [12, 20, -0.05], [15, 15, 0.2]]) {
-    const d = dorsalAt(flankSpine, Math.min(i, flankSpine.length - 2));
-    const ax = d.x - d.nx * 3, ay = d.y - d.ny * 3;
-    flank.seg(ax, ay, R(3.6, 4.8), ax + Math.sin(lean) * len, ay + Math.cos(lean) * len, R(1.6, 2.4),
-      { mat: MAT_SPIRE, k: 1.5, hk: 1.5, hs: 0.7, base: reliefAt(flank, ax, ay) + 2 });
-  }
 
   // -- Far layer: the creature's far-side dorsal spires through the haze -----
   // Tall rounded monoliths rising from a rolling far-back ridge, placed along
@@ -602,7 +590,7 @@ function buildWorld(seed) {
   return {
     seed,
     spine,
-    layers: { play, flank, tail, far, fore },
+    layers: { play, tail, far, fore, ridge },
     clouds,
     props,
     explorerSpots,
@@ -621,6 +609,18 @@ function makeCanvas(w, h) {
   c.width = w;
   c.height = h;
   return c;
+}
+
+// Finished paintings become GPU-friendly bitmaps: the scratch canvas was read
+// back during the repaint (CPU-backed), and drawing it every frame would
+// re-upload it. Falls back to a plain copy where bitmaps are unavailable.
+function toDrawable(c) {
+  if (typeof c.transferToImageBitmap === "function") return c.transferToImageBitmap();
+  const d = typeof document !== "undefined" ? document.createElement("canvas") : makeCanvas(c.width, c.height);
+  d.width = c.width;
+  d.height = c.height;
+  d.getContext("2d").drawImage(c, 0, 0);
+  return d;
 }
 
 // A tapered lock of fur: rounded root, swelling body, pointed tip.
@@ -708,7 +708,7 @@ function g2Stroke(g, x, y, dx, dy, len, w, bend, col, alpha) {
   g.fill();
 }
 
-function paintFur(tg, F, L, x0, yTop, k, span, seed) {
+function* paintFur(tg, F, L, x0, yTop, k, span, seed) {
   const nrm = {};
   const toPx = (X, Y) => [(X - x0) * k, (yTop - Y) * k];
   const reach = furReach(L, k);
@@ -735,6 +735,7 @@ function paintFur(tg, F, L, x0, yTop, k, span, seed) {
       const bend = (r() - 0.5) * 0.25;
       g2Stroke(tg, px, py, dx, -dy, len, w, bend, col, 0.62 + r() * 0.3);
     }
+    yield;
   }
 
   // Pass B: silhouette fringe - small locks combed outward so the edge of the
@@ -755,6 +756,7 @@ function paintFur(tg, F, L, x0, yTop, k, span, seed) {
       const [px, py] = toPx(X, Y);
       drawLock(tg, px, py, dx, -dy, f * (2.2 + r() * 1.6) * k, f * (0.2 + r() * 0.16) * k, (r() - 0.5) * 0.5, c, 0.92);
     }
+    yield;
   }
 }
 
@@ -779,7 +781,7 @@ function paintDrips(tg, F, L, prims, x0, yTop, k, span, seed) {
       if (idx < 0) continue;
       // Only where this form is the visible surface (not buried in the body).
       const own = p.hz * 0.24 + p.base;
-      if (F.h[idx] > own + 0.35 || F.sd[idx] < -1.4) continue;
+      if (F.h[idx] > own + 0.35 || F.sd[idx] < (p.tag === "shelf" ? -4 : -1.4)) continue;
       const inner = F.index(X - (lx * p.cos - ly * p.sin) * 0.25, Y - (lx * p.sin + ly * p.cos) * 0.25);
       const col = furColorAt(F, X, Y + p.b * 0.25, seed, nrm, inner < 0 ? idx : inner);
       let dx = flow[0] * 0.35 + Math.cos(th) * 0.2 + (r() - 0.5) * 0.3, dy = -1;
@@ -824,7 +826,7 @@ function scaleRepaint(R, pr, flow) {
   };
 }
 
-function repaintCanvas(g, gx0, gy0, R, seed) {
+function* repaintCanvas(g, gx0, gy0, R, seed) {
   const W = g.canvas.width, H = g.canvas.height;
   const src = g.getImageData(0, 0, W, H).data;
   const lumAt = (x, y) => {
@@ -837,12 +839,14 @@ function repaintCanvas(g, gx0, gy0, R, seed) {
     return src[(y * W + x) * 4 + 3];
   };
   const flowX = (R.flow || [0, -1])[0], flowY = -(R.flow || [0, -1])[1];
+  let work = 0;
   for (let p = 0; p < R.passes.length; p++) {
     const P = R.passes[p];
     const c = P.cell;
     const reach = P.len * 0.75;
     for (let cy = Math.floor((gy0 + reach) / c); cy <= Math.ceil((gy0 + H - reach) / c); cy++) {
       for (let cx = Math.floor((gx0 + reach) / c); cx <= Math.ceil((gx0 + W - reach) / c); cx++) {
+        if ((++work & 47) === 0) yield;
         const r = rngFrom(hash2(cx, cy, seed + p * 7919));
         const x = (cx + r()) * c - gx0, y = (cy + r()) * c - gy0;
         if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1) continue;
@@ -877,7 +881,7 @@ function repaintCanvas(g, gx0, gy0, R, seed) {
         const sx = x - dx * len * 0.5, sy = y - dy * len * 0.5;
         g2Stroke(g, sx, sy, dx, dy, len, w, bend, col, P.alpha * (0.8 + r() * 0.2));
         // Bristle marks: a lighter and a darker hair-line inside the stroke.
-        if (w > 3) {
+        if (w > 3 && !P.minGrad && r() < 0.5) {
           const px = -dy, py = dx;
           for (let b = 0; b < 2; b++) {
             const off = (r() - 0.5) * w * 0.6;
@@ -886,6 +890,7 @@ function repaintCanvas(g, gx0, gy0, R, seed) {
           }
         }
       }
+      yield;
     }
   }
 }
@@ -917,36 +922,73 @@ function fogColor(y) {
 
 const TILE = 512;
 
+// Field sample buffers are pooled by size: tiles are painted continuously
+// while climbing, and reallocating megabytes per tile causes GC pauses.
+const FIELD_POOL = new Map();
+function takeFieldBuffers(n) {
+  const list = FIELD_POOL.get(n);
+  if (list && list.length) return list.pop();
+  return { sd: new Float32Array(n), h: new Float32Array(n), mat: new Uint8Array(n), prim: new Array(n), cav: new Float32Array(n), tmp: new Float32Array(n) };
+}
+function releaseFieldBuffers(n, b) {
+  if (!FIELD_POOL.has(n)) FIELD_POOL.set(n, []);
+  const list = FIELD_POOL.get(n);
+  if (list.length < 4) list.push(b);
+}
+
 class FieldGrid {
-  constructor(anat, prims, x0, yTop, step, n, mg) {
+  constructor(x0, yTop, step, n, mg) {
     const N = n + 2 * mg;
     this.N = N; this.n = n; this.mg = mg; this.step = step; this.x0 = x0; this.yTop = yTop;
-    this.sd = new Float32Array(N * N);
-    this.h = new Float32Array(N * N);
-    this.mat = new Uint8Array(N * N);
-    this.prim = new Array(N * N);
+    this.buf = takeFieldBuffers(N * N);
+    this.sd = this.buf.sd;
+    this.h = this.buf.h;
+    this.mat = this.buf.mat;
+    this.prim = this.buf.prim;
+    this.mat.fill(0);
+    this.any = false;
+  }
+
+  release() {
+    releaseFieldBuffers(this.N * this.N, this.buf);
+    this.buf = this.sd = this.h = this.mat = this.prim = this.cav = null;
+  }
+
+  // Samples both fields block by block; each block only evaluates the
+  // primitives near it. Yields between blocks so painting can be time-sliced.
+  *fill(anat, prims) {
+    const N = this.N, mg = this.mg, step = this.step, B = 16, pad = 3;
     const o = {};
-    let any = false;
-    for (let j = 0; j < N; j++) {
-      const Y = yTop - (j - mg + 0.5) * step;
-      for (let i = 0; i < N; i++) {
-        const X = x0 + (i - mg + 0.5) * step;
-        anat.eval(X, Y, prims, o);
-        const idx = j * N + i;
-        this.sd[idx] = o.sd;
-        this.h[idx] = o.h;
-        this.mat[idx] = o.mat;
-        this.prim[idx] = o.prim;
-        if (o.sd < 2) any = true;
+    for (let bj = 0; bj < N; bj += B) {
+      for (let bi = 0; bi < N; bi += B) {
+        const bx0 = this.x0 + (bi - mg) * step, bx1 = bx0 + B * step;
+        const by1 = this.yTop - (bj - mg) * step, by0 = by1 - B * step;
+        const sub = prims.filter((p) => {
+          const m = p.k * 2 + pad;
+          return p.maxX + m >= bx0 && p.minX - m <= bx1 && p.maxY + m >= by0 && p.minY - m <= by1;
+        });
+        for (let j = bj; j < Math.min(bj + B, N); j++) {
+          const Y = this.yTop - (j - mg + 0.5) * step;
+          for (let i = bi; i < Math.min(bi + B, N); i++) {
+            const idx = j * N + i;
+            if (!sub.length) { this.sd[idx] = 1e3; this.h[idx] = -1e3; continue; }
+            anat.eval(this.x0 + (i - mg + 0.5) * step, Y, sub, o);
+            this.sd[idx] = o.sd;
+            this.h[idx] = o.h;
+            this.mat[idx] = o.mat;
+            this.prim[idx] = o.prim;
+            if (o.sd < 2) this.any = true;
+          }
+        }
+        yield;
       }
     }
-    this.any = any;
-    this.cav = this.cavity(Math.max(1, Math.round(1.3 / step)));
+    yield* this.cavity(Math.max(1, Math.round(1.3 / step)));
   }
 
   // Box-blurred relief minus relief: positive in creases and folds.
-  cavity(r) {
-    const N = this.N, src = this.h, tmp = new Float32Array(N * N), out = new Float32Array(N * N);
+  *cavity(r) {
+    const N = this.N, src = this.h, tmp = this.buf.tmp, out = this.buf.cav;
     const pass = (from, to, horizontal) => {
       for (let a = 0; a < N; a++) {
         let sum = 0, cnt = 0;
@@ -960,9 +1002,10 @@ class FieldGrid {
       }
     };
     pass(src, tmp, true);
+    yield;
     pass(tmp, out, false);
     for (let i = 0; i < N * N; i++) out[i] = out[i] - Math.max(src[i], 0);
-    return out;
+    this.cav = out;
   }
 
   index(X, Y) {
@@ -1015,8 +1058,8 @@ function surfaceColor(F, idx, X, Y, seed, nrm) {
   const mat = F.mat[idx];
   const lam = nrm.nx * LIGHT[0] + nrm.ny * LIGHT[1] + nrm.nz * LIGHT[2];
   const cav = F.cav[idx];
-  let t = 0.3 + lam * 0.84;
-  t -= clamp(cav * 0.13, 0, 0.5);
+  let t = 0.22 + lam * 0.68;
+  t -= clamp(cav * 0.2, 0, 0.55);
   t += clamp(-cav * 0.05, 0, 0.08);
   t += (fbm(X * 0.11, Y * 0.11, seed, 3) - 0.5) * 0.26;
   const edge = 1 - nrm.nz;
@@ -1055,7 +1098,9 @@ function finishColor(c, Y, L) {
   return c;
 }
 
-function paintAnatomyTile(tg, x0, yTop, k, L, world) {
+// Paints one anatomy tile. A generator: it yields often so the scheduler
+// can spread the work across frames; returns whether anything was drawn.
+function* paintAnatomyTile(tg, x0, yTop, k, L, world) {
   const anat = L.anatomy;
   const T = tg.canvas.width;
   const span = T / k;
@@ -1069,8 +1114,9 @@ function paintAnatomyTile(tg, x0, yTop, k, L, world) {
   const step = gp / k;
   const n = Math.ceil(T / gp);
   const mg = Math.ceil(margin / step);
-  const F = new FieldGrid(anat, prims, x0, yTop, step, n, mg);
-  if (!F.any && !hasProps) return false;
+  const F = new FieldGrid(x0, yTop, step, n, mg);
+  yield* F.fill(anat, prims);
+  if (!F.any && !hasProps) { F.release(); return false; }
   const nrm = {};
   const seed = world.seed + L.seedOffset;
 
@@ -1093,18 +1139,20 @@ function paintAnatomyTile(tg, x0, yTop, k, L, world) {
       const o = (j * iw + i) * 4;
       data.data[o] = c[0]; data.data[o + 1] = c[1]; data.data[o + 2] = c[2]; data.data[o + 3] = a * 255;
     }
+    if ((j & 15) === 15) yield;
   }
   ig.putImageData(data, 0, 0);
   tg.imageSmoothingEnabled = true;
   tg.imageSmoothingQuality = "low"; // bilinear: higher filters ring at alpha edges
   tg.drawImage(img, -gp, -gp, iw * gp, iw * gp);
+  yield;
 
   const toPx = (X, Y) => [(X - x0) * k, (yTop - Y) * k];
 
-  // 3a. Fur: soft clumps with dripping tips, then a fringe at the silhouette.
-  paintFur(tg, F, L, x0, yTop, k, span, seed);
+  // 3a. Fur: brush strokes along the flow, a fringe at the silhouette, drips.
+  yield* paintFur(tg, F, L, x0, yTop, k, span, seed);
   paintDrips(tg, F, L, prims, x0, yTop, k, span, seed);
-
+  yield;
   // 3b. Spire streaks: long strokes along each monolith's axis.
   const sc = Math.max(0.5, 5 / k);
   for (let cy = Math.floor((yTop - span) / sc); cy <= Math.ceil(yTop / sc); cy++) {
@@ -1148,56 +1196,157 @@ function paintAnatomyTile(tg, x0, yTop, k, L, world) {
     }
   }
 
+  yield;
   // 3d. Props rooted on this layer (mushrooms, trees, the closed eye).
   if (hasProps) drawProps(tg, world, x0, yTop, k, L, seed);
+  F.release();
   return true;
 }
 
+// Runs a painting generator to completion (loading, or must-show tiles).
+function runSync(gen) {
+  let r;
+  while (!(r = gen.next()).done);
+  return r.value;
+}
+
+// Spreads tile painting across frames: jobs are generators, the most urgent
+// (visible, then nearest the camera) run first, within a per-frame budget.
+class PaintScheduler {
+  constructor() {
+    this.jobs = new Set();
+  }
+
+  request(entry, priority) {
+    if (entry.done) return;
+    entry.priority = Math.max(entry.priority || 0, priority);
+    this.jobs.add(entry);
+  }
+
+  finish(entry) {
+    if (entry.done) return;
+    const t0 = performance.now();
+    while (!entry.done) entry.step();
+    this.syncMs = (this.syncMs || 0) + performance.now() - t0;
+    this.syncCount = (this.syncCount || 0) + 1;
+    this.jobs.delete(entry);
+  }
+
+  // Loading: finish only what the first frame shows; the rest streams in.
+  finishVisible() {
+    for (const j of [...this.jobs]) if (j.priority >= 10) this.finish(j);
+  }
+
+  pump(budgetMs) {
+    const end = performance.now() + budgetMs;
+    while (this.jobs.size && performance.now() < end) {
+      let best = null;
+      for (const j of this.jobs) if (!best || j.priority > best.priority) best = j;
+      while (!best.done && performance.now() < end) best.step();
+      if (best.done) this.jobs.delete(best);
+    }
+    for (const j of this.jobs) j.priority = 0; // re-earned by the next frame's requests
+  }
+
+  get busy() {
+    return this.jobs.size > 0;
+  }
+}
+
 // Tile cache for one depth layer. Layer pixel space: lx = X * k, ly = -Y * k.
+// Tiles are painted with a margin (so brushwork crosses tile borders
+// identically on both sides), repainted, and drawn cropped. Distant layers
+// paint at reduced resolution (L.res) and are scaled up when drawn.
 class PaintedLayer {
-  constructor(L, world) {
+  constructor(L, world, sched) {
     this.L = L;
     this.world = world;
+    this.sched = sched;
     this.tiles = new Map();
     this.maxTiles = L.maxTiles || 24;
+    this.res = L.res || 1;
+    this.frame = 0;
   }
 
-  // Tiles are painted with a margin (so brushwork can cross tile borders
-  // identically on both sides), repainted, then drawn cropped.
-  tile(tx, ty, k, pr) {
+  entry(tx, ty, k, pr) {
     const key = `${k.toFixed(4)}|${pr}|${tx}|${ty}`;
-    if (this.tiles.has(key)) {
-      const t = this.tiles.get(key);
-      this.tiles.delete(key);
-      this.tiles.set(key, t);
-      return t;
+    let e = this.tiles.get(key);
+    if (!e) {
+      e = { key, done: false, canvas: null, priority: 0, used: this.frame };
+      const gen = this.job(e, tx, ty, k, pr);
+      e.step = () => {
+        const t0 = performance.now();
+        if (gen.next().done) e.done = true;
+        e.ms = (e.ms || 0) + performance.now() - t0;
+        if (e.done && globalThis.__dwProfile) globalThis.__dwProfile.push({ layer: this.L.name, ms: e.ms, used: !!e.canvas });
+      };
+      this.tiles.set(key, e);
     }
-    const M = REPAINT_MARGIN;
-    const c = makeCanvas(TILE + 2 * M, TILE + 2 * M);
-    const tg = c.getContext("2d", { willReadFrequently: true });
-    const used = this.L.paint(tg, (tx * TILE - M) / k, (-ty * TILE + M) / k, k, this.L, this.world);
-    if (used && this.L.repaint) {
-      repaintCanvas(tg, tx * TILE - M, ty * TILE - M, scaleRepaint(this.L.repaint, pr, this.L.flow), this.world.seed + this.L.seedOffset + 17);
-    }
-    if (used && this.L.props) drawPostProps(tg, this.world, (tx * TILE - M) / k, (-ty * TILE + M) / k, k, this.L, this.world.seed + this.L.seedOffset);
-    const t = used ? c : null;
-    this.tiles.set(key, t);
-    while (this.tiles.size > this.maxTiles) this.tiles.delete(this.tiles.keys().next().value);
-    return t;
+    e.used = this.frame;
+    return e;
   }
 
-  draw(g, view) {
+  *job(e, tx, ty, k, pr) {
+    const M = REPAINT_MARGIN, res = this.res, kp = k * res;
+    const c = makeCanvas(Math.round((TILE + 2 * M) * res), Math.round((TILE + 2 * M) * res));
+    const tg = c.getContext("2d", { willReadFrequently: true });
+    const x0 = (tx * TILE - M) / k, yTop = (-ty * TILE + M) / k;
+    const used = yield* this.L.paint(tg, x0, yTop, kp, this.L, this.world);
+    if (used && this.L.repaint) {
+      yield* repaintCanvas(tg, (tx * TILE - M) * res, (ty * TILE - M) * res,
+        scaleRepaint(this.L.repaint, pr * res, this.L.flow), this.world.seed + this.L.seedOffset + 17);
+    }
+    if (used && this.L.props) drawPostProps(tg, this.world, x0, yTop, kp, this.L, this.world.seed + this.L.seedOffset);
+    e.canvas = used ? toDrawable(c) : null;
+  }
+
+  evict() {
+    if (this.tiles.size <= this.maxTiles) return;
+    const old = [...this.tiles.values()].filter((e) => e.used < this.frame).sort((a, b) => a.used - b.used);
+    for (const e of old) {
+      if (this.tiles.size <= this.maxTiles) break;
+      this.tiles.delete(e.key);
+      this.sched.jobs.delete(e);
+      if (e.canvas && e.canvas.close) e.canvas.close();
+    }
+  }
+
+  // Draws ready tiles, requests missing ones (visible first, then a one-tile
+  // ring ahead of the camera). Must-show layers finish visible tiles now.
+  draw(g, view, mustShow) {
+    this.frame++;
     const k = view.ppm * view.pr * this.L.par;
     const ox = Math.round(view.W / 2 - view.camX * k);
     const oy = Math.round(view.horizon + view.camY * k);
     const tx0 = Math.floor(-ox / TILE), tx1 = Math.floor((view.W - ox) / TILE);
     const ty0 = Math.floor(-oy / TILE), ty1 = Math.floor((view.H - oy) / TILE);
-    for (let ty = ty0; ty <= ty1; ty++) {
-      for (let tx = tx0; tx <= tx1; tx++) {
-        const t = this.tile(tx, ty, k, view.pr);
-        if (t) g.drawImage(t, REPAINT_MARGIN, REPAINT_MARGIN, TILE, TILE, tx * TILE + ox, ty * TILE + oy, TILE, TILE);
+    const M = REPAINT_MARGIN * this.res, S = TILE * this.res;
+    const cx = (view.W / 2 - ox) / TILE, cy = (view.H / 2 - oy) / TILE;
+    for (let ty = ty0 - 1; ty <= ty1 + 1; ty++) {
+      for (let tx = tx0 - 1; tx <= tx1 + 1; tx++) {
+        const visible = ty >= ty0 && ty <= ty1 && tx >= tx0 && tx <= tx1;
+        const e = this.entry(tx, ty, k, view.pr);
+        if (!e.done) {
+          const near = 1 / (1 + Math.hypot(tx + 0.5 - cx, ty + 0.5 - cy));
+          this.sched.request(e, (visible ? 10 : 1) + near + (this.L.urgency || 0));
+          if (visible && mustShow) this.sched.finish(e);
+        }
+        if (visible && e.done && e.canvas) g.drawImage(e.canvas, M, M, S, S, tx * TILE + ox, ty * TILE + oy, TILE, TILE);
       }
     }
+    // Paint ahead: the tiles the camera will reach soon (its predicted view).
+    if (view.aheadX || view.aheadY) {
+      const ax = Math.round(view.aheadX * this.L.par), ay = Math.round(view.aheadY * this.L.par);
+      const fx0 = Math.floor((ax - ox) / TILE), fx1 = Math.floor((view.W + ax - ox) / TILE);
+      const fy0 = Math.floor((ay - oy) / TILE), fy1 = Math.floor((view.H + ay - oy) / TILE);
+      for (let ty = fy0; ty <= fy1; ty++) {
+        for (let tx = fx0; tx <= fx1; tx++) {
+          const e = this.entry(tx, ty, k, view.pr);
+          if (!e.done) this.sched.request(e, 3 + (this.L.urgency || 0));
+        }
+      }
+    }
+    this.evict();
   }
 }
 
@@ -1439,7 +1588,8 @@ class SkyBackdrop {
       cg.translate(M, M);
       drawSkyGradient(cg, view, this.seed);
       cg.setTransform(1, 0, 0, 1, 0, 0);
-      repaintCanvas(cg, -M, -M, scaleRepaint(BRUSH.sky, view.pr, [1, 0]), this.seed + 77);
+      runSync(repaintCanvas(cg, -M, -M, scaleRepaint(BRUSH.sky, view.pr, [1, 0]), this.seed + 77));
+      this.canvas = toDrawable(this.canvas);
     }
     g.drawImage(this.canvas, M, M, view.W, view.H, 0, 0, view.W, view.H);
   }
@@ -1474,7 +1624,7 @@ function cloudBank(g, cx, cy, size, r, fog) {
 }
 
 // Tile painter for a layer of world-anchored cloud banks (L.banks).
-function paintCloudTile(tg, x0, yTop, k, L, world) {
+function* paintCloudTile(tg, x0, yTop, k, L, world) {
   const span = tg.canvas.width / k;
   let used = false;
   for (const b of L.banks(world)) {
@@ -1482,13 +1632,14 @@ function paintCloudTile(tg, x0, yTop, k, L, world) {
     if (b.x + m < x0 || b.x - m > x0 + span || b.y + m < yTop - span || b.y - b.size * 0.3 > yTop) continue;
     cloudBank(tg, (b.x - x0) * k, (yTop - b.y) * k, b.size * k, rngFrom(b.seed), L.fog);
     used = true;
+    yield;
   }
   return used;
 }
 
 // Tile painter for the cloud sea: a lit billowing top at y = 0 over a
 // lavender body that fills everything below.
-function paintCloudSeaTile(tg, x0, yTop, k, L, world) {
+function* paintCloudSeaTile(tg, x0, yTop, k, L, world) {
   const S = tg.canvas.width, span = S / k;
   if (yTop - span > 12) return false;
   const top = (yTop - 2) * k;
@@ -1503,6 +1654,7 @@ function paintCloudSeaTile(tg, x0, yTop, k, L, world) {
       const r = rngFrom(hash2(c, row, world.seed + 900));
       const bx = (c + r()) * cellW, by = 2 - row * 9 + r() * 4;
       cloudBank(tg, (bx - x0) * k, (yTop - by) * k, cellW * (0.45 + r() * 0.3) * k, r, 0.3 - row * 0.1);
+      yield;
     }
   }
   return true;
@@ -1522,114 +1674,168 @@ function drawMistBand(g, view, y, par, thickness, color, alpha) {
   g.fillRect(0, sy - t, view.W, t * 2);
 }
 
-let grainTile = null;
-function drawGrain(g, view) {
-  if (!grainTile) {
-    grainTile = makeCanvas(256, 256);
-    const gg = grainTile.getContext("2d");
-    const img = gg.createImageData(256, 256);
-    const r = rngFrom(4242);
-    for (let i = 0; i < 256 * 256; i++) {
-      const v = 128 + (r() + r() - 1) * 70;
-      img.data[i * 4] = v; img.data[i * 4 + 1] = v; img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255;
-    }
-    gg.putImageData(img, 0, 0);
+// Warm glow from the sun side, a soft violet vignette and a little paper
+// grain, baked once per screen size and laid over each frame in one draw.
+class FinishOverlay {
+  constructor() {
+    this.key = "";
+    this.canvas = null;
   }
-  g.save();
-  g.globalAlpha = 0.08;
-  g.globalCompositeOperation = "overlay";
-  g.fillStyle = g.createPattern(grainTile, "repeat");
-  g.fillRect(0, 0, view.W, view.H);
-  g.restore();
-  // Warm glow from the sun side and a soft violet vignette, as in the reference.
-  const sx = view.W * (0.5 + 0.4 * SUN_SIDE);
-  const glow = g.createRadialGradient(sx, view.H * 0.45, 0, sx, view.H * 0.45, view.W * 1.1);
-  glow.addColorStop(0, css(PAL.horizon, 0.16));
-  glow.addColorStop(1, css(PAL.horizon, 0));
-  g.fillStyle = glow;
-  g.fillRect(0, 0, view.W, view.H);
-  const v = g.createRadialGradient(view.W / 2, view.H * 0.55, view.H * 0.32, view.W / 2, view.H * 0.55, view.H * 0.85);
-  v.addColorStop(0, css(PAL.fur[0], 0));
-  v.addColorStop(1, css(PAL.fur[0], 0.28));
-  g.fillStyle = v;
-  g.fillRect(0, 0, view.W, view.H);
+
+  draw(g, view) {
+    const key = `${view.W}|${view.H}`;
+    if (key !== this.key) {
+      this.key = key;
+      this.canvas = makeCanvas(view.W, view.H);
+      const c = this.canvas.getContext("2d");
+      const sx = view.W * (0.5 + 0.4 * SUN_SIDE);
+      const glow = c.createRadialGradient(sx, view.H * 0.45, 0, sx, view.H * 0.45, view.W * 1.1);
+      glow.addColorStop(0, css(PAL.horizon, 0.16));
+      glow.addColorStop(1, css(PAL.horizon, 0));
+      c.fillStyle = glow;
+      c.fillRect(0, 0, view.W, view.H);
+      const v = c.createRadialGradient(view.W / 2, view.H * 0.55, view.H * 0.32, view.W / 2, view.H * 0.55, view.H * 0.85);
+      v.addColorStop(0, css(PAL.fur[0], 0));
+      v.addColorStop(1, css(PAL.fur[0], 0.28));
+      c.fillStyle = v;
+      c.fillRect(0, 0, view.W, view.H);
+      const r = rngFrom(4242);
+      for (let i = 0; i < (view.W * view.H) / 90; i++) {
+        c.fillStyle = r() < 0.5 ? "rgba(255,245,230,0.05)" : "rgba(60,40,90,0.05)";
+        c.fillRect(r() * view.W, r() * view.H, 1 + r() * view.pr, 1 + r() * view.pr);
+      }
+    }
+    g.drawImage(this.canvas, 0, 0);
+  }
 }
 
 // ==== src/55-explorer.js ====
-// ---- Explorer: a small traveller, ~4 heads tall, rust tunic, dark hair ------
-// Painted with the same upper-left sun as the world: warm rim on the lit
-// side, lavender-shifted shadow on the far side, and a contact shadow so the
-// feet sit in the fur.
+// ---- Explorer figure: a small traveller, ~4 heads tall, posed by state ------
+// A light skeleton (hip, neck, two-bone legs and arms) drives the painted
+// shapes: idle breathing, careful walk, faster pace with forward lean, jump
+// anticipation crouch, airborne tuck, landing squash and bracing. Lit by the
+// same low sun as the world, with a contact shadow so the feet sit in the fur.
+// Coordinates: units of the figure height, origin at the feet, y up.
+
+function ik2(h, f, l1, l2, bend) {
+  const dx = f[0] - h[0], dy = f[1] - h[1];
+  const d = clamp(Math.hypot(dx, dy), 1e-4, l1 + l2 - 1e-4);
+  const a = (l1 * l1 - l2 * l2 + d * d) / (2 * d);
+  const hh = Math.sqrt(Math.max(0, l1 * l1 - a * a));
+  const ux = dx / d, uy = dy / d;
+  return [h[0] + ux * a - uy * hh * bend, h[1] + uy * a + ux * hh * bend];
+}
 
 function drawExplorer(g, x, y, hp, facing, pose) {
+  pose = pose || {};
   const E = PAL.explorer;
-  const lean = pose === "climb" ? 0.1 : 0.03;
+  const crouch = pose.crouch || 0, air = pose.air || 0, run = pose.run || 0, move = pose.move || 0;
+  const ph = pose.phase || 0, t = pose.time || 0;
+  const breathe = Math.sin(t * 2.1) * 0.007 * (1 - move) * (1 - air);
+  const lit = SUN_SIDE * facing;
+
   g.save();
   g.translate(x, y);
-  // Contact shadow (unflipped so it stays under the sun-far side).
-  dab(g, -SUN_SIDE * hp * 0.05, -hp * 0.005, hp * 0.24, hp * 0.045, 0, PAL.fur[0], 0.45);
+  dab(g, -SUN_SIDE * hp * 0.05, -hp * 0.005, hp * 0.24 * (1 - air * 0.5), hp * 0.045 * (1 - air * 0.5), 0, PAL.fur[0], 0.45 * (1 - air * 0.75));
   g.scale(facing, 1);
-  g.rotate(lean);
-  const lit = SUN_SIDE * facing; // which local x side faces the sun
-  const P = (pts, col, a) => {
+  // Lean into the slope a little when walking uphill/downhill.
+  g.rotate(-(pose.slope || 0) * 0.25 * facing);
+
+  const P = (pts) => pts.map(([px, py]) => [px * hp, -py * hp]);
+  const limb = (pts, w, col) => {
+    const q = P(pts);
     g.beginPath();
-    g.moveTo(pts[0] * hp, -pts[1] * hp);
-    for (let i = 2; i < pts.length; i += 2) g.lineTo(pts[i] * hp, -pts[i + 1] * hp);
-    g.closePath();
-    g.fillStyle = css(col, a === undefined ? 1 : a);
-    g.fill();
-  };
-  const limb = (x0, y0, x1, y1, x2, y2, w, col) => {
-    g.beginPath();
-    g.moveTo(x0 * hp, -y0 * hp);
-    g.quadraticCurveTo(x1 * hp, -y1 * hp, x2 * hp, -y2 * hp);
+    g.moveTo(q[0][0], q[0][1]);
+    for (let i = 1; i < q.length; i++) g.lineTo(q[i][0], q[i][1]);
     g.lineWidth = w * hp;
     g.lineCap = "round";
     g.lineJoin = "round";
     g.strokeStyle = css(col);
     g.stroke();
   };
+  const poly = (pts, col, a) => {
+    const q = P(pts);
+    g.beginPath();
+    g.moveTo(q[0][0], q[0][1]);
+    for (let i = 1; i < q.length; i++) g.lineTo(q[i][0], q[i][1]);
+    g.closePath();
+    g.fillStyle = css(col, a === undefined ? 1 : a);
+    g.fill();
+  };
 
-  // Back leg and arm (in shadow).
-  limb(-0.02, 0.42, -0.07, 0.22, -0.09, 0.06, 0.1, mixRGB(E.trousers, PAL.fur[0], 0.25));
-  P([-0.15, 0.0, -0.04, 0.0, -0.04, 0.07, -0.13, 0.07], E.boots);
-  limb(-0.06, 0.68, -0.12, 0.58, -0.1, 0.49, 0.075, E.tunicShade);
-  dab(g, -0.1 * hp, -0.475 * hp, 0.035 * hp, 0.035 * hp, 0, mixRGB(E.skin, PAL.fur[0], 0.3), 1);
+  // Skeleton.
+  const stride = 0.12 + run * 0.1;
+  const bob = move * Math.abs(Math.sin(ph)) * (0.012 + run * 0.02);
+  const hipY = 0.46 - crouch * 0.13 + bob + breathe - air * 0.02;
+  const lean = 0.04 + run * 0.14 + move * 0.03 + (pose.brace ? 0.1 : 0) - crouch * 0.05 + air * (pose.rising ? 0.02 : -0.04);
+  const hip = [0, hipY];
+  const neck = [lean * 0.3, hipY + 0.29 - crouch * 0.03];
+  const head = [neck[0] + 0.035 + lean * 0.12, neck[1] + 0.13];
+
+  let feet;
+  if (air) {
+    feet = pose.rising ? [[0.1, hipY - 0.27], [-0.07, hipY - 0.38]] : [[0.07, hipY - 0.4], [-0.05, hipY - 0.42]];
+  } else {
+    feet = [0, 1].map((i) => {
+      const a = ph + i * Math.PI;
+      return [Math.sin(a) * stride * move + (i ? -0.035 : 0.04), Math.max(0, Math.cos(a)) * (0.045 + run * 0.06) * move];
+    });
+    if (crouch) feet = feet.map(([fx, fy]) => [fx + (fx >= 0 ? 0.05 : -0.05) * crouch, fy * (1 - crouch)]);
+  }
+  const knees = feet.map((f) => ik2(hip, f, 0.245, 0.235, 1));
+  const shoulder = [neck[0] - 0.01, neck[1] - 0.03];
+  const hands = [0, 1].map((i) => {
+    if (air) return pose.rising ? [shoulder[0] + (i ? -0.12 : 0.16), shoulder[1] + 0.08] : [shoulder[0] + (i ? -0.16 : 0.14), shoulder[1] - 0.06];
+    if (pose.brace) return [shoulder[0] + 0.18, shoulder[1] - 0.12 + i * 0.05];
+    const swing = Math.sin(ph + (i ? 0 : Math.PI)) * (0.07 + run * 0.08) * move;
+    return [shoulder[0] + swing - crouch * 0.08 + (i ? -0.02 : 0.03), shoulder[1] - 0.25 + crouch * 0.05 + Math.abs(swing) * 0.2];
+  });
+  const elbows = hands.map((h) => ik2(shoulder, h, 0.135, 0.13, -1));
+
+  const backCol = (c) => mixRGB(c, PAL.fur[0], 0.28);
+  // Back leg and arm (the far side, in shadow).
+  limb([hip, knees[1], feet[1]], 0.1, backCol(E.trousers));
+  limb([[feet[1][0] - 0.02, feet[1][1] + 0.025], [feet[1][0] + 0.07, feet[1][1] + 0.02]], 0.06, E.boots);
+  limb([shoulder, elbows[1], hands[1]], 0.075, E.tunicShade);
+  dab(g, hands[1][0] * hp, -hands[1][1] * hp, 0.034 * hp, 0.034 * hp, 0, backCol(E.skin), 1);
 
   // Front leg.
-  limb(0.03, 0.42, 0.07, 0.24, 0.06, 0.06, 0.105, E.trousers);
-  limb(0.0, 0.4, 0.04, 0.24, 0.035, 0.08, 0.035, E.trousersLit);
-  P([0.0, 0.0, 0.14, 0.0, 0.14, 0.035, 0.11, 0.075, 0.02, 0.075], E.boots);
+  limb([hip, knees[0], feet[0]], 0.105, E.trousers);
+  limb([[hip[0] - 0.01, hip[1] - 0.02], [knees[0][0] - 0.012, knees[0][1]], [feet[0][0] - 0.012, feet[0][1] + 0.04]], 0.03, E.trousersLit);
+  limb([[feet[0][0] - 0.02, feet[0][1] + 0.025], [feet[0][0] + 0.075, feet[0][1] + 0.02]], 0.065, E.boots);
 
-  // Tunic: A-line, belted, hem at mid-thigh.
-  P([-0.12, 0.72, 0.11, 0.72, 0.14, 0.38, -0.15, 0.38], E.tunic);
-  P(lit < 0 ? [-0.12, 0.72, -0.04, 0.72, -0.06, 0.38, -0.15, 0.38] : [0.04, 0.72, 0.11, 0.72, 0.14, 0.38, 0.06, 0.38], E.tunicLit, 0.85);
-  P(lit < 0 ? [0.06, 0.72, 0.11, 0.72, 0.14, 0.38, 0.08, 0.38] : [-0.12, 0.72, -0.07, 0.72, -0.09, 0.38, -0.15, 0.38], E.tunicShade, 0.8);
-  P([-0.135, 0.5, 0.125, 0.5, 0.127, 0.47, -0.138, 0.47], E.boots, 0.8);
-  // Satchel strap and pouch: the traveller's only gear.
-  limb(0.09, 0.71, 0.0, 0.6, -0.11, 0.48, 0.02, hex("#5b3f35"));
-  P([-0.17, 0.5, -0.09, 0.5, -0.09, 0.41, -0.17, 0.41], hex("#6b4a3c"));
+  // Tunic: A-line from the shoulders to mid-thigh, following the torso lean.
+  const ax = neck[0] - hip[0], ay = neck[1] - hip[1], al = Math.hypot(ax, ay);
+  const ux = ax / al, uy = ay / al, px = uy, py = -ux;
+  const at = (s, w) => [hip[0] + ux * s + px * w, hip[1] + uy * s + py * w];
+  const top = al + 0.01, hem = -0.08;
+  poly([at(top, -0.115), at(top, 0.11), at(hem, 0.14), at(hem, -0.15)], E.tunic);
+  poly(lit < 0 ? [at(top, -0.115), at(top, -0.04), at(hem, -0.06), at(hem, -0.15)] : [at(top, 0.04), at(top, 0.11), at(hem, 0.14), at(hem, 0.06)], E.tunicLit, 0.85);
+  poly(lit < 0 ? [at(top, 0.06), at(top, 0.11), at(hem, 0.14), at(hem, 0.08)] : [at(top, -0.115), at(top, -0.07), at(hem, -0.09), at(hem, -0.15)], E.tunicShade, 0.8);
+  poly([at(0.05, -0.135), at(0.05, 0.125), at(0.02, 0.127), at(0.02, -0.138)], E.boots, 0.8);
+  limb([at(top - 0.01, 0.09), at(0.12, -0.02), at(0.02, -0.12)], 0.02, hex("#5b3f35"));
+  poly([at(0.04, -0.17), at(0.04, -0.09), at(-0.05, -0.09), at(-0.05, -0.17)], hex("#6b4a3c"));
 
-  // Head, face toward facing direction, tousled dark hair over the back.
-  dab(g, 0.02 * hp, -0.84 * hp, 0.105 * hp, 0.115 * hp, 0, E.skin, 1);
-  dab(g, 0.07 * hp, -0.83 * hp, 0.05 * hp, 0.07 * hp, 0, E.skinLit, 0.7);
-  dab(g, -0.02 * hp, -0.75 * hp, 0.045 * hp, 0.03 * hp, 0, E.skin, 1); // neck
-  const hair = [
-    [-0.04, 0.9, 0.11, 0.1], [0.04, 0.95, 0.09, 0.06], [-0.08, 0.83, 0.07, 0.09],
-    [0.08, 0.92, 0.06, 0.045], [-0.1, 0.92, 0.05, 0.06], [0.0, 0.98, 0.06, 0.04]
-  ];
-  for (const [hx, hy, rx, ry] of hair) dab(g, hx * hp, -hy * hp, rx * hp, ry * hp, 0.2, E.hair, 1);
-  dab(g, (lit < 0 ? -0.08 : 0.03) * hp, -0.97 * hp, 0.05 * hp, 0.02 * hp, 0.3, E.hairLit, 0.8);
+  // Head, face toward the facing direction, tousled dark hair.
+  const [hx, hy] = head;
+  dab(g, (hx - 0.035) * hp, -(hy - 0.09) * hp, 0.045 * hp, 0.03 * hp, 0, E.skin, 1);
+  dab(g, hx * hp, -hy * hp, 0.105 * hp, 0.115 * hp, 0, E.skin, 1);
+  dab(g, (hx + 0.05) * hp, -(hy + 0.01) * hp, 0.05 * hp, 0.07 * hp, 0, E.skinLit, 0.7);
+  for (const [ox, oy, rx, ry] of [[-0.06, 0.06, 0.11, 0.1], [0.02, 0.11, 0.09, 0.06], [-0.1, -0.01, 0.07, 0.09], [0.06, 0.08, 0.06, 0.045], [-0.12, 0.08, 0.05, 0.06], [-0.02, 0.14, 0.06, 0.04]]) {
+    dab(g, (hx + ox) * hp, -(hy + oy) * hp, rx * hp, ry * hp, 0.2, E.hair, 1);
+  }
+  dab(g, (hx + (lit < 0 ? -0.1 : 0.01)) * hp, -(hy + 0.13) * hp, 0.05 * hp, 0.02 * hp, 0.3, E.hairLit, 0.8);
 
-  // Front arm, relaxed with a slight swing.
-  limb(0.05, 0.68, 0.12, 0.57, 0.11, 0.48, 0.078, E.tunic);
-  limb(0.04, 0.69, 0.09, 0.6, 0.09, 0.52, 0.03, lit < 0 ? E.tunicShade : E.tunicLit);
-  dab(g, 0.11 * hp, -0.465 * hp, 0.036 * hp, 0.036 * hp, 0, E.skin, 1);
+  // Front arm.
+  limb([shoulder, elbows[0], hands[0]], 0.078, E.tunic);
+  limb([[shoulder[0] + 0.01, shoulder[1]], [elbows[0][0] + 0.01, elbows[0][1]]], 0.028, lit < 0 ? E.tunicShade : E.tunicLit);
+  dab(g, hands[0][0] * hp, -hands[0][1] * hp, 0.036 * hp, 0.036 * hp, 0, E.skin, 1);
 
   // Sun rim along the lit edge of head and back.
   g.globalAlpha = 0.55;
-  dab(g, (lit < 0 ? -0.1 : 0.12) * hp, -0.86 * hp, 0.02 * hp, 0.07 * hp, 0, PAL.furRim, 1);
-  dab(g, (lit < 0 ? -0.135 : 0.13) * hp, -0.58 * hp, 0.018 * hp, 0.12 * hp, 0, PAL.furRim, 1);
+  dab(g, (hx + (lit < 0 ? -0.12 : 0.1)) * hp, -hy * hp, 0.02 * hp, 0.07 * hp, 0, PAL.furRim, 1);
+  const rim = at(al * 0.5, lit < 0 ? -0.13 : 0.12);
+  dab(g, rim[0] * hp, -rim[1] * hp, 0.018 * hp, 0.12 * hp, 0, PAL.furRim, 1);
   g.restore();
 }
 
@@ -1647,9 +1853,9 @@ const VIEW_PRESETS = {
   map: { spanHeights: 260, ex: 0.5, ey: 0.6 } // development only: whole-creature layout check
 };
 
-function makeView(kind, world, W, H, pr) {
+function makeView(kind, world, W, H, pr, focus) {
   const preset = VIEW_PRESETS[kind] || VIEW_PRESETS.gameplay;
-  const spot = world.explorerSpots[kind] || world.explorerSpots.gameplay;
+  const spot = focus || world.explorerSpots[kind] || world.explorerSpots.gameplay;
   const cssH = H / pr;
   const ppm = cssH / (preset.spanHeights * EXPLORER_HEIGHT);
   const k = ppm * pr;
@@ -1671,6 +1877,422 @@ function worldToScreen(view, x, y, par) {
   return [view.W / 2 + (x - view.camX) * k, view.horizon - (y - view.camY) * k];
 }
 
+// Follows the explorer smoothly. Leads a little in the direction of travel,
+// holds height through ordinary jumps (so the world does not bob), and only
+// rises or drops once the explorer has truly changed level.
+class FollowCamera {
+  constructor(ex) {
+    this.x = ex.x;
+    this.y = ex.y;
+    this.lead = 0;
+    this.vx = 0;
+    this.vy = 0;
+  }
+
+  update(dt, ex) {
+    const want = clamp(ex.vx * 0.45, -1.6, 1.6);
+    this.lead += (want - this.lead) * (1 - Math.exp(-dt * 1.6));
+    let ty = ex.y;
+    if (!ex.grounded && ex.y > ex.lastGroundY - 0.5) ty = Math.max(ex.lastGroundY, ex.y - 1.8);
+    const kx = 1 - Math.exp(-dt * 3.2), ky = 1 - Math.exp(-dt * (ty < this.y ? 4.5 : 2.6));
+    const px = this.x, py = this.y;
+    this.x += (ex.x + this.lead - this.x) * kx;
+    this.y += (ty - this.y) * ky;
+    if (dt > 0) {
+      this.vx += ((this.x - px) / dt - this.vx) * 0.2;
+      this.vy += ((this.y - py) / dt - this.vy) * 0.2;
+    }
+  }
+
+  snap(ex) {
+    this.x = ex.x;
+    this.y = ex.y;
+    this.lead = 0;
+  }
+}
+
+// ==== src/62-controls.js ====
+// ---- Controls --------------------------------------------------------------
+// Touch: hold the left or right half of the screen to move; slide that finger
+// further outward to move faster. Swipe up (any finger) to jump; a finger
+// that swiped up stops steering, so a second thumb can keep moving for a
+// running jump. Lift every finger to stand still - stillness is a choice.
+// Keyboard (testing): A/D or arrows to move, Shift to move faster,
+// Space/W/Up to jump.
+
+const SWIPE_UP_PX = 34;
+const SWIPE_MS = 320;
+const RUN_DRAG_PX = 46;
+
+class Controls {
+  constructor(ctx, target, onFirstGesture) {
+    this.ctx = ctx;
+    this.pointers = new Map();
+    this.keys = new Set();
+    this.jumpPressed = false;
+    this.speedScale = 1;
+    this.jumpScale = 1;
+    this.first = onFirstGesture;
+    const L = (t, ev, fn, o) => ctx.listen(t, ev, fn, o);
+    L(target, "pointerdown", (e) => this.down(e));
+    L(target, "pointermove", (e) => this.move(e));
+    L(target, "pointerup", (e) => this.up(e));
+    L(target, "pointercancel", (e) => this.up(e));
+    L(window, "keydown", (e) => this.key(e, true));
+    L(window, "keyup", (e) => this.key(e, false));
+    L(window, "blur", () => { this.keys.clear(); this.pointers.clear(); });
+    this.target = target;
+  }
+
+  gesture() {
+    if (this.first) { this.first(); this.first = null; }
+  }
+
+  down(e) {
+    this.gesture();
+    const r = this.target.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    this.pointers.set(e.pointerId, {
+      x, y: e.clientY - r.top, sx: x, sy: e.clientY - r.top, t0: performance.now(),
+      side: x < r.width / 2 ? -1 : 1, swiped: false, order: performance.now()
+    });
+    if (this.target.setPointerCapture) {
+      try { this.target.setPointerCapture(e.pointerId); } catch (err) { /* capture is optional */ }
+    }
+  }
+
+  move(e) {
+    const p = this.pointers.get(e.pointerId);
+    if (!p) return;
+    const r = this.target.getBoundingClientRect();
+    p.x = e.clientX - r.left;
+    p.y = e.clientY - r.top;
+    if (!p.swiped && p.sy - p.y > SWIPE_UP_PX && performance.now() - p.t0 < SWIPE_MS && Math.abs(p.x - p.sx) < (p.sy - p.y) * 1.2) {
+      p.swiped = true;
+      this.jumpPressed = true;
+    }
+    if (p.swiped && Math.abs(p.x - p.sx) > 30) p.swiped = false; // dragged sideways: steer again
+  }
+
+  up(e) {
+    this.pointers.delete(e.pointerId);
+  }
+
+  key(e, isDown) {
+    const k = e.key.toLowerCase();
+    const known = ["arrowleft", "arrowright", "arrowup", "a", "d", "w", " ", "shift"];
+    if (!known.includes(k)) return;
+    if (e.preventDefault) e.preventDefault();
+    if (isDown) {
+      this.gesture();
+      if ((k === " " || k === "w" || k === "arrowup") && !e.repeat) this.jumpPressed = true;
+      this.keys.add(k);
+    } else {
+      this.keys.delete(k);
+    }
+  }
+
+  // Current steering: the most recent active finger wins, else the keyboard.
+  get dir() {
+    let best = null;
+    for (const p of this.pointers.values()) {
+      if (p.swiped) continue;
+      if (performance.now() - p.t0 < 70 && Math.abs(p.x - p.sx) < 12) continue; // could still become a swipe
+      if (!best || p.order > best.order) best = p;
+    }
+    if (best) return best.side;
+    const l = this.keys.has("arrowleft") || this.keys.has("a");
+    const r = this.keys.has("arrowright") || this.keys.has("d");
+    return l === r ? 0 : l ? -1 : 1;
+  }
+
+  get run() {
+    for (const p of this.pointers.values()) {
+      if (!p.swiped && (p.x - p.sx) * p.side > RUN_DRAG_PX) return true;
+    }
+    return this.keys.has("shift");
+  }
+
+  consume() {
+    this.jumpPressed = false;
+  }
+
+  // Active touches (for the faint on-screen touch marks).
+  touches() {
+    return [...this.pointers.values()];
+  }
+}
+
+// ==== src/64-explorer-physics.js ====
+// ---- Explorer controller: grounded movement on the creature's body ----------
+// Collides against the play anatomy's signed-distance field - the same field
+// the painter fills - so the explorer stands exactly where fur is painted.
+// Shape: a feet circle and a body circle. Grounded movement follows the
+// surface tangent; walkable slopes are limited; small bumps are rolled over;
+// ledges need a jump. World units are metres and seconds.
+
+const PHYS = {
+  gravity: 26,
+  walk: 1.7, // careful pace
+  run: 3.8, // faster pace (noisier, in Stage 3)
+  accel: 11,
+  brake: 16,
+  airAccel: 5,
+  jumpHeight: 2.1,
+  maxFall: 22,
+  walkableNy: 0.55, // surface normal y above this is ground (~57 degrees)
+  feetR: 0.27,
+  bodyR: 0.3,
+  bodyY: 0.98,
+  coyote: 0.1,
+  jumpBuffer: 0.14,
+  anticipation: 0.085,
+  landTime: 0.16,
+  snapDown: 0.45,
+  fallReset: 28
+};
+
+// Height of a mushroom cap's top at x, or null beyond its rim.
+function capTop(c, x) {
+  const u = (x - c.x) / (c.a * 0.94);
+  return Math.abs(u) < 1 ? c.y + c.b * Math.sqrt(1 - u * u) : null;
+}
+
+class Explorer {
+  constructor(anat, spot, caps) {
+    this.anat = anat;
+    this.caps = caps || [];
+    this.o = {};
+    this.cullAt = null;
+    this.prims = [];
+    this.reset(spot);
+  }
+
+  reset(spot) {
+    this.x = spot.x; this.y = spot.y;
+    this.vx = 0; this.vy = 0;
+    this.nx = 0; this.ny = 1;
+    this.grounded = true;
+    this.onCap = null;
+    this.facing = spot.facing || -1;
+    this.state = "idle";
+    this.time = 0; this.phase = 0;
+    this.anticipate = 0; this.landT = 0; this.landImpact = 0;
+    this.coyoteT = 0; this.bufferT = 0; this.airLock = 0;
+    this.lastGroundY = spot.y;
+    this.safe = { x: spot.x, y: spot.y, facing: this.facing };
+    this.safeT = 0;
+    this.events = []; // landings / launches for feedback (and Stage 3 noise)
+  }
+
+  // Field queries, with a primitive cull cached around the explorer.
+  sd(x, y) {
+    if (!this.cullAt || Math.abs(x - this.cullAt.x) > 4 || Math.abs(y - this.cullAt.y) > 4) {
+      this.cullAt = { x, y };
+      this.prims = this.anat.cull(x - 10, y - 10, x + 10, y + 10);
+    }
+    return this.anat.eval(x, y, this.prims, this.o).sd;
+  }
+
+  normal(x, y) {
+    const e = 0.02;
+    const gx = this.sd(x + e, y) - this.sd(x - e, y);
+    const gy = this.sd(x, y + e) - this.sd(x, y - e);
+    const l = Math.hypot(gx, gy) || 1;
+    return [gx / l, gy / l];
+  }
+
+  // Push both circles out of the body; drop velocity into surfaces. Returns
+  // the walkable normal under the feet, if any.
+  resolve() {
+    let ground = null;
+    for (let iter = 0; iter < 5; iter++) {
+      let moved = false;
+      for (const [oy, r, isFeet] of [[PHYS.feetR, PHYS.feetR, true], [PHYS.bodyY, PHYS.bodyR, false]]) {
+        const d = this.sd(this.x, this.y + oy) - r;
+        if (d >= 0) continue;
+        const [nx, ny] = this.normal(this.x, this.y + oy);
+        this.x -= nx * d; this.y -= ny * d;
+        const vn = this.vx * nx + this.vy * ny;
+        if (vn < 0) { this.vx -= nx * vn; this.vy -= ny * vn; }
+        if (isFeet && ny > this.walkLimit()) ground = [nx, ny];
+        moved = true;
+      }
+      if (!moved) break;
+    }
+    return ground;
+  }
+
+  // Hysteresis: a steep face must be clearly walkable to land on, but once
+  // standing, the explorer keeps footing on it (no flicker at the limit).
+  walkLimit() {
+    return this.grounded ? PHYS.walkableNy - 0.08 : PHYS.walkableNy;
+  }
+
+  probeGround(dist) {
+    for (const c of this.caps) {
+      const t = capTop(c, this.x);
+      if (t !== null && this.y >= t - 0.02 - dist && this.y <= t + 0.02) { this.y = Math.max(this.y, t); this.onCap = c; return [0, 1]; }
+    }
+    const r = PHYS.feetR;
+    if (this.sd(this.x, this.y + r - dist) < r + 0.005) {
+      const n = this.normal(this.x, this.y + r - dist);
+      if (n[1] > this.walkLimit()) return n;
+    }
+    return null;
+  }
+
+  step(dt, input) {
+    this.time += dt;
+    this.coyoteT -= dt; this.bufferT -= dt; this.landT -= dt; this.airLock -= dt;
+    if (input.jumpPressed) this.bufferT = PHYS.jumpBuffer;
+    const run = input.run && input.dir !== 0;
+    const target = input.dir * (run ? PHYS.run : PHYS.walk) * (input.speedScale || 1);
+    if (input.dir) this.facing = Math.sign(input.dir);
+    const wasGrounded = this.grounded;
+
+    // Jump: anticipation crouch first, then launch.
+    if (this.anticipate > 0) {
+      this.anticipate -= dt;
+      this.vx *= Math.exp(-12 * dt);
+      if (this.anticipate <= 0) {
+        this.vy = Math.sqrt(2 * PHYS.gravity * PHYS.jumpHeight * (input.jumpScale || 1));
+        this.vx = this.vx * 0.6 + target * 0.55;
+        this.grounded = false;
+        this.coyoteT = 0;
+        this.airLock = 0.12; // just launched: the feet still touch the fur
+        this.events.push({ type: "launch", speed: Math.abs(this.vx) });
+      }
+    } else if (this.bufferT > 0 && (this.grounded || this.coyoteT > 0)) {
+      this.anticipate = PHYS.anticipation;
+      this.bufferT = 0;
+    }
+
+    if (this.grounded && this.anticipate <= 0) {
+      // Move along the surface tangent; uphill is slower on steep fur.
+      const tx = this.ny, ty = -this.nx;
+      let s = this.vx * tx + this.vy * ty;
+      const uphill = ty * Math.sign(target) > 0;
+      const tgt = target * (uphill ? 1 - clamp((1 - this.ny) * 1.1, 0, 0.45) : 1);
+      const rate = Math.abs(tgt) > Math.abs(s) && Math.sign(tgt) === Math.sign(s || tgt) ? PHYS.accel : PHYS.brake;
+      s = s + clamp(tgt - s, -rate * dt, rate * dt);
+      if (tgt === 0 && Math.abs(s) < 0.05) s = 0; // at rest: no creep on slopes
+      this.vx = tx * s; this.vy = ty * s;
+    } else if (this.anticipate <= 0) {
+      this.vx += clamp(target - this.vx, -PHYS.airAccel * dt, PHYS.airAccel * dt);
+      this.vy = Math.max(this.vy - PHYS.gravity * dt, -PHYS.maxFall);
+    }
+
+    // Integrate in small substeps so fast falls never tunnel through fur.
+    const vyBefore = this.vy;
+    const n = Math.max(1, Math.ceil((Math.hypot(this.vx, this.vy) * dt) / 0.08));
+    let ground = null, wall = false, blocked = false;
+    const walking = wasGrounded && this.anticipate <= 0;
+    for (let i = 0; i < n; i++) {
+      const px = this.x, py = this.y;
+      this.x += (this.vx * dt) / n;
+      this.y += (this.vy * dt) / n;
+      let gnd = this.resolve();
+      if (this.vy <= 0.01) {
+        for (const c of this.caps) {
+          const t = capTop(c, this.x);
+          if (t !== null && py >= t - 0.04 && this.y <= t + 0.01) {
+            this.y = t; this.vy = Math.max(this.vy, 0); this.onCap = c; gnd = [0, 1];
+          }
+        }
+      }
+      // On foot, never step onto ground too steep to stand on (the curve up
+      // into a riser): stop at its foot instead of sliding back and forth.
+      if (walking && !this.onCap && this.vy >= -0.5) {
+        const climbingSteep = gnd && gnd[1] < PHYS.walkableNy && this.y > py + 1e-4;
+        const steep = !gnd && !this.probeGround(0.08) && this.sd(this.x, this.y + PHYS.feetR) < PHYS.feetR + 0.06;
+        if (climbingSteep || steep) { this.x = px; this.y = py; this.vx = 0; this.vy = 0; blocked = true; ground = [this.nx, this.ny]; break; }
+      }
+      if (gnd) ground = gnd;
+    }
+    if (blocked) this.blockedT = (this.blockedT || 0) + dt; else this.blockedT = 0;
+    // Ground checks: always while walking (uphill walking has upward speed
+    // too); never in the instant after a launch; when airborne only on the way down.
+    const mayGround = this.airLock <= 0 && (walking || this.vy <= 0.5);
+    if (this.airLock > 0 && this.vy > 0) ground = null;
+    if (!ground && mayGround) ground = this.probeGround(0.04);
+    // Stick to the ground over crests and down gentle slopes instead of hopping.
+    if (!ground && walking && mayGround) {
+      for (let d = 0.05; d <= PHYS.snapDown; d += 0.05) {
+        const g = this.probeGround(d);
+        if (g) { this.y -= d - 0.01; this.resolve(); ground = g; break; }
+      }
+    }
+    // Touching a steep wall while airborne: friction instead of a free slide.
+    if (!ground && this.sd(this.x, this.y + PHYS.feetR) < PHYS.feetR + 0.03) {
+      wall = true;
+      this.vy = Math.max(this.vy, -5);
+    }
+
+    this.grounded = !!ground;
+    if (!ground) this.onCap = null;
+    if (ground && !this.onCap) {
+      const gap = this.sd(this.x, this.y + PHYS.feetR) - PHYS.feetR;
+      if (gap > 0.002 && gap < 0.12) this.y -= gap;
+    }
+    if (ground) {
+      [this.nx, this.ny] = ground;
+      this.coyoteT = PHYS.coyote;
+      this.lastGroundY = this.y;
+      if (!wasGrounded) {
+        const impact = Math.max(0, -vyBefore);
+        this.landImpact = impact;
+        this.landT = PHYS.landTime * clamp(impact / 9, 0.35, 1.5);
+        this.events.push({ type: "land", impact });
+        const vn = this.vx * this.nx + this.vy * this.ny;
+        this.vx -= this.nx * vn; this.vy -= this.ny * vn;
+        this.vx *= impact > 10 ? 0.3 : 0.75;
+      }
+      // Remember a safe spot to return to after a fall.
+      this.safeT += dt;
+      if (this.safeT > 0.4 && this.ny > 0.8 && Math.abs(this.vx) < 2.5) {
+        this.safe = { x: this.x, y: this.y, facing: this.facing };
+        this.safeT = 0;
+      }
+    } else {
+      this.safeT = 0;
+    }
+
+    // Walk-cycle phase advances with distance travelled.
+    const speed = Math.hypot(this.vx, this.vy);
+    if (this.grounded) this.phase += (speed * dt / (run ? 0.62 : 0.42)) * Math.PI;
+
+    if (this.anticipate > 0) this.state = "anticipate";
+    else if (!this.grounded) this.state = wall ? "brace" : "air";
+    else if (this.landT > 0) this.state = "land";
+    else if (speed > 0.25) this.state = run && speed > PHYS.walk * 1.15 ? "run" : "walk";
+    else this.state = "idle";
+
+    if (this.y < this.lastGroundY - PHYS.fallReset) {
+      this.events.push({ type: "fell" });
+      this.reset(this.safe);
+    }
+  }
+
+  // Everything the renderer needs to pose the figure.
+  pose() {
+    const speed = Math.hypot(this.vx, this.vy);
+    const s = this.state;
+    return {
+      state: s,
+      time: this.time,
+      phase: this.phase,
+      move: this.grounded ? clamp(speed / PHYS.walk, 0, 1) : 0,
+      run: clamp((speed - PHYS.walk) / (PHYS.run - PHYS.walk), 0, 1),
+      crouch: s === "anticipate" ? 1 : s === "land" ? clamp(this.landT / PHYS.landTime, 0, 1) * clamp(this.landImpact / 9, 0.4, 1) : 0,
+      air: this.grounded ? 0 : 1,
+      rising: this.vy > 0,
+      brace: s === "brace",
+      slope: this.grounded ? Math.atan2(-this.nx, this.ny) : 0
+    };
+  }
+}
+
 // ==== src/70-scene.js ====
 // ---- Scene: composites sky, cloud sea, depth layers, explorer, foreground ---
 
@@ -1680,55 +2302,75 @@ const BRUSH = {
   far: [{ cell: 5, len: 14, width: 5, jitter: 0.08, sat: 0.08, alpha: 0.82 }],
   mid: [{ cell: 4.5, len: 12, width: 4.5, jitter: 0.1, sat: 0.1, alpha: 0.85 },
     { cell: 2.5, len: 6, width: 2, jitter: 0.1, sat: 0.1, alpha: 0.85, minGrad: 16 }],
-  near: [{ cell: 4, len: 11, width: 4, jitter: 0.12, sat: 0.12, alpha: 0.88 },
-    { cell: 2, len: 5.5, width: 1.8, jitter: 0.12, sat: 0.12, alpha: 0.9, minGrad: 14 }],
+  near: [{ cell: 4.5, len: 11.5, width: 4.4, jitter: 0.12, sat: 0.12, alpha: 0.88 },
+    { cell: 2.6, len: 5.5, width: 1.8, jitter: 0.12, sat: 0.12, alpha: 0.9, minGrad: 18 }],
   fore: [{ cell: 7, len: 18, width: 7, jitter: 0.1, sat: 0.15, alpha: 0.9 }]
 };
 
 // Depth layers, back to front. par = depth scale (1 = the climbable body).
 const LAYER_DEFS = [
-  { name: "cloudSea", par: 0.045, fog: 0, paint: paintCloudSeaTile, flow: [1, 0], seedOffset: 500, maxTiles: 6, repaint: BRUSH.far },
-  { name: "cloudsFar", par: 0.22, fog: 0.35, paint: paintCloudTile, banks: (w) => w.clouds.far, flow: [1, 0], seedOffset: 600, maxTiles: 10, repaint: BRUSH.far },
-  { name: "tail", par: 0.2, fog: 0.66, fogCool: true, clumpCell: 1.2, fringeCell: 1.6, minClumpPx: 7, minLockPx: 9, flow: [0.3, -0.95], gridPx: 6, seedOffset: 300, maxTiles: 12, repaint: BRUSH.far },
-  { name: "far", par: 0.22, fog: 0.6, fogCool: true, clumpCell: 0.8, fringeCell: 1.2, minClumpPx: 7, minLockPx: 9, flow: [0.2, -0.98], gridPx: 5, seedOffset: 700, maxTiles: 14, repaint: BRUSH.far },
-  { name: "cloudsMid", par: 0.45, fog: 0.15, paint: paintCloudTile, banks: (w) => w.clouds.mid, flow: [1, 0], seedOffset: 800, maxTiles: 12, repaint: BRUSH.mid },
-  { name: "flank", par: 0.55, fog: 0.32, clumpCell: 0.5, fringeCell: 1.0, minClumpPx: 7, minLockPx: 9, flow: [0.5, -0.87], gridPx: 5, moss: true, seedOffset: 200, maxTiles: 16, repaint: BRUSH.mid },
-  { name: "play", par: 1, fog: 0.04, clumpCell: 0.2, fringeCell: 0.5, minClumpPx: 7, minLockPx: 10, flow: [0.53, -0.85], gridPx: 4, moss: true, props: true, seedOffset: 100, maxTiles: 24, repaint: BRUSH.near },
-  { name: "fore", par: 1.5, fog: 0, valueShift: -0.48, clumpCell: 0.25, fringeCell: 0.5, minClumpPx: 9, minLockPx: 14, flow: [0.3, -0.95], gridPx: 5, seedOffset: 400, maxTiles: 10, repaint: BRUSH.fore }
+  { name: "cloudSea", res: 0.5, par: 0.045, fog: 0, paint: paintCloudSeaTile, flow: [1, 0], seedOffset: 500, maxTiles: 6, repaint: BRUSH.far },
+  { name: "cloudsFar", res: 0.5, par: 0.22, fog: 0.35, paint: paintCloudTile, banks: (w) => w.clouds.far, flow: [1, 0], seedOffset: 600, maxTiles: 10, repaint: BRUSH.far },
+  { name: "tail", res: 0.5, par: 0.2, fog: 0.66, fogCool: true, clumpCell: 1.2, fringeCell: 1.6, minClumpPx: 7, minLockPx: 9, flow: [0.3, -0.95], gridPx: 6, seedOffset: 300, maxTiles: 12, repaint: BRUSH.far },
+  { name: "far", res: 0.5, par: 0.22, fog: 0.6, fogCool: true, clumpCell: 0.8, fringeCell: 1.2, minClumpPx: 7, minLockPx: 9, flow: [0.2, -0.98], gridPx: 5, seedOffset: 700, maxTiles: 14, repaint: BRUSH.far },
+  { name: "cloudsMid", res: 0.6, par: 0.45, fog: 0.15, paint: paintCloudTile, banks: (w) => w.clouds.mid, flow: [1, 0], seedOffset: 800, maxTiles: 12, repaint: BRUSH.mid },
+  { name: "ridge", res: 0.75, par: 0.9, fog: 0.1, clumpCell: 0.3, fringeCell: 0.6, minClumpPx: 7, minLockPx: 9, flow: [0.53, -0.85], gridPx: 5, seedOffset: 900, maxTiles: 14, repaint: BRUSH.mid },
+  { name: "play", par: 1, fog: 0.04, clumpCell: 0.2, fringeCell: 0.5, minClumpPx: 7, minLockPx: 10, flow: [0.53, -0.85], gridPx: 5, moss: true, props: true, seedOffset: 100, maxTiles: 20, urgency: 5, repaint: BRUSH.near },
+  { name: "fore", res: 0.5, par: 1.5, fog: 0, valueShift: -0.48, clumpCell: 0.25, fringeCell: 0.5, minClumpPx: 9, minLockPx: 14, flow: [0.3, -0.95], gridPx: 5, seedOffset: 400, maxTiles: 10, repaint: BRUSH.fore }
 ];
 
 class Scene {
   constructor(world) {
     this.world = world;
+    this.sched = new PaintScheduler();
     this.sky = new SkyBackdrop(world.seed);
+    this.finish = new FinishOverlay();
     this.layers = {};
     for (const def of LAYER_DEFS) {
       const L = Object.assign({ anatomy: world.layers[def.name], paint: paintAnatomyTile }, def);
-      this.layers[def.name] = new PaintedLayer(L, world);
+      this.layers[def.name] = new PaintedLayer(L, world, this.sched);
     }
+  }
+
+  // Paints every layer the view needs right now (used while loading).
+  prepare(view, explorer) {
+    this.render(makeCanvas(1, 1).getContext("2d"), view, { explorer: { x: explorer.x, y: explorer.y, facing: explorer.facing } });
+    this.sched.finishVisible();
   }
 
   render(g, view, opts) {
     const w = this.world;
-    const ey = view.explorer.y;
+    const ex = opts.explorer;
+    const ey = ex.y;
     const Ls = this.layers;
-    this.sky.draw(g, view);
-    Ls.cloudSea.draw(g, view);
-    drawMistBand(g, view, 10, 0.12, 60, PAL.mistWarm, 0.5);
-    Ls.tail.draw(g, view);
-    drawMistBand(g, view, ey - 30, 0.3, 30, PAL.mistWarm, 0.35);
-    Ls.far.draw(g, view);
-    Ls.cloudsFar.draw(g, view);
-    drawMistBand(g, view, ey - 26, 0.3, 26, PAL.mistWarm, 0.45);
+    // Distant layers are soft and painted at half resolution: composite them
+    // into a half-resolution backdrop and upscale once (a quarter of the fill).
+    // Altitude haze thickens with height; near the cloud sea it stays thin so
+    // the sky is never washed out.
+    const haze = smoothstep(10, 70, view.camY);
+    const bw = Math.ceil(view.W / 2), bh = Math.ceil(view.H / 2);
+    if (!this.back || this.back.width !== bw || this.back.height !== bh) this.back = makeCanvas(bw, bh);
+    const b = this.back.getContext("2d");
+    b.setTransform(0.5, 0, 0, 0.5, 0, 0);
+    this.sky.draw(b, view);
+    Ls.cloudSea.draw(b, view);
+    drawMistBand(b, view, 10, 0.12, 60, PAL.mistWarm, 0.5 * haze);
+    Ls.tail.draw(b, view);
+    drawMistBand(b, view, ey - 30, 0.3, 30, PAL.mistWarm, 0.35 * haze);
+    Ls.far.draw(b, view);
+    Ls.cloudsFar.draw(b, view);
+    drawMistBand(b, view, ey - 26, 0.3, 26, PAL.mistWarm, 0.45 * haze);
+    g.imageSmoothingEnabled = true;
+    g.drawImage(this.back, 0, 0, bw, bh, 0, 0, bw * 2, bh * 2);
     Ls.cloudsMid.draw(g, view);
-    Ls.flank.draw(g, view);
-    drawMistBand(g, view, ey - 14, 0.8, 8, PAL.mistWarm, 0.35);
-    Ls.play.draw(g, view);
-    const [sx, sy] = worldToScreen(view, view.explorer.x, view.explorer.y, 1);
-    drawExplorer(g, sx, sy, EXPLORER_HEIGHT * view.ppm * view.pr, view.explorer.facing, "idle");
+    drawMistBand(g, view, ey - 14, 0.8, 8, PAL.mistWarm, 0.35 * haze);
+    Ls.ridge.draw(g, view);
+    Ls.play.draw(g, view, true); // the walkable body is never left unpainted
+    const [sx, sy] = worldToScreen(view, ex.x, ex.y, 1);
+    drawExplorer(g, sx, sy, EXPLORER_HEIGHT * view.ppm * view.pr, ex.facing, ex.pose);
     Ls.fore.draw(g, view);
-    drawGrain(g, view);
-    if (opts && opts.collision) drawCollisionOverlay(g, view, w.layers.play);
+    this.finish.draw(g, view);
+    if (opts.collision) drawCollisionOverlay(g, view, w.layers.play, ex, w.props.mushrooms);
   }
 }
 
@@ -1766,7 +2408,8 @@ function collisionSegments(anat, x0, y0, x1, y1, step) {
   return segs;
 }
 
-function drawCollisionOverlay(g, view, anat) {
+function drawCollisionOverlay(g, view, anat, ex, mushrooms) {
+  const w_mushrooms = () => mushrooms || [];
   const k = view.ppm * view.pr;
   const x0 = view.camX - view.W / 2 / k, x1 = view.camX + view.W / 2 / k;
   const y1 = view.camY + view.horizon / k, y0 = view.camY - (view.H - view.horizon) / k;
@@ -1783,21 +2426,35 @@ function drawCollisionOverlay(g, view, anat) {
     g.lineTo(bx, by);
     g.stroke();
   }
-  const [ex, ey] = worldToScreen(view, view.explorer.x, view.explorer.y, 1);
+  // Mushroom caps: one-way platforms (cyan).
+  g.strokeStyle = "rgba(90,220,255,0.95)";
+  for (const m of w_mushrooms(anat)) {
+    g.beginPath();
+    for (let i = 0; i <= 16; i++) {
+      const x = m.cap.x + (i / 16 * 2 - 1) * m.cap.a * 0.93;
+      const [sx, sy] = worldToScreen(view, x, capTop(m.cap, x), 1);
+      if (i) g.lineTo(sx, sy); else g.moveTo(sx, sy);
+    }
+    g.stroke();
+  }
+  const [px, py] = worldToScreen(view, ex.x, ex.y, 1);
   g.strokeStyle = "rgba(255,255,255,0.95)";
   g.beginPath();
-  g.moveTo(ex - 8 * view.pr, ey); g.lineTo(ex + 8 * view.pr, ey);
-  g.moveTo(ex, ey - 8 * view.pr); g.lineTo(ex, ey + 8 * view.pr);
+  g.moveTo(px - 8 * view.pr, py); g.lineTo(px + 8 * view.pr, py);
+  g.moveTo(px, py - 8 * view.pr); g.lineTo(px, py + 8 * view.pr);
   g.stroke();
   g.restore();
 }
 
 // ==== src/90-main.js ====
 // ---- Bit entry -------------------------------------------------------------
-// Stage 1 (visual foundation): one representative scene, interface hidden.
-// Draft tuning knobs switch the camera shot and the collision overlay.
+// Stage 2 (movement): the explorer walks, runs, jumps and lands on the
+// creature's painted body; the camera follows; painting streams in ahead of
+// the camera within a per-frame budget. Interface stays hidden for now.
 
 const WORLD_SEED = 7331;
+// Painting gets what is left of a ~14 ms frame after drawing (3-10 ms).
+const FRAME_TARGET_MS = 14;
 
 window.plethoraBit = {
   meta: {
@@ -1811,38 +2468,113 @@ window.plethoraBit = {
     const canvas = ctx.createCanvas2D({ maxDpr: 2, alpha: false, layer: "content", touchAction: "none" });
     const g = canvas.getContext("2d");
     const tune = ctx.tune;
-    const tuneChoice = (id, d) => (tune && tune.has(id) ? tune.choice(id) : d) || d;
-    const tuneBool = (id, d) => (tune && tune.has(id) ? !!tune.boolean(id) : d);
+    const knob = (id, d) => {
+      const v = tune && tune.has(id) ? tune.get(id) : undefined;
+      return v === undefined || v === null ? d : v;
+    };
+    const DEFAULT_PHYS = { walk: PHYS.walk, run: PHYS.run, jumpHeight: PHYS.jumpHeight };
+    const applyPhys = () => {
+      PHYS.walk = DEFAULT_PHYS.walk * knob("walk_speed", 1);
+      PHYS.run = DEFAULT_PHYS.run * knob("run_speed", 1);
+      PHYS.jumpHeight = DEFAULT_PHYS.jumpHeight * knob("jump_height", 1);
+    };
 
     let stage = "world";
-    let world, scene;
+    let world, scene, ex, cam;
     let disposed = false;
     ctx.onDestroy(() => { disposed = true; });
 
-    const render = () => {
-      if (disposed || !scene) return;
-      const W = canvas.width, H = canvas.height;
-      if (!W || !H) return;
-      const pr = W / Math.max(1, ctx.width);
-      const view = makeView(tuneChoice("view", "gameplay"), world, W, H, pr);
-      scene.render(g, view, { collision: tuneBool("collision_overlay", false) });
+    const startSpot = () => {
+      const s = knob("start", "back");
+      return s === "base" ? world.explorerSpots.base : s === "head" ? world.explorerSpots.establishing : world.explorerSpots.gameplay;
+    };
+    const currentView = () => {
+      const pr = canvas.width / Math.max(1, ctx.width);
+      const v = makeView("gameplay", world, canvas.width, canvas.height, pr, { x: cam.x, y: cam.y });
+      // Where the camera will be in ~0.8 s, in screen px of the play layer.
+      const k = v.ppm * v.pr;
+      v.aheadX = clamp(cam.vx * 0.8, -6, 6) * k;
+      v.aheadY = -clamp(cam.vy * 0.8, -6, 6) * k;
+      return v;
     };
 
     try {
+      applyPhys();
       world = buildWorld(WORLD_SEED);
       scene = new Scene(world);
+      stage = "explorer";
+      ex = new Explorer(world.layers.play, startSpot(), world.props.mushrooms.map((m) => m.cap));
+      cam = new FollowCamera(ex);
       stage = "first-frame";
-      render();
+      scene.prepare(currentView(), ex); // paint everything the first frame needs
+      scene.sched.syncMs = 0;
+      scene.sched.syncCount = 0;
     } catch (err) {
       ctx.platform.error({ stage, message: String((err && err.message) || err) });
       throw err;
     }
 
-    ctx.onResize(render, { debounceMs: 120 });
-    if (tune) tune.onChange(["view", "collision_overlay"], render);
-    ctx.markVisualReady("stage1-scene");
+    const controls = new Controls(ctx, canvas, () => ctx.platform.start());
+
+    const draw = () => {
+      if (disposed || !canvas.width || !canvas.height) return;
+      const view = currentView();
+      scene.render(g, view, {
+        explorer: { x: ex.x, y: ex.y, facing: ex.facing, pose: ex.pose() },
+        collision: !!knob("collision_overlay", false)
+      });
+      // Faint marks where fingers are held: feedback without a HUD.
+      for (const p of controls.touches()) {
+        const s = view.pr;
+        dab(g, p.sx * s, p.sy * s, 22 * s, 22 * s, 0, [255, 244, 228], 0.12);
+        dab(g, p.x * s, p.y * s, 7 * s, 7 * s, 0, [255, 244, 228], 0.28);
+      }
+      if (globalThis.__dwProfile) {
+        globalThis.__dwState = {
+          x: ex.x, y: ex.y, vx: ex.vx, vy: ex.vy, grounded: ex.grounded, state: ex.state,
+          feetSd: ex.sd(ex.x, ex.y + PHYS.feetR) - PHYS.feetR, bodySd: ex.sd(ex.x, ex.y + PHYS.bodyY) - PHYS.bodyR,
+          pending: scene.sched.jobs.size, syncMs: scene.sched.syncMs || 0, syncCount: scene.sched.syncCount || 0
+        };
+      }
+    };
+
+    ctx.game.loop({
+      fixedHz: 120,
+      maxSubsteps: 8,
+      fixedUpdate: (stepMs) => {
+        ex.step(stepMs / 1000, controls);
+        controls.consume();
+      },
+      update: (dtMs) => {
+        cam.update(Math.min(dtMs, 100) / 1000, ex);
+        ex.events.length = 0;
+      },
+      render: () => {
+        const t0 = performance.now();
+        draw();
+        const t1 = performance.now();
+        scene.sched.pump(clamp(FRAME_TARGET_MS - (t1 - t0), 3, 10));
+        if (globalThis.__dwProfile) {
+          const p = (globalThis.__dwPerf = globalThis.__dwPerf || { n: 0, draw: 0, pump: 0, maxDraw: 0, maxPump: 0 });
+          const d = t1 - t0, q = performance.now() - t1;
+          p.n++; if (d > 40) (p.spikes = p.spikes || []).push([p.n, Math.round(d)]); p.draw += d; p.pump += q; p.maxDraw = Math.max(p.maxDraw, d); p.maxPump = Math.max(p.maxPump, q);
+        }
+      }
+    });
+
+    if (tune) {
+      tune.onChange(["start"], () => { ex.reset(startSpot()); cam.snap(ex); });
+      tune.onChange(["walk_speed", "run_speed", "jump_height"], applyPhys);
+    }
+    draw();
+    ctx.markVisualReady("stage2-first-frame");
     ctx.platform.ready();
   }
 };
+
+// Test hook: lets offline tools drive the world and controller headlessly.
+if (typeof globalThis.__dwTestHook === "function") {
+  globalThis.__dwTestHook({ buildWorld, Explorer, PHYS, WORLD_SEED });
+}
 
 })();

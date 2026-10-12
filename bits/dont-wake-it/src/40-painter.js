@@ -24,36 +24,73 @@ function fogColor(y) {
 
 const TILE = 512;
 
+// Field sample buffers are pooled by size: tiles are painted continuously
+// while climbing, and reallocating megabytes per tile causes GC pauses.
+const FIELD_POOL = new Map();
+function takeFieldBuffers(n) {
+  const list = FIELD_POOL.get(n);
+  if (list && list.length) return list.pop();
+  return { sd: new Float32Array(n), h: new Float32Array(n), mat: new Uint8Array(n), prim: new Array(n), cav: new Float32Array(n), tmp: new Float32Array(n) };
+}
+function releaseFieldBuffers(n, b) {
+  if (!FIELD_POOL.has(n)) FIELD_POOL.set(n, []);
+  const list = FIELD_POOL.get(n);
+  if (list.length < 4) list.push(b);
+}
+
 class FieldGrid {
-  constructor(anat, prims, x0, yTop, step, n, mg) {
+  constructor(x0, yTop, step, n, mg) {
     const N = n + 2 * mg;
     this.N = N; this.n = n; this.mg = mg; this.step = step; this.x0 = x0; this.yTop = yTop;
-    this.sd = new Float32Array(N * N);
-    this.h = new Float32Array(N * N);
-    this.mat = new Uint8Array(N * N);
-    this.prim = new Array(N * N);
+    this.buf = takeFieldBuffers(N * N);
+    this.sd = this.buf.sd;
+    this.h = this.buf.h;
+    this.mat = this.buf.mat;
+    this.prim = this.buf.prim;
+    this.mat.fill(0);
+    this.any = false;
+  }
+
+  release() {
+    releaseFieldBuffers(this.N * this.N, this.buf);
+    this.buf = this.sd = this.h = this.mat = this.prim = this.cav = null;
+  }
+
+  // Samples both fields block by block; each block only evaluates the
+  // primitives near it. Yields between blocks so painting can be time-sliced.
+  *fill(anat, prims) {
+    const N = this.N, mg = this.mg, step = this.step, B = 16, pad = 3;
     const o = {};
-    let any = false;
-    for (let j = 0; j < N; j++) {
-      const Y = yTop - (j - mg + 0.5) * step;
-      for (let i = 0; i < N; i++) {
-        const X = x0 + (i - mg + 0.5) * step;
-        anat.eval(X, Y, prims, o);
-        const idx = j * N + i;
-        this.sd[idx] = o.sd;
-        this.h[idx] = o.h;
-        this.mat[idx] = o.mat;
-        this.prim[idx] = o.prim;
-        if (o.sd < 2) any = true;
+    for (let bj = 0; bj < N; bj += B) {
+      for (let bi = 0; bi < N; bi += B) {
+        const bx0 = this.x0 + (bi - mg) * step, bx1 = bx0 + B * step;
+        const by1 = this.yTop - (bj - mg) * step, by0 = by1 - B * step;
+        const sub = prims.filter((p) => {
+          const m = p.k * 2 + pad;
+          return p.maxX + m >= bx0 && p.minX - m <= bx1 && p.maxY + m >= by0 && p.minY - m <= by1;
+        });
+        for (let j = bj; j < Math.min(bj + B, N); j++) {
+          const Y = this.yTop - (j - mg + 0.5) * step;
+          for (let i = bi; i < Math.min(bi + B, N); i++) {
+            const idx = j * N + i;
+            if (!sub.length) { this.sd[idx] = 1e3; this.h[idx] = -1e3; continue; }
+            anat.eval(this.x0 + (i - mg + 0.5) * step, Y, sub, o);
+            this.sd[idx] = o.sd;
+            this.h[idx] = o.h;
+            this.mat[idx] = o.mat;
+            this.prim[idx] = o.prim;
+            if (o.sd < 2) this.any = true;
+          }
+        }
+        yield;
       }
     }
-    this.any = any;
-    this.cav = this.cavity(Math.max(1, Math.round(1.3 / step)));
+    yield* this.cavity(Math.max(1, Math.round(1.3 / step)));
   }
 
   // Box-blurred relief minus relief: positive in creases and folds.
-  cavity(r) {
-    const N = this.N, src = this.h, tmp = new Float32Array(N * N), out = new Float32Array(N * N);
+  *cavity(r) {
+    const N = this.N, src = this.h, tmp = this.buf.tmp, out = this.buf.cav;
     const pass = (from, to, horizontal) => {
       for (let a = 0; a < N; a++) {
         let sum = 0, cnt = 0;
@@ -67,9 +104,10 @@ class FieldGrid {
       }
     };
     pass(src, tmp, true);
+    yield;
     pass(tmp, out, false);
     for (let i = 0; i < N * N; i++) out[i] = out[i] - Math.max(src[i], 0);
-    return out;
+    this.cav = out;
   }
 
   index(X, Y) {
@@ -122,8 +160,8 @@ function surfaceColor(F, idx, X, Y, seed, nrm) {
   const mat = F.mat[idx];
   const lam = nrm.nx * LIGHT[0] + nrm.ny * LIGHT[1] + nrm.nz * LIGHT[2];
   const cav = F.cav[idx];
-  let t = 0.3 + lam * 0.84;
-  t -= clamp(cav * 0.13, 0, 0.5);
+  let t = 0.22 + lam * 0.68;
+  t -= clamp(cav * 0.2, 0, 0.55);
   t += clamp(-cav * 0.05, 0, 0.08);
   t += (fbm(X * 0.11, Y * 0.11, seed, 3) - 0.5) * 0.26;
   const edge = 1 - nrm.nz;
@@ -162,7 +200,9 @@ function finishColor(c, Y, L) {
   return c;
 }
 
-function paintAnatomyTile(tg, x0, yTop, k, L, world) {
+// Paints one anatomy tile. A generator: it yields often so the scheduler
+// can spread the work across frames; returns whether anything was drawn.
+function* paintAnatomyTile(tg, x0, yTop, k, L, world) {
   const anat = L.anatomy;
   const T = tg.canvas.width;
   const span = T / k;
@@ -176,8 +216,9 @@ function paintAnatomyTile(tg, x0, yTop, k, L, world) {
   const step = gp / k;
   const n = Math.ceil(T / gp);
   const mg = Math.ceil(margin / step);
-  const F = new FieldGrid(anat, prims, x0, yTop, step, n, mg);
-  if (!F.any && !hasProps) return false;
+  const F = new FieldGrid(x0, yTop, step, n, mg);
+  yield* F.fill(anat, prims);
+  if (!F.any && !hasProps) { F.release(); return false; }
   const nrm = {};
   const seed = world.seed + L.seedOffset;
 
@@ -200,18 +241,20 @@ function paintAnatomyTile(tg, x0, yTop, k, L, world) {
       const o = (j * iw + i) * 4;
       data.data[o] = c[0]; data.data[o + 1] = c[1]; data.data[o + 2] = c[2]; data.data[o + 3] = a * 255;
     }
+    if ((j & 15) === 15) yield;
   }
   ig.putImageData(data, 0, 0);
   tg.imageSmoothingEnabled = true;
   tg.imageSmoothingQuality = "low"; // bilinear: higher filters ring at alpha edges
   tg.drawImage(img, -gp, -gp, iw * gp, iw * gp);
+  yield;
 
   const toPx = (X, Y) => [(X - x0) * k, (yTop - Y) * k];
 
-  // 3a. Fur: soft clumps with dripping tips, then a fringe at the silhouette.
-  paintFur(tg, F, L, x0, yTop, k, span, seed);
+  // 3a. Fur: brush strokes along the flow, a fringe at the silhouette, drips.
+  yield* paintFur(tg, F, L, x0, yTop, k, span, seed);
   paintDrips(tg, F, L, prims, x0, yTop, k, span, seed);
-
+  yield;
   // 3b. Spire streaks: long strokes along each monolith's axis.
   const sc = Math.max(0.5, 5 / k);
   for (let cy = Math.floor((yTop - span) / sc); cy <= Math.ceil(yTop / sc); cy++) {
@@ -255,55 +298,156 @@ function paintAnatomyTile(tg, x0, yTop, k, L, world) {
     }
   }
 
+  yield;
   // 3d. Props rooted on this layer (mushrooms, trees, the closed eye).
   if (hasProps) drawProps(tg, world, x0, yTop, k, L, seed);
+  F.release();
   return true;
 }
 
+// Runs a painting generator to completion (loading, or must-show tiles).
+function runSync(gen) {
+  let r;
+  while (!(r = gen.next()).done);
+  return r.value;
+}
+
+// Spreads tile painting across frames: jobs are generators, the most urgent
+// (visible, then nearest the camera) run first, within a per-frame budget.
+class PaintScheduler {
+  constructor() {
+    this.jobs = new Set();
+  }
+
+  request(entry, priority) {
+    if (entry.done) return;
+    entry.priority = Math.max(entry.priority || 0, priority);
+    this.jobs.add(entry);
+  }
+
+  finish(entry) {
+    if (entry.done) return;
+    const t0 = performance.now();
+    while (!entry.done) entry.step();
+    this.syncMs = (this.syncMs || 0) + performance.now() - t0;
+    this.syncCount = (this.syncCount || 0) + 1;
+    this.jobs.delete(entry);
+  }
+
+  // Loading: finish only what the first frame shows; the rest streams in.
+  finishVisible() {
+    for (const j of [...this.jobs]) if (j.priority >= 10) this.finish(j);
+  }
+
+  pump(budgetMs) {
+    const end = performance.now() + budgetMs;
+    while (this.jobs.size && performance.now() < end) {
+      let best = null;
+      for (const j of this.jobs) if (!best || j.priority > best.priority) best = j;
+      while (!best.done && performance.now() < end) best.step();
+      if (best.done) this.jobs.delete(best);
+    }
+    for (const j of this.jobs) j.priority = 0; // re-earned by the next frame's requests
+  }
+
+  get busy() {
+    return this.jobs.size > 0;
+  }
+}
+
 // Tile cache for one depth layer. Layer pixel space: lx = X * k, ly = -Y * k.
+// Tiles are painted with a margin (so brushwork crosses tile borders
+// identically on both sides), repainted, and drawn cropped. Distant layers
+// paint at reduced resolution (L.res) and are scaled up when drawn.
 class PaintedLayer {
-  constructor(L, world) {
+  constructor(L, world, sched) {
     this.L = L;
     this.world = world;
+    this.sched = sched;
     this.tiles = new Map();
     this.maxTiles = L.maxTiles || 24;
+    this.res = L.res || 1;
+    this.frame = 0;
   }
 
-  // Tiles are painted with a margin (so brushwork can cross tile borders
-  // identically on both sides), repainted, then drawn cropped.
-  tile(tx, ty, k, pr) {
+  entry(tx, ty, k, pr) {
     const key = `${k.toFixed(4)}|${pr}|${tx}|${ty}`;
-    if (this.tiles.has(key)) {
-      const t = this.tiles.get(key);
-      this.tiles.delete(key);
-      this.tiles.set(key, t);
-      return t;
+    let e = this.tiles.get(key);
+    if (!e) {
+      e = { key, done: false, canvas: null, priority: 0, used: this.frame };
+      const gen = this.job(e, tx, ty, k, pr);
+      e.step = () => {
+        const t0 = performance.now();
+        if (gen.next().done) e.done = true;
+        e.ms = (e.ms || 0) + performance.now() - t0;
+        if (e.done && globalThis.__dwProfile) globalThis.__dwProfile.push({ layer: this.L.name, ms: e.ms, used: !!e.canvas });
+      };
+      this.tiles.set(key, e);
     }
-    const M = REPAINT_MARGIN;
-    const c = makeCanvas(TILE + 2 * M, TILE + 2 * M);
-    const tg = c.getContext("2d", { willReadFrequently: true });
-    const used = this.L.paint(tg, (tx * TILE - M) / k, (-ty * TILE + M) / k, k, this.L, this.world);
-    if (used && this.L.repaint) {
-      repaintCanvas(tg, tx * TILE - M, ty * TILE - M, scaleRepaint(this.L.repaint, pr, this.L.flow), this.world.seed + this.L.seedOffset + 17);
-    }
-    if (used && this.L.props) drawPostProps(tg, this.world, (tx * TILE - M) / k, (-ty * TILE + M) / k, k, this.L, this.world.seed + this.L.seedOffset);
-    const t = used ? c : null;
-    this.tiles.set(key, t);
-    while (this.tiles.size > this.maxTiles) this.tiles.delete(this.tiles.keys().next().value);
-    return t;
+    e.used = this.frame;
+    return e;
   }
 
-  draw(g, view) {
+  *job(e, tx, ty, k, pr) {
+    const M = REPAINT_MARGIN, res = this.res, kp = k * res;
+    const c = makeCanvas(Math.round((TILE + 2 * M) * res), Math.round((TILE + 2 * M) * res));
+    const tg = c.getContext("2d", { willReadFrequently: true });
+    const x0 = (tx * TILE - M) / k, yTop = (-ty * TILE + M) / k;
+    const used = yield* this.L.paint(tg, x0, yTop, kp, this.L, this.world);
+    if (used && this.L.repaint) {
+      yield* repaintCanvas(tg, (tx * TILE - M) * res, (ty * TILE - M) * res,
+        scaleRepaint(this.L.repaint, pr * res, this.L.flow), this.world.seed + this.L.seedOffset + 17);
+    }
+    if (used && this.L.props) drawPostProps(tg, this.world, x0, yTop, kp, this.L, this.world.seed + this.L.seedOffset);
+    e.canvas = used ? toDrawable(c) : null;
+  }
+
+  evict() {
+    if (this.tiles.size <= this.maxTiles) return;
+    const old = [...this.tiles.values()].filter((e) => e.used < this.frame).sort((a, b) => a.used - b.used);
+    for (const e of old) {
+      if (this.tiles.size <= this.maxTiles) break;
+      this.tiles.delete(e.key);
+      this.sched.jobs.delete(e);
+      if (e.canvas && e.canvas.close) e.canvas.close();
+    }
+  }
+
+  // Draws ready tiles, requests missing ones (visible first, then a one-tile
+  // ring ahead of the camera). Must-show layers finish visible tiles now.
+  draw(g, view, mustShow) {
+    this.frame++;
     const k = view.ppm * view.pr * this.L.par;
     const ox = Math.round(view.W / 2 - view.camX * k);
     const oy = Math.round(view.horizon + view.camY * k);
     const tx0 = Math.floor(-ox / TILE), tx1 = Math.floor((view.W - ox) / TILE);
     const ty0 = Math.floor(-oy / TILE), ty1 = Math.floor((view.H - oy) / TILE);
-    for (let ty = ty0; ty <= ty1; ty++) {
-      for (let tx = tx0; tx <= tx1; tx++) {
-        const t = this.tile(tx, ty, k, view.pr);
-        if (t) g.drawImage(t, REPAINT_MARGIN, REPAINT_MARGIN, TILE, TILE, tx * TILE + ox, ty * TILE + oy, TILE, TILE);
+    const M = REPAINT_MARGIN * this.res, S = TILE * this.res;
+    const cx = (view.W / 2 - ox) / TILE, cy = (view.H / 2 - oy) / TILE;
+    for (let ty = ty0 - 1; ty <= ty1 + 1; ty++) {
+      for (let tx = tx0 - 1; tx <= tx1 + 1; tx++) {
+        const visible = ty >= ty0 && ty <= ty1 && tx >= tx0 && tx <= tx1;
+        const e = this.entry(tx, ty, k, view.pr);
+        if (!e.done) {
+          const near = 1 / (1 + Math.hypot(tx + 0.5 - cx, ty + 0.5 - cy));
+          this.sched.request(e, (visible ? 10 : 1) + near + (this.L.urgency || 0));
+          if (visible && mustShow) this.sched.finish(e);
+        }
+        if (visible && e.done && e.canvas) g.drawImage(e.canvas, M, M, S, S, tx * TILE + ox, ty * TILE + oy, TILE, TILE);
       }
     }
+    // Paint ahead: the tiles the camera will reach soon (its predicted view).
+    if (view.aheadX || view.aheadY) {
+      const ax = Math.round(view.aheadX * this.L.par), ay = Math.round(view.aheadY * this.L.par);
+      const fx0 = Math.floor((ax - ox) / TILE), fx1 = Math.floor((view.W + ax - ox) / TILE);
+      const fy0 = Math.floor((ay - oy) / TILE), fy1 = Math.floor((view.H + ay - oy) / TILE);
+      for (let ty = fy0; ty <= fy1; ty++) {
+        for (let tx = fx0; tx <= fx1; tx++) {
+          const e = this.entry(tx, ty, k, view.pr);
+          if (!e.done) this.sched.request(e, 3 + (this.L.urgency || 0));
+        }
+      }
+    }
+    this.evict();
   }
 }

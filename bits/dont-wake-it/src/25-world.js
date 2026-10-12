@@ -6,7 +6,8 @@
 //
 // play  (depth 1.0)  - the body the explorer climbs. Its upper-right face is
 //                      the route: fur shelves on the back make the treads.
-// flank (depth 0.55) - the creature's far flank and dorsal spires, behind.
+// ridge (depth 0.9)  - dorsal spires standing just behind the route.
+// far   (depth 0.22) - distant dorsal spires rising out of cloud.
 // tail  (depth 0.2)  - the tail curling up out of the cloud sea.
 // fore  (depth 1.5)  - near fur clumps that frame the bottom of the screen.
 // Props (mushrooms, trees, the closed eye) are rooted on anatomy surfaces.
@@ -32,21 +33,24 @@ function buildWorld(seed) {
   // -- Play layer: the climbable body ---------------------------------------
   const play = new Anatomy("play");
   const spine = sampleSpine([
-    [70, -80, 46], [46, -14, 40], [22, 34, 36], [-2, 78, 33], [-26, 116, 31],
-    [-48, 154, 29], [-62, 192, 25], [-65, 224, 19], [-60, 250, 14], [-57, 270, 12.5]
+    // A broad back rising at ~42 degrees (rolling ridges you can walk), then
+    // a steeper shoulder and neck up to the head.
+    [110, -80, 46], [47, -14, 42], [0, 34, 38], [-48, 78, 34], [-90, 116, 31],
+    [-132, 154, 29], [-170, 192, 25], [-196, 224, 19], [-208, 250, 14], [-210, 270, 12.5]
   ], 8);
   addSpine(play, spine, { k: 8, hk: 6, hs: 0.5 });
 
   // Head, facing left: furred cranium, muzzle, cheek ruff, two ears.
-  const HX = -58; // head sits over the neck, muzzle forward (left)
+  const NX = -153; // the neck/head group sits at the top of the back
+  const HX = -58 + NX; // head sits over the neck, muzzle forward (left)
   // Forelimb stretched up-slope with the chin resting on it: upper arm along
   // the neck, forearm under the jaw, a broad paw with toe lobes.
-  play.seg(-46, 206, 11, -42, 240, 8.5, { k: 5, hk: 4, hs: 0.5, base: 1 });
-  play.seg(-42, 240, 8.5, -58, 260, 6.8, { k: 4, hk: 3, hs: 0.5, base: 2 });
-  play.seg(-58, 260, 6.8, -72, 261, 6, { k: 3, hk: 3, hs: 0.5, base: 2.5 });
-  play.ell(-79, 259.5, 6.5, 4.6, 0.05, { k: 2.5, hk: 2, hz: 3, base: 3 });
+  play.seg(-46 + NX, 206, 11, -42 + NX, 240, 8.5, { k: 5, hk: 4, hs: 0.5, base: 1 });
+  play.seg(-42 + NX, 240, 8.5, -58 + NX, 260, 6.8, { k: 4, hk: 3, hs: 0.5, base: 2 });
+  play.seg(-58 + NX, 260, 6.8, -72 + NX, 261, 6, { k: 3, hk: 3, hs: 0.5, base: 2.5 });
+  play.ell(-79 + NX, 259.5, 6.5, 4.6, 0.05, { k: 2.5, hk: 2, hz: 3, base: 3 });
   for (const [tx, ty, ta] of [[-84.5, 257.5, 2.2], [-83, 262, 2.1], [-79.5, 264.2, 2]]) {
-    play.ell(tx, ty, ta, ta * 0.72, 0.3, { k: 1, hk: 1, hz: 1.4, base: 5, tag: "lobe" });
+    play.ell(tx + NX, ty, ta, ta * 0.72, 0.3, { k: 1, hk: 1, hz: 1.4, base: 5, tag: "lobe" });
   }
   play.ell(HX, 284, 14, 10.5, 0.12, { k: 6, hk: 4, hz: 9, base: 2, tag: "cranium" });
   play.ell(HX - 12.5, 279.5, 7, 4.8, 0.22, { k: 4.5, hk: 4, hz: 2.6, base: 4, tag: "muzzle" });
@@ -69,19 +73,17 @@ function buildWorld(seed) {
       const t = (next - dist) / segLen;
       const x = lerp(p0.x, p1.x, t), y = lerp(p0.y, p1.y, t);
       if (y > 262) break;
+      // Fur steps: rounded lobes set into the slope so each one makes a
+      // tread and a riser of about a metre or two - never an overhang over
+      // the step below, so every step can be reached with a jump.
       const roll = rnd();
       const big = roll < 0.2, tiny = roll > 0.82;
-      const a = big ? R(4.6, 6.6) : tiny ? R(1.6, 2.3) : R(2.3, 3.9);
-      const b = a * R(0.32, 0.5);
-      const cx = x + a * R(0.5, 0.8), cy = y - b * R(0.2, 0.6);
-      play.ell(cx, cy, a, b, -R(0.0, 0.2), { k: R(0.5, 0.9), hk: 1.2, hz: b * 1.3, base: 0.8, tag: "shelf" });
+      const a = big ? R(4.2, 5.6) : tiny ? R(1.8, 2.4) : R(2.4, 3.8);
+      const b = a * R(0.34, 0.46);
+      const cx = x + a * R(-0.25, 0.2), cy = y - b * R(0.15, 0.45);
+      play.ell(cx, cy, a, b, -R(0.0, 0.16), { k: R(0.5, 0.9), hk: 0.8, hz: b * 2.4, base: 1.4, tag: "shelf" });
       shelves.push({ x: cx, y: cy, a, b });
-      if (big && rnd() < 0.6) {
-        // A smaller lobe tucked beside a big one: ledges grow in clusters.
-        const a2 = a * R(0.4, 0.6);
-        play.ell(cx + a * R(0.5, 0.8), cy - b * R(0.5, 1.0), a2, a2 * R(0.35, 0.5), -R(0.05, 0.3), { k: 0.8, hk: 1.2, hz: a2 * 0.5, base: 0.8, tag: "shelf" });
-      }
-      next += (tiny ? R(2.2, 3) : R(3, 5.2)) + (big ? R(0.8, 2.2) : 0);
+      next += (tiny ? R(2.4, 3.2) : R(3, 4.8)) + (big ? R(0.8, 1.8) : 0);
     }
     dist += segLen;
   }
@@ -108,8 +110,10 @@ function buildWorld(seed) {
     }
   }
 
-  // Dorsal spires rising from the back (rose-cream monoliths) - landmarks on
-  // the route, like the reference BACK panel. Placed by height on the back.
+  // Dorsal spires rising from the back (rose-cream monoliths), like the
+  // reference BACK panel. They stand just behind the route in their own
+  // depth layer ("ridge"), so they frame the climb without walling it off.
+  const ridge = new Anatomy("ridge");
   const backAt = (y) => {
     let best = dorsal[0];
     for (const d of dorsal) if (Math.abs(d.y - y) < Math.abs(best.y - y)) best = d;
@@ -119,8 +123,8 @@ function buildWorld(seed) {
     const d = backAt(y);
     const ax = d.x - d.nx * 2.2, ay = d.y - d.ny * 2.2;
     const bx = ax + Math.sin(lean) * len, by = ay + Math.cos(lean) * len;
-    const base = reliefAt(play, ax, ay) + 1.5;
-    play.seg(ax, ay, ra, bx, by, ra * 0.5, { mat: MAT_SPIRE, k: 1.0, hk: 1.2, hs: 0.7, base });
+    ridge.seg(ax, ay - 4, ra, bx, by, ra * 0.5, { mat: MAT_SPIRE, k: 1.0, hk: 1.2, hs: 0.7, base: 8 });
+    ridge.ell(ax, ay - 3, ra * 2.6, ra * 1.3, 0, { k: 2, hk: 2, hz: ra, base: 0.5 });
   }
 
   // -- Props rooted on the body ---------------------------------------------
@@ -132,9 +136,9 @@ function buildWorld(seed) {
     if (y === null) return false;
     const root = { x, y: y - 0.3 };
     const top = { x: x + lean, y: y + stemH };
-    play.seg(root.x, root.y, 0.32 + capR * 0.05, top.x, top.y, 0.24 + capR * 0.04, { mat: MAT_SHROOM, k: 0, hk: 0.01, base: 30 });
-    play.ell(top.x, top.y + capR * 0.12, capR, capR * 0.32, 0, { mat: MAT_SHROOM, k: 0, hk: 0.01, hz: 1, base: 31 });
-    props.mushrooms.push({ root, top, capR });
+    // The cap is a one-way platform: land on it from above, jump up through it.
+    const cap = { x: top.x, y: top.y + capR * 0.12, a: capR, b: capR * 0.32 };
+    props.mushrooms.push({ root, top, capR, cap });
     return true;
   }
   const reserved = [];
@@ -186,30 +190,14 @@ function buildWorld(seed) {
   const ex = HX - 11;
   const ey = play.surfaceBelow(ex, 310, 270);
   if (ey === null) throw new Error("brow has no standing surface");
+  // Where a climb can start (the "start" tuning knob picks one).
+  const base = standOn(nearestShelf(6, (s) => s.y > 2 && standOn(s)));
   const explorerSpots = {
     gameplay: { x: gx, y: gy, facing: -1 },
-    establishing: { x: ex, y: ey, facing: -1 }
+    establishing: { x: ex, y: ey, facing: -1 },
+    base: { x: base.x, y: base.y, facing: -1 }
   };
   const focus = { head: { x: HX - 4, y: 285 } };
-
-  // -- Flank layer: far side of the back curving away, behind mist ----------
-  // A low, broad rolling form (not a second pillar) carrying a few spires.
-  const flank = new Anatomy("flank");
-  const flankSpine = sampleSpine([
-    [130, -100, 46], [100, -20, 40], [70, 48, 34], [48, 88, 26], [38, 108, 16]
-  ], 5);
-  addSpine(flank, flankSpine, { k: 9, hk: 6, hs: 0.45 });
-  for (let i = 1; i < flankSpine.length - 1; i++) {
-    const d = dorsalAt(flankSpine, i);
-    const a = R(5, 10);
-    flank.ell(d.x + a * 0.15, d.y - a * 0.1, a, a * R(0.4, 0.5), -R(0.05, 0.2), { k: 2.5, hk: 2, hz: a * 0.5, base: 0.6 });
-  }
-  for (const [i, len, lean] of [[8, 26, 0.12], [12, 20, -0.05], [15, 15, 0.2]]) {
-    const d = dorsalAt(flankSpine, Math.min(i, flankSpine.length - 2));
-    const ax = d.x - d.nx * 3, ay = d.y - d.ny * 3;
-    flank.seg(ax, ay, R(3.6, 4.8), ax + Math.sin(lean) * len, ay + Math.cos(lean) * len, R(1.6, 2.4),
-      { mat: MAT_SPIRE, k: 1.5, hk: 1.5, hs: 0.7, base: reliefAt(flank, ax, ay) + 2 });
-  }
 
   // -- Far layer: the creature's far-side dorsal spires through the haze -----
   // Tall rounded monoliths rising from a rolling far-back ridge, placed along
@@ -261,7 +249,7 @@ function buildWorld(seed) {
   return {
     seed,
     spine,
-    layers: { play, flank, tail, far, fore },
+    layers: { play, tail, far, fore, ridge },
     clouds,
     props,
     explorerSpots,

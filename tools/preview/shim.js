@@ -43,6 +43,8 @@
     };
   }
 
+  if (params.has("profile")) globalThis.__dwProfile = [];
+
   async function boot() {
     const bit = params.get("bit");
     const base = `../../bits/${bit}/`;
@@ -88,6 +90,32 @@
         return () => target.removeEventListener(ev, fn, o);
       },
       onFrame(fn) { frameCbs.push(fn); },
+      game: {
+        // Minimal stand-in for ctx.game.loop: fixed-step update plus render.
+        loop(o) {
+          const stepMs = o.fixedHz ? 1000 / o.fixedHz : 0;
+          let acc = 0, last = performance.now(), running = true;
+          const tick = (now) => {
+            if (!running) return;
+            const dt = Math.min(now - last, o.maxDeltaMs || 250);
+            last = now;
+            if (o.update) o.update(dt, {});
+            if (o.fixedUpdate && stepMs) {
+              acc += dt;
+              let n = 0;
+              while (acc >= stepMs && n < (o.maxSubsteps || 8)) { o.fixedUpdate(stepMs, {}); acc -= stepMs; n++; }
+              if (n >= (o.maxSubsteps || 8)) acc = 0;
+            }
+            if (o.render) o.render(stepMs ? acc / stepMs : 1, {});
+            window.__frames = (window.__frames || 0) + 1;
+            requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+          const h = { pause() { running = false; }, resume() { if (!running) { running = true; last = performance.now(); requestAnimationFrame(tick); } }, stop() { running = false; }, destroy() { running = false; } };
+          cleanups.push(() => h.stop());
+          return h;
+        }
+      },
       markVisualReady(reason) { window.__bitVisualReady = reason || true; },
       platform: {
         ready() { window.__bitReady = true; },

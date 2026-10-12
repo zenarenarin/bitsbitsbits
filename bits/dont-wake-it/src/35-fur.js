@@ -44,7 +44,7 @@ function g2Stroke(g, x, y, dx, dy, len, w, bend, col, alpha) {
   g.fill();
 }
 
-function paintFur(tg, F, L, x0, yTop, k, span, seed) {
+function* paintFur(tg, F, L, x0, yTop, k, span, seed) {
   const nrm = {};
   const toPx = (X, Y) => [(X - x0) * k, (yTop - Y) * k];
   const reach = furReach(L, k);
@@ -71,6 +71,7 @@ function paintFur(tg, F, L, x0, yTop, k, span, seed) {
       const bend = (r() - 0.5) * 0.25;
       g2Stroke(tg, px, py, dx, -dy, len, w, bend, col, 0.62 + r() * 0.3);
     }
+    yield;
   }
 
   // Pass B: silhouette fringe - small locks combed outward so the edge of the
@@ -91,6 +92,7 @@ function paintFur(tg, F, L, x0, yTop, k, span, seed) {
       const [px, py] = toPx(X, Y);
       drawLock(tg, px, py, dx, -dy, f * (2.2 + r() * 1.6) * k, f * (0.2 + r() * 0.16) * k, (r() - 0.5) * 0.5, c, 0.92);
     }
+    yield;
   }
 }
 
@@ -115,7 +117,7 @@ function paintDrips(tg, F, L, prims, x0, yTop, k, span, seed) {
       if (idx < 0) continue;
       // Only where this form is the visible surface (not buried in the body).
       const own = p.hz * 0.24 + p.base;
-      if (F.h[idx] > own + 0.35 || F.sd[idx] < -1.4) continue;
+      if (F.h[idx] > own + 0.35 || F.sd[idx] < (p.tag === "shelf" ? -4 : -1.4)) continue;
       const inner = F.index(X - (lx * p.cos - ly * p.sin) * 0.25, Y - (lx * p.sin + ly * p.cos) * 0.25);
       const col = furColorAt(F, X, Y + p.b * 0.25, seed, nrm, inner < 0 ? idx : inner);
       let dx = flow[0] * 0.35 + Math.cos(th) * 0.2 + (r() - 0.5) * 0.3, dy = -1;

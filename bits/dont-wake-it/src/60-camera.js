@@ -11,9 +11,9 @@ const VIEW_PRESETS = {
   map: { spanHeights: 260, ex: 0.5, ey: 0.6 } // development only: whole-creature layout check
 };
 
-function makeView(kind, world, W, H, pr) {
+function makeView(kind, world, W, H, pr, focus) {
   const preset = VIEW_PRESETS[kind] || VIEW_PRESETS.gameplay;
-  const spot = world.explorerSpots[kind] || world.explorerSpots.gameplay;
+  const spot = focus || world.explorerSpots[kind] || world.explorerSpots.gameplay;
   const cssH = H / pr;
   const ppm = cssH / (preset.spanHeights * EXPLORER_HEIGHT);
   const k = ppm * pr;
@@ -33,4 +33,38 @@ function makeView(kind, world, W, H, pr) {
 function worldToScreen(view, x, y, par) {
   const k = view.ppm * view.pr * (par || 1);
   return [view.W / 2 + (x - view.camX) * k, view.horizon - (y - view.camY) * k];
+}
+
+// Follows the explorer smoothly. Leads a little in the direction of travel,
+// holds height through ordinary jumps (so the world does not bob), and only
+// rises or drops once the explorer has truly changed level.
+class FollowCamera {
+  constructor(ex) {
+    this.x = ex.x;
+    this.y = ex.y;
+    this.lead = 0;
+    this.vx = 0;
+    this.vy = 0;
+  }
+
+  update(dt, ex) {
+    const want = clamp(ex.vx * 0.45, -1.6, 1.6);
+    this.lead += (want - this.lead) * (1 - Math.exp(-dt * 1.6));
+    let ty = ex.y;
+    if (!ex.grounded && ex.y > ex.lastGroundY - 0.5) ty = Math.max(ex.lastGroundY, ex.y - 1.8);
+    const kx = 1 - Math.exp(-dt * 3.2), ky = 1 - Math.exp(-dt * (ty < this.y ? 4.5 : 2.6));
+    const px = this.x, py = this.y;
+    this.x += (ex.x + this.lead - this.x) * kx;
+    this.y += (ty - this.y) * ky;
+    if (dt > 0) {
+      this.vx += ((this.x - px) / dt - this.vx) * 0.2;
+      this.vy += ((this.y - py) / dt - this.vy) * 0.2;
+    }
+  }
+
+  snap(ex) {
+    this.x = ex.x;
+    this.y = ex.y;
+    this.lead = 0;
+  }
 }

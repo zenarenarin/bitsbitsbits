@@ -10,6 +10,18 @@ function makeCanvas(w, h) {
   return c;
 }
 
+// Finished paintings become GPU-friendly bitmaps: the scratch canvas was read
+// back during the repaint (CPU-backed), and drawing it every frame would
+// re-upload it. Falls back to a plain copy where bitmaps are unavailable.
+function toDrawable(c) {
+  if (typeof c.transferToImageBitmap === "function") return c.transferToImageBitmap();
+  const d = typeof document !== "undefined" ? document.createElement("canvas") : makeCanvas(c.width, c.height);
+  d.width = c.width;
+  d.height = c.height;
+  d.getContext("2d").drawImage(c, 0, 0);
+  return d;
+}
+
 // A tapered lock of fur: rounded root, swelling body, pointed tip.
 // (x, y) root in px, (dx, dy) unit direction in px space, bend in [-0.5, 0.5].
 function lockPath(g, x, y, dx, dy, len, w, bend) {
