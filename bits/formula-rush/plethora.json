@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "Formula Rush",
+  "description": "A landscape 3D Formula-style racer: tilt to steer, launch off the five-light start, and battle AI rivals around the original Aurora Ring circuit.",
+  "tags": ["racing", "3d", "formula", "arcade", "motion"],
+  "permissions": ["audio", "haptics", "motion", "storage"],
+  "dependencies": ["three@0.164.1"],
+  "memory": {
+    "records": {
+      "best_lap": {
+        "label": "Best Lap",
+        "valueType": "duration_ms",
+        "order": "asc",
+        "format": "timer",
+        "periods": ["daily", "weekly", "all_time"],
+        "scopes": ["following", "global"],
+        "dedupe": "best_per_user",
+        "dimensions": {
+          "circuit": ["aurora_ring"]
+        }
+      }
+    }
+  },
+  "tuning": {
+    "schemaVersion": 1,
+    "groups": {
+      "handling": { "label": "Car handling" },
+      "race": { "label": "Race" }
+    },
+    "knobs": {
+      "grip": {
+        "label": "Tyre grip",
+        "type": "number",
+        "default": 1.75,
+        "min": 1.3,
+        "max": 2.2,
+        "step": 0.05,
+        "group": "handling",
+        "intent": "feel",
+        "apply": "restart"
+      },
+      "downforce": {
+        "label": "Aero downforce",
+        "type": "number",
+        "default": 2.4,
+        "min": 1.2,
+        "max": 3.6,
+        "step": 0.1,
+        "group": "handling",
+        "intent": "feel",
+        "apply": "restart"
+      },
+      "engine_power": {
+        "label": "Engine power (kW)",
+        "type": "number",
+        "default": 640,
+        "min": 450,
+        "max": 800,
+        "step": 10,
+        "group": "handling",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "ai_pace": {
+        "label": "AI pace multiplier",
+        "type": "number",
+        "default": 1,
+        "min": 0.85,
+        "max": 1.05,
+        "step": 0.01,
+        "group": "race",
+        "intent": "difficulty",
+        "apply": "restart"
+      }
+    }
+  },
+  "onboarding": {
+    "kind": "immersive",
+    "version": 1
+  }
+}
