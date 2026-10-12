@@ -25,14 +25,14 @@
     const G = Object.freeze({
       R: 36,            // target radius
       L: 84,            // pin length (tip on the rim to outer end)
-      W: 4.6,           // shaft width
+      W: 3.2,           // shaft width
       TAPER: 14,        // tip taper length
-      TIP: 0.6,         // half-width of the blunt needle point
+      TIP: 0.45,        // half-width of the blunt needle point
       CHAMFER: 1.0,     // outer-end chamfer
       CLEARANCE: 0.5,   // pins closer than this are touching = collision
       SWEEP_EPS: 0.2,   // max relative motion between swept samples
       S0: 150,          // waiting pin offset: its tip rests at R + S0
-      MAX_PINS: 72
+      MAX_PINS: 128     // above the physical capacity (~85 at static spacing)
     });
 
     // The one collision shape every pin uses, in pin-local coordinates:
@@ -59,15 +59,15 @@
     // decoration only and stays inside PIN_POLY (outline stroke included,
     // checked in tests), so what you see never exceeds what collides.
     const PIN_PROFILE = Object.freeze([
-      0.3, 0.40,    // needle root, seated in the core
-      12.2, 1.80,   // end of the neck
-      13.0, 1.80,   // collar chamfer starts
-      14.2, 2.13,   // machined collar
-      18.0, 2.13,
-      18.6, 1.72,   // step down into the blade
-      30.0, 2.12,   // shoulder: the widest point
-      G.L - 7, 1.62,
-      G.L - 0.5, 0.82,
+      0.3, 0.30,    // needle root, seated in the core
+      12.2, 1.25,   // end of the neck
+      13.0, 1.25,   // collar chamfer starts
+      14.2, 1.44,   // machined collar
+      18.0, 1.44,
+      18.6, 1.18,   // step down into the blade
+      30.0, 1.44,   // shoulder: the widest point
+      G.L - 7, 1.12,
+      G.L - 0.5, 0.56,
       G.L - 0.25, 0 // chisel point
     ]);
     const PIN_OUTLINE = 0.3; // outline stroke width (world units)
@@ -343,6 +343,7 @@
 
     // ---- Difficulty --------------------------------------------------------
     const DEFAULT_TUNE = Object.freeze({
+      startPins: 0,       // a run starts with an empty core
       startSpeed: 1.35,   // rad/s at the start of a run
       maxSpeed: 2.5,      // readability ceiling
       flightMs: 150,      // launch animation length
@@ -356,7 +357,7 @@
         index: k,
         dir,
         base: Math.min(tune.maxSpeed, tune.startSpeed * (1 + tune.spindleGrowth * k)),
-        initial: Math.min(8, 3 + Math.floor(k * 0.55)),
+        initial: Math.min(8, (tune.startPins || 0) + Math.floor(k * 0.55)),
         quota: Math.min(10, tune.quota + Math.floor(k / 2)),
         // How far apart initial pins must be: generous at first, tighter later.
         minSep: Math.max(0.3, 1.05 - 0.08 * k),
@@ -549,7 +550,7 @@
         }
         // Attach exactly where the trajectory put it: one pin, one point.
         // The structure is never regenerated mid-run; it only grows. (The
-        // swept geometry caps it at about 2*PI / 0.102 pins, well inside
+        // swept geometry caps it at about 2*PI / 0.074 pins, well inside
         // MAX_PINS, so the run always ends in a real collision first.)
         st.angles[st.count++] = st.flight.beta;
         st.placed++;
@@ -845,7 +846,7 @@
       const px = i => G.R + PROF[2 * i];
       const ph = i => PROF[2 * i + 1];
       const PROF_COLLAR_A = 2, PROF_COLLAR_B = 5; // collar spans profile points 2..5
-      const INSET_X0 = G.R + G.L - 27.5, INSET_X1 = G.R + G.L - 19.5, INSET_H = 0.62;
+      const INSET_X0 = G.R + G.L - 27.5, INSET_X1 = G.R + G.L - 19.5, INSET_H = 0.42;
       const HW = ph(3);
 
       function profilePath(scaleH, from, to) {
@@ -887,7 +888,7 @@
       })();
       const insetSeat = (function () {
         const p = new Path2D();
-        const xm = (INSET_X0 + INSET_X1) / 2, e = 0.32;
+        const xm = (INSET_X0 + INSET_X1) / 2, e = 0.24;
         p.moveTo(INSET_X0 - e, 0); p.lineTo(xm - 1.2, -INSET_H - e); p.lineTo(xm + 1.2, -INSET_H - e);
         p.lineTo(INSET_X1 + e, 0); p.lineTo(xm + 1.2, INSET_H + e); p.lineTo(xm - 1.2, INSET_H + e);
         p.closePath();
@@ -996,7 +997,7 @@
         g.fillStyle = "#0B0D11"; g.fill(insetSeat);
         g.fillStyle = inset; g.fill(insetPath);
         g.fillStyle = "rgba(243,245,250,0.45)";
-        g.fillRect(INSET_X0 + 2.4, P.lit > 0 ? 0.12 : -0.42, 3.2, 0.3);
+        g.fillRect(INSET_X0 + 2.4, P.lit > 0 ? 0.08 : -0.3, 3.2, 0.22);
         // Dark outline keeps neighbours separate when the structure is dense.
         g.lineJoin = "round";
         g.lineWidth = Core.PIN_OUTLINE;

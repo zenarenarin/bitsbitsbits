@@ -245,7 +245,7 @@ const browser = await chromium.launch();
   await page.click(".sp-retry");
   await page.waitForTimeout(150);
   const reset = await page.evaluate(() => { const st = window.__game.st; return { phase: st.phase, score: st.score, spindle: st.spec.index, count: st.count, placed: st.placed }; });
-  ok("retry resets to a fresh gentle run", reset.phase === "ready" && reset.score === 0 && reset.count === 3 && reset.placed === 0, reset);
+  ok("retry resets to a fresh gentle run", reset.phase === "ready" && reset.score === 0 && reset.count === 0 && reset.placed === 0, reset);
   const inherit = await page.evaluate(() => { const st = window.__game.st; const now = Array.from(st.angles.slice(0, st.count)); return window.__mon.placed.filter(a => now.indexOf(a) >= 0).length; });
   ok("new run inherits no pins from the previous run", inherit === 0, inherit);
 
