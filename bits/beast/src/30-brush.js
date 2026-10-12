@@ -2,12 +2,18 @@
 // All marks are filled shapes with soft value shifts, not outlines: tapered
 // fur locks, round dabs for moss and leaves, and long thin streaks.
 
+// Offscreen paint buffers. Where OffscreenCanvas is missing (older WebViews),
+// buffers come from the runtime's own canvas factory (set at init), hidden.
+let canvasFallback = null;
 function makeCanvas(w, h) {
   if (typeof OffscreenCanvas !== "undefined") return new OffscreenCanvas(w, h);
-  const c = document.createElement("canvas");
+  const c = canvasFallback();
   c.width = w;
   c.height = h;
   return c;
+}
+function discardCanvas(c) {
+  if (c && typeof c.remove === "function") c.remove();
 }
 
 // Finished paintings become GPU-friendly bitmaps: the scratch canvas was read
@@ -15,11 +21,7 @@ function makeCanvas(w, h) {
 // re-upload it. Falls back to a plain copy where bitmaps are unavailable.
 function toDrawable(c) {
   if (typeof c.transferToImageBitmap === "function") return c.transferToImageBitmap();
-  const d = typeof document !== "undefined" ? document.createElement("canvas") : makeCanvas(c.width, c.height);
-  d.width = c.width;
-  d.height = c.height;
-  d.getContext("2d").drawImage(c, 0, 0);
-  return d;
+  return c;
 }
 
 // A tapered lock of fur: rounded root, swelling body, pointed tip.

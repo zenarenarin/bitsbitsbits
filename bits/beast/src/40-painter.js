@@ -247,6 +247,7 @@ function* paintAnatomyTile(tg, x0, yTop, k, L, world) {
   tg.imageSmoothingEnabled = true;
   tg.imageSmoothingQuality = "low"; // bilinear: higher filters ring at alpha edges
   tg.drawImage(img, -gp, -gp, iw * gp, iw * gp);
+  discardCanvas(img);
   yield;
 
   const toPx = (X, Y) => [(X - x0) * k, (yTop - Y) * k];
@@ -412,6 +413,7 @@ class PaintedLayer {
       this.tiles.delete(e.key);
       this.sched.jobs.delete(e);
       if (e.canvas && e.canvas.close) e.canvas.close();
+      else discardCanvas(e.canvas);
     }
   }
 

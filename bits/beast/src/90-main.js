@@ -18,6 +18,11 @@ window.plethoraBit = {
 
   async init(ctx) {
     const canvas = ctx.createCanvas2D({ maxDpr: 2, alpha: false, layer: "content", touchAction: "none" });
+    canvasFallback = () => {
+      const c = ctx.createCanvas2D({ layer: "background", input: "passthrough" });
+      c.style.display = "none";
+      return c;
+    };
     const g = canvas.getContext("2d");
     const tune = ctx.tune;
     const knob = (id, d) => {
@@ -159,7 +164,7 @@ window.plethoraBit = {
           if (wake.t > 0.8 && lastView) {
             const s = startSpot();
             const v = makeView("gameplay", world, lastView.W, lastView.H, lastView.pr, { x: s.x, y: s.y });
-            scene.prefetch(v);
+            scene.paintAhead(v);
           }
           if (wake.t > 3.1) restart();
         } else {

@@ -37,7 +37,7 @@ class Scene {
   }
 
   // Paint a view in the background (e.g. the restart point during a fade).
-  prefetch(view) {
+  paintAhead(view) {
     for (const L of Object.values(this.layers)) L.request(view, L.L.name === "play" ? 14 : 9);
   }
 
