@@ -890,6 +890,30 @@
   const SVG_PAUSE = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="2" width="3.4" height="12" rx="1" fill="currentColor"/><rect x="9.6" y="2" width="3.4" height="12" rx="1" fill="currentColor"/></svg>';
   const SVG_SOUND = '<svg width="18" height="16" viewBox="0 0 18 16" aria-hidden="true"><path d="M2 5.5h3L9 2v12l-4-3.5H2z" fill="currentColor"/><path class="w" d="M12 5c1 .8 1.5 1.8 1.5 3s-.5 2.2-1.5 3M14.3 2.8C16 4.2 16.8 6 16.8 8s-.8 3.8-2.5 5.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path class="x" d="M12 5.5l5 5M17 5.5l-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
 
+  // Shop preview: the same balloon, as inline SVG.
+  function balloonSVG(skin) {
+    const id = "infb-" + skin.id;
+    let extra = "";
+    if (skin.stripes) {
+      let paths = "";
+      for (let k = -3; k <= 3; k += 2) {
+        const a1 = (Math.sin((k / 7) * Math.PI) * 2.1).toFixed(3), a2 = (Math.sin(((k + 1) / 7) * Math.PI) * 2.1).toFixed(3);
+        paths += `<path d="M0 -1.1Q${a1} 0 0 1.1Q${a2} 0 0 -1.1Z"/>`;
+      }
+      extra += `<g clip-path="url(#${id}c)" fill="${skin.stripes}" opacity=".85">${paths}</g>`;
+    }
+    if (skin.pearl) extra += `<circle r="1" fill="url(#${id}p)"/>`;
+    return `<svg class="bal" viewBox="-1.3 -1.3 2.6 3.1" aria-hidden="true"><defs>` +
+      `<radialGradient id="${id}g" cx="0.31" cy="0.27" r="0.72"><stop offset="0" stop-color="${skin.light}"/><stop offset="0.42" stop-color="${skin.base}"/><stop offset="1" stop-color="${skin.dark}"/></radialGradient>` +
+      `<linearGradient id="${id}p" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="rgba(255,190,220,.35)"/><stop offset=".5" stop-color="rgba(190,230,255,.35)"/><stop offset="1" stop-color="rgba(220,255,210,.3)"/></linearGradient>` +
+      `<clipPath id="${id}c"><circle r="1"/></clipPath></defs>` +
+      `<path d="M0 1.13C.12 1.38-.12 1.52.03 1.76" stroke="rgba(80,70,60,.6)" stroke-width=".035" fill="none"/>` +
+      `<circle r="1" fill="url(#${id}g)"/>${extra}` +
+      `<circle r="1" fill="none" stroke="rgba(60,25,15,.25)" stroke-width=".035"/>` +
+      `<ellipse cx="-.42" cy="-.5" rx=".19" ry=".33" transform="rotate(-36 -.42 -.5)" fill="rgba(255,255,255,.62)"/>` +
+      `<path d="M-.09 1.01H.09L.13 1.13H-.13Z" fill="${skin.dark}"/></svg>`;
+  }
+
   const CSS = `
 .inf{position:absolute;inset:0;font-family:Inter,"Helvetica Neue",Helvetica,Arial,sans-serif;color:${PAL.ivory};-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;pointer-events:none;--st:0px;--sb:0px}
 .inf *{box-sizing:border-box}
@@ -955,12 +979,12 @@
 .inf-grid{width:100%;max-width:440px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .inf-card{border-radius:16px;padding:10px 6px 12px;display:flex!important;flex-direction:column;align-items:center;gap:4px;background:rgba(255,255,255,.45)!important;border:1px solid rgba(59,55,48,.08)!important;color:${PAL.ink}!important;transition:transform .15s}
 .inf-card:active{transform:scale(.97)}
-.inf-card canvas{width:72px;height:84px}
+.inf-card svg.bal{width:72px;height:86px}
 .inf-card .n{font-size:11px;letter-spacing:.08em;font-weight:600}
 .inf-card .s{font-size:9.5px;letter-spacing:.18em;opacity:.65;display:flex;align-items:center;gap:4px}
 .inf-card.eq{border-color:${PAL.terracotta}!important;background:rgba(255,255,255,.75)!important}
 .inf-card.eq .s{color:${PAL.terracotta};opacity:1}
-.inf-card.locked.poor canvas{opacity:.45;filter:saturate(.35)}
+.inf-card.locked.poor svg.bal{opacity:.45;filter:saturate(.35)}
 .inf-card.poor .s{opacity:.4}
 .inf-card.buy .s{color:${PAL.terracotta};opacity:1;font-weight:600}
 .inf-card.pop{animation:infPop .6s ease}
@@ -1042,33 +1066,37 @@
         rootEl.style.setProperty("--cue", Math.min(h - view.safeBottom - 86, view.oy + CFG.H * view.s + 30) + "px");
       }
 
-      // Procedural parallax layers, painted once per resize.
-      function makeLayer(w, h, scale) {
-        const c = document.createElement("canvas");
-        c.width = Math.ceil(w * scale); c.height = Math.ceil(h * scale);
-        const t = c.getContext("2d");
-        t.scale(scale, scale);
-        return { c, t, w, h };
+      // Procedural parallax layers. Each is a hidden SDK canvas used as a paint-once buffer,
+      // created once and repainted whenever the viewport changes.
+      const layerBufs = {};
+      function layerBuf(name, maxDpr) {
+        if (!layerBufs[name]) {
+          const c = ctx.createCanvas2D({ coordinateSpace: "css", maxDpr, layer: "background", input: "passthrough" });
+          c.style.visibility = "hidden";
+          c.setAttribute("aria-hidden", "true");
+          layerBufs[name] = { c, t: c.getContext("2d") };
+        }
+        return layerBufs[name];
       }
       function buildTiles() {
         const dpr = Math.min(2, ctx.dpr || 1);
-        const W = Math.ceil(Math.max(view.w * 1.4, 600));
-        const H = Math.ceil(view.h);
+        const W = Math.ceil(view.w), H = Math.ceil(view.h);
         tiles.w = W;
         const s = view.s, floorY = view.oy + CFG.H * s;
         const rng = mulberry32(1234);
-        // Far: hazy blue-grey city with an aqueduct.
-        const far = makeLayer(W, H, 1);
+        const far = layerBuf("far", 1);
         paintFar(far.t, W, H, floorY, s, rng);
         tiles.far = far.c;
-        // Mid: warm towers, banners, cypress.
-        const mid = makeLayer(W, H, Math.min(1.5, dpr));
+        const mid = layerBuf("mid", Math.min(1.5, dpr));
         paintMid(mid.t, W, H, floorY, s, rng);
         tiles.mid = mid.c;
-        tiles.cloudBack = paintClouds(W, Math.ceil(H - floorY + 260 * s), s, rng, 0.85, 1);
-        tiles.cloudBackY = floorY - 200 * s;
-        tiles.cloudFront = paintClouds(W, Math.ceil(H - floorY + 120 * s), s, rng, 1, Math.min(1.5, dpr));
-        tiles.cloudFrontY = floorY + 22 * s;
+        const cb = layerBuf("cloudBack", 1);
+        paintClouds(cb.t, W, H, floorY - 200 * s, s, rng, 0.85);
+        tiles.cloudBack = cb.c;
+        const cf = layerBuf("cloudFront", Math.min(1.5, dpr));
+        paintClouds(cf.t, W, H, floorY + 22 * s, s, rng, 1);
+        tiles.cloudFront = cf.c;
+        tiles.painted = far.c.width + "x" + far.c.height;
       }
 
       function paintFar(t, W, H, floorY, s, rng) {
@@ -1139,28 +1167,31 @@
         t.globalCompositeOperation = "source-atop"; t.fillStyle = hz; t.fillRect(0, 0, W, H); t.globalCompositeOperation = "source-over";
       }
 
-      function paintClouds(W, H, s, rng, alpha, scale) {
-        const L = makeLayer(W, Math.max(10, H), scale);
-        const t = L.t;
+      // Seamless cloud bank: puffs that cross an edge are also drawn wrapped onto the other side.
+      function paintClouds(t, W, H, top, s, rng, alpha) {
+        t.clearRect(0, 0, W, H);
         const n = Math.ceil(W / (26 * Math.max(0.4, s)));
         for (let pass = 0; pass < 2; pass++) {
           for (let i = 0; i < n; i++) {
             const r = (40 + rng() * 70) * s * (pass ? 0.8 : 1.15);
-            const x = r + rng() * (W - 2 * r);
-            const y = (pass ? 40 : 10) * s + rng() * 50 * s + r * 0.6;
-            const gr = t.createRadialGradient(x - r * 0.25, y - r * 0.35, r * 0.1, x, y, r);
-            gr.addColorStop(0, `rgba(255,252,244,${alpha})`);
-            gr.addColorStop(0.55, `rgba(246,240,228,${alpha * 0.92})`);
-            gr.addColorStop(1, "rgba(238,232,220,0)");
-            t.fillStyle = gr; t.beginPath(); t.arc(x, y, r, 0, Math.PI * 2); t.fill();
+            const x = rng() * W;
+            const y = top + (pass ? 40 : 10) * s + rng() * 50 * s + r * 0.6;
+            for (const ox of [0, -W, W]) {
+              const cx = x + ox;
+              if (cx + r < 0 || cx - r > W) continue;
+              const gr = t.createRadialGradient(cx - r * 0.25, y - r * 0.35, r * 0.1, cx, y, r);
+              gr.addColorStop(0, `rgba(255,252,244,${alpha})`);
+              gr.addColorStop(0.55, `rgba(246,240,228,${alpha * 0.92})`);
+              gr.addColorStop(1, "rgba(238,232,220,0)");
+              t.fillStyle = gr; t.beginPath(); t.arc(cx, y, r, 0, Math.PI * 2); t.fill();
+            }
           }
         }
-        const base = t.createLinearGradient(0, 40 * s, 0, 170 * s);
+        const base = t.createLinearGradient(0, top + 40 * s, 0, top + 170 * s);
         base.addColorStop(0, "rgba(245,240,229,0)");
         base.addColorStop(1, `rgba(245,240,229,${alpha})`);
         t.fillStyle = base;
-        t.fillRect(0, 40 * s, W, H);
-        return L.c;
+        t.fillRect(0, top + 40 * s, W, H);
       }
 
       // ---------------------------------------------------------------- UI
@@ -1613,19 +1644,11 @@
           const afford = !owned && save.coins >= it.cost;
           const cls = ["inf-card", eq ? "eq" : "", owned ? "" : "locked", !owned && !afford ? "poor" : "", afford ? "buy" : "", popId === it.id ? "pop" : ""].join(" ");
           const st = eq ? "EQUIPPED" : owned ? "EQUIP" : afford ? `UNLOCK ${svgCoin(10)}${it.cost}` : `${svgCoin(10)}${it.cost}`;
-          const vis = kind === "skin" ? `<canvas width="144" height="168" data-skin="${it.id}"></canvas>` : `<div class="inf-trail" data-trail="${it.id}">${it.id === "none" ? "—" : it.id === "spark" ? "✦" : "❀"}</div>`;
+          const vis = kind === "skin" ? balloonSVG(it) : `<div class="inf-trail" data-trail="${it.id}">${it.id === "none" ? "—" : it.id === "spark" ? "✦" : "❀"}</div>`;
           return `<button class="${cls}" data-kind="${kind}" data-id="${it.id}">${vis}<div class="n">${it.name}</div><div class="s">${st}</div></button>`;
         };
         el.skinGrid.innerHTML = SKINS.map((s) => card(s, "skin")).join("");
         el.trailGrid.innerHTML = TRAILS.map((s) => card(s, "trail")).join("");
-        el.skinGrid.querySelectorAll("canvas").forEach((c) => {
-          const t = c.getContext("2d");
-          t.clearRect(0, 0, c.width, c.height);
-          t.save(); t.translate(72, 70); t.scale(44, 44);
-          drawBalloonShape(t, skinById(c.getAttribute("data-skin")), 1, 0, 0);
-          t.restore();
-          t.strokeStyle = "rgba(80,70,60,.6)"; t.lineWidth = 1.5; t.beginPath(); t.moveTo(72, 118); t.bezierCurveTo(66, 134, 80, 148, 72, 164); t.stroke();
-        });
         rootEl.querySelectorAll(".inf-shop .inf-card").forEach((btn) => on(btn, () => shopPick(btn.getAttribute("data-kind"), btn.getAttribute("data-id"))));
       }
       function shopPick(kind, id) {
@@ -1873,6 +1896,8 @@
       // ---------------------------------------------------------------- rendering
       function draw() {
         const W = view.w, Hh = view.h, s = view.s;
+        // the runtime may resize (and so clear) the buffers after our resize callback
+        if (tiles.far && tiles.far.width + "x" + tiles.far.height !== tiles.painted) buildTiles();
         const camX = (state === "menu" ? menuX : bal.x) - view.off;
         const shx = shake > 0 ? (Math.random() - 0.5) * shake * 8 : 0, shy = shake > 0 ? (Math.random() - 0.5) * shake * 8 : 0;
         const oy = view.oy - camYOff * s;
@@ -1887,7 +1912,7 @@
         // parallax
         drawTile(tiles.far, camX * s * 0.08, 0, 1);
         drawTile(tiles.mid, camX * s * 0.24, 0, 1);
-        drawTile(tiles.cloudBack, camX * s * 0.45, tiles.cloudBackY - camYOff * s * 0.5, 0.95);
+        drawTile(tiles.cloudBack, camX * s * 0.45, -camYOff * s * 0.5, 0.95);
 
         g.save();
         g.translate(-camX * s + shx, oy + shy);
@@ -1903,7 +1928,8 @@
         drawParticles(true);
         g.restore();
 
-        drawTile(tiles.cloudFront, camX * s * 1.15, tiles.cloudFrontY - camYOff * s, 1);
+        drawTile(tiles.cloudFront, camX * s * 1.15, -camYOff * s, 1);
+        if (camYOff > 0) { g.fillStyle = "rgb(245,240,229)"; g.fillRect(0, Hh - camYOff * s - 1, W, camYOff * s + 2); }
         drawTexts(camX, oy);
         // gentle frame on very wide screens
         if (view.frameX > 4) {
@@ -1921,8 +1947,7 @@
         const tw = tiles.w;
         let x = -(((scroll % tw) + tw) % tw);
         g.globalAlpha = alpha;
-        const h = img.height / (img.width / tw);
-        for (; x < view.w; x += tw) g.drawImage(img, x, y, tw, h);
+        for (; x < view.w; x += tw) g.drawImage(img, x, y, tw, view.h);
         g.globalAlpha = 1;
       }
 
