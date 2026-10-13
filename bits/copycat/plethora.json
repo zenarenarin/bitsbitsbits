@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "Copycat",
+  "description": "One tap, two worlds. Your copy runs a parallel architecture beside you — find the one jump that works for both, chain clean pairs, and see how far the echo follows.",
+  "tags": ["arcade", "endless", "one-tap", "puzzle", "runner"],
+  "permissions": ["haptics", "storage", "audio"],
+  "dependencies": [],
+  "onboarding": {
+    "kind": "immersive",
+    "version": 1
+  },
+  "memory": {
+    "records": {
+      "score": {
+        "label": "High Score",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": ["daily", "weekly", "all_time"],
+        "scopes": ["following", "global"],
+        "dedupe": "best_per_user"
+      }
+    }
+  },
+  "tuning": {
+    "schemaVersion": 1,
+    "groups": {
+      "feel": { "label": "Jump feel" },
+      "difficulty": { "label": "Difficulty" },
+      "rewards": { "label": "Rewards" },
+      "presentation": { "label": "Presentation" }
+    },
+    "knobs": {
+      "run_speed_start": { "label": "Starting run speed (units/s)", "type": "number", "default": 4.2, "min": 3.2, "max": 5.5, "step": 0.1, "group": "difficulty", "intent": "difficulty", "apply": "restart" },
+      "run_speed_max": { "label": "Top run speed (units/s)", "type": "number", "default": 6.2, "min": 4.5, "max": 8, "step": 0.1, "group": "difficulty", "intent": "difficulty", "apply": "restart" },
+      "min_window_start_ms": { "label": "Easiest shared timing window", "type": "duration_ms", "default": 320, "min": 180, "max": 450, "step": 10, "group": "difficulty", "intent": "difficulty", "apply": "restart" },
+      "min_window_end_ms": { "label": "Tightest shared timing window", "type": "duration_ms", "default": 130, "min": 80, "max": 300, "step": 10, "group": "difficulty", "intent": "difficulty", "apply": "restart" },
+      "jump_height": { "label": "Jump height (units)", "type": "number", "default": 1.55, "min": 1.3, "max": 1.9, "step": 0.05, "group": "feel", "intent": "feel", "apply": "restart" },
+      "jump_air_time": { "label": "Jump air time (s)", "type": "number", "default": 0.62, "min": 0.5, "max": 0.8, "step": 0.01, "group": "feel", "intent": "feel", "apply": "restart" },
+      "coyote_ms": { "label": "Coyote time", "type": "duration_ms", "default": 80, "min": 0, "max": 150, "step": 10, "group": "feel", "intent": "feel", "apply": "restart" },
+      "buffer_ms": { "label": "Jump input buffer", "type": "duration_ms", "default": 120, "min": 0, "max": 200, "step": 10, "group": "feel", "intent": "feel", "apply": "restart" },
+      "sync_precision": { "label": "SYNC precision threshold", "type": "percent", "default": 0.6, "min": 0.3, "max": 0.9, "step": 0.05, "group": "rewards", "intent": "gameplay", "apply": "live" },
+      "show_link_lines": { "label": "Show switch-to-gate link lines", "type": "boolean", "default": true, "group": "presentation", "intent": "visual", "apply": "live" },
+      "sfx_volume": { "label": "Sound effects volume", "type": "percent", "default": 0.7, "min": 0, "max": 1, "step": 0.05, "group": "presentation", "intent": "audio", "apply": "live" }
+    },
+    "curves": {
+      "difficulty_ramp": {
+        "label": "Difficulty by pairs cleared",
+        "domain": "level",
+        "range": [0, 1],
+        "default": [
+          { "x": 0, "y": 0 },
+          { "x": 8, "y": 0.12 },
+          { "x": 20, "y": 0.36 },
+          { "x": 40, "y": 0.66 },
+          { "x": 70, "y": 0.9 },
+          { "x": 110, "y": 1 }
+        ],
+        "easing": "linear",
+        "group": "difficulty",
+        "apply": "restart"
+      }
+    },
+    "presets": {
+      "gentle": {
+        "label": "Gentle",
+        "values": { "run_speed_start": 3.8, "run_speed_max": 5.4, "min_window_start_ms": 360, "min_window_end_ms": 180 }
+      },
+      "expert": {
+        "label": "Expert",
+        "values": { "run_speed_start": 4.8, "run_speed_max": 7.0, "min_window_start_ms": 260, "min_window_end_ms": 110 }
+      }
+    }
+  }
+}

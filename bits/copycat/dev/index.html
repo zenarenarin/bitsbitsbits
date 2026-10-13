@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>Copycat (local harness)</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #2b332f; overflow: hidden; }
+    #stage { position: absolute; inset: 0; overflow: hidden; touch-action: none; }
+    body.phone #stage { width: 390px; height: 844px; left: 50%; top: 50%; transform: translate(-50%, -50%); box-shadow: 0 10px 40px rgba(0,0,0,.4); }
+  </style>
+</head>
+<body>
+  <div id="stage"></div>
+  <script src="mock-runtime.js"></script>
+  <script>
+    // Query flags: ?phone=1 frames a 390x844 viewport; ?test=1 exposes debug
+    // hooks; ?autopilot=1 lets the solver play; ?seed=N fixes the run seed;
+    // ?fresh=1 clears saved progress (replays the authored opening).
+    const q = new URLSearchParams(location.search);
+    if (q.get("phone")) document.body.classList.add("phone");
+    if (q.get("fresh")) { try { localStorage.clear(); } catch (e) {} }
+    if (q.get("test") || q.get("autopilot")) window.__COPYCAT_TEST__ = { autopilot: !!q.get("autopilot"), seed: q.get("seed") ? +q.get("seed") : 0 };
+  </script>
+  <script src="../main.js"></script>
+  <script>
+    fetch("../plethora.json").then((r) => r.json()).then(async (manifest) => {
+      const ctx = createMockCtx(document.getElementById("stage"), manifest, { noStorage: !!q.get("nostorage") });
+      window.__ctx = ctx;
+      try { await window.plethoraBit.init(ctx); window.__booted = true; }
+      catch (e) { console.error(e); window.__bootError = String(e && e.stack || e); }
+    });
+  </script>
+</body>
+</html>
