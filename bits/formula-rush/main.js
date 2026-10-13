@@ -18,7 +18,7 @@ window.plethoraBit = {
     const DEFAULT_SETTINGS = {
       difficulty: "medium", laps: 3, racingLine: true, steering: "touch",
       sensitivity: 1, deadzone: 0.05, invertTilt: false, sound: true, volume: 0.8,
-      vibration: true, view: 0, quality: "high", grid: 8, livery: 0, ver: 2
+      brakeAssist: "medium", vibration: true, view: 0, quality: "high", grid: 8, livery: 0, ver: 2
     };
     const settings = Object.assign({}, DEFAULT_SETTINGS);
     let bestLapStored = null;
@@ -1477,7 +1477,20 @@ window.plethoraBit = {
       if (reverse > 0 && ctrl.throttle < 0.1) {
         Fdrive = -reverse * 4500 * (u > -6 ? 1 : 0);
       }
-      const brakeF = Fbrake * 0.7, brakeR = Fbrake * 0.3;
+      let brakeF = Fbrake * 0.7, brakeR = Fbrake * 0.3;
+      const assist = ctrl.brakeAssist || 0;   // 0 off, 1 medium, 2 full (player only)
+      if (assist && Fbrake > 0) {
+        // ABS-style assist: keep each axle below its lock point so part of its grip stays available
+        // for steering (more when the player is turning); spill any front excess to the rear if it has room.
+        const steerUse = clamp(Math.abs(ctrl.steer), 0, 1);
+        const resF = assist === 2 ? 0.25 + 0.5 * steerUse : 0.25 + 0.3 * steerUse;
+        const resR = assist === 2 ? 0.5 + 0.4 * steerUse : 0.5 + 0.3 * steerUse;   // rear stability first
+        const maxF = Math.sqrt(1 - resF * resF) * mu * Nf, maxR = Math.sqrt(1 - resR * resR) * mu * Nr;
+        const f = Math.min(brakeF, maxF);
+        const spill = steerUse < 0.15 ? Math.max(0, brakeF - maxF) : 0;   // only in a straight line
+        const r = Math.min(brakeR + spill, Math.max(maxR, Math.min(brakeR, maxR)));
+        brakeF = f; brakeR = r; Fbrake = f + r;
+      }
       // slip angles (low speed safe)
       const uu = Math.max(Math.abs(u), 4);
       const aF = Math.atan2(vl + P.a * car.wr, uu) - delta * Math.sign(u || 1);
@@ -1485,7 +1498,9 @@ window.plethoraBit = {
       const capF = Math.sqrt(Math.max(0, (mu * Nf) ** 2 - brakeF * brakeF));
       const rearLong = Math.max(0, Fdrive) * lerp(0.8, 0.3, clamp((Math.abs(u) - 12) / 30, 0, 1)) + brakeR;
       const capR = Math.sqrt(Math.max(0, (mu * Nr) ** 2 - rearLong * rearLong)) * (ctrl.rearAssist || 1);
-      let Fyf = pacejka(aF, capF);
+      // brake assist keeps the car's balance on the understeer side while braking (no snap spins)
+      const capFa = assist && Fbrake > 0 ? Math.min(capF, capR * (P.b / P.a) * (assist === 2 ? 0.9 : 1.0)) : capF;
+      let Fyf = pacejka(aF, capFa);
       let Fyr = pacejka(aR, capR);
       car.slipF = Math.abs(aF); car.slipR = Math.abs(aR);
       // longitudinal net force in body frame
@@ -1503,6 +1518,14 @@ window.plethoraBit = {
       car.vx += (axb * fx + ayb * rx) * dt;
       car.vz += (axb * fz + ayb * rz) * dt;
       car.wr += (torque / P.iz) * dt;
+      // brake assist: calm oversteer while braking (yaw beyond what the steering asks for)
+      if (assist && Fbrake > 0 && speed > 8) {
+        // target = requested yaw rate, limited to what the tyres can sustain at this speed
+        const cap = mu * (Nf + Nr) / (P.mass * Math.max(u, 5));
+        const want = clamp(u * Math.tan(delta) / P.L, -cap, cap);
+        const over = car.wr - want;
+        if (Math.abs(car.wr) > Math.abs(want) && Math.sign(over) === Math.sign(car.wr || 1)) car.wr -= over * clamp(dt * (assist === 2 ? 7 : 3.5), 0, 1);
+      }
       // stability: yaw damping when nearly stopped
       if (speed < 4) {
         const target = u * Math.tan(delta) / P.L;
@@ -1983,8 +2006,18 @@ window.plethoraBit = {
       const pr = Math.max(12, safe.right + 10), pl = Math.max(12, safe.left + 10);
       const pb = Math.max(12, safe.bottom + (portrait ? 14 : 10));
       const pt = Math.max(10, safe.top + 8);
+      const touch = effectiveSteering() === "touch";
       H.gas.style.right = pr + "px"; H.gas.style.bottom = pb + "px";
-      H.brake.style.right = (pr + 6.8 * ce) + "px"; H.brake.style.bottom = pb + "px";
+      if (touch) {
+        // Button steering: GAS and BRAKE both on the right thumb, steering arrows on the left
+        H.brake.style.left = "auto"; H.brake.style.right = (pr + 6.8 * ce) + "px";
+        H.brake.style.width = "4.6em"; H.brake.style.height = "5.6em";
+      } else {
+        // Tilt steering: BRAKE under the left thumb, GAS under the right thumb
+        H.brake.style.right = "auto"; H.brake.style.left = pl + "px";
+        H.brake.style.width = "5.4em"; H.brake.style.height = "7.4em";
+      }
+      H.brake.style.bottom = pb + "px";
       H.boost.style.right = (pr + 1.4 * ce) + "px"; H.boost.style.bottom = (pb + 8.1 * ce) + "px";
       if (portrait) {
         H.cam.style.top = "auto"; H.reset.style.top = "auto";
@@ -1997,14 +2030,17 @@ window.plethoraBit = {
         const camW = H.cam.offsetWidth || 6 * ce;
         H.reset.style.top = pt + "px"; H.reset.style.right = (pr + lbW + camW + 1.1 * em) + "px";
       }
-      const touch = effectiveSteering() === "touch";
       H.steerBox.classList.toggle("fr-hide", !touch);
       const bs = 4.4 * 1.25 * ce;
       if (touch) {
         H.left.style.left = pl + "px"; H.left.style.bottom = pb + "px";
         H.right.style.left = (pl + bs + 1.1 * ce) + "px"; H.right.style.bottom = pb + "px";
       }
-      if (!portrait) H.cluster.style.bottom = (touch ? pb + bs + 0.6 * em : pb) + "px";
+      if (!portrait) {
+        // tilt mode: the speed cluster sits beside the left-thumb BRAKE so it never covers the minimap
+        H.cluster.style.bottom = (touch ? pb + bs + 0.6 * em : pb) + "px";
+        H.cluster.style.left = touch ? "var(--pl)" : (pl + 6.3 * ce) + "px";
+      }
     }
     layoutListeners.push(layoutHud);
 
@@ -2063,6 +2099,24 @@ window.plethoraBit = {
     `;
     const toast = el("div", "fr-ui fr-hide", "");
     toast.style.cssText = "position:absolute;left:50%;top:calc(var(--vy) + var(--vh) * 0.18);transform:translateX(-50%);background:rgba(0,0,0,.78);padding:.5em .9em;border-radius:8px;font-size:.78em;pointer-events:none;max-width:80%;text-align:center";
+    // Landscape is the intended presentation. When the host keeps the device in portrait (no
+    // orientation lock available) we ask the player to rotate, and offer the compact portrait layout only on request.
+    const rotateEl = el("div", "fr-screen fr-hide");
+    rotateEl.style.cssText += ";pointer-events:auto;background:radial-gradient(ellipse at 50% 45%,#1d2433,#06080d 72%);z-index:20";
+    rotateEl.innerHTML = `
+      <div style="position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);text-align:center;width:86%">
+        <svg viewBox="0 0 64 64" width="72" height="72" fill="none" stroke="#fff" stroke-width="3" stroke-linejoin="round" style="opacity:.9"><rect x="20" y="8" width="24" height="44" rx="4"/><path d="M8 40a24 24 0 0 0 24 18" stroke="#ff2a3d"/><path d="M27 58l5 0 0-5" stroke="#ff2a3d"/></svg>
+        <div style="font-size:2em;letter-spacing:.08em;margin-top:.4em">ROTATE TO <span class="fr-accent">LANDSCAPE</span></div>
+        <div class="fr-ui" style="font-size:.85em;opacity:.7;margin-top:.5em;line-height:1.5">Formula Rush is a landscape racing game.<br>Turn your phone sideways to race full screen.</div>
+        <button class="fr-btn fr-ui fr-portrait-ok" style="margin:1.4em auto 0;padding:.6em 1.2em;font-size:.8em">Continue in portrait</button>
+      </div>`;
+    let portraitOk = false;
+    function updateRotatePrompt() { rotateEl.classList.toggle("fr-hide", !portrait || portraitOk); }
+    ctx.input.activate(rotateEl.querySelector(".fr-portrait-ok"), () => { portraitOk = true; updateRotatePrompt(); });
+    layoutListeners.push(updateRotatePrompt);
+    function requestLandscape() {
+      try { const so = screen.orientation; if (so && so.lock) so.lock("landscape").catch(() => {}); } catch (e) { /* not supported by this host */ }
+    }
     let toastT = 0;
     function showToast(msg, sec) { toast.textContent = msg; toast.classList.remove("fr-hide"); toastT = sec || 2.6; }
 
@@ -2218,7 +2272,8 @@ window.plethoraBit = {
         ["Laps", "laps", [[3, "3"], [5, "5"], [10, "10"]]],
         ["Grid size", "grid", [[6, "6"], [8, "8"], [10, "10"]]],
         ["Racing line", "racingLine", [[true, "On"], [false, "Off"]]],
-        ["Steering", "steering", [["motion", "Tilt"], ["touch", "Touch"]]],
+        ["Brake assist", "brakeAssist", [["off", "Off"], ["medium", "Medium"], ["full", "Full"]]],
+        ["Controls", "steering", [["motion", "Tilt steering"], ["touch", "Button steering"]]],
         ["Tilt sensitivity", "sensitivity", [[0.7, "Low"], [1, "Mid"], [1.4, "High"]]],
         ["Tilt dead zone", "deadzone", [[0.02, "Small"], [0.05, "Mid"], [0.1, "Large"]]],
         ["Invert tilt", "invertTilt", [[false, "Off"], [true, "On"]]],
@@ -2414,6 +2469,7 @@ window.plethoraBit = {
     }
     function startRaceFlow(isRestart) {
       attempt++;
+      requestLandscape();
       audio.init(); audio.resume(); audio.setVolume();
       ctx.platform.start({ attempt, laps: settings.laps, difficulty: settings.difficulty });
       motionFallback = false;
@@ -2845,7 +2901,8 @@ window.plethoraBit = {
       const gasHeld = !!(input.gas || kUp), brakeHeld = !!(input.brake || kDn);
       // steering source priority is deterministic: held buttons/keys, else tilt (tilt mode only), else centre
       let target = 0, src = "none";
-      const btn = (input.right || kR ? 1 : 0) - (input.left || kL ? 1 : 0);
+      const tiltMode = effectiveSteering() === "motion";
+      const btn = tiltMode ? 0 : (input.right || kR ? 1 : 0) - (input.left || kL ? 1 : 0);
       if (btn !== 0) { target = btn; src = "buttons"; }
       else if (effectiveSteering() === "motion") { const t = readTilt(dt); if (t != null) { target = t; src = "tilt"; } }
       const u = Math.max(0, player.u);
@@ -2904,6 +2961,7 @@ window.plethoraBit = {
             ctrl = playerCtrlRef;
             ctrl.steer = pc.steer; ctrl.throttle = pc.throttle; ctrl.brake = pc.brake; ctrl.boost = pc.boost; ctrl.reverse = !!pc.reverse;
             ctrl.gripAssist = PLAYER_ASSIST[settings.difficulty] || 1; ctrl.rearAssist = ctrl.gripAssist;
+            ctrl.brakeAssist = settings.brakeAssist === "full" ? 2 : settings.brakeAssist === "off" ? 0 : 1;
             ctrl.slip = slipstreamFor(c);
             c.slipstream = ctrl.slip;
             // ERS energy
