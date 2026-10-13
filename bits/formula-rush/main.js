@@ -18,15 +18,15 @@ window.plethoraBit = {
     const DEFAULT_SETTINGS = {
       difficulty: "medium", laps: 3, racingLine: true, steering: "touch",
       sensitivity: 1, deadzone: 0.05, invertTilt: false, sound: true, volume: 0.8,
-      vibration: true, camera: 0, quality: "high", grid: 8, livery: 0, ver: 2
+      vibration: true, view: 0, quality: "high", grid: 8, livery: 0, ver: 2
     };
     const settings = Object.assign({}, DEFAULT_SETTINGS);
     let bestLapStored = null;
     try {
       const saved = ctx.storage.get("settings");
       if (saved && typeof saved === "object") {
-        // v1 saves predate the two-mode camera and touch-first steering; keep everything else
-        if (saved.ver !== 2) { delete saved.camera; delete saved.steering; }
+        // v1 saves predate the two-mode viewCam and touch-first steering; keep everything else
+        if (saved.ver !== 2) { delete saved.steering; }
         for (const k of Object.keys(DEFAULT_SETTINGS)) {
           if (saved[k] !== undefined && typeof saved[k] === typeof DEFAULT_SETTINGS[k]) settings[k] = saved[k];
         }
@@ -36,7 +36,7 @@ window.plethoraBit = {
     } catch (e) { /* storage optional */ }
     if (![3, 5, 10].includes(settings.laps)) settings.laps = 3;
     if (![6, 8, 10].includes(settings.grid)) settings.grid = 8;
-    if (settings.camera !== 0 && settings.camera !== 1) settings.camera = 0;
+    if (settings.view !== 0 && settings.view !== 1) settings.view = 0;
     settings.ver = 2;
     function saveSettings() {
       try { ctx.storage.set("settings", settings); } catch (e) { /* ignore */ }
@@ -513,7 +513,7 @@ window.plethoraBit = {
     const SKY_TOP = new THREE.Color("#3f7fd0"), SKY_HZ = new THREE.Color("#cfe3f2");
     scene.background = SKY_HZ.clone();
     scene.fog = new THREE.Fog(SKY_HZ.clone(), 260, 1150);
-    const camera = new THREE.PerspectiveCamera(60, 2, 0.3, 2200);
+    const viewCam = new THREE.PerspectiveCamera(60, 2, 0.3, 2200);
 
     // Sky dome with vertex gradient
     {
@@ -1939,7 +1939,7 @@ window.plethoraBit = {
       <div class="fr-pedal fr-brake" style="width:4.6em;height:5.6em"><span>BRAKE</span></div>
       <div class="fr-pedal fr-gas" style="width:5.4em;height:7.4em"><span>GAS</span></div>
       <div class="fr-small fr-boost" style="font-size:.85em">ERS</div>
-      <div class="fr-small fr-cam" role="button" aria-label="Switch camera"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="2.5" y="7" width="13" height="10" rx="2"/><path d="M15.5 10.5l6-3.5v10l-6-3.5z"/></svg><span class="fr-cam-label">CHASE</span></div>
+      <div class="fr-small fr-cam" role="button" aria-label="Switch view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="2.5" y="7" width="13" height="10" rx="2"/><path d="M15.5 10.5l6-3.5v10l-6-3.5z"/></svg><span class="fr-cam-label">CHASE</span></div>
       <div class="fr-small fr-reset" aria-label="Reset car">↺</div>
       </div>
     `;
@@ -2075,7 +2075,7 @@ window.plethoraBit = {
     let countdownT = 0, lightsLit = 0, lightsOutAt = 0;
     let preRaceT = 0;
     let player = null;
-    let camMode = settings.camera;
+    let camMode = settings.view;
     let finishedT = 0;
     let finishCount = 0;
     let penaltyMs = 0, trackLimitWarnings = 0, offTrackTimer = 0;
@@ -2134,7 +2134,7 @@ window.plethoraBit = {
       const k = e.key;
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "w", "a", "s", "d"].includes(k)) e.preventDefault && e.preventDefault();
       keys.add(k.toLowerCase());
-      if ((k === "c" || k === "C") && !e.repeat) toggleCamera();
+      if ((k === "c" || k === "C") && !e.repeat) toggleCam();
       if (k === "Escape" || k === "p" || k === "P") { if (state === "racing" || state === "countdown") togglePause(!paused); }
       if (k === "r" || k === "R") requestReset();
       audio.resume();
@@ -2153,7 +2153,7 @@ window.plethoraBit = {
       ctx.listen(elm, "contextmenu", e => e.preventDefault());
       ctx.input.activate(elm, () => { if (performance.now() - lastPress > 600) fn(); });   // keyboard / click fallback
     }
-    pressButton(H.cam, () => toggleCamera());
+    pressButton(H.cam, () => toggleCam());
     pressButton(H.reset, () => requestReset());
     pressButton(H.pause, () => togglePause(true));
 
@@ -2222,7 +2222,7 @@ window.plethoraBit = {
         ["Tilt sensitivity", "sensitivity", [[0.7, "Low"], [1, "Mid"], [1.4, "High"]]],
         ["Tilt dead zone", "deadzone", [[0.02, "Small"], [0.05, "Mid"], [0.1, "Large"]]],
         ["Invert tilt", "invertTilt", [[false, "Off"], [true, "On"]]],
-        ["Camera", "camera", [[0, "Chase"], [1, "Cockpit"]]],
+        ["View", "view", [[0, "Chase"], [1, "Cockpit"]]],
         ["Sound", "sound", [[true, "On"], [false, "Off"]]],
         ["Volume", "volume", [[0.4, "Low"], [0.8, "Mid"], [1, "High"]]],
         ["Vibration", "vibration", [[true, "On"], [false, "Off"]]],
@@ -2245,7 +2245,7 @@ window.plethoraBit = {
             settings[key] = val; saveSettings();
             for (const x of seg.children) x.classList.remove("sel");
             b.classList.add("sel");
-            if (key === "camera") setCameraMode(val, false);
+            if (key === "view") setCamMode(val, false);
             if (key === "sound" || key === "volume") { audio.init(); audio.setVolume(); }
             if (key === "racingLine") guide.mesh.visible = !!val;
             if (key === "steering") { motionFallback = false; if (val === "motion" && fromPause) startMotion(); layoutHud(); }
@@ -2407,15 +2407,13 @@ window.plethoraBit = {
       for (const c of cars) { c.lapStart = 0; c.lapsDone = -1; c.finished = false; c.finishTime = null; c.lastLap = null; c.bestLap = null; c.lapValid = true; c.lapTimes = []; c.boost = 1; }
       guide.mesh.visible = !!settings.racingLine;
       camInit = false; CAM.trans = null; CAM.shake = 0;
-      setCameraMode(settings.camera, false);
+      setCamMode(settings.view, false);
       resetControls();
       raceAccum = 0;
       refreshLeaderboardRows();
     }
     function startRaceFlow(isRestart) {
       attempt++;
-      // ask for landscape where the platform allows it; harmless no-op inside locked hosts
-      try { const so = screen.orientation; if (so && so.lock) so.lock("landscape").catch(() => {}); } catch (e) { /* unsupported */ }
       audio.init(); audio.resume(); audio.setVolume();
       ctx.platform.start({ attempt, laps: settings.laps, difficulty: settings.difficulty });
       motionFallback = false;
@@ -2674,17 +2672,17 @@ window.plethoraBit = {
     function requestAnimationFrameSafe(fn) { ctx.timeout(fn, 120); }
 
     // =====================================================================
-    // Camera
+    // Cam
     // =====================================================================
-    // One render camera. Two rigs (chase / cockpit) compute target poses from the car's
-    // interpolated transform; a short blend handles switching. Camera code never writes car state.
+    // One render viewCam. Two rigs (chase / cockpit) compute target poses from the car's
+    // interpolated transform; a short blend handles switching. Cam code never writes car state.
     let camInit = false;
     const UP = new THREE.Vector3(0, 1, 0);
     const CAM = { yaw: 0, accel: 0, pushX: 0, pushZ: 0, lift: 0, shake: 0, shakeT: 0, fov: 58, trans: null };
     const tgt = { pos: new THREE.Vector3(), quat: new THREE.Quaternion(), fov: 58, near: 0.3 };
     const _look = new THREE.Vector3(), _m4 = new THREE.Matrix4(), _eul = new THREE.Euler(0, 0, 0, "YXZ");
     const _cq = new THREE.Quaternion(), _from = new THREE.Vector3(), _fromQ = new THREE.Quaternion();
-    function setCameraFov(vfov16x9) {
+    function setCamFov(vfov16x9) {
       // vfov is authored for 16:9; narrower landscape ratios widen it so horizontal coverage holds
       const aspect = VR.w / Math.max(1, VR.h);
       let f = vfov16x9;
@@ -2692,10 +2690,10 @@ window.plethoraBit = {
         const hf = 2 * Math.atan(Math.tan(f * Math.PI / 360) * 16 / 9);
         f = 2 * Math.atan(Math.tan(hf / 2) / aspect) * 180 / Math.PI;
       }
-      camera.aspect = aspect; camera.fov = f;
-      camera.updateProjectionMatrix();
+      viewCam.aspect = aspect; viewCam.fov = f;
+      viewCam.updateProjectionMatrix();
     }
-    function setNear(n) { camera.near = n; }
+    function setNear(n) { viewCam.near = n; }
     function chaseTarget(c, dt, out) {
       const speed = Math.max(0, c.u), sp = clamp(speed / 85, 0, 1);
       // heading follows the car with a short exponential lag: the car swings within the frame in turns
@@ -2705,7 +2703,7 @@ window.plethoraBit = {
       const dist = 6.1 + sp * 0.6 - CAM.accel * 0.006;
       const height = 1.92 + sp * 0.08;
       out.pos.set(c.rx - fx * dist, height, c.rz - fz * dist);
-      // barriers: ease the camera back inside rather than snapping through walls
+      // barriers: ease the viewCam back inside rather than snapping through walls
       project(out.pos.x, out.pos.z, c.idx, projTmp, false);
       const lim = (projTmp.d < 0 ? track.limL[projTmp.idx] : track.limR[projTmp.idx]) - 0.9;
       let px = 0, pz = 0;
@@ -2750,36 +2748,36 @@ window.plethoraBit = {
       const inv = _cq.clone().invert();
       CAM.trans = {
         t: 0, dur: 0.32,
-        pos: camera.position.clone().sub(new THREE.Vector3(c.rx, 0, c.rz)).applyQuaternion(inv),
-        quat: inv.multiply(camera.quaternion),
-        fov: CAM.fov, near: camera.near
+        pos: viewCam.position.clone().sub(new THREE.Vector3(c.rx, 0, c.rz)).applyQuaternion(inv),
+        quat: inv.multiply(viewCam.quaternion),
+        fov: CAM.fov, near: viewCam.near
       };
     }
-    function setCameraMode(mode, animate) {
+    function setCamMode(mode, animate) {
       if (mode !== 0 && mode !== 1) mode = 0;
       if (mode !== camMode) {
         if (animate) beginCamTransition();
         if (mode === 0 && player) { CAM.yaw = player.rh; CAM.pushX = CAM.pushZ = CAM.lift = 0; }
         camMode = mode;
       }
-      settings.camera = mode; saveSettings();
+      settings.view = mode; saveSettings();
       H.camLabel.textContent = mode === 1 ? "COCKPIT" : "CHASE";
       H.cam.classList.toggle("on", mode === 1);
       layoutHud();
     }
-    function toggleCamera() {
+    function toggleCam() {
       if (!(state === "countdown" || state === "racing" || state === "finished")) return;
-      setCameraMode(camMode === 1 ? 0 : 1, true);
-      ctx.platform.interact({ type: "camera", mode: camMode === 1 ? "cockpit" : "chase" });
+      setCamMode(camMode === 1 ? 0 : 1, true);
+      ctx.platform.interact({ type: "view", mode: camMode === 1 ? "cockpit" : "chase" });
     }
     function applyCamPose(pos, quat, fov, near) {
-      camera.position.copy(pos);
-      camera.quaternion.copy(quat);
+      viewCam.position.copy(pos);
+      viewCam.quaternion.copy(quat);
       CAM.fov = fov;
       setNear(near);
-      setCameraFov(fov);
+      setCamFov(fov);
     }
-    function updateRaceCamera(dt) {
+    function updateRaceCam(dt) {
       const c = player;
       if (!camInit) { CAM.yaw = c.rh; camInit = true; }
       CAM.shake = Math.max(0, CAM.shake - dt * 3); CAM.shakeT += dt;
@@ -3052,28 +3050,28 @@ window.plethoraBit = {
       updateMinimap();
     }
 
-    function updateMenuCamera(dt) {
+    function updateMenuCam(dt) {
       menuOrbit += dt * (state === "carSelect" ? 0 : 0.12);
       const b = showcase.base;
       const yaw = state === "carSelect" ? carSelYaw : menuOrbit;
       const r = state === "carSelect" ? 6.4 : 7.8;
       const cx = b.x + Math.sin(b.h + yaw) * r, cz = b.z + Math.cos(b.h + yaw) * r;
-      camera.position.set(cx, state === "carSelect" ? 2.2 : 1.7, cz);
+      viewCam.position.set(cx, state === "carSelect" ? 2.2 : 1.7, cz);
       // offset the look target so the car sits clear of the menu panel (landscape only)
       const sideX = Math.cos(b.h + yaw), sideZ = -Math.sin(b.h + yaw);
       const off = portrait ? 0 : state === "carSelect" ? 1.7 : -2.1;
-      camera.lookAt(b.x + sideX * off, 0.55, b.z + sideZ * off);
+      viewCam.lookAt(b.x + sideX * off, 0.55, b.z + sideZ * off);
       setNear(0.3);
-      setCameraFov(portrait ? 46 : 40);
+      setCamFov(portrait ? 46 : 40);
       showcase.helmet.visible = true;
     }
 
-    function updatePreRaceCamera(dt) {
+    function updatePreRaceCam(dt) {
       preRaceT += dt;
       const T = 3.6;
       const t = clamp(preRaceT / T, 0, 1);
       const e = t * t * (3 - 2 * t);
-      // sweep from high above the front of the grid into the chase camera's exact pose
+      // sweep from high above the front of the grid into the chase cam's exact pose
       if (preRaceT <= dt) CAM.yaw = player.rh;
       chaseTarget(player, dt, tgt);
       const front = sampleAt(25);
@@ -3087,7 +3085,7 @@ window.plethoraBit = {
       if (preRaceT > T + 0.3) setState("countdown");
     }
 
-    // shadow-camera basis (fixed sun direction); the follow point is snapped to whole shadow texels
+    // shadow-cam basis (fixed sun direction); the follow point is snapped to whole shadow texels
     const sunFwd = SUN_OFFSET.clone().normalize().negate();
     const sunRight = new THREE.Vector3().crossVectors(sunFwd, UP).normalize();
     const sunUp = new THREE.Vector3().crossVectors(sunRight, sunFwd).normalize();
@@ -3111,7 +3109,7 @@ window.plethoraBit = {
       if (warnT > 0) { warnT -= dt; if (warnT <= 0) H.warn.classList.add("fr-hide"); }
 
       if (state === "menu" || state === "carSelect") {
-        updateMenuCamera(dt);
+        updateMenuCam(dt);
         if (showcase) {
           showcase.body.rotation.set(0, 0, 0);
         }
@@ -3164,7 +3162,7 @@ window.plethoraBit = {
             smokeT = 0.035;
             for (const c of cars) {
               const sl = c.slip + (c.surf >= 2 && Math.abs(c.u) > 12 ? 0.15 : 0);
-              if (sl > 0.12 && Math.hypot(c.x - camera.position.x, c.z - camera.position.z) < 140) {
+              if (sl > 0.12 && Math.hypot(c.x - viewCam.position.x, c.z - viewCam.position.z) < 140) {
                 const fx = Math.sin(c.h), fz = Math.cos(c.h);
                 smoke.emit(c.x - fx * 1.5, c.z - fz * 1.5, c.vx, c.vz);
               }
@@ -3182,22 +3180,22 @@ window.plethoraBit = {
             audio.update(player, rivalEngineInfo, crowdAmt);
           }
         }
-        if (state === "preRace") updatePreRaceCamera(dt);
-        else if (state !== "results") updateRaceCamera(dt);
+        if (state === "preRace") updatePreRaceCam(dt);
+        else if (state !== "results") updateRaceCam(dt);
         hudT -= dt;
         if (hudT <= 0 && state !== "preRace") { hudT = 0.066; updateHud(dt); }
         for (const c of cars) syncCarVisual(c, dt);
       }
-      // sun/shadow follows the camera focus
+      // sun/shadow follows the viewCam focus
       const fxp = player ? { x: player.rx, z: player.rz } : (showcase ? { x: showcase.base.x, z: showcase.base.z } : { x: 0, z: 0 });
       placeSun(fxp.x, fxp.z);
-      scene.userData.sky.position.copy(camera.position);
+      scene.userData.sky.position.copy(viewCam.position);
       if (!(TEST && TEST.noRender)) {
         renderer.setScissorTest(true);
         const yGL = SH - VR.y - VR.h;
         renderer.setViewport(VR.x, yGL, VR.w, VR.h);
         renderer.setScissor(VR.x, yGL, VR.w, VR.h);
-        renderer.render(scene, camera);
+        renderer.render(scene, viewCam);
       }
     }
 
@@ -3217,7 +3215,7 @@ window.plethoraBit = {
       TEST.api = {
         get state() { return state; }, get player() { return player; }, get cars() { return cars; }, get raceTime() { return raceTime; },
         settings, startRace: () => startRaceFlow(), skipPre: () => { preRaceT = 99; }, racing, track, PHYS, setState, standings,
-        scene, THREE, camera, controls, toggleCamera, get camMode() { return camMode; }, get camTrans() { return CAM.trans; },
+        scene, THREE, renderCam: viewCam, controls, toggleCam, get camMode() { return camMode; }, get camTrans() { return CAM.trans; },
         get renderInfo() { return Object.assign({}, renderer.info.render, { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures }); }
       };
     }
