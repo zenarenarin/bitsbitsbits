@@ -16,15 +16,17 @@ window.plethoraBit = {
     // Settings
     // =====================================================================
     const DEFAULT_SETTINGS = {
-      difficulty: "medium", laps: 3, racingLine: true, steering: "motion",
+      difficulty: "medium", laps: 3, racingLine: true, steering: "touch",
       sensitivity: 1, deadzone: 0.05, invertTilt: false, sound: true, volume: 0.8,
-      vibration: true, camera: 0, quality: "high", grid: 8, livery: 0, flip: false
+      vibration: true, camera: 0, quality: "high", grid: 8, livery: 0, ver: 2
     };
     const settings = Object.assign({}, DEFAULT_SETTINGS);
     let bestLapStored = null;
     try {
       const saved = ctx.storage.get("settings");
       if (saved && typeof saved === "object") {
+        // v1 saves predate the two-mode camera and touch-first steering; keep everything else
+        if (saved.ver !== 2) { delete saved.camera; delete saved.steering; }
         for (const k of Object.keys(DEFAULT_SETTINGS)) {
           if (saved[k] !== undefined && typeof saved[k] === typeof DEFAULT_SETTINGS[k]) settings[k] = saved[k];
         }
@@ -34,6 +36,8 @@ window.plethoraBit = {
     } catch (e) { /* storage optional */ }
     if (![3, 5, 10].includes(settings.laps)) settings.laps = 3;
     if (![6, 8, 10].includes(settings.grid)) settings.grid = 8;
+    if (settings.camera !== 0 && settings.camera !== 1) settings.camera = 0;
+    settings.ver = 2;
     function saveSettings() {
       try { ctx.storage.set("settings", settings); } catch (e) { /* ignore */ }
     }
@@ -97,7 +101,7 @@ window.plethoraBit = {
     const root = ctx.createRoot({ layer: "overlay", input: "passthrough", style: "pointer-events:none;overflow:hidden;" });
     const style = document.createElement("style");
     style.textContent = `
-      .fr-stage{position:absolute;left:0;top:0;transform-origin:0 0;font-family:"Bebas Neue",Inter,system-ui,-apple-system,"Segoe UI",sans-serif;color:#fff;pointer-events:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;overflow:hidden}
+      .fr-stage{position:absolute;left:0;top:0;font-family:"Bebas Neue",Inter,system-ui,-apple-system,"Segoe UI",sans-serif;color:#fff;pointer-events:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;overflow:hidden}
       .fr-stage *{box-sizing:border-box}
       .fr-ui{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
       .fr-panel{background:rgba(8,10,16,.62);border:1px solid rgba(255,255,255,.12);border-radius:10px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
@@ -128,6 +132,21 @@ window.plethoraBit = {
       .fr-card{pointer-events:auto;cursor:pointer;display:flex;align-items:center;gap:.6em;padding:.45em .6em;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);margin-bottom:.35em;font:600 .8em Inter,system-ui,sans-serif}
       .fr-card.sel{border-color:#ff2a3d;background:rgba(255,42,61,.18)}
       .fr-sw{width:2.4em;height:1.3em;border-radius:4px;border:1px solid rgba(255,255,255,.3)}
+      .fr-view{position:absolute;left:var(--vx);top:var(--vy);width:var(--vw);height:var(--vh);overflow:hidden;pointer-events:none}
+      .fr-deck{position:absolute;left:0;right:0;top:var(--dk);bottom:0;display:none;flex-direction:column;gap:.6em;padding:.8em var(--pr) calc(var(--sb) + .8em) var(--pl);pointer-events:none;background:linear-gradient(180deg,#0b0f17,#05070b)}
+      .fr-port .fr-deck{display:flex}
+      .fr-docked{position:relative!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;transform:none!important;width:auto!important}
+      .fr-deck-row{display:flex;gap:.6em;align-items:flex-start;justify-content:space-between}
+      .fr-docked.fr-map{width:9.5em!important;height:9.5em!important}
+      .fr-docked.fr-cars-col{flex:1;min-height:0}
+      .fr-port .fr-res-left{position:relative!important;left:auto!important;top:auto!important;bottom:auto!important;width:auto!important;padding:1em var(--pl) 0!important}
+      .fr-port .fr-res-right{position:relative!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;width:auto!important;margin:1em var(--pr) 1em var(--pl);max-height:50%}
+      .fr-port .fr-results{overflow-y:auto;display:flex;flex-direction:column}
+      .fr-ctl{position:absolute;inset:0;pointer-events:none}
+      .fr-pedal{-webkit-touch-callout:none;user-select:none}
+      .fr-cam{width:auto!important;padding:0 .7em;border-radius:1.3em!important;gap:.35em;font-size:.8em!important;letter-spacing:.08em}
+      .fr-cam svg{width:1.25em;height:1.25em}
+      .fr-cam.on{background:rgba(255,42,61,.85)!important;border-color:#ff2a3d!important}
       @keyframes frPulse{0%,100%{opacity:1}50%{opacity:.45}}
       .fr-pulse{animation:frPulse 1s infinite}
     `;
@@ -155,39 +174,48 @@ window.plethoraBit = {
     const loadMsg = loading.querySelector(".fr-load-msg");
     const loadBar = loading.querySelector(".fr-load-bar");
 
-    // Layout: stage is always landscape. If the container is portrait we rotate the stage.
-    let SW = 800, SH = 400, rotated = false, rotSign = 1;
+    // Layout. The stage is never rotated. A landscape container uses its full area as the 3D view.
+    // A portrait container (host without orientation lock) gets an upright 16:9 view at the top and
+    // a control deck underneath, so the HUD, touch targets and projection all stay in screen space.
+    let SW = 800, SH = 400, portrait = false;
+    const VR = { x: 0, y: 0, w: 800, h: 400 };   // 3D view rect in container CSS pixels
+    let deckTop = 400;
     let safe = { top: 0, right: 0, bottom: 0, left: 0 };
     const layoutListeners = [];
+    const docks = [];   // [element, landscapeParent, portraitParent]
     function layout(info) {
       const w = (info && info.width) || ctx.width || 800;
       const h = (info && info.height) || ctx.height || 400;
-      const sa = (info && info.safeArea) || ctx.safeArea || { top: 0, right: 0, bottom: 0, left: 0 };
-      rotated = h > w * 1.05;
-      rotSign = settings.flip ? -1 : 1;
-      if (rotated) {
-        SW = h; SH = w;
-        if (rotSign > 0) {
-          // stage top -> container right
-          stage.style.transform = `translate(${w}px,0) rotate(90deg)`;
-          safe = { top: sa.right || 0, right: sa.bottom || 0, bottom: sa.left || 0, left: sa.top || 0 };
-        } else {
-          stage.style.transform = `translate(0,${h}px) rotate(-90deg)`;
-          safe = { top: sa.left || 0, right: sa.top || 0, bottom: sa.right || 0, left: sa.bottom || 0 };
-        }
+      const sa = (info && info.safeArea) || ctx.safeArea || {};
+      safe = { top: sa.top || 0, right: sa.right || 0, bottom: sa.bottom || 0, left: sa.left || 0 };
+      SW = w; SH = h;
+      portrait = h > w;
+      if (portrait) {
+        VR.x = 0; VR.w = w; VR.h = Math.round(w * 9 / 16); VR.y = Math.round(safe.top);
+        deckTop = VR.y + VR.h;
       } else {
-        SW = w; SH = h;
-        stage.style.transform = "none";
-        safe = { top: sa.top || 0, right: sa.right || 0, bottom: sa.bottom || 0, left: sa.left || 0 };
+        VR.x = 0; VR.y = 0; VR.w = w; VR.h = h; deckTop = h;
       }
-      stage.style.width = SW + "px";
-      stage.style.height = SH + "px";
-      const base = clamp(Math.min(SH / 22, SW / 44), 11, 22);
+      stage.style.width = w + "px";
+      stage.style.height = h + "px";
+      stage.classList.toggle("fr-port", portrait);
+      const base = portrait ? clamp(w / 32, 11, 16) : clamp(Math.min(h / 22, w / 44), 11, 22);
       stage.style.fontSize = base + "px";
-      stage.style.setProperty("--pt", Math.max(10, safe.top + 8) + "px");
-      stage.style.setProperty("--pr", Math.max(12, safe.right + 10) + "px");
-      stage.style.setProperty("--pb", Math.max(12, safe.bottom + 10) + "px");
-      stage.style.setProperty("--pl", Math.max(12, safe.left + 10) + "px");
+      const st = stage.style;
+      st.setProperty("--vx", VR.x + "px"); st.setProperty("--vy", VR.y + "px");
+      st.setProperty("--vw", VR.w + "px"); st.setProperty("--vh", VR.h + "px");
+      st.setProperty("--dk", deckTop + "px");
+      st.setProperty("--sb", safe.bottom + "px");
+      // paddings inside the view rect (portrait view already sits below the top inset)
+      st.setProperty("--pt", (portrait ? 8 : Math.max(10, safe.top + 8)) + "px");
+      st.setProperty("--pr", Math.max(12, safe.right + 10) + "px");
+      st.setProperty("--pb", (portrait ? 8 : Math.max(12, safe.bottom + 10)) + "px");
+      st.setProperty("--pl", Math.max(12, safe.left + 10) + "px");
+      for (const [elm, land, port] of docks) {
+        const target = portrait ? port : land;
+        if (elm.parentNode !== target) target.appendChild(elm);
+        elm.classList.toggle("fr-docked", portrait);
+      }
       for (const fn of layoutListeners) fn();
     }
     ctx.onResize(layout, { immediate: true });
@@ -1214,7 +1242,7 @@ window.plethoraBit = {
       }
       // halo
       trim.push({ geo: new THREE.TorusGeometry(0.36, 0.035, 6, 20, Math.PI), matrix: M4(0, 0.9, 0.2, -Math.PI / 2, 0, 0) });
-      trim.push({ geo: new THREE.CylinderGeometry(0.03, 0.035, 0.4, 6), matrix: M4(0, 0.83, 0.62, 0.75) });
+      carbon.push({ geo: new THREE.CylinderGeometry(0.018, 0.026, 0.4, 6), matrix: M4(0, 0.83, 0.62, 0.75) });
       trim.push({ geo: new THREE.CylinderGeometry(0.03, 0.03, 0.4, 6), matrix: M4(-0.36, 0.83, 0.02, 0, 0, 0.14) });
       trim.push({ geo: new THREE.CylinderGeometry(0.03, 0.03, 0.4, 6), matrix: M4(0.36, 0.83, 0.02, 0, 0, -0.14) });
       // suspension wishbones + push rods
@@ -1268,6 +1296,13 @@ window.plethoraBit = {
       ]);
       const res = {
         wheel: wheelGeo(0.36, 0.36), wheelR: wheelGeo(0.37, 0.44), disc,
+        swRim: mergeGeos([
+          { geo: new THREE.TorusGeometry(0.125, 0.017, 6, 22, Math.PI * 1.25), matrix: M4(0, 0, 0, 0, 0, -Math.PI * 0.125) },
+          { geo: new THREE.BoxGeometry(0.03, 0.08, 0.03), matrix: M4(-0.115, -0.06, 0) },
+          { geo: new THREE.BoxGeometry(0.03, 0.08, 0.03), matrix: M4(0.115, -0.06, 0) }
+        ]),
+        swHub: new THREE.BoxGeometry(0.2, 0.09, 0.03),
+        swScreen: new THREE.PlaneGeometry(0.075, 0.045),
         number: new THREE.PlaneGeometry(0.22, 0.16), side: new THREE.PlaneGeometry(1.0, 0.22),
         shadow: (() => { const g = new THREE.PlaneGeometry(2.4, 5.8); g.rotateX(-Math.PI / 2); return g; })()
       };
@@ -1277,6 +1312,7 @@ window.plethoraBit = {
     const sharedMats = {
       carbon: new THREE.MeshStandardMaterial({ color: 0x17191d, roughness: 0.42, metalness: 0.35 }),
       wheel: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.3, side: THREE.DoubleSide }),
+      screen: new THREE.MeshBasicMaterial({ color: 0x23c7ff, side: THREE.DoubleSide }),
       paint: new THREE.MeshPhysicalMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.38, metalness: 0.05, clearcoat: 0.65, clearcoatRoughness: 0.12, envMapIntensity: 0.6 }),
       shadow: new THREE.MeshBasicMaterial({ map: blobTex, transparent: true, depthWrite: false })
     };
@@ -1323,7 +1359,16 @@ window.plethoraBit = {
       const shadow = new THREE.Mesh(g.shadow, sharedMats.shadow);
       shadow.position.y = 0.03; shadow.renderOrder = 1;
       car.add(shadow);
-      return { group: car, body, wheels, helmet, mats: m };
+      let wheelRim = null;
+      if (detailed) {
+        const mount = new THREE.Group();
+        mount.position.set(0, 0.66, 0.6); mount.rotation.x = 0.5;
+        wheelRim = new THREE.Group();
+        wheelRim.add(new THREE.Mesh(g.swRim, sharedMats.carbon), new THREE.Mesh(g.swHub, sharedMats.carbon), new THREE.Mesh(g.swScreen, sharedMats.screen));
+        mount.add(wheelRim);
+        body.add(mount);
+      }
+      return { group: car, body, wheels, helmet, mats: m, wheelRim };
     }
 
     // Batch static scenery: merge meshes that share a material into one draw call
@@ -1373,6 +1418,7 @@ window.plethoraBit = {
       car.vx = car.vz = car.wr = 0; car.ax = 0;
       project(car.x, car.z, p.i, projTmp, true);
       car.idx = projTmp.idx; car.s = projTmp.s; car.d = projTmp.d;
+      car.px = car.rx = car.x; car.pz = car.rz = car.z; car.ph = car.rh = car.h;
     }
 
     // ---------- vehicle dynamics (bicycle model, SAE frame: x fwd, y right) ----------
@@ -1843,8 +1889,8 @@ window.plethoraBit = {
     // =====================================================================
     const hud = el("div", "fr-screen fr-hide");
     hud.innerHTML = `
+      <div class="fr-view">
       <div class="fr-vignette" style="position:absolute;inset:0;pointer-events:none;opacity:0;background:radial-gradient(ellipse at 50% 55%,rgba(0,0,0,0) 55%,rgba(0,0,0,.55) 100%)"></div>
-      <div class="fr-streaks" style="position:absolute;inset:-10%;pointer-events:none;opacity:0;background:repeating-conic-gradient(from 0deg at 50% 52%,rgba(255,255,255,.10) 0deg .35deg,rgba(255,255,255,0) .35deg 4.5deg);-webkit-mask-image:radial-gradient(ellipse at 50% 52%,transparent 38%,#000 75%);mask-image:radial-gradient(ellipse at 50% 52%,transparent 38%,#000 75%)"></div>
       <div style="position:absolute;left:var(--pl);top:var(--pt);display:flex;gap:.5em;align-items:flex-start">
         <button class="fr-btn fr-pause" aria-label="Pause" style="width:2.6em;height:2.6em;font-size:1em">❚❚</button>
         <div class="fr-panel" style="padding:.25em .7em;text-align:left">
@@ -1856,7 +1902,7 @@ window.plethoraBit = {
           <div class="fr-pos" style="font-size:1.6em;line-height:1">P1/8</div>
         </div>
       </div>
-      <div style="position:absolute;left:50%;top:var(--pt);transform:translateX(-50%);text-align:center">
+      <div class="fr-topc" style="position:absolute;left:50%;top:var(--pt);transform:translateX(-50%);text-align:center">
         <div class="fr-panel fr-timer-box" style="padding:.15em .9em">
           <div class="fr-timer" style="font-size:1.5em;letter-spacing:.06em">0:00.000</div>
           <div class="fr-delta fr-ui" style="font-size:.66em;font-weight:700;min-height:1.1em"></div>
@@ -1879,6 +1925,13 @@ window.plethoraBit = {
           <div style="display:flex;align-items:center;gap:.35em;margin-top:.3em"><div style="font-size:.55em;opacity:.65;letter-spacing:.1em">ERS</div><div style="flex:1;height:.3em;background:rgba(255,255,255,.12);border-radius:2px;overflow:hidden"><div class="fr-ers" style="height:100%;width:100%;background:#36c8ff"></div></div></div>
         </div>
       </div>
+      <div class="fr-prox-l" style="position:absolute;left:31%;top:58%;font-size:2.2em;color:#ffcf2e;opacity:0;transition:opacity .15s;text-shadow:0 0 8px #000">❮</div>
+      <div class="fr-prox-r" style="position:absolute;right:31%;top:58%;font-size:2.2em;color:#ffcf2e;opacity:0;transition:opacity .15s;text-shadow:0 0 8px #000">❯</div>
+      <div class="fr-banner" style="opacity:0"></div>
+      <div class="fr-hint fr-ui fr-hide" style="position:absolute;left:50%;top:36%;transform:translateX(-50%);text-align:center;font-size:.8em;line-height:1.6;padding:.6em 1em;background:rgba(0,0,0,.55);border-radius:10px;max-width:70%"></div>
+      </div>
+      <div class="fr-deck"><div class="fr-deck-row fr-hud-deckrow"></div><div class="fr-hud-deckmap" style="display:flex;justify-content:center"></div></div>
+      <div class="fr-ctl">
       <div class="fr-steer fr-hide">
         <div class="fr-pedal fr-left" style="width:4.4em;height:4.4em;border-radius:50%;font-size:1.25em">◀</div>
         <div class="fr-pedal fr-right" style="width:4.4em;height:4.4em;border-radius:50%;font-size:1.25em">▶</div>
@@ -1886,12 +1939,9 @@ window.plethoraBit = {
       <div class="fr-pedal fr-brake" style="width:4.6em;height:5.6em"><span>BRAKE</span></div>
       <div class="fr-pedal fr-gas" style="width:5.4em;height:7.4em"><span>GAS</span></div>
       <div class="fr-small fr-boost" style="font-size:.85em">ERS</div>
-      <div class="fr-small fr-cam" aria-label="Camera">🎥</div>
+      <div class="fr-small fr-cam" role="button" aria-label="Switch camera"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="2.5" y="7" width="13" height="10" rx="2"/><path d="M15.5 10.5l6-3.5v10l-6-3.5z"/></svg><span class="fr-cam-label">CHASE</span></div>
       <div class="fr-small fr-reset" aria-label="Reset car">↺</div>
-      <div class="fr-prox-l" style="position:absolute;left:31%;top:58%;font-size:2.2em;color:#ffcf2e;opacity:0;transition:opacity .15s;text-shadow:0 0 8px #000">❮</div>
-      <div class="fr-prox-r" style="position:absolute;right:31%;top:58%;font-size:2.2em;color:#ffcf2e;opacity:0;transition:opacity .15s;text-shadow:0 0 8px #000">❯</div>
-      <div class="fr-banner" style="opacity:0"></div>
-      <div class="fr-hint fr-ui fr-hide" style="position:absolute;left:50%;top:36%;transform:translateX(-50%);text-align:center;font-size:.8em;line-height:1.6;padding:.6em 1em;background:rgba(0,0,0,.55);border-radius:10px;max-width:70%"></div>
+      </div>
     `;
     const $ = (sel, scope) => (scope || stage).querySelector(sel);
     const H = {
@@ -1901,8 +1951,12 @@ window.plethoraBit = {
       cluster: $(".fr-cluster", hud), steerBox: $(".fr-steer", hud), left: $(".fr-left", hud), right: $(".fr-right", hud),
       brake: $(".fr-brake", hud), gas: $(".fr-gas", hud), boost: $(".fr-boost", hud), cam: $(".fr-cam", hud), reset: $(".fr-reset", hud),
       pause: $(".fr-pause", hud), banner: $(".fr-banner", hud), hint: $(".fr-hint", hud), proxL: $(".fr-prox-l", hud), proxR: $(".fr-prox-r", hud),
-      vignette: $(".fr-vignette", hud), streaks: $(".fr-streaks", hud)
+      vignette: $(".fr-vignette", hud), camLabel: $(".fr-cam-label", hud), ctl: $(".fr-ctl", hud)
     };
+    docks.push([H.cluster, H.cluster.parentNode, $(".fr-hud-deckrow", hud)]);
+    docks.push([$(".fr-topc", hud), $(".fr-topc", hud).parentNode, $(".fr-hud-deckrow", hud)]);
+    docks.push([H.lb, H.lb.parentNode, $(".fr-hud-deckrow", hud)]);
+    docks.push([H.map, H.map.parentNode, $(".fr-hud-deckmap", hud)]);
     const lightEls = Array.from(H.lights.querySelectorAll(".fr-light"));
 
     // minimap
@@ -1921,34 +1975,45 @@ window.plethoraBit = {
     })();
 
     function layoutHud() {
+      // Touch controls live in stage space: over the bottom of the view in landscape,
+      // inside the control deck in portrait. Sizes scale with the control font size.
       const em = parseFloat(stage.style.fontSize) || 16;
-      const pr = Math.max(12, safe.right + 10), pb = Math.max(12, safe.bottom + 10), pl = Math.max(12, safe.left + 10);
-      // pedals bottom-right
-      H.gas.style.right = pr + "px"; H.gas.style.bottom = pb + "px";
-      H.brake.style.right = (pr + 5.4 * em + 1.4 * em) + "px"; H.brake.style.bottom = pb + "px";
-      H.boost.style.right = (pr + 1.4 * em) + "px"; H.boost.style.bottom = (pb + 7.4 * em + 0.7 * em) + "px";
+      const ce = portrait ? clamp(SW / 26, 13, 18) : em;
+      H.ctl.style.fontSize = ce + "px";
+      const pr = Math.max(12, safe.right + 10), pl = Math.max(12, safe.left + 10);
+      const pb = Math.max(12, safe.bottom + (portrait ? 14 : 10));
       const pt = Math.max(10, safe.top + 8);
-      const lbW = H.lb.offsetWidth || 9 * em;
-      H.cam.style.right = (pr + lbW + 0.6 * em) + "px"; H.cam.style.top = pt + "px";
-      H.reset.style.right = (pr + lbW + 3.6 * em) + "px"; H.reset.style.top = pt + "px";
+      H.gas.style.right = pr + "px"; H.gas.style.bottom = pb + "px";
+      H.brake.style.right = (pr + 6.8 * ce) + "px"; H.brake.style.bottom = pb + "px";
+      H.boost.style.right = (pr + 1.4 * ce) + "px"; H.boost.style.bottom = (pb + 8.1 * ce) + "px";
+      if (portrait) {
+        H.cam.style.top = "auto"; H.reset.style.top = "auto";
+        H.cam.style.right = (pr + 6.8 * ce) + "px"; H.cam.style.bottom = (pb + 6.4 * ce) + "px";
+        H.reset.style.right = (pr + 4.1 * ce) + "px"; H.reset.style.bottom = (pb + 8.1 * ce) + "px";
+      } else {
+        const lbW = H.lb.offsetWidth || 9 * em;
+        H.cam.style.bottom = "auto"; H.reset.style.bottom = "auto";
+        H.cam.style.top = pt + "px"; H.cam.style.right = (pr + lbW + 0.6 * em) + "px";
+        const camW = H.cam.offsetWidth || 6 * ce;
+        H.reset.style.top = pt + "px"; H.reset.style.right = (pr + lbW + camW + 1.1 * em) + "px";
+      }
       const touch = effectiveSteering() === "touch";
       H.steerBox.classList.toggle("fr-hide", !touch);
+      const bs = 4.4 * 1.25 * ce;
       if (touch) {
-        const bs = 4.4 * 1.25 * em;
         H.left.style.left = pl + "px"; H.left.style.bottom = pb + "px";
-        H.right.style.left = (pl + bs + 1.1 * em) + "px"; H.right.style.bottom = pb + "px";
-        H.cluster.style.bottom = (pb + bs + 0.6 * em) + "px";
-      } else {
-        H.cluster.style.bottom = pb + "px";
+        H.right.style.left = (pl + bs + 1.1 * ce) + "px"; H.right.style.bottom = pb + "px";
       }
+      if (!portrait) H.cluster.style.bottom = (touch ? pb + bs + 0.6 * em : pb) + "px";
     }
     layoutListeners.push(layoutHud);
 
     // ---- generic screens ----
     const menu = el("div", "fr-screen fr-hide");
     menu.innerHTML = `
+      <div class="fr-view">
       <div style="position:absolute;inset:0;background:linear-gradient(90deg,rgba(5,7,12,.88) 0%,rgba(5,7,12,.55) 34%,rgba(5,7,12,0) 60%)"></div>
-      <div style="position:absolute;left:calc(var(--pl) + 1em);top:50%;transform:translateY(-50%);width:16em">
+      <div class="fr-menu-panel" style="position:absolute;left:calc(var(--pl) + 1em);top:50%;transform:translateY(-50%);width:16em">
         <div style="font-size:.8em;letter-spacing:.35em;color:#ff2a3d">GRAND PRIX</div>
         <div style="font-size:3.4em;line-height:.9;letter-spacing:.04em">FORMULA<br>RUSH</div>
         <div class="fr-ui fr-menu-sub" style="font-size:.7em;opacity:.65;margin:.5em 0 .8em">Aurora Ring · 2.5 km · Original circuit</div>
@@ -1957,20 +2022,27 @@ window.plethoraBit = {
         <button class="fr-menu-btn fr-settings">SETTINGS</button>
       </div>
       <div class="fr-ui fr-menu-team" style="position:absolute;right:var(--pr);bottom:var(--pb);text-align:right;font-size:.8em;opacity:.85"></div>
+      </div>
+      <div class="fr-deck"><div class="fr-menu-deck"></div><div class="fr-ui" style="font-size:.75em;opacity:.6;margin-top:auto;text-align:center">Turn your phone sideways for full-screen racing</div></div>
     `;
+    docks.push([$(".fr-menu-panel", menu), $(".fr-menu-panel", menu).parentNode, $(".fr-menu-deck", menu)]);
     const carSel = el("div", "fr-screen fr-hide");
     carSel.innerHTML = `
+      <div class="fr-view">
       <div style="position:absolute;inset:0;background:linear-gradient(270deg,rgba(5,7,12,.9) 0%,rgba(5,7,12,.6) 30%,rgba(5,7,12,0) 55%)"></div>
       <div style="position:absolute;left:var(--pl);top:var(--pt);display:flex;gap:.6em;align-items:center">
         <button class="fr-btn fr-back" style="padding:.4em .8em;font-size:.9em">◀ BACK</button>
         <div style="font-size:1.6em;letter-spacing:.08em">CAR SELECTION</div>
       </div>
       <div class="fr-ui" style="position:absolute;left:var(--pl);bottom:var(--pb);font-size:.72em;opacity:.7">Drag the car to rotate</div>
-      <div style="position:absolute;right:var(--pr);top:var(--pt);bottom:var(--pb);width:15em;display:flex;flex-direction:column">
-        <div class="fr-scroll fr-liveries" style="flex:1;padding-right:.2em"></div>
+      <div class="fr-cars-col" style="position:absolute;right:var(--pr);top:var(--pt);bottom:var(--pb);width:15em;display:flex;flex-direction:column">
+        <div class="fr-scroll fr-liveries" style="flex:1;min-height:0;padding-right:.2em"></div>
         <button class="fr-menu-btn primary fr-start" style="text-align:center;margin-top:.5em">START RACE ▶</button>
       </div>
+      </div>
+      <div class="fr-deck"><div class="fr-cars-deck" style="flex:1;min-height:0;display:flex;flex-direction:column"></div></div>
     `;
+    docks.push([$(".fr-cars-col", carSel), $(".fr-cars-col", carSel).parentNode, $(".fr-cars-deck", carSel)]);
     const modal = el("div", "fr-screen fr-hide");
     modal.style.pointerEvents = "auto";
     modal.style.background = "rgba(3,5,10,.72)";
@@ -1978,6 +2050,7 @@ window.plethoraBit = {
     const modalBody = $(".fr-modal-body", modal);
     const preRace = el("div", "fr-screen fr-hide");
     preRace.innerHTML = `
+      <div class="fr-view">
       <div style="position:absolute;left:0;right:0;bottom:0;height:45%;background:linear-gradient(0deg,rgba(0,0,0,.7),rgba(0,0,0,0))"></div>
       <div style="position:absolute;left:calc(var(--pl) + .5em);bottom:calc(var(--pb) + .4em)">
         <div style="font-size:.8em;letter-spacing:.3em;color:#ff2a3d">ROUND 1 · AURORA RING</div>
@@ -1985,9 +2058,11 @@ window.plethoraBit = {
         <div class="fr-pre-sub fr-ui" style="font-size:.75em;opacity:.8;margin-top:.3em"></div>
       </div>
       <div class="fr-ui fr-pre-skip" style="position:absolute;right:var(--pr);bottom:var(--pb);font-size:.75em;opacity:.75">Tap to skip ▸</div>
+      </div>
+      <div class="fr-deck"><div class="fr-ui" style="margin:auto;text-align:center;font-size:.8em;opacity:.7;line-height:1.7">Turn your phone sideways for full-screen racing<br>Tap anywhere to skip</div></div>
     `;
     const toast = el("div", "fr-ui fr-hide", "");
-    toast.style.cssText = "position:absolute;left:50%;top:18%;transform:translateX(-50%);background:rgba(0,0,0,.78);padding:.5em .9em;border-radius:8px;font-size:.78em;pointer-events:none;max-width:80%;text-align:center";
+    toast.style.cssText = "position:absolute;left:50%;top:calc(var(--vy) + var(--vh) * 0.18);transform:translateX(-50%);background:rgba(0,0,0,.78);padding:.5em .9em;border-radius:8px;font-size:.78em;pointer-events:none;max-width:80%;text-align:center";
     let toastT = 0;
     function showToast(msg, sec) { toast.textContent = msg; toast.classList.remove("fr-hide"); toastT = sec || 2.6; }
 
@@ -2018,34 +2093,48 @@ window.plethoraBit = {
     function effectiveSteering() { return (settings.steering === "motion" && !motionFallback) ? "motion" : "touch"; }
 
     // ---- input wiring ----
+    // Hold-to-press controls. Each button tracks its own pointer ids, so releasing one finger never
+    // cancels another finger's control. A window-level release guard prevents stuck inputs if a
+    // pointer ends outside the button without capture.
+    const holdReleasers = [];
     function holdButton(elm, key) {
       const ids = new Set();
       const set = () => { input[key] = ids.size > 0 ? 1 : 0; elm.classList.toggle("on", ids.size > 0); };
+      const release = id => { if (ids.delete(id)) set(); };
       ctx.listen(elm, "pointerdown", e => {
         e.preventDefault();
+        if (ids.has(e.pointerId)) return;
         ids.add(e.pointerId);
-        try { elm.setPointerCapture(e.pointerId); } catch (er) { /* ignore */ }
+        try { elm.setPointerCapture(e.pointerId); } catch (er) { /* capture optional */ }
         set();
         audio.resume();
         if (key === "gas" || key === "brake") ctx.platform.interact({ type: key });
       });
-      const up = e => { ids.delete(e.pointerId); set(); };
-      ctx.listen(elm, "pointerup", up);
-      ctx.listen(elm, "pointercancel", up);
-      ctx.listen(elm, "lostpointercapture", up);
+      ctx.listen(elm, "pointerup", e => release(e.pointerId));
+      ctx.listen(elm, "pointercancel", e => release(e.pointerId));
+      ctx.listen(elm, "lostpointercapture", e => release(e.pointerId));
+      ctx.listen(elm, "pointerleave", e => {
+        let captured = false;
+        try { captured = elm.hasPointerCapture(e.pointerId); } catch (er) { /* ignore */ }
+        if (!captured) release(e.pointerId);
+      });
+      ctx.listen(elm, "contextmenu", e => e.preventDefault());
+      holdReleasers.push(release);
       return () => { ids.clear(); set(); };
     }
+    ctx.listen(window, "pointerup", e => { for (const r of holdReleasers) r(e.pointerId); });
+    ctx.listen(window, "pointercancel", e => { for (const r of holdReleasers) r(e.pointerId); });
     const releasers = [
       holdButton(H.gas, "gas"), holdButton(H.brake, "brake"), holdButton(H.left, "left"),
       holdButton(H.right, "right"), holdButton(H.boost, "boost")
     ];
-    const releaseAll = () => { releasers.forEach(r => r()); input.keySteer = 0; keys.clear(); };
+    const releaseAll = () => { releasers.forEach(r => r()); input.keySteer = 0; keys.clear(); if (typeof resetControls === "function") resetControls(); };
     const keys = new Set();
     ctx.listen(window, "keydown", e => {
       const k = e.key;
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "w", "a", "s", "d"].includes(k)) e.preventDefault && e.preventDefault();
       keys.add(k.toLowerCase());
-      if (k === "c" || k === "C") cycleCamera();
+      if ((k === "c" || k === "C") && !e.repeat) toggleCamera();
       if (k === "Escape" || k === "p" || k === "P") { if (state === "racing" || state === "countdown") togglePause(!paused); }
       if (k === "r" || k === "R") requestReset();
       audio.resume();
@@ -2056,15 +2145,17 @@ window.plethoraBit = {
       if (document.hidden) { releaseAll(); if (state === "racing" || state === "countdown") togglePause(true); audio.suspend(); }
     });
 
-    function cycleCamera() {
-      camMode = (camMode + 1) % 3;
-      settings.camera = camMode; saveSettings();
-      showToast(["Chase camera", "Rear-wing camera", "Cockpit camera"][camMode], 1.2);
-      camInit = false;
+    // In-race buttons fire on pointerdown: a second finger never produces a click while the first
+    // finger holds the throttle, so click-only buttons would ignore taps during acceleration.
+    function pressButton(elm, fn) {
+      let lastPress = -1e9;
+      ctx.listen(elm, "pointerdown", e => { e.preventDefault(); e.stopPropagation(); lastPress = performance.now(); fn(); });
+      ctx.listen(elm, "contextmenu", e => e.preventDefault());
+      ctx.input.activate(elm, () => { if (performance.now() - lastPress > 600) fn(); });   // keyboard / click fallback
     }
-    ctx.input.activate(H.cam, () => cycleCamera());
-    ctx.input.activate(H.reset, () => requestReset());
-    ctx.input.activate(H.pause, () => togglePause(true));
+    pressButton(H.cam, () => toggleCamera());
+    pressButton(H.reset, () => requestReset());
+    pressButton(H.pause, () => togglePause(true));
 
     // ---- menu wiring ----
     const tap = (elm, fn) => ctx.input.activate(elm, () => { audio.init(); audio.resume(); ctx.platform.interact({ type: "ui" }); fn(); });
@@ -2110,7 +2201,7 @@ window.plethoraBit = {
     ctx.listen(canvas, "pointerdown", e => { if (state === "carSelect") { carSelDrag = { x: e.clientX, y: e.clientY, yaw: carSelYaw }; } });
     ctx.listen(canvas, "pointermove", e => {
       if (state === "carSelect" && carSelDrag) {
-        const dx = rotated ? (e.clientY - carSelDrag.y) * rotSign : (e.clientX - carSelDrag.x);
+        const dx = e.clientX - carSelDrag.x;
         carSelYaw = carSelDrag.yaw + dx * 0.012;
       }
     });
@@ -2131,12 +2222,11 @@ window.plethoraBit = {
         ["Tilt sensitivity", "sensitivity", [[0.7, "Low"], [1, "Mid"], [1.4, "High"]]],
         ["Tilt dead zone", "deadzone", [[0.02, "Small"], [0.05, "Mid"], [0.1, "Large"]]],
         ["Invert tilt", "invertTilt", [[false, "Off"], [true, "On"]]],
-        ["Camera", "camera", [[0, "Chase"], [1, "Wing"], [2, "Cockpit"]]],
+        ["Camera", "camera", [[0, "Chase"], [1, "Cockpit"]]],
         ["Sound", "sound", [[true, "On"], [false, "Off"]]],
         ["Volume", "volume", [[0.4, "Low"], [0.8, "Mid"], [1, "High"]]],
         ["Vibration", "vibration", [[true, "On"], [false, "Off"]]],
-        ["Graphics", "quality", [["high", "High"], ["low", "Low"]]],
-        ["Landscape side", "flip", [[false, "Normal"], [true, "Flipped"]]]
+        ["Graphics", "quality", [["high", "High"], ["low", "Low"]]]
       ];
       const locked = fromPause ? new Set(["laps", "grid", "difficulty"]) : new Set();
       modalBody.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.3em"><div style="font-size:1.5em;letter-spacing:.08em">SETTINGS</div><button class="fr-btn fr-close" style="padding:.35em .9em;font-size:.9em">DONE</button></div><div class="fr-scroll fr-ui fr-set-list" style="flex:1;min-height:0;padding-right:.3em"></div>`;
@@ -2151,16 +2241,15 @@ window.plethoraBit = {
           b.textContent = txt;
           if (settings[key] === val) b.classList.add("sel");
           seg.appendChild(b);
-          ctx.input.activate(b, () => {
+          bindAct(b, () => {
             settings[key] = val; saveSettings();
             for (const x of seg.children) x.classList.remove("sel");
             b.classList.add("sel");
-            if (key === "camera") { camMode = val; camInit = false; }
+            if (key === "camera") setCameraMode(val, false);
             if (key === "sound" || key === "volume") { audio.init(); audio.setVolume(); }
             if (key === "racingLine") guide.mesh.visible = !!val;
             if (key === "steering") { motionFallback = false; if (val === "motion" && fromPause) startMotion(); layoutHud(); }
             if (key === "quality") { renderer.shadowMap.enabled = val === "high"; scene.traverse(o => { if (o.material) o.material.needsUpdate = true; }); applyRendererSize(); }
-            if (key === "flip") layout();
           });
         }
         list.appendChild(row);
@@ -2169,12 +2258,17 @@ window.plethoraBit = {
         const row = document.createElement("div");
         row.className = "fr-row";
         row.innerHTML = `<div style="font-size:.8em">Tilt calibration</div><div class="fr-seg"><button>Recalibrate</button></div>`;
-        ctx.input.activate(row.querySelector("button"), () => { motionNeutral = null; showToast("Hold the phone level — calibrating", 1.5); });
+        bindAct(row.querySelector("button"), () => { motionNeutral = null; showToast("Hold the phone level — calibrating", 1.5); });
         list.appendChild(row);
       }
-      ctx.input.activate($(".fr-close", modalBody), () => { if (fromPause) openPauseMenu(); else closeModal(); });
+      bindAct($(".fr-close", modalBody), () => { if (fromPause) openPauseMenu(); else closeModal(); });
       modal.classList.remove("fr-hide");
     }
+    // Modal and results content is rebuilt on every open; one delegated listener per container
+    // dispatches to the button's handler so reopening never stacks new listener registrations.
+    function bindAct(elm, fn) { if (elm) elm.__frAct = fn; }
+    const delegate = e => { const b = e.target.closest("button"); if (b && b.__frAct) { audio.resume(); b.__frAct(); } };
+    ctx.listen(modalBody, "click", delegate);
     function closeModal() { modal.classList.add("fr-hide"); }
     function openPauseMenu() {
       modalBody.innerHTML = `
@@ -2183,10 +2277,10 @@ window.plethoraBit = {
         <button class="fr-menu-btn fr-restart" style="text-align:center">RESTART RACE</button>
         <button class="fr-menu-btn fr-psettings" style="text-align:center">SETTINGS</button>
         <button class="fr-menu-btn fr-quit" style="text-align:center">MAIN MENU</button>`;
-      ctx.input.activate($(".fr-resume", modalBody), () => togglePause(false));
-      ctx.input.activate($(".fr-restart", modalBody), () => { closeModal(); paused = false; startRaceFlow(true); });
-      ctx.input.activate($(".fr-psettings", modalBody), () => openSettings(true));
-      ctx.input.activate($(".fr-quit", modalBody), () => { closeModal(); paused = false; audio.silence(); setState("menu"); });
+      bindAct($(".fr-resume", modalBody), () => togglePause(false));
+      bindAct($(".fr-restart", modalBody), () => { closeModal(); paused = false; startRaceFlow(true); });
+      bindAct($(".fr-psettings", modalBody), () => openSettings(true));
+      bindAct($(".fr-quit", modalBody), () => { closeModal(); paused = false; audio.silence(); setState("menu"); });
       modal.classList.remove("fr-hide");
     }
     function togglePause(on) {
@@ -2215,12 +2309,14 @@ window.plethoraBit = {
       }
       layoutHud();
     }
+    const tilt = { filt: 0, lastAt: null, age: 0 };
     function readTilt(dt) {
-      // Returns steering in [-1,1] (positive = right) from the gravity angle in the screen plane.
+      // Steering in [-1,1] (positive = right) from the gravity angle in the screen plane, relative to
+      // the neutral captured at the start lights. Works in any device orientation.
       if (!motionActive || !ctx.motion) return null;
       const snap = ctx.motion.snapshot;
       if (!snap) return null;
-      if (snap.source === "none" || (snap.atMs === 0 && snap.source)) {
+      if (snap.source === "none") {
         motionNoDataT += dt;
         if (motionNoDataT > 3 && !motionFallback) {
           motionFallback = true; layoutHud();
@@ -2229,25 +2325,36 @@ window.plethoraBit = {
         return null;
       }
       motionNoDataT = 0;
-      let gx = 0, gy = 0;
+      const at = snap.atMs || 0;
+      if (at !== tilt.lastAt) { tilt.lastAt = at; tilt.age = 0; } else tilt.age += dt;
+      if (tilt.age > 1) {
+        // sensor stream interrupted: ease back to neutral instead of holding the last angle
+        tilt.filt = approach(tilt.filt, 0, 2.5 * dt);
+        return tilt.filt;
+      }
+      let raw;
       const g1 = snap.gravity, g2 = snap.accelerationIncludingGravity;
+      let gx = 0, gy = 0;
       if (g1 && Math.hypot(g1.x || 0, g1.y || 0) > 2) { gx = g1.x; gy = g1.y; }
       else if (g2 && Math.hypot(g2.x || 0, g2.y || 0) > 2) { gx = g2.x; gy = g2.y; }
-      else {
-        // phone held nearly flat: fall back to the SDK's normalised tilt control
+      if (gx || gy) {
+        const ang = Math.atan2(gy, gx);
+        if (motionNeutral == null) motionNeutral = ang;
+        const maxA = (32 * Math.PI / 180) / settings.sensitivity;
+        raw = clamp(wrapAngle(ang - motionNeutral) / maxA, -1, 1);
+      } else {
+        // phone held nearly flat: use the SDK's normalised tilt control
         const c = snap.control || { x: 0, y: 0 };
-        const v = rotated ? (c.y || 0) * rotSign : (c.x || 0);
-        return clamp(v * settings.sensitivity * (settings.invertTilt ? -1 : 1), -1, 1);
+        raw = clamp((c.x || 0) * settings.sensitivity, -1, 1);
       }
-      const ang = Math.atan2(gy, gx);
-      if (motionNeutral == null) motionNeutral = ang;
-      let d = wrapAngle(ang - motionNeutral);
-      const maxA = (32 * Math.PI / 180) / settings.sensitivity;
-      let v = clamp(d / maxA, -1, 1);
-      if (settings.invertTilt) v = -v;
-      const dz = settings.deadzone;
-      v = Math.abs(v) < dz ? 0 : Math.sign(v) * (Math.abs(v) - dz) / (1 - dz);
-      return v;
+      if (settings.invertTilt) raw = -raw;
+      // reject spikes (limit how fast the raw reading may move), then low-pass the remaining noise
+      const lim = approach(tilt.filt, raw, 9 * dt);
+      tilt.filt = damp(tilt.filt, lim, 18, dt);
+      const dz = settings.deadzone, a = Math.abs(tilt.filt);
+      if (a <= dz) return 0;
+      const v = (a - dz) / (1 - dz);
+      return Math.sign(tilt.filt) * (0.35 * v + 0.65 * v * v);   // gentle centre, full lock at the edge
     }
 
     // ---- race setup ----
@@ -2299,12 +2406,16 @@ window.plethoraBit = {
       finishedT = 0; resetHold = 0;
       for (const c of cars) { c.lapStart = 0; c.lapsDone = -1; c.finished = false; c.finishTime = null; c.lastLap = null; c.bestLap = null; c.lapValid = true; c.lapTimes = []; c.boost = 1; }
       guide.mesh.visible = !!settings.racingLine;
-      camMode = settings.camera;
-      camInit = false;
+      camInit = false; CAM.trans = null; CAM.shake = 0;
+      setCameraMode(settings.camera, false);
+      resetControls();
+      raceAccum = 0;
       refreshLeaderboardRows();
     }
     function startRaceFlow(isRestart) {
       attempt++;
+      // ask for landscape where the platform allows it; harmless no-op inside locked hosts
+      try { const so = screen.orientation; if (so && so.lock) so.lock("landscape").catch(() => {}); } catch (e) { /* unsupported */ }
       audio.init(); audio.resume(); audio.setVolume();
       ctx.platform.start({ attempt, laps: settings.laps, difficulty: settings.difficulty });
       motionFallback = false;
@@ -2341,6 +2452,7 @@ window.plethoraBit = {
         $(".fr-pre-sub", preRace).innerHTML = `${t.name} #${t.num} · ${settings.difficulty.toUpperCase()}<br>${steerTxt} · hold GAS to go · BRAKE before corners`;
       }
       if (s === "countdown") {
+        if (camMode === 1 && camInit) beginCamTransition();
         countdownT = 0; lightsLit = 0; lightsOutAt = 5 + 0.4 + rand() * 1.1;
         motionNeutral = null;
         H.lights.classList.remove("fr-hide");
@@ -2499,7 +2611,8 @@ window.plethoraBit = {
     }
 
     // ---- results ----
-    const resultsEl = el("div", "fr-screen fr-hide");
+    const resultsEl = el("div", "fr-screen fr-results fr-hide");
+    ctx.listen(resultsEl, "click", delegate);
     resultsEl.style.pointerEvents = "auto";
     resultsEl.style.background = "linear-gradient(90deg,rgba(4,6,11,.92),rgba(4,6,11,.7))";
     function showResults() {
@@ -2522,7 +2635,7 @@ window.plethoraBit = {
         rows += `<div class="fr-lb-row${r.c === player ? " me" : ""}" style="font-size:.78em"><span style="width:1.6em;text-align:right">${i + 1}</span><span style="width:.3em;height:1em;background:${t.body}"></span><span style="width:8em;overflow:hidden;text-overflow:ellipsis">${r.c === player ? "YOU" : r.c.name}</span><span style="width:8.5em;opacity:.7;overflow:hidden;text-overflow:ellipsis">${t.name}</span><span style="margin-left:auto">${gap}</span></div>`;
       });
       resultsEl.innerHTML = `
-        <div style="position:absolute;left:var(--pl);top:var(--pt);bottom:var(--pb);width:44%;display:flex;flex-direction:column;justify-content:center;padding-left:1em">
+        <div class="fr-res-left" style="position:absolute;left:var(--pl);top:var(--pt);bottom:var(--pb);width:44%;display:flex;flex-direction:column;justify-content:center;padding-left:1em">
           <div style="font-size:.85em;letter-spacing:.3em;color:#ff2a3d">RACE RESULT · AURORA RING</div>
           <div style="font-size:4.6em;line-height:.95">P${myPos}<span style="font-size:.4em;opacity:.6"> / ${cars.length}</span></div>
           <div class="fr-ui" style="display:grid;grid-template-columns:auto auto;gap:.25em 1.2em;font-size:.8em;margin:.6em 0 .9em">
@@ -2536,13 +2649,13 @@ window.plethoraBit = {
             <button class="fr-menu-btn fr-home" style="width:auto;text-align:center">MAIN MENU</button>
           </div>
         </div>
-        <div class="fr-panel" style="position:absolute;right:var(--pr);top:var(--pt);bottom:var(--pb);width:46%;padding:.5em .4em;display:flex;flex-direction:column">
+        <div class="fr-panel fr-res-right" style="position:absolute;right:var(--pr);top:var(--pt);bottom:var(--pb);width:46%;padding:.5em .4em;display:flex;flex-direction:column">
           <div style="font-size:1em;letter-spacing:.12em;padding:0 .4em .3em">CLASSIFICATION</div>
           <div class="fr-scroll" style="flex:1;min-height:0">${rows}</div>
         </div>`;
       resultsEl.classList.remove("fr-hide");
-      ctx.input.activate($(".fr-again", resultsEl), () => { audio.resume(); startRaceFlow(true); });
-      ctx.input.activate($(".fr-home", resultsEl), () => setState("menu"));
+      bindAct($(".fr-again", resultsEl), () => { audio.resume(); startRaceFlow(true); });
+      bindAct($(".fr-home", resultsEl), () => setState("menu"));
       // platform: pulse + best-lap record (detached; never blocks replay)
       const myAttempt = attempt;
       requestAnimationFrameSafe(() => {
@@ -2563,76 +2676,141 @@ window.plethoraBit = {
     // =====================================================================
     // Camera
     // =====================================================================
+    // One render camera. Two rigs (chase / cockpit) compute target poses from the car's
+    // interpolated transform; a short blend handles switching. Camera code never writes car state.
     let camInit = false;
-    const camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
-    let camShake = 0, camHeight = 2;
-    function setCameraFov(vfovLandscape) {
-      const aspect = (ctx.width || 800) / (ctx.height || 400);
-      camera.aspect = aspect;
-      if (rotated) {
-        // camera rolled 90deg: landscape vertical fov == camera horizontal fov
-        const hf = vfovLandscape * Math.PI / 180;
-        camera.fov = 2 * Math.atan(Math.tan(hf / 2) / aspect) * 180 / Math.PI;
-      } else {
-        camera.fov = vfovLandscape;
+    const UP = new THREE.Vector3(0, 1, 0);
+    const CAM = { yaw: 0, accel: 0, pushX: 0, pushZ: 0, lift: 0, shake: 0, shakeT: 0, fov: 58, trans: null };
+    const tgt = { pos: new THREE.Vector3(), quat: new THREE.Quaternion(), fov: 58, near: 0.3 };
+    const _look = new THREE.Vector3(), _m4 = new THREE.Matrix4(), _eul = new THREE.Euler(0, 0, 0, "YXZ");
+    const _cq = new THREE.Quaternion(), _from = new THREE.Vector3(), _fromQ = new THREE.Quaternion();
+    function setCameraFov(vfov16x9) {
+      // vfov is authored for 16:9; narrower landscape ratios widen it so horizontal coverage holds
+      const aspect = VR.w / Math.max(1, VR.h);
+      let f = vfov16x9;
+      if (aspect < 16 / 9) {
+        const hf = 2 * Math.atan(Math.tan(f * Math.PI / 360) * 16 / 9);
+        f = 2 * Math.atan(Math.tan(hf / 2) / aspect) * 180 / Math.PI;
       }
+      camera.aspect = aspect; camera.fov = f;
       camera.updateProjectionMatrix();
     }
-    function applyRoll() { if (rotated) camera.rotateZ(-rotSign * Math.PI / 2); }
+    function setNear(n) { camera.near = n; }
+    function chaseTarget(c, dt, out) {
+      const speed = Math.max(0, c.u), sp = clamp(speed / 85, 0, 1);
+      // heading follows the car with a short exponential lag: the car swings within the frame in turns
+      CAM.yaw = c.rh + wrapAngle(CAM.yaw - c.rh) * Math.exp(-dt * 6.5);
+      CAM.accel = damp(CAM.accel, clamp(c.ax, -40, 20), 4, dt);
+      const fx = Math.sin(CAM.yaw), fz = Math.cos(CAM.yaw);
+      const dist = 6.1 + sp * 0.6 - CAM.accel * 0.006;
+      const height = 1.92 + sp * 0.08;
+      out.pos.set(c.rx - fx * dist, height, c.rz - fz * dist);
+      // barriers: ease the camera back inside rather than snapping through walls
+      project(out.pos.x, out.pos.z, c.idx, projTmp, false);
+      const lim = (projTmp.d < 0 ? track.limL[projTmp.idx] : track.limR[projTmp.idx]) - 0.9;
+      let px = 0, pz = 0;
+      if (Math.abs(projTmp.d) > lim) {
+        const over = Math.abs(projTmp.d) - lim, sg = Math.sign(projTmp.d);
+        px = -track.RX[projTmp.idx] * over * sg; pz = -track.RZ[projTmp.idx] * over * sg;
+      }
+      CAM.pushX = damp(CAM.pushX, px, 12, dt); CAM.pushZ = damp(CAM.pushZ, pz, 12, dt);
+      // other cars close to the lens: rise smoothly over them instead of clipping through
+      let lift = 0;
+      for (const o of cars) {
+        if (o === c) continue;
+        const d = Math.hypot(o.rx - out.pos.x, o.rz - out.pos.z);
+        if (d < 3.2) lift = Math.max(lift, (3.2 - d) * 0.45);
+      }
+      CAM.lift = damp(CAM.lift, lift, 8, dt);
+      out.pos.x += CAM.pushX; out.pos.z += CAM.pushZ; out.pos.y += CAM.lift;
+      // curb bumps follow the car's own suspension; impacts use a short decaying wobble (no random noise)
+      out.pos.y += c.susp * 0.6 + CAM.shake * 0.07 * Math.sin(CAM.shakeT * 31);
+      out.pos.x += CAM.shake * 0.04 * Math.sin(CAM.shakeT * 23 + 1);
+      out.pos.y = Math.max(out.pos.y, 0.6);
+      _look.set(c.rx + fx * 13, 0.45, c.rz + fz * 13);
+      _m4.lookAt(out.pos, _look, UP);
+      out.quat.setFromRotationMatrix(_m4);
+      out.fov = 55 + sp * 7; out.near = 0.3;
+    }
+    function cockpitTarget(c, dt, out) {
+      // driver's eye inside the cockpit, just under the halo hoop, looking along the car's axis
+      const sp = clamp(Math.max(0, c.u) / 85, 0, 1);
+      const fx = Math.sin(c.rh), fz = Math.cos(c.rh);
+      out.pos.set(c.rx - fx * 0.04, 0.88 + c.susp, c.rz - fz * 0.04);
+      _eul.set(-0.03 - c.pitch * 0.6 + CAM.shake * 0.01 * Math.sin(CAM.shakeT * 31), c.rh + Math.PI, 0, "YXZ");
+      out.quat.setFromEuler(_eul);
+      out.fov = 60 + sp * 4; out.near = 0.05;
+    }
+    function camTarget(mode, c, dt) { if (mode === 1) cockpitTarget(c, dt, tgt); else chaseTarget(c, dt, tgt); return tgt; }
+    function beginCamTransition() {
+      // store the currently rendered pose in the car's local frame so the blend travels with the car
+      const c = player;
+      if (!c || !camInit) return;
+      _cq.setFromAxisAngle(UP, c.rh);
+      const inv = _cq.clone().invert();
+      CAM.trans = {
+        t: 0, dur: 0.32,
+        pos: camera.position.clone().sub(new THREE.Vector3(c.rx, 0, c.rz)).applyQuaternion(inv),
+        quat: inv.multiply(camera.quaternion),
+        fov: CAM.fov, near: camera.near
+      };
+    }
+    function setCameraMode(mode, animate) {
+      if (mode !== 0 && mode !== 1) mode = 0;
+      if (mode !== camMode) {
+        if (animate) beginCamTransition();
+        if (mode === 0 && player) { CAM.yaw = player.rh; CAM.pushX = CAM.pushZ = CAM.lift = 0; }
+        camMode = mode;
+      }
+      settings.camera = mode; saveSettings();
+      H.camLabel.textContent = mode === 1 ? "COCKPIT" : "CHASE";
+      H.cam.classList.toggle("on", mode === 1);
+      layoutHud();
+    }
+    function toggleCamera() {
+      if (!(state === "countdown" || state === "racing" || state === "finished")) return;
+      setCameraMode(camMode === 1 ? 0 : 1, true);
+      ctx.platform.interact({ type: "camera", mode: camMode === 1 ? "cockpit" : "chase" });
+    }
+    function applyCamPose(pos, quat, fov, near) {
+      camera.position.copy(pos);
+      camera.quaternion.copy(quat);
+      CAM.fov = fov;
+      setNear(near);
+      setCameraFov(fov);
+    }
     function updateRaceCamera(dt) {
       const c = player;
-      const fx = Math.sin(c.h), fz = Math.cos(c.h);
-      const speed = Math.max(0, c.u);
-      const sp = clamp(speed / 85, 0, 1);
-      let want, look, fov;
-      // velocity direction smoothing so camera follows travel (rotates with steering)
-      if (!camInit) { camYaw = c.h; }
-      camYaw = c.h + wrapAngle(camYaw - c.h) * Math.exp(-dt * (camMode === 2 ? 30 : 5.5));
-      const cfx = Math.sin(camYaw), cfz = Math.cos(camYaw);
-      if (camMode === 2) {
-        const hy = 0.98 + c.vis.body.position.y;
-        want = new THREE.Vector3(c.x + fx * 0.05, hy, c.z + fz * 0.05);
-        look = new THREE.Vector3(c.x + fx * 20, 0.6, c.z + fz * 20);
-        fov = 62 + sp * 8;
+      if (!camInit) { CAM.yaw = c.rh; camInit = true; }
+      CAM.shake = Math.max(0, CAM.shake - dt * 3); CAM.shakeT += dt;
+      const T = camTarget(camMode, c, dt);
+      let cockpitVis = camMode === 1;
+      if (CAM.trans) {
+        const tr = CAM.trans;
+        tr.t += dt;
+        const k0 = clamp(tr.t / tr.dur, 0, 1), k = k0 * k0 * (3 - 2 * k0);
+        _cq.setFromAxisAngle(UP, c.rh);
+        _from.copy(tr.pos).applyQuaternion(_cq).add(_look.set(c.rx, 0, c.rz));
+        _fromQ.copy(_cq).multiply(tr.quat);
+        _from.lerp(T.pos, k);
+        _from.y += Math.sin(Math.PI * k) * 0.35;   // arc over the engine cover, never through the car
+        _fromQ.slerp(T.quat, k);
+        applyCamPose(_from, _fromQ, lerp(tr.fov, T.fov, k), Math.min(tr.near, T.near));
+        cockpitVis = camMode === 1 ? k > 0.6 : k < 0.4;
+        if (k0 >= 1) CAM.trans = null;
       } else {
-        const dist = camMode === 1 ? 3.9 + sp * 0.6 : 6.6 + sp * 1.6;
-        const height = camMode === 1 ? 1.45 : 2.25 + sp * 0.2;
-        want = new THREE.Vector3(c.x - cfx * dist, height, c.z - cfz * dist);
-        look = new THREE.Vector3(c.x + cfx * 6, 0.9, c.z + cfz * 6);
-        fov = 58 + sp * 12;
+        applyCamPose(T.pos, T.quat, T.fov, T.near);
       }
-      // keep camera inside barriers (no clipping through walls)
-      project(want.x, want.z, c.idx, projTmp, false);
-      const lim = (projTmp.d < 0 ? track.limL[projTmp.idx] : track.limR[projTmp.idx]) - 0.8;
-      if (Math.abs(projTmp.d) > lim) {
-        const k = projTmp.idx, over = Math.abs(projTmp.d) - lim, sg = Math.sign(projTmp.d);
-        want.x -= track.RX[k] * over * sg; want.z -= track.RZ[k] * over * sg;
-      }
-      if (!camInit) { camPos.copy(want); camLook.copy(look); camHeight = want.y; camInit = true; }
-      camHeight = damp(camHeight, want.y, 6, dt);
-      camPos.copy(want); camPos.y = camHeight;
-      camLook.copy(look);
-      // shake
-      camShake = Math.max(0, camShake - dt * 2.5);
-      const shakeAmt = camShake * 0.12 + (c.onCurb ? 0.025 : 0) + (c.surf >= 2 ? 0.035 : 0) + (speed > 75 ? (speed - 75) * 0.0008 : 0);
-      camera.position.copy(camPos);
-      camera.position.x += (rand() - 0.5) * shakeAmt;
-      camera.position.y += (rand() - 0.5) * shakeAmt;
-      camera.position.y = Math.max(camera.position.y, 0.5);
-      camera.lookAt(camLook);
-      applyRoll();
-      setCameraFov(fov);
-      c.vis.helmet.visible = camMode !== 2;
+      c.vis.helmet.visible = !cockpitVis;
     }
-    let camYaw = 0;
 
     // =====================================================================
     // Visual sync for cars
     // =====================================================================
     function syncCarVisual(c, dt) {
       const v = c.vis;
-      v.group.position.set(c.x, 0, c.z);
-      v.group.rotation.y = c.h;
+      v.group.position.set(c.rx, 0, c.rz);
+      v.group.rotation.y = c.rh;
       // suspension: pitch from accel, roll from lateral, bounce on curbs
       const latAcc = c.u * c.wr;
       c.pitch = damp(c.pitch, clamp(-c.ax * 0.0035, -0.03, 0.03), 8, dt);
@@ -2648,6 +2826,7 @@ window.plethoraBit = {
         if (!w.rear) w.steer.rotation.y = -c.steer * 0.36 * clamp(1 - Math.abs(c.u) / 120, 0.4, 1);
         w.steer.position.y = (w.rear ? 0.37 : 0.36) + c.susp * 0.6;
       }
+      if (v.wheelRim) v.wheelRim.rotation.z = c.steer * 1.6;
       const glow = c.brake > 0.3 && c.u > 25 ? Math.min(1, (c.u - 25) / 40) * c.brake : 0;
       v.mats.disc.emissiveIntensity = damp(v.mats.disc.emissiveIntensity, glow * 2.2, glow > 0 ? 6 : 1.5, dt);
     }
@@ -2658,34 +2837,36 @@ window.plethoraBit = {
     let raceAccum = 0, lineColorT = 0, hudT = 0, smokeT = 0, curbHapticT = 0;
     const FIXED = 1 / 120;
 
-    function readPlayerControls(dt) {
-      let steer = 0;
+    // Single source of truth for the player's intent. Every input method writes into `input`/`keys`;
+    // this shapes them once per physics step (fixed dt), so response is frame-rate independent.
+    const controls = { steer: 0, throttle: 0, brake: 0, boost: false, reverse: false, src: "none" };
+    function resetControls() { controls.steer = controls.throttle = controls.brake = 0; controls.boost = controls.reverse = false; reverseHold = 0; tilt.filt = 0; }
+    function updateControls(dt) {
       const kL = keys.has("arrowleft") || keys.has("a"), kR = keys.has("arrowright") || keys.has("d");
       const kUp = keys.has("arrowup") || keys.has("w"), kDn = keys.has("arrowdown") || keys.has("s") || keys.has(" ");
-      if (TEST && TEST.autopilot) return null;
-      let target = 0;
-      let fromTilt = null;
-      if (effectiveSteering() === "motion") fromTilt = readTilt(dt);
-      if (fromTilt != null) target = fromTilt;
+      const gasHeld = !!(input.gas || kUp), brakeHeld = !!(input.brake || kDn);
+      // steering source priority is deterministic: held buttons/keys, else tilt (tilt mode only), else centre
+      let target = 0, src = "none";
       const btn = (input.right || kR ? 1 : 0) - (input.left || kL ? 1 : 0);
-      if (btn !== 0) {
-        // buttons: ramp in quickly, scale down at speed
-        target = btn;
-      }
-      steerSmoothed = damp(steerSmoothed, target, fromTilt != null && btn === 0 ? 14 : (Math.sign(target) !== Math.sign(steerSmoothed) ? 14 : 7), dt);
-      steer = steerSmoothed;
-      // speed-sensitive steering limit for player comfort
-      const sp = Math.max(0, player.u);
-      steer *= lerp(1, 0.72, clamp((sp - 30) / 55, 0, 1));
-      const braking = (input.brake || kDn) ? 1 : 0;
-      if (braking && !(input.gas || kUp) && Math.abs(player.u) < 1) reverseHold += dt; else if (!braking) reverseHold = 0;
-      return {
-        reverse: reverseHold > 0.35,
-        steer, throttle: (input.gas || kUp) ? 1 : 0, brake: braking,
-        boost: !!(input.boost || keys.has("shift")) && player.boost > 0.02 && Math.max(0, player.u) > 10,
-        slip: 0, gripAssist: 1, rearAssist: 1
-      };
+      if (btn !== 0) { target = btn; src = "buttons"; }
+      else if (effectiveSteering() === "motion") { const t = readTilt(dt); if (t != null) { target = t; src = "tilt"; } }
+      const u = Math.max(0, player.u);
+      const spN = clamp(u / 80, 0, 1);
+      target *= lerp(1, 0.75, clamp((u - 30) / 55, 0, 1));     // less authority at speed
+      let rate;
+      if (src === "tilt") rate = 7;                                // already filtered: only limit slew
+      else if (target === 0) rate = lerp(6, 4.5, spN);            // smooth return to centre
+      else if (controls.steer !== 0 && Math.sign(target) !== Math.sign(controls.steer)) rate = lerp(8, 5.5, spN); // counter-steer
+      else rate = lerp(4.5, 2.6, spN);                            // turn-in: quick at low speed, calmer at high speed
+      controls.steer = approach(controls.steer, target, rate * dt);
+      controls.throttle = approach(controls.throttle, gasHeld ? 1 : 0, (gasHeld ? 4.5 : 8) * dt);
+      controls.brake = approach(controls.brake, brakeHeld ? 1 : 0, (brakeHeld ? 7 : 10) * dt);
+      if (brakeHeld && !gasHeld && Math.abs(player.u) < 1) reverseHold += dt; else if (!brakeHeld) reverseHold = 0;
+      controls.reverse = reverseHold > 0.35;
+      controls.boost = !!(input.boost || keys.has("shift")) && player.boost > 0.02 && u > 10;
+      controls.src = src;
     }
+    const approach = (v, t, d) => (v < t ? Math.min(t, v + d) : Math.max(t, v - d));
     const playerCtrlRef = { steer: 0, throttle: 0, brake: 0, boost: false, slip: 0, gripAssist: 1, rearAssist: 1 };
 
     function slipstreamFor(car) {
@@ -2705,6 +2886,7 @@ window.plethoraBit = {
     }
 
     function simulate(dt) {
+      for (const c of cars) { c.px = c.x; c.pz = c.z; c.ph = c.h; }
       const racingOn = state === "racing" || state === "finished";
       if (racingOn) raceTime += dt * 1000;
       // controls
@@ -2720,7 +2902,7 @@ window.plethoraBit = {
           ctrl.slip = slipstreamFor(c);
         } else if (c.isPlayer) {
           if (racingOn) {
-            const pc = playerCtrlCache || { steer: 0, throttle: 0, brake: 0, boost: false };
+            const pc = controls;
             ctrl = playerCtrlRef;
             ctrl.steer = pc.steer; ctrl.throttle = pc.throttle; ctrl.brake = pc.brake; ctrl.boost = pc.boost; ctrl.reverse = !!pc.reverse;
             ctrl.gripAssist = PLAYER_ASSIST[settings.difficulty] || 1; ctrl.rearAssist = ctrl.gripAssist;
@@ -2737,7 +2919,7 @@ window.plethoraBit = {
         if (!racingOn) {
           // held on the grid
           c.vx = c.vz = c.wr = 0;
-          if (c.isPlayer && playerCtrlCache) { c.throttle = playerCtrlCache.throttle; c.rpm = damp(c.rpm || 4000, 4000 + c.throttle * 8000, 6, dt); }
+          if (c.isPlayer) { c.throttle = controls.throttle; c.rpm = damp(c.rpm || 4000, 4000 + c.throttle * 8000, 6, dt); }
           continue;
         }
         stepCar(c, dt, ctrl);
@@ -2749,7 +2931,7 @@ window.plethoraBit = {
       carCollisions((A, B, imp) => {
         for (const c of [A, B]) {
           if (c.isPlayer && imp > 1.2 && c.collideCooldown <= 0) {
-            camShake = Math.min(1, camShake + imp * 0.08);
+            CAM.shake = Math.min(1, CAM.shake + imp * 0.08);
             audio.thud(imp * 1.4);
             haptic(imp > 6 ? "heavy" : "medium");
             c.collideCooldown = 0.25;
@@ -2761,7 +2943,7 @@ window.plethoraBit = {
         const hit = barrierCollide(c);
         if (TEST && hit > 3) TEST.stats.walls.push({ name: c.name, s: Math.round(c.s), v: +hit.toFixed(1) });
         if (hit > 1 && c.isPlayer && c.collideCooldown <= 0) {
-          camShake = Math.min(1, camShake + hit * 0.06);
+          CAM.shake = Math.min(1, CAM.shake + hit * 0.06);
           audio.thud(hit);
           haptic(hit > 8 ? "heavy" : "medium");
           c.collideCooldown = 0.3;
@@ -2802,7 +2984,6 @@ window.plethoraBit = {
         }
       }
     }
-    let playerCtrlCache = null;
     let warnT = 0;
     function showWarn(text, sec) { H.warn.textContent = text; H.warn.classList.remove("fr-hide"); warnT = sec; lastWarnText = text; }
 
@@ -2867,10 +3048,7 @@ window.plethoraBit = {
         if (lon > -10 && lon < 3 && Math.abs(lat) < 7 && Math.abs(lat) > 1.2) { if (lat < 0) pl = 1; else pr = 1; }
       }
       H.proxL.style.opacity = pl ? "0.95" : "0"; H.proxR.style.opacity = pr ? "0.95" : "0";
-      H.vignette.style.opacity = clamp((Math.abs(player.u) - 50) / 45, 0, 0.85).toFixed(2);
-      const streak = camMode === 2 ? 0 : clamp((Math.abs(player.u) - 62) / 30, 0, 0.75);
-      H.streaks.style.opacity = streak.toFixed(2);
-      if (streak > 0) H.streaks.style.transform = `rotate(${(rand() * 4).toFixed(2)}deg)`;
+      H.vignette.style.opacity = clamp((Math.abs(player.u) - 55) / 45, 0, 0.4).toFixed(2);
       updateMinimap();
     }
 
@@ -2881,13 +3059,12 @@ window.plethoraBit = {
       const r = state === "carSelect" ? 6.4 : 7.8;
       const cx = b.x + Math.sin(b.h + yaw) * r, cz = b.z + Math.cos(b.h + yaw) * r;
       camera.position.set(cx, state === "carSelect" ? 2.2 : 1.7, cz);
-      // offset look target so the car sits right of the menu panel
+      // offset the look target so the car sits clear of the menu panel (landscape only)
       const sideX = Math.cos(b.h + yaw), sideZ = -Math.sin(b.h + yaw);
-      const off = state === "carSelect" ? 1.7 : -2.1;
+      const off = portrait ? 0 : state === "carSelect" ? 1.7 : -2.1;
       camera.lookAt(b.x + sideX * off, 0.55, b.z + sideZ * off);
-      applyRoll();
-      setCameraFov(40);
-      showcase.wheelSpin = (showcase.wheelSpin || 0);
+      setNear(0.3);
+      setCameraFov(portrait ? 46 : 40);
       showcase.helmet.visible = true;
     }
 
@@ -2896,18 +3073,34 @@ window.plethoraBit = {
       const T = 3.6;
       const t = clamp(preRaceT / T, 0, 1);
       const e = t * t * (3 - 2 * t);
-      // sweep from high above the front of the grid to behind the player
+      // sweep from high above the front of the grid into the chase camera's exact pose
+      if (preRaceT <= dt) CAM.yaw = player.rh;
+      chaseTarget(player, dt, tgt);
       const front = sampleAt(25);
       const startPos = new THREE.Vector3(front.x + front.rx * -14, 26, front.z + front.rz * -14);
-      const fx = Math.sin(player.h), fz = Math.cos(player.h);
-      const endPos = new THREE.Vector3(player.x - fx * 6.6, 2.25, player.z - fz * 6.6);
-      camera.position.copy(startPos).lerp(endPos, e);
-      const lookStart = new THREE.Vector3(sampleAt(-40).x, 0, sampleAt(-40).z);
-      const lookEnd = new THREE.Vector3(player.x + fx * 6, 0.9, player.z + fz * 6);
-      camera.lookAt(lookStart.lerp(lookEnd, e));
-      applyRoll();
-      setCameraFov(58);
+      _m4.lookAt(startPos, _look.set(sampleAt(-40).x, 0, sampleAt(-40).z), UP);
+      _fromQ.setFromRotationMatrix(_m4);
+      _from.copy(startPos).lerp(tgt.pos, e);
+      _fromQ.slerp(tgt.quat, e);
+      applyCamPose(_from, _fromQ, lerp(58, tgt.fov, e), 0.3);
+      camInit = true;
       if (preRaceT > T + 0.3) setState("countdown");
+    }
+
+    // shadow-camera basis (fixed sun direction); the follow point is snapped to whole shadow texels
+    const sunFwd = SUN_OFFSET.clone().normalize().negate();
+    const sunRight = new THREE.Vector3().crossVectors(sunFwd, UP).normalize();
+    const sunUp = new THREE.Vector3().crossVectors(sunRight, sunFwd).normalize();
+    const texel = 80 / 1024;
+    const _sp = new THREE.Vector3();
+    function placeSun(x, z) {
+      _sp.set(x, 0, z);
+      const a = Math.round(_sp.dot(sunRight) / texel) * texel;
+      const b = Math.round(_sp.dot(sunUp) / texel) * texel;
+      const c = _sp.dot(sunFwd);
+      _sp.copy(sunRight).multiplyScalar(a).addScaledVector(sunUp, b).addScaledVector(sunFwd, c);
+      sun.target.position.copy(_sp);
+      sun.position.copy(_sp).addScaledVector(SUN_OFFSET, 0.5);
     }
 
     function frame(dtMs) {
@@ -2925,7 +3118,6 @@ window.plethoraBit = {
       } else if (player) {
         if (!paused) {
           // control sampling once per frame
-          if (state === "racing" || state === "countdown") playerCtrlCache = readPlayerControls(dt) || playerCtrlCache;
           if (state === "countdown") {
             countdownT += dt;
             const n = Math.min(5, Math.floor(countdownT));
@@ -2951,11 +3143,17 @@ window.plethoraBit = {
           raceAccum += dt * ((TEST && TEST.timeScale) || 1);
           let steps = 0;
           while (raceAccum >= FIXED && steps < 40) {
+            if ((state === "racing" || state === "countdown") && !(TEST && TEST.autopilot)) updateControls(FIXED);
             simulate(FIXED);
             raceAccum -= FIXED; steps++;
             if (state === "results") break;
           }
           if (steps >= 40) raceAccum = 0;
+          const alpha = clamp(raceAccum / FIXED, 0, 1);
+          for (const c of cars) {
+            c.rx = lerp(c.px, c.x, alpha); c.rz = lerp(c.pz, c.z, alpha);
+            c.rh = c.ph + wrapAngle(c.h - c.ph) * alpha;
+          }
           if (state === "finished") {
             finishedT += dt;
             if (finishedT > 3.6) setState("results");
@@ -2991,15 +3189,21 @@ window.plethoraBit = {
         for (const c of cars) syncCarVisual(c, dt);
       }
       // sun/shadow follows the camera focus
-      const fxp = player ? player : (showcase ? { x: showcase.base.x, z: showcase.base.z } : { x: 0, z: 0 });
-      sun.position.set(fxp.x + SUN_OFFSET.x * 0.5, SUN_OFFSET.y * 0.5, fxp.z + SUN_OFFSET.z * 0.5);
-      sun.target.position.set(fxp.x, 0, fxp.z);
+      const fxp = player ? { x: player.rx, z: player.rz } : (showcase ? { x: showcase.base.x, z: showcase.base.z } : { x: 0, z: 0 });
+      placeSun(fxp.x, fxp.z);
       scene.userData.sky.position.copy(camera.position);
-      if (!(TEST && TEST.noRender)) renderer.render(scene, camera);
+      if (!(TEST && TEST.noRender)) {
+        renderer.setScissorTest(true);
+        const yGL = SH - VR.y - VR.h;
+        renderer.setViewport(VR.x, yGL, VR.w, VR.h);
+        renderer.setScissor(VR.x, yGL, VR.w, VR.h);
+        renderer.render(scene, camera);
+      }
     }
 
     // first frame: menu
     loadBar.style.width = "100%";
+    layout();
     refreshShowcase();
     setState("menu");
     layoutHud();
@@ -3013,7 +3217,7 @@ window.plethoraBit = {
       TEST.api = {
         get state() { return state; }, get player() { return player; }, get cars() { return cars; }, get raceTime() { return raceTime; },
         settings, startRace: () => startRaceFlow(), skipPre: () => { preRaceT = 99; }, racing, track, PHYS, setState, standings,
-        scene, THREE,
+        scene, THREE, camera, controls, toggleCamera, get camMode() { return camMode; }, get camTrans() { return CAM.trans; },
         get renderInfo() { return Object.assign({}, renderer.info.render, { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures }); }
       };
     }
