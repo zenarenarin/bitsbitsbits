@@ -55,17 +55,17 @@
       H, Tup, air: o.airTime, vj, g,
       hw: 0.23, ch: 0.7,
       coyote: o.coyote, buffer: o.buffer,
-      stepTol: 0.12, maxFall: 22, dt: 1 / 120
+      stepTol: 0.12, ledgeCatch: 0.3, maxFall: 22, dt: 1 / 120
     };
   }
   function newWorld() {
     return { blocks: [], ceils: [], spikes: [], pistons: [], lifts: [], gates: [], plates: [], prisms: [], killY: -4 };
   }
-  function newChar(y) { return { y, vy: 0, gr: true, coy: 0, buf: 0, dead: null, lift: null, sup: null, ev: 0, air: 0 }; }
+  function newChar(y) { return { y, vy: 0, gr: true, coy: 0, buf: 0, dead: null, lift: null, sup: null, ev: 0, air: 0, jp: false }; }
   function newSim(x, v, hA, hB) { return { x, v, steps: 0, sw: {}, c: [newChar(hA), newChar(hB)] }; }
   function copyChar(d, s) {
     d.y = s.y; d.vy = s.vy; d.gr = s.gr; d.coy = s.coy; d.buf = s.buf; d.dead = s.dead;
-    d.lift = s.lift; d.sup = s.sup; d.ev = s.ev; d.air = s.air;
+    d.lift = s.lift; d.sup = s.sup; d.ev = s.ev; d.air = s.air; d.jp = s.jp;
     return d;
   }
   function cloneSim(s) {
@@ -101,7 +101,7 @@
     // jump request: buffered, honoured while grounded or within coyote time
     if (tap) c.buf = P.buffer;
     if (c.buf > 0 && (c.gr || c.coy > 0)) {
-      c.vy = P.vj; c.gr = false; c.coy = 0; c.buf = 0; c.lift = null; c.sup = null; c.air = 0;
+      c.vy = P.vj; c.gr = false; c.coy = 0; c.buf = 0; c.lift = null; c.sup = null; c.air = 0; c.jp = true;
       c.ev |= EV_JUMP;
     } else if (c.buf > 0) {
       c.buf = Math.max(0, c.buf - dt);
@@ -122,7 +122,7 @@
           if (Math.abs(b.top - c.y) < 1e-4) { ok = true; c.sup = b; break; }
         }
       }
-      if (!ok) { c.gr = false; c.coy = P.coyote; c.vy = 0; c.air = 0; c.sup = null; }
+      if (!ok) { c.gr = false; c.coy = P.coyote; c.vy = 0; c.air = 0; c.sup = null; c.jp = false; }
     }
 
     // horizontal: walls (a small lip is climbed automatically)
@@ -131,11 +131,15 @@
       if (b.x1 <= L) continue;
       if (b.x0 >= R) break;
       if (c.y < b.top - 1e-6) {
-        if (b.top - c.y <= P.stepTol) {
+        // a small lip is climbed; a falling character that clips a ledge corner
+        // scrambles up onto it (a teeter: safe, but not clean)
+        const catchLedge = !c.gr && c.jp && c.vy < 0 && b.top - c.y <= P.ledgeCatch;
+        if (b.top - c.y <= P.stepTol || catchLedge) {
           c.y = b.top;
           if (c.vy <= 0) {
             c.vy = 0;
-            if (!c.gr) { c.gr = true; c.coy = 0; c.ev |= EV_LAND; c.lift = null; }
+            if (!c.gr) { c.gr = true; c.coy = 0; c.ev |= EV_LAND; c.lift = null; if (catchLedge && b.top - c.y > P.stepTol) c.ev |= EV_TEETER; }
+            if (catchLedge) c.ev |= EV_TEETER;
             c.sup = b;
           }
         } else { die(c, !c.gr && c.vy < 0 && b.top - c.y > P.stepTol ? "fell" : "wall"); return; }
@@ -297,27 +301,58 @@
     }
     // Finds a solution, then re-centres every tap inside its own timing window
     // (later taps re-solved each time) and reports each window's width.
+    // Solo outcome of one tap: each world is judged by how its own jump ends
+    // (dead or landed). A later death at a sealed gate is charged to the
+    // *other* world, whose switch was skipped.
+    function soloOutcome(W, sn, B) {
+      const s = cloneSim(sn);
+      stepSim(s, W, P, true);
+      B.steps++;
+      let gateX = Infinity;
+      for (const w of W) for (const gt of w.gates) if (gt.x0 > s.x && gt.x0 < s.x + 10 && gt.x0 < gateX) gateX = gt.x0;
+      const ok = [null, null];
+      const flew = [!s.c[0].gr, !s.c[1].gr];
+      for (let n = 0; n < 500; n++) {
+        for (let i = 0; i < 2; i++) {
+          const c = s.c[i];
+          if (ok[i] !== null) continue;
+          if (c.dead) ok[i] = false;
+          else if (!c.gr) flew[i] = true;
+          else if (flew[i] || n > 30) ok[i] = true; // landed again (or never left)
+        }
+        if (ok[0] !== null && ok[1] !== null && !(s.x < gateX + 0.6 && gateX < Infinity)) break;
+        if (s.c[0].dead && s.c[1].dead) break;
+        stepSim(s, W, P, false);
+        B.steps++;
+      }
+      for (let i = 0; i < 2; i++) {
+        if (ok[i] === null) ok[i] = !s.c[i].dead;
+        if (s.c[i].dead === "gate") { ok[i] = true; ok[1 - i] = false; }
+      }
+      return ok;
+    }
     function* analyzeIt(W, s0, xEnd, minWin, maxSteps) {
       const B = { steps: 0, max: maxSteps, blown: false };
       const first = [];
       if (!(yield* dfs(W, s0, xEnd, 0, B, first))) return { ok: false, reason: B.blown ? "budget" : "unsolvable", steps: B.steps };
       const taps = [];
       let cur = cloneSim(s0), rest = first, depth = 0;
-      const SC = 3, SPAN = Math.round(0.5 / P.dt), CAP = Math.round(0.7 / P.dt);
+      const SC = 3, SPAN = Math.round(0.5 / P.dt), CAP = Math.round(0.7 / P.dt), FAR = Math.round(1.1 / P.dt), SWEEP = Math.round(0.6 / P.dt);
       while (rest.length) {
         const t0 = rest[0];
-        const lowStep = Math.max(cur.steps + (depth > 0 ? 1 : 0), t0 - SPAN);
+        const lowStep = Math.max(cur.steps + (depth > 0 ? 1 : 0), t0 - FAR);
         const states = new Map();
         const s = cloneSim(cur);
-        while (s.steps <= t0 + SPAN) {
+        while (s.steps <= t0 + FAR) {
           if (s.steps >= lowStep) states.set(s.steps, cloneSim(s));
           stepSim(s, W, P, false);
           B.steps++;
-          if (anyDead(s)) break;
+          if (s.c[0].dead && s.c[1].dead) break; // keep the survivor: late taps are still judged
+          if ((s.steps & 31) === 0) yield;
         }
         const test = function* (st) {
           const sn = states.get(st);
-          if (!sn || !canJump(sn)) return null;
+          if (!sn || anyDead(sn) || !canJump(sn)) return null;
           const s2 = cloneSim(sn);
           stepSim(s2, W, P, true);
           if (anyDead(s2)) return null;
@@ -326,7 +361,7 @@
         };
         let lo = t0, hi = t0;
         while (hi + SC <= t0 + SPAN && !B.blown && (yield* test(hi + SC))) hi += SC;
-        while (lo - SC >= lowStep && hi - lo < CAP && !B.blown && (yield* test(lo - SC))) lo -= SC;
+        while (lo - SC >= Math.max(lowStep, t0 - SPAN) && hi - lo < CAP && !B.blown && (yield* test(lo - SC))) lo -= SC;
         if (B.blown) return { ok: false, reason: "budget", steps: B.steps };
         const width = (hi - lo + SC) * P.dt;
         if (width < minWin) return { ok: false, reason: "narrow", width, steps: B.steps };
@@ -335,7 +370,47 @@
         if (!r) { c = t0; r = yield* test(t0); }
         if (!r) return { ok: false, reason: "center", steps: B.steps };
         const sc = states.get(c);
-        taps.push({ step: c, x: sc.x, lo, hi, width, ya: sc.c[0].y, yb: sc.c[1].y, ja: sc.c[0].gr || sc.c[0].coy > 0, jb: sc.c[1].gr || sc.c[1].coy > 0 });
+        // conflict: how many taps that keep one world safe would doom the other
+        // Walk outward from the shared window while a world stays safe on its
+        // own; samples where its twin dies are that world's traps. (A far-early
+        // hop that merely lands before the hazard is not counted.)
+        const outcome = new Map();
+        const at = (st) => {
+          if (!outcome.has(st)) { const sn = states.get(st); outcome.set(st, sn ? soloOutcome(W, sn, B) : null); }
+          return outcome.get(st);
+        };
+        let onlyA = 0, onlyB = 0;
+        const reach = [[0, 0], [0, 0]]; // per world: safe samples to the left / right
+        for (let w = 0; w < 2; w++) {
+          for (const dir of [-1, 1]) {
+            for (let st = c + dir * SC; Math.abs(st - c) <= SWEEP && st >= lowStep; st += dir * SC) {
+              const ok = at(st);
+              yield;
+              if (!ok || !ok[w]) break;
+              reach[w][dir < 0 ? 0 : 1]++;
+              if (!ok[1 - w]) { if (w === 0) onlyA++; else onlyB++; }
+            }
+            yield;
+          }
+        }
+        // the "obvious" tap for a world is the centre of its own safe window;
+        // the pairing is decisive if, for some world, that tap dooms the twin
+        let decisive = false;
+        for (let w = 0; w < 2; w++) {
+          const centre = c + ((reach[w][1] - reach[w][0]) / 2) * SC;
+          if (centre < lo - SC || centre > hi + SC) decisive = true;
+        }
+        let trace;
+        if (W.trace) {
+          trace = "";
+          for (let st = Math.max(lowStep, c - SWEEP); st <= c + SWEEP; st += SC) {
+            const ok = at(st);
+            trace += (ok ? (ok[0] ? "A" : ".") + (ok[1] ? "B" : ".") : "--") + (st === c ? "*" : "") + (st >= lo && st <= hi ? "|" : " ");
+          }
+        }
+        // seconds of "safe for me, fatal for my twin" take-offs in each world
+        const trapA = onlyA * SC * P.dt, trapB = onlyB * SC * P.dt;
+        taps.push({ step: c, x: sc.x, lo, hi, width, trapA, trapB, conflict: Math.min(trapA, trapB), decisive, trace, ya: sc.c[0].y, yb: sc.c[1].y, ja: sc.c[0].gr || sc.c[0].coy > 0, jb: sc.c[1].gr || sc.c[1].coy > 0 });
         cur = r.s2; rest = r.o; depth++;
       }
       return { ok: true, taps, steps: B.steps };
@@ -361,15 +436,15 @@
   // regenerated; repeated failure falls back to a flat rest segment.
   const FAM = {
     gapgap: { cap: "GAPS AND JUMPS", min: 0, w: 1.0 },
-    stepspike: { cap: "STEPS AND SPIKES", min: 0, w: 1.0 },
-    ceilgap: { cap: "LOW CEILINGS", min: 2, w: 1.0 },
-    split: { cap: "SPLIT HEIGHTS", min: 4, w: 0.9 },
+    stepspike: { cap: "STEPS AND SPIKES", min: 5, w: 1.0, winK: 0.85 },
+    ceilgap: { cap: "LOW CEILINGS", min: 0, w: 1.1 },
+    split: { cap: "SPLIT HEIGHTS", min: 2, w: 0.9 },
     piston: { cap: "MOVING OBSTACLES", min: 7, w: 0.9, winK: 0.8 },
-    falseop: { cap: "LOOK TWICE", min: 11, w: 0.7 },
-    switch: { cap: "SWITCHES AND TIMING", min: 16, w: 0.8 },
+    falseop: { cap: "LOOK TWICE", min: 11, w: 0.7, winK: 0.85 },
+    switch: { cap: "SWITCHES AND TIMING", min: 16, w: 0.8, winK: 0.85 },
     lift: { cap: "DRIFTING STONES", min: 24, w: 0.6 }
   };
-  const FAM_ORDER = ["gapgap", "stepspike", "ceilgap", "split", "piston", "falseop", "switch", "lift"];
+  const FAM_ORDER = ["gapgap", "ceilgap", "split", "stepspike", "piston", "falseop", "switch", "lift"];
 
   function WB(x, h) { this.x = x; this.h = h; this.w = newWorld(); this.minTop = h; }
   WB.prototype.ground = function (len) {
@@ -388,7 +463,7 @@
   function createGenerator(P, cfg, ramp, seed, withTutorial) {
     const R = rngFrom(seed);
     const solver = makeSolver(P);
-    const st = { x: 3, h: [0, 0], level: 0, sinceRest: 0, restEvery: 3, recent: [], intro: {}, link: 1, pending: null, tries: 0, id: 0, queue: [], job: null };
+    const st = { x: 3, h: [0, 0], level: 0, sinceRest: 0, restEvery: 3, recent: [], intro: {}, link: 1, pending: null, tries: 0, id: 0, queue: [], job: null, cool: {} };
 
     function kin(v, ox) {
       return { v, ox, ov: v, k: v / 4.2, D: (dh) => (v * (P.vj + Math.sqrt(Math.max(0, P.vj * P.vj - 2 * P.g * dh)))) / P.g };
@@ -415,8 +490,8 @@
     // A spike strip of width w is clearable from a window of D - w - ~0.57.
     // `bind` says which edge of [a, b] this world must enforce exactly.
     function fSpikes(a, b, K, bind) {
-      const lead = 0.17 + rise(0.32) * K.v, tail = 0.27;
-      const w = clamp(K.D(0) - lead - tail - (b - a), 0.4, 1.3);
+      const lead = 0.17 + rise(0.32) * K.v, tail = 0.2 + rise(0.32) * K.v;
+      const w = clamp(K.D(0) - lead - tail - (b - a), 0.34, 1.3);
       const q0 = bind === "a" ? a + K.D(0) - tail - w : b + lead;
       return { t: "spikes", x: q0, w };
     }
@@ -426,7 +501,12 @@
     }
     function fStep(b, dh, K) { return { t: "step", x: b + P.hw + rise(dh - P.stepTol + 0.05) * K.v + 0.03, dh }; }
     function fPlate(a) { return { t: "plate", x: a + P.hw - 0.05, w: 0.9 }; }
-    function loose(K) { return R.range(0.15, 0.7) * K.k; }
+    // a minimal-width gap whose own safe window is as long as possible, ending at b
+    function fGapWide(b, dh, K) { return fGap(b - (K.D(dh) + P.hw + P.coyote * K.v * 0.8 - 0.93), b, dh, K); }
+    function loose(K) { return R.range(0.45, 0.9) * K.k; }
+    // widest take-off window a minimal spike strip allows, minus a margin so the
+    // other world can bind the opposite edge
+    function spikeRoom(K) { return K.D(0) - (0.37 + 2 * rise(0.32) * K.v) - 0.36 - R.range(0.45, 0.6) * K.k; }
 
     const FN = {
       gapgap(K, tw, d, X, Y) {
@@ -438,21 +518,23 @@
         ];
       },
       stepspike(K, tw, d, X, Y) {
+        tw = Math.min(tw, spikeRoom(K));
         const dh = q10(R.range(0.4, lerp(0.55, 0.8, d)));
         const xs = X.h + dh > HMAX ? fGap(-tw / 2 - loose(K) * 0.5, tw / 2, -0.5, K) : fStep(tw / 2, dh, K);
         return [[X, [xs]], [Y, [fSpikes(-tw / 2, tw / 2 + loose(K), K, "a")]]];
       },
       ceilgap(K, tw, d, X, Y) {
-        return [
-          [X, [fCeil(-tw / 2, R.range(1.1, 1.9) * K.k, K)]],
-          [Y, [fGap(-tw / 2 - loose(K), tw / 2, pickDh(Y.h, d * 0.6), K)]]
-        ];
+        // as windows tighten, the gap world's own window reaches well under the ceiling
+        const dh = pickDh(Y.h, d * 0.6);
+        const gap = d > 0.25 && R.chance(0.7) ? fGapWide(tw / 2, dh, K) : fGap(-tw / 2 - loose(K), tw / 2, dh, K);
+        return [[X, [fCeil(-tw / 2, R.range(1.1, 1.9) * K.k, K)]], [Y, [gap]]];
       },
       falseop(K, tw, d, X, Y) {
-        // the copy-world spikes look jumpable long before it is safe for the other world
+        // the obvious moment to clear the gap is still under the other world's
+        // long ceiling: the correct jump is late, at the gap's very edge
         return [
-          [X, [fCeil(-tw / 2, R.range(2.2, 2.8) * K.k, K)]],
-          [Y, [fSpikes(-tw / 2 - R.range(0.9, 1.4) * K.k, tw / 2, K, "b")]]
+          [X, [fCeil(-tw / 2, R.range(2.4, 3.0) * K.k, K)]],
+          [Y, [fGapWide(tw / 2, 0, K)]]
         ];
       },
       split(K, tw, d, X, Y) {
@@ -462,20 +544,24 @@
         let dn = -q10(R.range(0.5, lerp(0.8, 1.1, d)));
         if (Y.h + dn < HMIN) dn = 0;
         return [
-          [X, [fGap(-tw / 2 - loose(K) * 0.5, tw / 2, up, K)]],
+          [X, [fGap(-tw / 2 - loose(K) - 0.2 * K.k, tw / 2, up, K)]],
           [Y, [fGap(-tw / 2, tw / 2 + loose(K), dn, K)]]
         ];
       },
       piston(K, tw, d, X, Y, plan) {
-        const per = R.range(2.0, 2.8) * lerp(1.15, 0.8, d);
-        const down = plan && plan.forceDown ? true : R.chance(0.7);
-        const pc = R.range(0.75, 1.15) * K.k;
+        // the piston is down when the character arrives, so it must already be
+        // high in the air: it sets the latest take-off; the gap sets the earliest
+        const per = R.range(2.6, 3.4) * lerp(1.1, 0.8, d);
+        const pwin = (P.air - 2 * rise(0.46)) * K.v - 0.8; // piston's own window
+        tw = Math.min(tw, pwin - R.range(0.65, 0.8) * K.k);
+        const pc = tw / 2 + 0.4 + rise(0.46) * K.v + 0.02;
         return [
-          [X, [fGap(-tw / 2, tw / 2, pickDh(X.h, d * 0.5), K)]],
-          [Y, [{ t: "piston", x: pc - 0.24, w: 0.48, per, down }]]
+          [X, [fGap(-tw / 2, tw / 2 + loose(K) + 0.25 * K.k, pickDh(X.h, d * 0.5), K)]],
+          [Y, [{ t: "piston", x: pc - 0.2, w: 0.4, per, down: true }]]
         ];
       },
       switch(K, tw, d, X, Y) {
+        tw = Math.min(tw, spikeRoom(K));
         const plate = fPlate(-tw / 2);
         const fx = [plate];
         if (R.chance(0.5)) {
@@ -494,11 +580,13 @@
         const g0 = tw1 / 2 - P.hw - P.coyote * K.v * 0.8;
         const lx0 = -tw1 / 2 + D;
         const lx1 = lx0 + lw;
-        const hi2 = lx1 + 0.3 - R.range(0, 0.25) * K.k;
+        // hop 1: the other world's low ceiling forbids an early hop onto the stone
+        // hop 2: the other world's long spikes forbid hopping off the stone early
         const g1 = lx1 + R.range(0.7, 1.0) * K.k;
+        const lo2 = lx0 + tw1 / 2 + R.range(0.35, 0.6) * K.k;
         return [
           [X, [{ t: "gap", x: g0, w: g1 - g0, dh: 0 }, { t: "lift", x: lx0, w: lw, per: R.range(2.2, 3.0), amp: R.range(0.2, 0.36), landX: D }]],
-          [Y, [fSpikes(hi2 - tw - loose(K), hi2, K, "b")]]
+          [Y, [fCeil(-tw1 / 2 + R.range(0.15, 0.35) * K.k, R.range(1.0, 1.5) * K.k, K), fSpikes(lo2, lo2 + tw + loose(K), K, "a")]]
         ];
       }
     };
@@ -517,9 +605,9 @@
           W.to(x + f.w);
         } else if (f.t === "piston") {
           W.to(x + f.w + 0.6);
-          const a0 = f.down ? R.range(-0.45, 0.45) : Math.PI + R.range(-0.6, 0.6);
+          const a0 = f.down ? R.range(-0.3, 0.3) : Math.PI + R.range(-0.6, 0.6);
           const ph = a0 - (TAU * ((x + f.w / 2 - K.ox) / K.ov)) / f.per;
-          W.w.pistons.push({ x0: x, x1: x + f.w, base: W.h, lo: 0, hi: 2.45, th: 0.5, per: f.per, ph, ox: K.ox, ov: K.ov });
+          W.w.pistons.push({ x0: x, x1: x + f.w, base: W.h, lo: 0, hi: 2.45, th: 0.42, per: f.per, ph, ox: K.ox, ov: K.ov });
         } else if (f.t === "lift") {
           const a0 = Math.PI / 2 + R.range(-0.5, 0.5);
           const ph = a0 - (TAU * ((J + f.landX - K.ox) / K.ov)) / f.per;
@@ -571,9 +659,11 @@
         st.restEvery = R.int(d < 0.3 ? 3 : 4, d < 0.6 ? 4 : 6);
         return { kind: R.chance(0.45) ? "reward" : "rest" };
       }
-      const avail = FAM_ORDER.filter((k) => FAM[k].min <= st.level);
+      const avail = FAM_ORDER.filter((k) => FAM[k].min <= st.level && !(st.cool[k] > 0));
+      for (const k in st.cool) if (st.cool[k] > 0) st.cool[k]--;
+      if (!avail.length) avail.push("ceilgap");
       const fresh = avail.filter((k) => !st.intro[k] && FAM[k].min > 0);
-      if (fresh.length) return { kind: "challenge", fams: [fresh[0]], d: d * 0.7, intro: true, relax: 0.05 };
+      if (fresh.length) return { kind: "challenge", fams: [fresh[0]], d: d * 0.7, intro: true };
       const beats = d < 0.12 ? 1 : d < 0.35 ? (R.chance(0.7) ? 1 : 2) : d < 0.6 ? R.pick([1, 2, 2, 3]) : R.pick([2, 3, 3, 4]);
       const fams = [];
       for (let i = 0; i < beats; i++) {
@@ -591,7 +681,15 @@
         for (let j = 0; j < avail.length; j++) { r -= ws[j]; if (r <= 0) { pick = avail[j]; break; } }
         fams.push(pick);
       }
-      return { kind: "challenge", fams, d };
+      // from challenge 30 on, every challenge hides at least one trap where the
+      // obvious jump for one world dooms the other
+      let needDecisive = false;
+      if (st.level >= 30) {
+        needDecisive = true;
+        const dec = ["falseop", "switch", "ceilgap"].filter((f) => avail.indexOf(f) >= 0);
+        if (dec.length && !fams.some((f) => dec.indexOf(f) >= 0)) fams[R.int(0, fams.length - 1)] = R.pick(dec);
+      }
+      return { kind: "challenge", fams, d, needDecisive };
     }
 
     function finishSegment(seg, A, B) {
@@ -606,7 +704,7 @@
 
     function build(plan) {
       const d = plan.d !== undefined ? plan.d : ramp(st.level);
-      const v = cfg.vStart * (plan.speedK || 1) + (plan.speedK ? 0 : (cfg.vMax - cfg.vStart) * Math.pow(clamp(d, 0, 1), 1.1));
+      const v = cfg.vStart * (plan.speedK || 1) + (plan.speedK ? 0 : (cfg.vMax - cfg.vStart) * Math.pow(clamp(d, 0, 1), 1.8));
       const x0 = st.x;
       const A = new WB(x0, st.h[0]), B = new WB(x0, st.h[1]);
       const K = kin(v, x0);
@@ -627,7 +725,9 @@
         for (let i = 0; i < fams.length; i++) {
           const swap = R.chance(0.5);
           const X = swap ? B : A, Y = swap ? A : B;
-          const tw = Math.min(K.D(0) - 1.05, Math.max(minWin + 0.04, lerp(cfg.winStart * 1.3, cfg.winEnd * 1.6, d) * R.range(0.95, 1.3)) * v);
+          let tw = Math.min(K.D(0) - 1.05, Math.max(minWin + 0.04, lerp(cfg.winStart * 1.3, cfg.winEnd * 1.6, d) * R.range(0.95, 1.3)) * v);
+          // trap beats use the tightest allowed window so the obvious jump is wrong
+          if (plan.needDecisive && (fams[i] === "falseop" || fams[i] === "ceilgap")) tw = (minWin + 0.03) * v;
           const parts = FN[fams[i]](K, tw, d, X, Y, plan);
           let minL = -tw / 2;
           for (const pr of parts) for (const f of pr[1]) if (f.t !== "gate") minL = Math.min(minL, f.x);
@@ -745,7 +845,8 @@
       st.tries++;
       if (plan.fams && plan.fams.length > 1 && st.tries % 5 === 0) plan.fams = plan.fams.slice(0, -1); // simplify a stubborn sequence
       if (st.tries > 16) {
-        // could not satisfy this plan: fall back to a guaranteed rest stretch
+        // could not satisfy this plan: rest, and rest those families for a while
+        for (const f of plan.fams || []) { st.cool[f] = 3; st.intro[f] = true; }
         st.pending = { kind: "rest" };
         st.tries = 0;
         return startJob();
@@ -764,6 +865,13 @@
       st.job = null;
       if (!res.ok) return null;
       if (plan.kind === "challenge" && res.taps.length === 0) return null;
+      // every required tap must be a real paired decision: each world must
+      // have safe-for-itself taps that would doom the other world
+      if (plan.kind === "challenge" && !plan.custom) {
+        const need = lerp(0.11, 0.08, seg.d);
+        for (const t of res.taps) if (t.conflict < need) return null;
+        if (plan.needDecisive && !res.taps.some((t) => t.decisive)) return null;
+      }
       seg.solution = res.taps;
       seg.minWindow = res.taps.reduce((m, t) => Math.min(m, t.width), 9);
       if (plan.kind === "challenge" && !plan.custom && seg.d >= 0.12 && R.chance(0.3)) addChallengePrisms(seg, res);
@@ -943,7 +1051,7 @@
         airTime: tune("jump_air_time", 0.62),
         coyote: tune("coyote_ms", 80) / 1000,
         buffer: tune("buffer_ms", 120) / 1000,
-        winStart: tune("min_window_start_ms", 320) / 1000,
+        winStart: tune("min_window_start_ms", 280) / 1000,
         winEnd: tune("min_window_end_ms", 130) / 1000,
         sync: tune("sync_precision", 0.6),
         links: tune("show_link_lines", true),
@@ -1023,7 +1131,7 @@
           x: L.mode === "side" ? i * pw : 0,
           y: L.mode === "side" ? 0 : i * ph,
           w: pw, h: ph,
-          anchorX: pw * 0.27,
+          anchorX: pw * 0.22,
           anchorY: ph * (L.mode === "side" ? 0.6 : i === 0 ? 0.64 : 0.58),
           s: 40, camX: 0, camY: prev[i] ? prev[i].camY : 0, camT: prev[i] ? prev[i].camT : 0,
           ax: 0, ay: 0, dx: 0, dy: 0
@@ -1070,7 +1178,7 @@
           fx: { floats: [], parts: [], toasts: [], shards: [] },
           anim: [mkAnim(), mkAnim()], trail: [[], []],
           caption: start.caption, captionN: 0, captionT: 0, hint: "", hintT: 0,
-          auto: null, perfectFlash: 0, startedAt: 0
+          auto: null, perfectFlash: 0, startedAt: 0, tapXs: [], tether: 0, ripples: [], fail: null, camShift: 0
         };
         appendSeg(run, start);
         RUN = run;
@@ -1162,6 +1270,11 @@
           RUN.tapQueue = Math.min(2, RUN.tapQueue + 1);
           return;
         }
+        if (state === "dying" && stateT > 0.5) {
+          finishRun(RUN);
+          restart();
+          return;
+        }
         if (state === "over" && stateT > 0.35) {
           if (px !== undefined && hitAtmosphere(px, py)) return;
           restart();
@@ -1210,7 +1323,10 @@
       function floatText(pi, text, wx, wy, color, big) {
         const f = RUN.fx.floats;
         if (f.length > 10) f.shift();
-        f.push({ pi, text, wx, wy, color, big: !!big, t: 0, life: big ? 1.3 : 1.0 });
+        // simultaneous messages stack instead of overprinting
+        let slot = 0;
+        for (const o of f) if (o.pi === pi && o.t < 0.5) slot = Math.max(slot, o.slot + 1);
+        f.push({ pi, text, wx, wy, color, big: !!big, t: 0, life: big ? 1.3 : 1.0, slot: Math.min(slot, 3) });
       }
       function toast(text, sub) {
         const t = RUN.fx.toasts;
@@ -1314,7 +1430,10 @@
         if (!run.auto || run.auto.seg !== seg.id) {
           if (!(s.c[0].gr && s.c[1].gr)) return false;
           const taps = run.gen.solver.solve(run.W, cloneSim(s), seg.x1, 300000);
-          run.auto = { seg: seg.id, taps: taps || [], ok: !!taps };
+          // optional human-like timing error for playtests (test harness only)
+          const noise = TEST && TEST.noiseSteps ? TEST.noiseSteps : 0;
+          const jitter = (t) => t + Math.round((Math.random() + Math.random() + Math.random() - 1.5) * 2 * noise);
+          run.auto = { seg: seg.id, taps: (taps || []).map(jitter), ok: !!taps };
           if (TEST) TEST.plans = (TEST.plans || 0) + 1;
           if (!taps && TEST) TEST.noPlan = (TEST.noPlan || 0) + 1;
         }
@@ -1343,6 +1462,8 @@
             run.beat = { m, jumped: [false, false], landed: [false, false], clean: true, age: 0, done: false };
           }
           run.lastTapStep = s.steps;
+          run.tapXs.push(s.x);
+          if (run.tapXs.length > 16) run.tapXs.shift();
           try { ctx.platform.interact({ type: "jump" }); } catch (e) { /* ignore */ }
         }
         run.prevX = s.x; run.prevY[0] = s.c[0].y; run.prevY[1] = s.c[1].y;
@@ -1416,6 +1537,17 @@
         const m = b.m;
         const both = b.jumped[0] && b.jumped[1];
         if (!b.clean) return;
+        if (both && m.needed) {
+          // a shared jump that both worlds needed, landed cleanly by both:
+          // immediate points, a pulse on both twins and a thread between them
+          const mult = 1 + Math.min(3, Math.floor(run.combo / 5));
+          addScore(5 * mult);
+          run.tether = 1;
+          run.anim[0].pulse = Math.max(run.anim[0].pulse, 0.6); run.anim[1].pulse = Math.max(run.anim[1].pulse, 0.6);
+          for (let i = 0; i < 2; i++) run.ripples.push({ pi: i, x: run.sim.x, y: run.sim.c[i].y, t: 0 });
+          if (run.ripples.length > 6) run.ripples.splice(0, run.ripples.length - 6);
+          floatText(-1, "+" + 5 * mult, run.sim.x, 0, "cream");
+        }
         if (m.needed && m.constrained) {
           if (seg) seg.beats++;
           if (m.p >= cfg.sync) {
@@ -1510,9 +1642,43 @@
         }
       }
 
+      // Where should the shared jump have been? Uses the validated solution's
+      // safe take-off windows to tell the player what to change next time.
+      function diagnose(run, cause) {
+        const x = run.sim.x;
+        const wins = [];
+        for (const seg of run.segs) for (const t of seg.solution || []) {
+          wins.push({ lo: seg.x0 + t.lo * P.dt * seg.v, hi: seg.x0 + t.hi * P.dt * seg.v, y: [t.ya, t.yb], v: seg.v });
+        }
+        const near = wins.filter((w) => w.lo <= x + 2.5 && w.hi >= x - 6);
+        let tap = null;
+        for (let k = run.tapXs.length - 1; k >= 0; k--) if (run.tapXs[k] <= x + 0.01 && run.tapXs[k] >= x - 4) { tap = run.tapXs[k]; break; }
+        let beat = null, best = Infinity;
+        for (const w of near) {
+          const ref = tap !== null ? tap : x;
+          const dist = ref < w.lo ? w.lo - ref : ref > w.hi ? ref - w.hi : 0;
+          // without a tap, the window that already opened is the one that mattered
+          const pen = tap === null && w.lo > x + 0.3 ? 5 : 0;
+          if (dist + pen < best) { best = dist + pen; beat = w; }
+        }
+        if (beat && tap !== null && tap < beat.lo - 3) tap = null;
+        let text = "WATCH BOTH WORLDS BEFORE YOU TAP";
+        const edge = beat ? Math.max(0.12, (beat.hi - beat.lo) * 0.2) : 0;
+        if (cause === "gate") text = "STAY ON THE GROUND OVER THE SWITCH";
+        else if (beat && tap === null) text = x > beat.hi ? "NO JUMP — BOTH WORLDS NEEDED ONE HERE" : "NO JUMP IN TIME — TAP INSIDE THE ZONE";
+        else if (beat && tap < beat.lo) text = "JUMPED TOO EARLY — WAIT FOR BOTH";
+        else if (beat && tap > beat.hi) text = "JUMPED TOO LATE — GO SOONER";
+        else if (beat && tap < beat.lo + edge) text = "JUST TOO EARLY — AIM FOR THE MIDDLE";
+        else if (beat && tap > beat.hi - edge) text = "JUST TOO LATE — AIM FOR THE MIDDLE";
+        else if (beat && x > tap + beat.v * P.air * 1.2) text = "GOOD TIMING — THEN THE NEXT HAZARD";
+        else if (beat) text = "WATCH BOTH WORLDS BEFORE YOU TAP";
+        return { text, beat, tap };
+      }
+
       function onDeath(run, i, cause) {
         if (state !== "playing") return;
         run.dead = i; run.cause = cause;
+        run.fail = diagnose(run, cause);
         state = "dying"; stateT = 0;
         audio.play("fail");
         haptic("error");
@@ -1557,7 +1723,19 @@
           const edge = run.sim.x + 16;
           fillAhead(run, 34, genEnd(run) < edge ? 40 : 3);
         }
-        if (state === "dying" && stateT > 0.85) finishRun(run);
+        if (state === "dying" && stateT > 1.9) finishRun(run);
+        // after a death, pan back so the safe jump zone is in view
+        let shiftT = 0;
+        if ((state === "dying" || state === "over") && run.fail && run.fail.beat && L.panels[0]) {
+          const p0 = L.panels[0];
+          const center = (run.fail.beat.lo + run.fail.beat.hi) / 2;
+          // put the zone near the middle of the view (the character stays visible)
+          shiftT = Math.min(0, center - (p0.w * 0.45 - p0.anchorX) / p0.s - run.sim.x);
+        }
+        run.camShift += (shiftT - run.camShift) * Math.min(1, dt * 3);
+        run.tether = Math.max(0, run.tether - dt * 1.6);
+        for (const r of run.ripples) r.t += dt;
+        while (run.ripples.length && run.ripples[0].t > 0.6) run.ripples.shift();
         if (run.fallVy !== null && run.fallVy !== undefined && run.dead >= 0 && state !== "playing") {
           run.fallVy -= 20 * dt;
           run.sim.c[run.dead].y += run.fallVy * dt;
@@ -1626,7 +1804,7 @@
         g.fillStyle = pal.cream;
         g.fillRect(0, 0, L.W, L.H);
         for (const p of L.panels) {
-          p.camX = renderX;
+          p.camX = renderX + run.camShift;
           p.ax = p.x + p.anchorX;
           p.ay = p.y + p.anchorY;
           p.dx = -0.42 * p.s; p.dy = -0.28 * p.s;
@@ -1634,6 +1812,7 @@
         }
         drawLinks(run, pal);
         drawDivider(pal);
+        drawTether(run, pal);
         drawHUD(run, pal);
         if (state === "ready") drawTitle(pal);
         if (state === "over") drawGameOver(run, pal);
@@ -2234,6 +2413,16 @@
         for (const gt of w.gates) if (gt.x0 < xR && gt.x1 > xL) drawGate(p, pal, gt, sim.sw, renderX);
         for (const pi of w.pistons) if (pi.x0 < xR && pi.x1 > xL) drawPiston(p, pal, pi, renderX);
         for (const pr of w.prisms) if (pr.x < xR && pr.x > xL) drawPrism(p, pal, pr);
+        if ((state === "dying" || state === "over") && run.fail && run.fail.beat) drawJumpZone(p, pal, run);
+        for (const r of run.ripples) {
+          if (r.pi !== p.i) continue;
+          const k = r.t / 0.6;
+          g.strokeStyle = `rgba(255,248,228,${0.7 * (1 - k)})`;
+          g.lineWidth = 2;
+          g.beginPath();
+          g.ellipse(X(p, r.x) + p.dx * 0.5, Y(p, r.y) + p.dy * 0.5, p.s * (0.3 + k * 0.6), p.s * (0.08 + k * 0.16), 0, 0, TAU);
+          g.stroke();
+        }
         drawChar(p, pal, run, p.i);
         for (const ce of w.ceils) if (ce.x0 < xR && ce.x1 > xL) drawCeil(p, pal, ce);
         // occlusion: a ledge in front of a character that has dropped below it
@@ -2288,27 +2477,75 @@
           } else if (f.pi !== p.i) continue;
           const t = f.t / f.life;
           const a = t < 0.15 ? t / 0.15 : 1 - Math.max(0, (t - 0.6) / 0.4);
-          const wy = f.pi === -1 ? Math.max(renderY[p.i], run.sim.c[p.i].y) + 1.25 + (f.big ? 0.35 : 0) : f.wy;
+          const wy = (f.pi === -1 ? Math.max(renderY[p.i], run.sim.c[p.i].y) + 1.25 : f.wy) + f.slot * 0.42;
           g.font = (f.big ? "600 " : "400 ") + Math.round(f.big ? 13 : 11) + "px " + FONT;
           const half = measureSpaced(f.text, f.big ? 2.4 : 1.6) / 2 + 10;
           const x = clamp(X(p, f.pi === -1 ? renderX : f.wx) + p.dx * 0.5, p.x + half, p.x + p.w - half), y = Y(p, wy) - t * p.s * 0.5;
           g.globalAlpha = clamp(a, 0, 1);
           const col = colorOf(pal, f.color);
           if (f.color !== "muted") {
-            g.fillStyle = "rgba(40,50,45,0.35)";
-            spaced(f.text, x + 1, y + 1, f.big ? 2.4 : 1.6, "center");
+            g.fillStyle = "rgba(40,50,45,0.32)";
+            roundRect(x - half + 4, y - (f.big ? 14 : 12), half * 2 - 8, f.big ? 19 : 16, 8);
+            g.fill();
           }
           g.fillStyle = col;
           spaced(f.text, x, y, f.big ? 2.4 : 1.6, "center");
           g.globalAlpha = 1;
         }
       }
+      function drawJumpZone(p, pal, run) {
+        const f = run.fail, b = f.beat;
+        const a = clamp((stateT - 0.25) / 0.4, 0, 1) * (state === "over" ? 0.6 : 1);
+        if (a <= 0) return;
+        const y = Y(p, b.y[p.i]);
+        const x0 = X(p, b.lo), x1 = X(p, b.hi);
+        g.globalAlpha = a * (0.75 + 0.25 * Math.sin(clock * 5));
+        g.fillStyle = "rgba(112,168,122,0.55)";
+        poly([x0 + p.dx * 0.1, y + p.dy * 0.1, x1 + p.dx * 0.1, y + p.dy * 0.1, x1 + p.dx * 0.9, y + p.dy * 0.9, x0 + p.dx * 0.9, y + p.dy * 0.9]);
+        g.strokeStyle = "rgba(62,118,80,0.95)";
+        g.lineWidth = 2;
+        g.stroke();
+        // brackets marking the earliest and latest safe shared take-off
+        g.beginPath();
+        for (const xx of [x0, x1]) { g.moveTo(xx + p.dx * 0.5, y + p.dy * 0.5 + 3); g.lineTo(xx + p.dx * 0.5, y + p.dy * 0.5 - p.s * 0.45); }
+        g.stroke();
+        g.globalAlpha = a;
+        g.font = "600 9px " + FONT;
+        g.fillStyle = "rgba(40,84,56,0.95)";
+        spaced("JUMP ZONE", (x0 + x1) / 2 + p.dx * 0.5, y + p.dy * 0.5 - p.s * 0.6, 2, "center");
+        if (f.tap !== null) {
+          const tx = X(p, f.tap) + p.dx * 0.5, ty = y + p.dy * 0.5;
+          g.strokeStyle = pal.terraD;
+          g.lineWidth = 2;
+          g.beginPath(); g.moveTo(tx, ty + 4); g.lineTo(tx, ty - p.s * 0.55); g.stroke();
+          g.fillStyle = pal.terraD;
+          poly([tx - 4, ty + 6, tx + 4, ty + 6, tx, ty + 1]);
+          spaced("YOU", tx, ty + 18, 1.6, "center");
+        }
+        g.globalAlpha = 1;
+      }
+      // a faint thread always links the twins; it glows after a shared landing
+      function drawTether(run, pal) {
+        if (state === "ready" || run.dead >= 0) return;
+        const pa = L.panels[0], pb = L.panels[1];
+        const ax = X(pa, renderX) + pa.dx * 0.5, ay = Y(pa, renderY[0] + 0.4) + pa.dy * 0.5;
+        const bx = X(pb, renderX) + pb.dx * 0.5, by = Y(pb, renderY[1] + 0.4) + pb.dy * 0.5;
+        g.save();
+        g.lineWidth = 1 + run.tether * 2;
+        g.strokeStyle = `rgba(255,248,228,${0.16 + run.tether * 0.6})`;
+        g.setLineDash(run.tether > 0.05 ? [] : [2, 6]);
+        g.beginPath();
+        if (L.mode === "stack") { g.moveTo(ax, ay + pa.s * 0.45); g.lineTo(bx, by - pb.s * 0.55); }
+        else { g.moveTo(ax + pa.s * 0.3, ay); g.lineTo(bx - pb.s * 0.3, by); }
+        g.stroke();
+        g.restore();
+      }
       function drawCause(p, pal, run) {
         if (run.dead !== p.i) return;
         const a = clamp(stateT / 0.3, 0, 1);
         g.globalAlpha = a;
         g.font = "600 11px " + FONT;
-        const x = X(p, run.sim.x) + p.dx * 0.5, y = Y(p, Math.max(run.sim.c[p.i].y, p.camY - 1)) - p.s * 1.3;
+        const x = p.x + p.w / 2, y = p.y + p.h * (p.i === 0 && L.mode === "stack" ? 0.3 : 0.22) + (L.sa.top || 0) * (p.i === 0 ? 1 : 0);
         const label = (p.i === 0 ? "THE ORIGINAL " : "THE COPY ") + (CAUSE[run.cause] || "STUMBLED");
         g.fillStyle = "rgba(40,45,42,0.55)";
         const wdt = measureSpaced(label, 1.8) + 20;
@@ -2316,6 +2553,17 @@
         g.fill();
         g.fillStyle = pal.cream;
         spaced(label, clamp(x, p.x + 6 + wdt / 2, p.x + p.w - 6 - wdt / 2), y + 0.5, 1.8, "center");
+        if (run.fail) {
+          g.globalAlpha = clamp((stateT - 0.35) / 0.3, 0, 1);
+          g.font = "600 10px " + FONT;
+          const w2 = measureSpaced(run.fail.text, 1.6) + 20;
+          const cx = clamp(x, p.x + 6 + w2 / 2, p.x + p.w - 6 - w2 / 2);
+          g.fillStyle = "rgba(160,72,40,0.82)";
+          roundRect(cx - w2 / 2, y + 12, w2, 22, 11);
+          g.fill();
+          g.fillStyle = pal.cream;
+          spaced(run.fail.text, cx, y + 26.5, 1.6, "center");
+        }
         g.globalAlpha = 1;
       }
       function drawLinks(run, pal) {
@@ -2514,7 +2762,7 @@
         g.fillStyle = "rgba(46,58,53,0.75)";
         const reason = (run.dead === 0 ? "THE ORIGINAL " : "THE COPY ") + (CAUSE[run.cause] || "STUMBLED");
         spaced(reason, cx, y, 2.2, "center");
-        if (run.cause === "gate") { y += 16; spaced("STEP ON THE SWITCH IN THE OTHER WORLD", cx, y, 1.8, "center"); }
+        if (run.fail) { y += 16; g.fillStyle = pal.terraD; spaced(run.fail.text, cx, y, 1.8, "center"); g.fillStyle = "rgba(46,58,53,0.75)"; }
         y += 14;
         g.fillRect(cx - 10, y, 20, 1.5);
         y += 34;

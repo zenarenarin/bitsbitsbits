@@ -50,6 +50,17 @@ const st = (page) => page.evaluate(() => {
   s = await st(page);
   check(s.x > 4, "characters advance automatically (x=" + s.x.toFixed(2) + ")");
   // don't tap: the authored identical gap ends the run
+  await page.waitForFunction(() => window.__copycat.state === "dying", null, { timeout: 8000 }).catch(() => {});
+  await sleep(1100);
+  await page.screenshot({ path: OUT + "/03a-death-feedback.png" });
+  const fail = await page.evaluate(() => {
+    const g = window.__copycat, f = g.run.fail, p = g.layoutInfo().panels[0];
+    if (!f) return null;
+    const camX = g.run.sim.x + g.run.camShift, centre = (f.beat.lo + f.beat.hi) / 2;
+    return { text: f.text, beat: !!f.beat, sx: p.w * 0.22 + (centre - camX) * p.s, w: p.w };
+  });
+  check(fail && fail.beat && /NO JUMP/.test(fail.text), "failure names what to change (" + (fail && fail.text) + ") and marks the jump zone");
+  check(fail && fail.sx > 20 && fail.sx < fail.w - 20, "the safe jump zone is on screen after the death (x=" + (fail && fail.sx.toFixed(0)) + "px)");
   await page.waitForFunction(() => window.__copycat.state === "over", null, { timeout: 8000 }).catch(() => {});
   await sleep(300);
   s = await st(page);
@@ -98,6 +109,8 @@ const st = (page) => page.evaluate(() => {
   check(s.segs < 14 && Math.max(...s.objs) < 260, "old segments are discarded (live segments " + s.segs + ", objects " + s.objs + ")");
   check(s.score > 0 && s.bestCombo >= 5, "scoring and combo progressed");
   check(s.syncs > 0, "SYNC awards fired during precise shared jumps (" + s.syncs + ")");
+  const paired = await page.evaluate(() => window.__events.length);
+  check(paired > 0, "events flowed during the run");
   check(errors.length === 0, "no page errors during the long run (" + errors.slice(0, 3).join(" | ") + ")");
   await ctx.close();
 }

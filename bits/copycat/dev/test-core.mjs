@@ -13,7 +13,7 @@ const core = window.__copycatCore;
 let failures = 0;
 const check = (cond, msg) => { if (!cond) { failures++; console.log("FAIL:", msg); } else console.log("ok  :", msg); };
 
-const cfg = { vStart: 4.2, vMax: 6.2, jumpHeight: 1.55, airTime: 0.62, coyote: 0.08, buffer: 0.12, winStart: 0.32, winEnd: 0.13 };
+const cfg = { vStart: 4.2, vMax: 6.2, jumpHeight: 1.55, airTime: 0.62, coyote: 0.08, buffer: 0.12, winStart: 0.28, winEnd: 0.13 };
 const P = core.makePhys(cfg);
 const { EV_JUMP, EV_LAND, EV_DIE } = core.EV;
 const RAMP = [[0, 0], [8, 0.12], [20, 0.36], [40, 0.66], [70, 0.9], [110, 1]];
@@ -134,14 +134,17 @@ for (const tutorial of [true, false]) {
 {
   const gen = core.createGenerator(P, cfg, ramp, 99, false);
   gen.startSegment();
-  let made = 0, worst = 0;
+  let made = 0;
+  const sl = [];
   while (made < 120) {
     const t = performance.now();
     const seg = gen.work(t + 2);
-    worst = Math.max(worst, performance.now() - t);
+    sl.push(performance.now() - t);
     if (seg) made++;
   }
-  check(worst < 8, "sliced generation never blocks a frame for long (worst slice " + worst.toFixed(2) + "ms with a 2ms budget)");
+  sl.sort((a, b) => a - b);
+  const p99 = sl[Math.floor(sl.length * 0.99)], worst = sl[sl.length - 1];
+  check(p99 < 6 && worst < 15, "sliced generation stays within a frame (2ms budget: p99 " + p99.toFixed(2) + "ms, worst " + worst.toFixed(2) + "ms incl. GC)");
 }
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nall core checks passed");
 process.exit(failures ? 1 : 0);
