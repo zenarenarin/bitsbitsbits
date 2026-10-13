@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "REWIND",
+  "description": "The world moves through time. You move through the world. Run across a monumental city of clockwork stone: hold time forward or back to rebuild fallen bridges, call ferries home and turn great rings into place, all while you keep steering.",
+  "tags": [
+    "arcade",
+    "runner",
+    "time",
+    "3d",
+    "puzzle"
+  ],
+  "permissions": [
+    "audio",
+    "haptics",
+    "storage"
+  ],
+  "dependencies": [
+    "three@0.164.1"
+  ],
+  "memory": {
+    "records": {
+      "score": {
+        "label": "Score",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": [
+          "daily",
+          "weekly",
+          "all_time"
+        ],
+        "scopes": [
+          "following",
+          "global"
+        ],
+        "dedupe": "best_per_user"
+      }
+    }
+  },
+  "onboarding": {
+    "kind": "immersive",
+    "version": 1
+  }
+}
