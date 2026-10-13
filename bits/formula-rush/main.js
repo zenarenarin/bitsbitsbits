@@ -18,7 +18,7 @@ window.plethoraBit = {
     const DEFAULT_SETTINGS = {
       difficulty: "medium", laps: 3, racingLine: true, steering: "touch",
       sensitivity: 1, deadzone: 0.05, invertTilt: false, sound: true, volume: 0.8,
-      brakeAssist: "medium", vibration: true, view: 0, quality: "high", grid: 8, livery: 0, ver: 2
+      brakeAssist: "medium", circuit: "aurora", vibration: true, view: 0, quality: "high", grid: 8, livery: 0, ver: 2
     };
     const settings = Object.assign({}, DEFAULT_SETTINGS);
     let bestLapStored = null;
@@ -88,9 +88,11 @@ window.plethoraBit = {
       brakeMu: 0.95, steerMax: 0.36, steerMinHigh: 0.15
     };
     PHYS.L = PHYS.a + PHYS.b;
-    const W = 7.5;            // half track width
-    const CURB = 1.4;         // curb width
-    const BARRIER_BASE = 19;  // default barrier distance from centerline
+    // per-circuit dimensions (set by loadCircuitData); these defaults are Aurora Ring's
+    let W = 7.5;              // half track width
+    let CURB = 1.4;           // curb width
+    let BARRIER_BASE = 19;    // default barrier distance from centerline
+    let STREET = false;       // street circuits run wall-to-wall asphalt (no grass run-off)
     const GEARS = [0, 19, 30, 40, 50, 60, 70, 80, 200];
     const CAR_R = 1.0;        // collision circle radius
     const CAR_OFF = 1.45;     // circle offset front/rear
@@ -112,6 +114,7 @@ window.plethoraBit = {
       .fr-screen{position:absolute;inset:0;pointer-events:none}
       .fr-menu-btn{pointer-events:auto;cursor:pointer;width:100%;padding:.55em 1em;margin:.32em 0;font-family:"Bebas Neue",Inter,system-ui,sans-serif;font-size:1.35em;letter-spacing:.08em;text-align:left;color:#fff;background:linear-gradient(90deg,rgba(255,42,61,.0),rgba(255,255,255,.04));border:0;border-left:4px solid rgba(255,255,255,.3);border-radius:4px;transition:all .12s}
       .fr-menu-btn:active,.fr-menu-btn:hover{border-left-color:#ff2a3d;background:linear-gradient(90deg,rgba(255,42,61,.35),rgba(255,255,255,.04))}
+      .fr-menu-panel .fr-menu-btn{padding:.36em 1em;margin:.2em 0}
       .fr-menu-btn.primary{border-left-color:#ff2a3d;background:linear-gradient(90deg,rgba(255,42,61,.55),rgba(255,42,61,.08))}
       .fr-row{display:flex;align-items:center;justify-content:space-between;gap:.6em;padding:.38em 0;border-bottom:1px solid rgba(255,255,255,.07)}
       .fr-seg{display:flex;gap:.3em;flex-wrap:wrap;justify-content:flex-end}
@@ -263,7 +266,7 @@ window.plethoraBit = {
       if (disposed) return;
     }
     loadBar.style.width = "45%";
-    loadMsg.textContent = "Building Aurora Ring…";
+    loadMsg.textContent = "Building " + (({ monaco: "Monaco", marina: "Marina Bay" })[settings.circuit] || "Aurora Ring") + "…";
 
     // =====================================================================
     // Track generation
@@ -278,6 +281,38 @@ window.plethoraBit = {
       [-235, 568], [-272, 525], [-292, 455], [-330, 370], [-352, 260], [-360, 140],
       [-352, 65], [-330, 18]
     ];
+    // Circuits. Aurora Ring uses the original CTRL layout and settings unchanged.
+    const CIRCUITS = {
+      aurora: {
+        id: "aurora", record: "aurora_ring", name: "Aurora Ring", length: "2.5 km", ctrl: CTRL, sf: [-40, 0],
+        W: 7.5, CURB: 1.4, BARRIER: 19, street: false, night: false,
+        blurb: "Fast permanent circuit · long straight, hairpin, chicane",
+        stands: [[-180, 120], [-40, 150], [130, 120], [560, 90]], trees: true, hills: 0x8aa39a, ground: "grass", groundCenter: [50, -290], lightSpacing: 120
+      },
+      monaco: {
+        id: "monaco", record: "monaco", name: "Monaco", length: "1.6 km", sf: [-80, 0],
+        W: 5.5, CURB: 1.0, BARRIER: 7.1, street: true, night: false,
+        blurb: "Tight harbour streets · hairpin, tunnel, close walls",
+        ctrl: [[-200, 0], [-80, 0], [40, 0], [78, -6], [90, -30], [92, -75], [105, -110], [130, -135], [170, -145], [205, -140], [232, -150], [242, -175], [236, -200], [214, -214],
+          [188, -222], [170, -238], [176, -257], [198, -262], [228, -264], [248, -280], [244, -302], [220, -312], [150, -316], [60, -310], [14, -304],
+          [-12, -298], [-34, -292], [-56, -300], [-80, -304], [-120, -300], [-150, -306],
+          [-174, -300], [-194, -292], [-214, -298], [-232, -294], [-252, -282], [-258, -262], [-254, -200], [-260, -120], [-256, -50], [-248, -16], [-228, -2]],
+        stands: [[-150, 90]], trees: false, hills: 0x9aa58e, ground: "city", lightSpacing: 70,
+        buildings: { minH: 9, maxH: 30, colors: ["#e9d8bd", "#f2c9a0", "#d9b38c", "#f4e6cf", "#e7b8a4", "#cfd8c4", "#f0dca8"], depth: [10, 22], gap: 2.5 }
+      },
+      marina: {
+        id: "marina", record: "marina_bay", name: "Marina Bay", length: "2.2 km", sf: [-120, 0],
+        W: 6.5, CURB: 1.0, BARRIER: 9.5, street: true, night: true,
+        blurb: "Floodlit night streets · long straights, chicane, heavy braking",
+        ctrl: [[-250, 0], [-120, 0], [60, 0], [190, 0], [222, 8], [232, 30], [244, 52], [266, 64], [278, 88], [280, 160], [282, 250], [276, 284], [250, 296],
+          [190, 298], [150, 300], [134, 292], [114, 300], [94, 306], [60, 312], [40, 326], [36, 350], [30, 404], [14, 428], [-20, 434], [-150, 432], [-200, 430],
+          [-226, 420], [-234, 394], [-232, 300], [-236, 268], [-252, 252], [-268, 232], [-264, 200], [-240, 182], [-200, 176], [-90, 176], [-60, 166], [-52, 140],
+          [-58, 110], [-84, 96], [-200, 96], [-250, 92], [-276, 76], [-282, 44], [-274, 16]],
+        stands: [[-190, 110]], trees: false, hills: 0, ground: "city", lightSpacing: 34,
+        buildings: { minH: 24, maxH: 110, colors: ["#2a3446", "#1f2a3a", "#33405a", "#26303f", "#3a4660"], depth: [16, 34], gap: 4, lit: true }
+      }
+    };
+    if (!CIRCUITS[settings.circuit]) settings.circuit = "aurora";
     function catmullRom(P, n) {
       const out = [];
       const N = P.length;
@@ -301,8 +336,8 @@ window.plethoraBit = {
       }
       return out;
     }
-    const track = (() => {
-      const dense = catmullRom(CTRL, 40).map(p => [p[0], -p[1]]); // map y -> -z
+    function makeTrack(def) {
+      const dense = catmullRom(def.ctrl, 40).map(p => [p[0], -p[1]]); // map y -> -z
       const cum = [0];
       for (let i = 1; i <= dense.length; i++) {
         const a = dense[i - 1], b = dense[i % dense.length];
@@ -321,11 +356,12 @@ window.plethoraBit = {
         const t = (s - cum[j]) / (cum[j + 1] - cum[j]);
         raw.push([lerp(a[0], b[0], t), lerp(a[1], b[1], t)]);
       }
-      // Re-index so sample 0 is the start/finish line at x ~ -40 on the main straight
+      // Re-index so sample 0 is the start/finish line on the main straight
       let sf = 0, best = 1e9;
       for (let i = 0; i < n; i++) {
         const p = raw[i];
-        if (Math.abs(p[1]) < 3 && p[0] < 100) { const d = Math.abs(p[0] + 40); if (d < best) { best = d; sf = i; } }
+        if (def.id === "aurora") { if (Math.abs(p[1]) < 3 && p[0] < 100) { const d = Math.abs(p[0] + 40); if (d < best) { best = d; sf = i; } } }
+        else { const d = Math.hypot(p[0] - def.sf[0], p[1] + def.sf[1]); if (d < best) { best = d; sf = i; } }
       }
       const X = new Float32Array(n), Z = new Float32Array(n);
       for (let i = 0; i < n; i++) { const p = raw[(i + sf) % n]; X[i] = p[0]; Z[i] = p[1]; }
@@ -374,11 +410,11 @@ window.plethoraBit = {
         if (m > 1 / 170) { curbL[i] = 1; curbR[i] = 1; }
         let m2 = 0, sgn2 = 0;
         for (let k = -6; k <= 22; k++) { const kk = Ks[(i - k + n) % n]; if (Math.abs(kk) > m2) { m2 = Math.abs(kk); sgn2 = Math.sign(kk); } }
-        if (m2 > 1 / 110) { if (sgn2 > 0) gravelL[i] = 1; else gravelR[i] = 1; }
+        if (!def.street && m2 > 1 / 110) { if (sgn2 > 0) gravelL[i] = 1; else gravelR[i] = 1; }
       }
       return { n, ds, length: n * ds, X, Z, FX, FZ, RX, RZ, K: Ks, limL, limR, curbL, curbR, gravelL, gravelR };
-    })();
-    const TN = track.n, TDS = track.ds, TLEN = track.length;
+    }
+    let track = null, TN = 0, TDS = 2, TLEN = 1, racing = null, circuit = null;
 
     // nearest-point projection with a local search window
     function project(x, z, hint, out, wide) {
@@ -419,7 +455,7 @@ window.plethoraBit = {
     };
 
     // Racing line: elastic band relaxation inside track limits
-    const racing = (() => {
+    function makeRacing() {
       const n = TN;
       const off = new Float32Array(n);
       const lim = W - 1.4;
@@ -455,7 +491,7 @@ window.plethoraBit = {
         kap[i] = 2 * Math.abs(cr) / (Math.hypot(ax, az) * Math.hypot(bx, bz) * Math.hypot(cx, cz) + 1e-6);
       }
       // speed profile
-      const muE = PHYS.mu * 0.86, m = PHYS.mass;
+      const muE = PHYS.mu * (STREET ? 0.8 : 0.86), m = PHYS.mass;   // walls leave no margin on street circuits
       const v = new Float32Array(n);
       const VMAX = 95;
       for (let i = 0; i < n; i++) {
@@ -479,7 +515,18 @@ window.plethoraBit = {
         }
       }
       return { off: sm, X: LX, Z: LZ, kap, v };
-    })();
+    }
+    function loadCircuitData(def) {
+      circuit = def;
+      W = def.W; CURB = def.CURB; BARRIER_BASE = def.BARRIER; STREET = !!def.street;
+      track = makeTrack(def);
+      TN = track.n; TDS = track.ds; TLEN = track.length;
+      racing = makeRacing();
+      try { const bl = ctx.storage.get(bestLapKey()); bestLapStored = (typeof bl === "number" && isFinite(bl)) ? bl : null; } catch (e) { bestLapStored = null; }
+    }
+    // Aurora Ring keeps its original storage key so existing personal bests survive
+    function bestLapKey() { return circuit.id === "aurora" ? "bestLap" : "bestLap_" + circuit.id; }
+    loadCircuitData(CIRCUITS[settings.circuit]);
 
     // =====================================================================
     // Renderer / scene
@@ -705,16 +752,120 @@ window.plethoraBit = {
       return out;
     }
 
-    const world = new THREE.Group();
+    // ---------- circuit atmosphere (daylight for Aurora Ring / Monaco, floodlit night for Marina Bay) ----------
+    const seedBeforeCity = seed;   // these textures must not shift the random sequence Aurora Ring's scenery uses
+    const cityTex = canvasTexture(256, 256, (g, w, h) => {
+      noiseFill(g, w, h, "#6a6c70", 20, 6000, 3);
+      g.strokeStyle = "rgba(0,0,0,.18)"; g.lineWidth = 2;
+      for (let i = 0; i <= 256; i += 64) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, h); g.stroke(); g.beginPath(); g.moveTo(0, i); g.lineTo(w, i); g.stroke(); }
+    }, { repeat: true });
+    cityTex.repeat.set(220, 220);
+    const windowTex = canvasTexture(64, 128, (g, w, h) => {
+      g.fillStyle = "#ffffff"; g.fillRect(0, 0, w, h);
+      g.fillStyle = "rgba(40,48,60,.55)";
+      for (let y = 6; y < h - 4; y += 16) for (let x = 5; x < w - 4; x += 14) g.fillRect(x, y, 9, 10);
+    }, { repeat: true });
+    const windowLitTex = canvasTexture(64, 128, (g, w, h) => {
+      g.fillStyle = "#000"; g.fillRect(0, 0, w, h);
+      for (let y = 6; y < h - 4; y += 16) for (let x = 5; x < w - 4; x += 14) {
+        if (rand() < 0.62) { g.fillStyle = rand() < 0.7 ? "#ffd79a" : "#bfe4ff"; g.fillRect(x, y, 9, 10); }
+      }
+    }, { repeat: true });
+    seed = seedBeforeCity;
+    const dayEnv = scene.environment;
+    const ATMOS = {
+      day: { top: "#3f7fd0", hz: "#cfe3f2", fogNear: 260, fogFar: 1150, hemiSky: 0xd8ecff, hemiGround: 0x4a6b33, hemiI: 0.9, sunC: 0xfff1dc, sunI: 2.4, exposure: 1.05 },
+      night: { top: "#03050c", hz: "#141c30", fogNear: 160, fogFar: 950, hemiSky: 0x9fb4e6, hemiGround: 0x1a2030, hemiI: 0.8, sunC: 0xf4f6ff, sunI: 1.9, exposure: 1.12 }
+    };
+    function applyAtmosphere(def) {
+      const A = def.night ? ATMOS.night : ATMOS.day;
+      const top = new THREE.Color(A.top), hz = new THREE.Color(A.hz);
+      scene.background.copy(hz); scene.fog.color.copy(hz); scene.fog.near = A.fogNear; scene.fog.far = A.fogFar;
+      const sky = scene.userData.sky, pos = sky.geometry.attributes.position, col = sky.geometry.attributes.color, c = new THREE.Color();
+      for (let i = 0; i < pos.count; i++) { c.copy(hz).lerp(top, clamp(pos.getY(i) / 1800 * 2.2, 0, 1)); col.setXYZ(i, c.r, c.g, c.b); }
+      col.needsUpdate = true;
+      hemi.color.set(A.hemiSky); hemi.groundColor.set(A.hemiGround); hemi.intensity = A.hemiI;
+      sun.color.set(A.sunC); sun.intensity = A.sunI;
+      renderer.toneMappingExposure = A.exposure;
+      scene.environment = def.night ? null : dayEnv;
+    }
+    // city blocks beside street circuits (instanced boxes, cleared from every part of the track)
+    function addBuildings(def) {
+      const B = def.buildings;
+      const tmp = { idx: 0, s: 0, d: 0 };
+      const items = [];
+      const tryPlace = (x, z, rot, w, d, h) => {
+        project(x, z, 0, tmp, true);
+        const lim = tmp.d < 0 ? track.limL[tmp.idx] : track.limR[tmp.idx];
+        if (Math.abs(tmp.d) - Math.hypot(w, d) / 2 < lim + 1.5) return;
+        items.push({ x, z, rot, w, d, h, c: B.colors[Math.floor(rand() * B.colors.length)] });
+      };
+      for (let s = 0; s < TLEN; s += 15) {
+        for (const side of [-1, 1]) {
+          const sm = ((s % TLEN) + TLEN) % TLEN;
+          if (side < 0 && (sm < 110 || sm > TLEN - 130)) continue;   // pit building
+          let inStand = false;
+          for (const [s0, len] of def.stands) { const a = ((s - s0) % TLEN + TLEN) % TLEN; if (side > 0 && a < len + 10) inStand = true; }
+          if (inStand) continue;
+          const p = sampleAt(s + rrange(-3, 3));
+          const lim = side < 0 ? track.limL[p.i] : track.limR[p.i];
+          const w = rrange(10, 17), d = rrange(B.depth[0], B.depth[1]);
+          const off = side * (lim + B.gap + d / 2 + rrange(0, 4));
+          tryPlace(p.x + p.rx * off, p.z + p.rz * off, Math.atan2(p.fx, p.fz), w, d, rrange(B.minH, B.maxH));
+        }
+      }
+      if (B.lit) {
+        // distant skyline ring
+        const c = trackCenter();
+        for (let k = 0; k < 70; k++) {
+          const a = (k / 70) * Math.PI * 2 + rrange(-0.03, 0.03), r = rrange(520, 820);
+          items.push({ x: c[0] + Math.cos(a) * r, z: c[1] + Math.sin(a) * r, rot: rand() * 3, w: rrange(22, 40), d: rrange(22, 40), h: rrange(90, 230), c: B.colors[k % B.colors.length] });
+        }
+      }
+      const geo = new THREE.BoxGeometry(1, 1, 1); geo.translate(0, 0.5, 0);
+      const map = windowTex.clone(); map.needsUpdate = true; map.repeat.set(1, B.lit ? 4 : 2);
+      const matOpts = { map };
+      if (B.lit) { const em = windowLitTex.clone(); em.needsUpdate = true; em.repeat.set(1, 4); Object.assign(matOpts, { emissiveMap: em, emissive: 0xffffff, emissiveIntensity: 1.1 }); disposables.push(em); }
+      const mat = new THREE.MeshLambertMaterial(matOpts);
+      const inst = new THREE.InstancedMesh(geo, mat, items.length);
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color();
+      items.forEach((b, i) => {
+        q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), b.rot);
+        m4.compose(new THREE.Vector3(b.x, 0, b.z), q, new THREE.Vector3(b.w, b.h, b.d));
+        inst.setMatrixAt(i, m4);
+        inst.setColorAt(i, col.set(b.c));
+      });
+      world.add(inst);
+      disposables.push(geo, mat, map);
+    }
+
+    let world = null, guide = null, worldSeed = null;
+    const startLights = [];
+    const GRID_SLOT = k => ({ s: -10 - k * 8.5, d: (k % 2 === 0 ? -3.2 : 3.2) });
+    function setStartLights(nLit) {
+      startLights.forEach((lamps, i) => lamps.forEach(m => m.color.set(i < nLit ? 0xff1a1a : 0x220405)));
+    }
+    function trackCenter() {
+      let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
+      for (let i = 0; i < TN; i++) { minX = Math.min(minX, track.X[i]); maxX = Math.max(maxX, track.X[i]); minZ = Math.min(minZ, track.Z[i]); maxZ = Math.max(maxZ, track.Z[i]); }
+      return [(minX + maxX) / 2, (minZ + maxZ) / 2];
+    }
+    // Builds the scenery for the loaded circuit. Random placement is re-seeded so each circuit
+    // (Aurora Ring included) always gets the same scenery.
+    function buildWorld(def) {
+    if (worldSeed === null) worldSeed = seed;
+    seed = worldSeed;
+    world = new THREE.Group();
     scene.add(world);
+    const center = def.groundCenter || trackCenter();
 
     // Ground
     {
       const g = new THREE.PlaneGeometry(2600, 2600);
       g.rotateX(-Math.PI / 2);
-      const m = new THREE.MeshLambertMaterial({ map: grassTex, polygonOffset: true, polygonOffsetFactor: 4, polygonOffsetUnits: 8 });
+      const m = new THREE.MeshLambertMaterial({ map: def.ground === "city" ? cityTex : grassTex, polygonOffset: true, polygonOffsetFactor: 4, polygonOffsetUnits: 8 });
       const ground = new THREE.Mesh(g, m);
-      ground.position.set(50, -0.15, -290);
+      ground.position.set(center[0], -0.15, center[1]);
       ground.receiveShadow = true;
       world.add(ground);
       disposables.push(g, m);
@@ -787,7 +938,6 @@ window.plethoraBit = {
       world.add(placeOnTrack(new THREE.Mesh(g, m), 0, 0, 0.025));
       disposables.push(g, m);
     }
-    const GRID_SLOT = k => ({ s: -10 - k * 8.5, d: (k % 2 === 0 ? -3.2 : 3.2) });
     {
       const g = new THREE.PlaneGeometry(2.6, 0.28); g.rotateX(-Math.PI / 2);
       for (let k = 0; k < 10; k++) {
@@ -802,7 +952,7 @@ window.plethoraBit = {
     }
 
     // Gantry with start lights
-    const startLights = [];
+    startLights.length = 0;
     {
       const gantry = new THREE.Group();
       const steel = new THREE.MeshStandardMaterial({ color: 0x2a2f38, roughness: 0.5, metalness: 0.6 });
@@ -810,7 +960,7 @@ window.plethoraBit = {
       const p1 = new THREE.Mesh(postG, steel); p1.position.set(-(W + 2.2), 4, 0);
       const p2 = new THREE.Mesh(postG, steel); p2.position.set(W + 2.2, 4, 0);
       const beam = new THREE.Mesh(new THREE.BoxGeometry(W * 2 + 5, 1.4, 0.8), steel); beam.position.set(0, 7.6, 0);
-      const banner = new THREE.Mesh(new THREE.PlaneGeometry(W * 2 + 4, 1.2), new THREE.MeshBasicMaterial({ map: textTex("FORMULA RUSH · AURORA RING", "#ffffff", "#c8102e", 512, 48) }));
+      const banner = new THREE.Mesh(new THREE.PlaneGeometry(W * 2 + 4, 1.2), new THREE.MeshBasicMaterial({ map: textTex("FORMULA RUSH · " + def.name.toUpperCase(), "#ffffff", "#c8102e", 512, 48) }));
       banner.position.set(0, 7.6, -0.42); banner.rotation.y = Math.PI;
       const banner2 = banner.clone(); banner2.position.z = 0.42; banner2.rotation.y = 0;
       gantry.add(p1, p2, beam, banner, banner2);
@@ -834,17 +984,13 @@ window.plethoraBit = {
       // gantry faces approaching cars (cars travel +s), so lamps face -forward
       world.add(placeOnTrack(gantry, 0.5, 0, 0));
     }
-    function setStartLights(nLit) {
-      startLights.forEach((lamps, i) => lamps.forEach(m => m.color.set(i < nLit ? 0xff1a1a : 0x220405)));
-    }
-
     // Trackside: grandstands, pit building, light towers, boards, trees, hills
     {
       const standMat = new THREE.MeshStandardMaterial({ color: 0x9aa3ad, roughness: 0.8 });
       const crowdMat = new THREE.MeshLambertMaterial({ map: crowdTex });
       crowdTex.repeat.set(6, 1);
       const roofMat = new THREE.MeshStandardMaterial({ color: 0xe8ecf0, roughness: 0.4, metalness: 0.3 });
-      for (const [s0, len] of [[-180, 120], [-40, 150], [130, 120], [560, 90]]) {
+      for (const [s0, len] of def.stands) {
         const grp = new THREE.Group();
         const base = new THREE.Mesh(new THREE.BoxGeometry(len, 2, 4), standMat); base.position.set(0, 1, 0);
         grp.add(base);
@@ -887,12 +1033,13 @@ window.plethoraBit = {
       world.add(pit);
       // light towers
       const poleMat = new THREE.MeshStandardMaterial({ color: 0x777f88, roughness: 0.6, metalness: 0.5 });
-      const headMat = new THREE.MeshBasicMaterial({ color: 0xfff8e0 });
+      const headMat = new THREE.MeshBasicMaterial({ color: def.night ? 0xffffff : 0xfff8e0 });
       const poleG = new THREE.CylinderGeometry(0.25, 0.4, 22, 6);
       const headG = new THREE.BoxGeometry(3, 1.6, 0.6);
-      for (let s = 0; s < TLEN; s += 120) {
+      const spacing = def.lightSpacing;
+      for (let s = 0; s < TLEN; s += spacing) {
         const p = sampleAt(s);
-        const side = (Math.floor(s / 120) % 2) ? 1 : -1;
+        const side = (Math.floor(s / spacing) % 2) ? 1 : -1;
         const off = side > 0 ? track.limR[p.i] + 3 : -(track.limL[p.i] + 3);
         const pole = new THREE.Mesh(poleG, poleMat);
         pole.position.set(p.x + p.rx * off, 11, p.z + p.rz * off);
@@ -944,7 +1091,9 @@ window.plethoraBit = {
           }
         }
       }
+      if (def.buildings) addBuildings(def);
       // trees (instanced)
+      if (def.trees) {
       const cell = 20, gridMap = new Map();
       for (let i = 0; i < TN; i += 2) {
         const key = Math.floor(track.X[i] / cell) + "," + Math.floor(track.Z[i] / cell);
@@ -978,18 +1127,21 @@ window.plethoraBit = {
       }
       foliage.count = placed; trunks.count = placed;
       world.add(foliage, trunks);
+      }
       // distant hills
+      if (def.hills) {
       const hillG = new THREE.CylinderGeometry(1400, 1500, 90, 48, 1, true);
       const hp = hillG.attributes.position;
       for (let i = 0; i < hp.count; i++) { if (hp.getY(i) > 0) hp.setY(i, 45 + Math.sin(i * 1.7) * 30 + Math.sin(i * 0.43) * 40); }
       hillG.computeVertexNormals();
-      const hills = new THREE.Mesh(hillG, new THREE.MeshLambertMaterial({ color: 0x8aa39a, side: THREE.BackSide, fog: false }));
-      hills.position.set(50, 10, -290);
+      const hills = new THREE.Mesh(hillG, new THREE.MeshLambertMaterial({ color: def.hills, side: THREE.BackSide, fog: false }));
+      hills.position.set(center[0], 10, center[1]);
       world.add(hills);
+      }
     }
 
     // Racing-line guide (dashed strip with dynamic vertex colors)
-    const guide = (() => {
+    guide = (() => {
       const pos = [], col = [], idx = [];
       const DASH = 2; // samples per dash
       let v = 0;
@@ -1022,6 +1174,10 @@ window.plethoraBit = {
       for (let i = 0; i < TN; i++) { if (i % 3 === 2) continue; map[i] = vb; vb += 4; }
       return { mesh, colors: g.attributes.color, map };
     })();
+    batchWorld();
+    applyAtmosphere(def);
+    }
+    buildWorld(circuit);
 
     loadBar.style.width = "70%";
 
@@ -1372,7 +1528,7 @@ window.plethoraBit = {
     }
 
     // Batch static scenery: merge meshes that share a material into one draw call
-    (function batchWorld() {
+    function batchWorld() {
       world.updateMatrixWorld(true);
       const groups = new Map();
       world.traverse(o => {
@@ -1390,7 +1546,7 @@ window.plethoraBit = {
         world.add(merged);
         disposables.push(geo);
       }
-    })();
+    }
 
     // =====================================================================
     // Cars (physics state + visuals)
@@ -1447,7 +1603,7 @@ window.plethoraBit = {
       car.onCurb = false; car.offTrack = false; car.surf = 0;
       if (ad > W) {
         if (curbHere && ad <= W + CURB) { car.onCurb = true; gripMul = 0.93; car.surf = 1; }
-        else if (ad > W + 0.6) {
+        else if (!STREET && ad > W + 0.6) {
           car.offTrack = ad > W + CURB + 0.4;
           if (gravelHere) { gripMul = 0.5; rollMul = 26; car.surf = 3; } else { gripMul = 0.62; rollMul = 14; car.surf = 2; }
         }
@@ -1673,7 +1829,7 @@ window.plethoraBit = {
       }
       ai.lane = damp(ai.lane, ai.laneTarget, 1.2, dt);
       // pure-pursuit target point
-      const look = 7 + speed * 0.42;
+      const look = STREET ? 5 + speed * 0.3 : 7 + speed * 0.42;   // shorter look-ahead so street-circuit AI cannot cut into walls
       const tIdx = (car.idx + Math.round(look / TDS)) % TN;
       const off = clamp(racing.off[tIdx] + ai.lane, -(W - 1.1), W - 1.1);
       const tx = track.X[tIdx] + track.RX[tIdx] * off, tz = track.Z[tIdx] + track.RZ[tIdx] * off;
@@ -1983,7 +2139,7 @@ window.plethoraBit = {
     const lightEls = Array.from(H.lights.querySelectorAll(".fr-light"));
 
     // minimap
-    const mapState = (() => {
+    function buildMinimap() {
       let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
       for (let i = 0; i < TN; i++) { minX = Math.min(minX, track.X[i]); maxX = Math.max(maxX, track.X[i]); minZ = Math.min(minZ, track.Z[i]); maxZ = Math.max(maxZ, track.Z[i]); }
       const sc = 92 / Math.max(maxX - minX, maxZ - minZ);
@@ -1995,7 +2151,8 @@ window.plethoraBit = {
       H.map.innerHTML = `<path d="${d}" fill="none" stroke="rgba(0,0,0,.55)" stroke-width="5" stroke-linejoin="round"/><path d="${d}" fill="none" stroke="rgba(255,255,255,.85)" stroke-width="2.2" stroke-linejoin="round"/>` +
         `<rect x="${mx(track.X[0]) - 2.5}" y="${mz(track.Z[0]) - 0.8}" width="5" height="1.6" fill="#ff2a3d"/><g class="fr-dots"></g>`;
       return { mx, mz, dots: H.map.querySelector(".fr-dots"), els: [] };
-    })();
+    }
+    let mapState = buildMinimap();
 
     function layoutHud() {
       // Touch controls live in stage space: over the bottom of the view in landscape,
@@ -2054,6 +2211,7 @@ window.plethoraBit = {
         <div style="font-size:3.4em;line-height:.9;letter-spacing:.04em">FORMULA<br>RUSH</div>
         <div class="fr-ui fr-menu-sub" style="font-size:.7em;opacity:.65;margin:.5em 0 .8em">Aurora Ring · 2.5 km · Original circuit</div>
         <button class="fr-menu-btn primary fr-play">PLAY RACE</button>
+        <button class="fr-menu-btn fr-circuits">CIRCUIT</button>
         <button class="fr-menu-btn fr-cars">CAR SELECTION</button>
         <button class="fr-menu-btn fr-settings">SETTINGS</button>
       </div>
@@ -2079,6 +2237,63 @@ window.plethoraBit = {
       <div class="fr-deck"><div class="fr-cars-deck" style="flex:1;min-height:0;display:flex;flex-direction:column"></div></div>
     `;
     docks.push([$(".fr-cars-col", carSel), $(".fr-cars-col", carSel).parentNode, $(".fr-cars-deck", carSel)]);
+    // ---- circuit selection ----
+    const circSel = el("div", "fr-screen fr-hide");
+    circSel.innerHTML = `
+      <div class="fr-view">
+      <div style="position:absolute;inset:0;background:rgba(5,7,12,.72)"></div>
+      <div style="position:absolute;left:var(--pl);top:var(--pt);display:flex;gap:.6em;align-items:center">
+        <button class="fr-btn fr-cback" style="padding:.4em .8em;font-size:.9em">◀ BACK</button>
+        <div style="font-size:1.6em;letter-spacing:.08em">SELECT CIRCUIT</div>
+      </div>
+      <div class="fr-circ-col" style="position:absolute;left:var(--pl);right:var(--pr);top:calc(var(--pt) + 3.4em);bottom:var(--pb);display:flex;flex-direction:column">
+        <div class="fr-circ-cards" style="flex:1;min-height:0;display:flex;gap:.8em"></div>
+        <button class="fr-menu-btn primary fr-cstart" style="text-align:center;margin-top:.6em">START RACE ▶</button>
+      </div>
+      </div>
+      <div class="fr-deck"><div class="fr-circ-deck" style="flex:1;min-height:0;display:flex;flex-direction:column"></div></div>
+    `;
+    docks.push([$(".fr-circ-col", circSel), $(".fr-circ-col", circSel).parentNode, $(".fr-circ-deck", circSel)]);
+    function circuitPreview(def) {
+      const pts = catmullRom(def.ctrl, 6);
+      let a = 1e9, b = -1e9, c = 1e9, d = -1e9;
+      for (const p of pts) { a = Math.min(a, p[0]); b = Math.max(b, p[0]); c = Math.min(c, p[1]); d = Math.max(d, p[1]); }
+      const sc = Math.min(88 / (b - a), 52 / (d - c));
+      const ox = (100 - (b - a) * sc) / 2, oy = (60 - (d - c) * sc) / 2;
+      let path = "";
+      pts.forEach((p, i) => { path += (i ? "L" : "M") + (ox + (p[0] - a) * sc).toFixed(1) + " " + (oy + (d - p[1]) * sc).toFixed(1); });
+      const bg = def.night ? "#070b18" : def.street ? "#3b3326" : "#1f3a24";
+      const line = def.night ? "#7fd0ff" : "#ffffff";
+      const sfx = (ox + (def.sf[0] - a) * sc).toFixed(1), sfy = (oy + (d - def.sf[1]) * sc).toFixed(1);
+      return `<svg viewBox="0 0 100 60" style="width:100%;height:100%;display:block;background:${bg};border-radius:6px">` +
+        (def.night ? `<path d="${path}Z" fill="none" stroke="#2a6fff" stroke-width="5" opacity=".35"/>` : "") +
+        `<path d="${path}Z" fill="none" stroke="rgba(0,0,0,.5)" stroke-width="3.6" stroke-linejoin="round"/><path d="${path}Z" fill="none" stroke="${line}" stroke-width="1.6" stroke-linejoin="round"/>` +
+        `<circle cx="${sfx}" cy="${sfy}" r="2.2" fill="#ff2a3d"/></svg>`;
+    }
+    function renderCircuits() {
+      const box = $(".fr-circ-cards", circSel);
+      box.innerHTML = "";
+      for (const def of Object.values(CIRCUITS)) {
+        const c = document.createElement("div");
+        c.className = "fr-card" + (def.id === settings.circuit ? " sel" : "");
+        c.style.cssText = "flex:1;min-width:0;flex-direction:column;align-items:stretch;gap:.4em;margin:0;padding:.5em";
+        c.innerHTML = `<div style="flex:1;min-height:3em">${circuitPreview(def)}</div>
+          <div style="font-family:'Bebas Neue',Inter,sans-serif;font-size:1.5em;letter-spacing:.06em;font-weight:400">${def.name.toUpperCase()}${def.night ? ' <span style="font-size:.6em;color:#7fd0ff">NIGHT</span>' : ""}</div>
+          <div style="opacity:.6;font-weight:400;font-size:.85em">${def.length} · ${def.blurb}</div>`;
+        box.appendChild(c);
+        ctx.input.activate(c, () => {
+          if (settings.circuit === def.id) return;
+          settings.circuit = def.id; saveSettings();
+          loadCircuit(def.id);
+          renderCircuits();
+          ctx.platform.interact({ type: "circuit", circuit: def.id });
+        });
+      }
+    }
+    function updateCircuitTexts() {
+      $(".fr-menu-sub", menu).textContent = `${circuit.name} · ${circuit.length} · Original circuit`;
+      $(".fr-pre-round", preRace).textContent = `ROUND 1 · ${circuit.name.toUpperCase()}`;
+    }
     const modal = el("div", "fr-screen fr-hide");
     modal.style.pointerEvents = "auto";
     modal.style.background = "rgba(3,5,10,.72)";
@@ -2089,7 +2304,7 @@ window.plethoraBit = {
       <div class="fr-view">
       <div style="position:absolute;left:0;right:0;bottom:0;height:45%;background:linear-gradient(0deg,rgba(0,0,0,.7),rgba(0,0,0,0))"></div>
       <div style="position:absolute;left:calc(var(--pl) + .5em);bottom:calc(var(--pb) + .4em)">
-        <div style="font-size:.8em;letter-spacing:.3em;color:#ff2a3d">ROUND 1 · AURORA RING</div>
+        <div class="fr-pre-round" style="font-size:.8em;letter-spacing:.3em;color:#ff2a3d">ROUND 1 · AURORA RING</div>
         <div class="fr-pre-title" style="font-size:2.4em;line-height:1"></div>
         <div class="fr-pre-sub fr-ui" style="font-size:.75em;opacity:.8;margin-top:.3em"></div>
       </div>
@@ -2215,6 +2430,9 @@ window.plethoraBit = {
     const tap = (elm, fn) => ctx.input.activate(elm, () => { audio.init(); audio.resume(); ctx.platform.interact({ type: "ui" }); fn(); });
     tap($(".fr-play", menu), () => startRaceFlow());
     tap($(".fr-cars", menu), () => setState("carSelect"));
+    tap($(".fr-circuits", menu), () => setState("circuitSelect"));
+    tap($(".fr-cback", circSel), () => setState("menu"));
+    tap($(".fr-cstart", circSel), () => startRaceFlow());
     tap($(".fr-settings", menu), () => openSettings(false));
     tap($(".fr-back", carSel), () => setState("menu"));
     tap($(".fr-start", carSel), () => startRaceFlow());
@@ -2243,6 +2461,29 @@ window.plethoraBit = {
       placeShowcase();
       const t = TEAMS[settings.livery];
       $(".fr-menu-team", menu).innerHTML = `<div style="font-family:'Bebas Neue',Inter,sans-serif;font-size:1.6em;letter-spacing:.06em">${t.name}</div><div style="opacity:.7">Car #${t.num}</div>`;
+    }
+    // Swap the loaded circuit (menus only): dispose the old scenery, rebuild track data, racing line,
+    // scenery, lighting and minimap. Race state is created fresh by setupRace() when the race starts.
+    function loadCircuit(id) {
+      const def = CIRCUITS[id];
+      if (!def || def === circuit) return;
+      const shared = new Set([asphaltTex, grassTex, gravelTex, curbTex, wallTex, fenceTex, checkerTex, rubberTex, crowdTex, cityTex, windowTex, windowLitTex, blobTex, smokeTex]);
+      scene.remove(world);
+      world.traverse(o => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) {
+          for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+            for (const t of [m.map, m.emissiveMap]) if (t && !shared.has(t)) t.dispose();
+            m.dispose();
+          }
+        }
+      });
+      loadCircuitData(def);
+      buildWorld(def);
+      guide.mesh.visible = false;
+      mapState = buildMinimap();
+      if (showcase) placeShowcase();
+      updateCircuitTexts();
     }
     function placeShowcase() {
       const sl = GRID_SLOT(0);
@@ -2485,10 +2726,11 @@ window.plethoraBit = {
       state = s;
       menu.classList.toggle("fr-hide", s !== "menu");
       carSel.classList.toggle("fr-hide", s !== "carSelect");
+      circSel.classList.toggle("fr-hide", s !== "circuitSelect");
       preRace.classList.toggle("fr-hide", s !== "preRace");
       hud.classList.toggle("fr-hide", !(s === "countdown" || s === "racing" || s === "finished"));
       loading.classList.add("fr-hide");
-      if (s === "menu" || s === "carSelect") {
+      if (s === "menu" || s === "carSelect" || s === "circuitSelect") {
         clearCars(); player = null;
         if (!showcase) refreshShowcase();
         showcase.group.visible = true;
@@ -2497,6 +2739,7 @@ window.plethoraBit = {
         setStartLights(0);
         audio.silence();
         if (s === "carSelect") renderLiveries();
+        if (s === "circuitSelect") renderCircuits();
       }
       if (s === "preRace") {
         preRaceT = 0;
@@ -2615,7 +2858,7 @@ window.plethoraBit = {
       }
       if (valid && (bestLapStored == null || lt < bestLapStored)) {
         bestLapStored = lt;
-        try { ctx.storage.set("bestLap", lt); } catch (e) { /* ignore */ }
+        try { ctx.storage.set(bestLapKey(), lt); } catch (e) { /* ignore */ }
       }
     }
     function onPlayerFinish() {
@@ -2690,7 +2933,7 @@ window.plethoraBit = {
       });
       resultsEl.innerHTML = `
         <div class="fr-res-left" style="position:absolute;left:var(--pl);top:var(--pt);bottom:var(--pb);width:44%;display:flex;flex-direction:column;justify-content:center;padding-left:1em">
-          <div style="font-size:.85em;letter-spacing:.3em;color:#ff2a3d">RACE RESULT · AURORA RING</div>
+          <div style="font-size:.85em;letter-spacing:.3em;color:#ff2a3d">RACE RESULT · ${circuit.name.toUpperCase()}</div>
           <div style="font-size:4.6em;line-height:.95">P${myPos}<span style="font-size:.4em;opacity:.6"> / ${cars.length}</span></div>
           <div class="fr-ui" style="display:grid;grid-template-columns:auto auto;gap:.25em 1.2em;font-size:.8em;margin:.6em 0 .9em">
             <div style="opacity:.6">Race time</div><div style="font-weight:700">${fmtTime(total)}${penaltyMs ? ` <span style="color:#ffcf2e">(+${(penaltyMs / 1000).toFixed(0)}s pen.)</span>` : ""}</div>
@@ -2715,12 +2958,12 @@ window.plethoraBit = {
       requestAnimationFrameSafe(() => {
         if (disposed || myAttempt !== attempt) return;
         try {
-          ctx.pulse.complete({ timeMs: Math.round(total), timeLabel: fmtTime(total), result: `P${myPos}`, mode: settings.difficulty, text: `Finished P${myPos} of ${cars.length} at Aurora Ring · best lap ${fmtTime(best)}` });
+          ctx.pulse.complete({ timeMs: Math.round(total), timeLabel: fmtTime(total), result: `P${myPos}`, mode: settings.difficulty, text: `Finished P${myPos} of ${cars.length} at ${circuit.name} · best lap ${fmtTime(best)}` });
         } catch (e) { /* ignore */ }
       });
       if (best != null && ctx.memory && ctx.memory.record) {
         try {
-          ctx.memory.record("best_lap").submit(Math.round(best), { label: fmtTime(best), dimensions: { circuit: "aurora_ring" } })
+          ctx.memory.record("best_lap").submit(Math.round(best), { label: fmtTime(best), dimensions: { circuit: circuit.record } })
             .catch(() => {});
         } catch (e) { /* ignore */ }
       }
@@ -2997,7 +3240,7 @@ window.plethoraBit = {
       for (const c of cars) {
         c.collideCooldown -= dt;
         const hit = barrierCollide(c);
-        if (TEST && hit > 3) TEST.stats.walls.push({ name: c.name, s: Math.round(c.s), v: +hit.toFixed(1) });
+        if (TEST && hit > 3) TEST.stats.walls.push({ name: c.name, s: Math.round(c.s), v: +hit.toFixed(1), d: +c.d.toFixed(1), h: +wrapAngle(c.h - Math.atan2(track.FX[c.idx], track.FZ[c.idx])).toFixed(2) });
         if (hit > 1 && c.isPlayer && c.collideCooldown <= 0) {
           CAM.shake = Math.min(1, CAM.shake + hit * 0.06);
           audio.thud(hit);
@@ -3166,7 +3409,7 @@ window.plethoraBit = {
       if (bannerT > 0) { bannerT -= dt; if (bannerT <= 0) H.banner.style.opacity = "0"; }
       if (warnT > 0) { warnT -= dt; if (warnT <= 0) H.warn.classList.add("fr-hide"); }
 
-      if (state === "menu" || state === "carSelect") {
+      if (state === "menu" || state === "carSelect" || state === "circuitSelect") {
         updateMenuCam(dt);
         if (showcase) {
           showcase.body.rotation.set(0, 0, 0);
@@ -3259,6 +3502,7 @@ window.plethoraBit = {
 
     // first frame: menu
     loadBar.style.width = "100%";
+    updateCircuitTexts();
     layout();
     refreshShowcase();
     setState("menu");
@@ -3272,7 +3516,7 @@ window.plethoraBit = {
     if (TEST) {
       TEST.api = {
         get state() { return state; }, get player() { return player; }, get cars() { return cars; }, get raceTime() { return raceTime; },
-        settings, startRace: () => startRaceFlow(), skipPre: () => { preRaceT = 99; }, racing, track, PHYS, setState, standings,
+        settings, loadCircuit, get circuit() { return circuit; }, get world() { return world; }, startRace: () => startRaceFlow(), skipPre: () => { preRaceT = 99; }, get racing() { return racing; }, get track() { return track; }, PHYS, setState, standings,
         scene, THREE, renderCam: viewCam, controls, toggleCam, get camMode() { return camMode; }, get camTrans() { return CAM.trans; },
         get renderInfo() { return Object.assign({}, renderer.info.render, { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures }); }
       };
