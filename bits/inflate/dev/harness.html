@@ -1,0 +1,71 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>html,body{margin:0;height:100%;overflow:hidden;background:#000}#bit{position:fixed;inset:0;overflow:hidden}</style></head>
+<body><div id="bit"></div>
+<script>
+// Minimal mock of the Plethora runtime surface INFLATE uses. Test-only.
+window.__INFLATE_TEST__ = { attach(api) { window.__api = api; } };
+window.__events = []; window.__errors = [];
+window.addEventListener('error', e => window.__errors.push(String(e.message)));
+const qs = new URLSearchParams(location.search);
+const manual = qs.get('manual') === '1';
+const container = document.getElementById('bit');
+const cleanups = [];
+const safe = { top: +(qs.get('st') || 0), bottom: +(qs.get('sb') || 0), left: 0, right: 0 };
+const resizeCbs = [];
+let canvases = [];
+const ctx = {
+  container,
+  get width() { return container.clientWidth; }, get height() { return container.clientHeight; },
+  get dpr() { return window.devicePixelRatio || 1; }, nativeDpr: window.devicePixelRatio || 1,
+  safeArea: safe, capabilities: { audio: true, haptics: true, storage: true, backgroundMusic: false },
+  createCanvas2D(o) {
+    const c = document.createElement('canvas');
+    c.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;touch-action:none;z-index:1';
+    container.appendChild(c);
+    const fit = () => { const d = Math.min(o.maxDpr || 1, window.devicePixelRatio || 1); c.width = Math.round(container.clientWidth * d); c.height = Math.round(container.clientHeight * d); c.getContext('2d').setTransform(d, 0, 0, d, 0, 0); };
+    fit(); canvases.push(fit); return c;
+  },
+  createRoot(o) { const d = document.createElement('div'); d.style.cssText = 'position:absolute;inset:0;z-index:5;' + (o && o.input === 'passthrough' ? 'pointer-events:none;' : ''); if (o && o.className) d.className = o.className; container.appendChild(d); return d; },
+  listen(t, ev, fn, opt) { t.addEventListener(ev, fn, opt); cleanups.push(() => t.removeEventListener(ev, fn, opt)); window.__listenerCount = (window.__listenerCount || 0) + 1; },
+  input: {
+    track(el) {
+      const st = { down: false, x: 0, y: 0, frameDone() {} };
+      const ids = new Set();
+      el.addEventListener('pointerdown', e => { e.preventDefault(); ids.add(e.pointerId); try { el.setPointerCapture(e.pointerId); } catch (_) {} st.down = true; });
+      const up = e => { ids.delete(e.pointerId); st.down = ids.size > 0; };
+      el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up); el.addEventListener('lostpointercapture', up);
+      return st;
+    },
+    activate(el, fn) { el.style.pointerEvents = 'auto'; el.addEventListener('click', fn); },
+    on() { return () => {}; },
+  },
+  storage: { get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }, set(k, v) { localStorage.setItem(k, JSON.stringify(v)); }, remove(k) { localStorage.removeItem(k); }, clear() { localStorage.clear(); } },
+  loadFont() { return Promise.resolve(); },
+  onResize(cb, o) { resizeCbs.push(cb); if (o && o.immediate) cb({}); return () => {}; },
+  timeout(fn, ms) { return setTimeout(fn, ms); }, interval(fn, ms) { return setInterval(fn, ms); },
+  onDestroy(fn) { cleanups.push(fn); },
+  platform: new Proxy({}, { get: (_, k) => (...a) => { window.__events.push([k, a[0]]); } }),
+  game: {
+    score() { let v = 0; return { set(x) { v = x; window.__hostScore = v; }, reset() { v = 0; }, flush() {}, submit(ch, o) { window.__events.push(['submit', v]); return Promise.resolve({ ok: true }); }, get value() { return v; } }; },
+    loop(o) {
+      const step = 1000 / o.fixedHz; let acc = 0, last = performance.now(), running = true;
+      function advance(dtMs) {
+        dtMs = Math.min(dtMs, o.maxDeltaMs || 100);
+        if (o.update) o.update(dtMs);
+        acc += dtMs; let n = 0;
+        while (acc >= step && n < (o.maxSubsteps || 8)) { o.fixedUpdate(step); acc -= step; n++; }
+        if (n >= (o.maxSubsteps || 8)) acc = 0;
+        if (o.render) o.render(acc / step);
+      }
+      window.__advance = advance;
+      if (!manual) { const f = t => { if (!running) return; advance(t - last); last = t; requestAnimationFrame(f); }; requestAnimationFrame(f); }
+      return { pause() {}, resume() {}, stop() { running = false; }, destroy() { running = false; } };
+    },
+  },
+  memory: { record() { return { submit: () => Promise.resolve({}) }; } },
+};
+window.addEventListener('resize', () => { canvases.forEach(f => f()); resizeCbs.forEach(cb => cb({})); });
+const s = document.createElement('script'); s.src = '../main.js?' + Date.now();
+s.onload = () => window.plethoraBit.init(ctx).then(() => { window.__ready = true; }).catch(e => window.__errors.push('init: ' + e.stack));
+document.body.appendChild(s);
+</script></body></html>
