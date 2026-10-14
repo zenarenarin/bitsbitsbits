@@ -626,3 +626,12 @@ module.exports.hitScan = async ({ page }) => {
     return { state: d.run.state, tally, surfaces };
   });
 };
+
+// Same pipeline, but with a full-screen overlay deliberately intercepting touches above the
+// play canvas, like the device showed (taps reached the bit, 0 reached the canvas).
+module.exports.touchPipelineBlocked = async (c) => {
+  await c.page.evaluate(() => { const d = window.__rewindDebug; d.hud.ribbon.style.pointerEvents = "auto"; });
+  const r = await module.exports.touchPipeline(c);
+  r.diagLine = await c.page.evaluate(() => document.getElementById("rw-diag").textContent);
+  return r;
+};

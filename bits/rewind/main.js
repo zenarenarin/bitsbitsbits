@@ -36,7 +36,7 @@ window.plethoraBit = {
       try { ctx.platform.error({ stage: "init", message: msg.slice(0, 500) }); } catch (e) {}
       try {
         const r = ctx.createRoot({ style: "z-index:99;background:rgba(240,234,222,.94);color:#3a2a20;font:12px/1.4 monospace;padding:16px;white-space:pre-wrap;overflow:auto;" });
-        r.textContent = "REWIND could not start (build 2026-10-14 t4).\n\n" + msg.slice(0, 1200);
+        r.textContent = "REWIND could not start (build 2026-10-14 t5).\n\n" + msg.slice(0, 1200);
       } catch (e) {}
       try { ctx.platform.ready(); } catch (e) {}
     }
@@ -172,7 +172,7 @@ window.plethoraBit = {
     // touches pass through except on its own buttons.
     const canvas = ctx.createCanvas({ touchAction: "none" });
     try { if (ctx.surface && ctx.surface.enableInput) ctx.surface.enableInput(canvas); } catch (e) {}
-    const hudRoot = ctx.createRoot({ style: "pointer-events:none;" });
+    const hudRoot = ctx.createRoot({ style: "pointer-events:none;touch-action:none;" });
     hudRoot.innerHTML =
       '<div id="rw-boot" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;' +
       'background:linear-gradient(#efe6d6,#c9c3b8 60%,#8d9aa0);font-family:Georgia,serif;color:#3d4a4e;letter-spacing:0.5em;font-size:28px">REWIND</div>';
@@ -2748,7 +2748,7 @@ window.plethoraBit = {
       "</style>" +
       '<div class="rw">' +
       '<div class="rw-vignette" id="rw-vig"></div>' +
-      '<div id="rw-diag" style="position:absolute;left:8px;top:2px;font:9px/1 monospace;color:rgba(40,55,60,.55);pointer-events:none;z-index:5">build 2026-10-14 t4</div>' +
+      '<div id="rw-diag" style="position:absolute;left:8px;top:2px;font:9px/1 monospace;color:rgba(40,55,60,.55);pointer-events:none;z-index:5">build 2026-10-14 t5</div>' +
       '<div class="rw-top" id="rw-top">' +
       '<div><div class="rw-score" id="rw-score">0</div><div class="rw-sub"><span id="rw-dist">0 m</span><span class="rw-mult" id="rw-mult"></span><span class="rw-pips" id="rw-pips"></span></div></div>' +
       '<div class="rw-btns"><button class="rw-btn" id="rw-mute" aria-label="Sound"></button><button class="rw-btn" id="rw-pause" aria-label="Pause"><svg viewBox="0 0 10 10"><rect x="1.5" y="1" width="2.4" height="8" fill="currentColor"/><rect x="6.1" y="1" width="2.4" height="8" fill="currentColor"/></svg></button></div>' +
@@ -2794,6 +2794,7 @@ window.plethoraBit = {
     // the time ribbon is drawn on its own input-transparent overlay canvas, in CSS pixels
     hud.ribbon = ctx.createCanvas2D({ coordinateSpace: "css", maxDpr: 2 });
     hud.ribbon.style.pointerEvents = "none";
+    hud.ribbon.style.touchAction = "none";
     hud.ribbonCtx = hud.ribbon.getContext("2d");
     for (let i = 0; i < 8; i++) hud.pips.appendChild(document.createElement("i"));
 
@@ -3298,14 +3299,19 @@ window.plethoraBit = {
         hud.padhint.style.opacity = "0";
       } else hud.stick.style.display = "none";
     }
+    // Touch routing. On device, the play canvas itself received no touches (diagnostics showed
+    // taps reaching the bit but 0 reaching the canvas: a surface above it takes them). So all
+    // play input is read at the bit container, in the capture phase, whatever element is on
+    // top. Real HUD buttons keep their own handlers.
+    const inputHost = ctx.container;
     function localXY(e) {
-      const r = canvas.getBoundingClientRect();
-      return { x: (e.clientX - r.left) * (ctx.width / r.width), y: (e.clientY - r.top) * (ctx.height / r.height) };
+      const r = inputHost.getBoundingClientRect();
+      return { x: (e.clientX - r.left) * (ctx.width / (r.width || ctx.width)), y: (e.clientY - r.top) * (ctx.height / (r.height || ctx.height)) };
     }
-    const diag = { bit: 0, canvas: 0, err: "" };
+    const diag = { bit: 0, canvas: 0, play: 0, target: "", err: "" };
     function refreshDiag() {
       const el = hudRoot.querySelector("#rw-diag");
-      if (el) el.textContent = "build 2026-10-14 t4 · taps " + diag.bit + "/" + diag.canvas + (diag.err ? " · ERR " + diag.err : "");
+      if (el) el.textContent = "build 2026-10-14 t5 · taps " + diag.bit + "/" + diag.canvas + "/" + diag.play + (diag.target ? " · on " + diag.target : "") + (diag.err ? " · ERR " + diag.err : "");
     }
     function reportError(where, e) {
       if (diag.err) return;
@@ -3313,37 +3319,59 @@ window.plethoraBit = {
       refreshDiag();
       try { ctx.platform.error({ stage: where, message: String((e && (e.stack || e.message)) || e).slice(0, 500) }); } catch (x) {}
     }
-    ctx.listen(ctx.container, "pointerdown", () => { diag.bit++; refreshDiag(); }, true);
+    function describe(el) {
+      if (!el || !el.tagName) return "?";
+      return el.tagName.toLowerCase() + (el.id ? "#" + el.id : "") + (el.className && typeof el.className === "string" ? "." + el.className.split(" ")[0] : "");
+    }
+    const isHudButton = (e) => !!(e.target && e.target.closest && e.target.closest("button"));
+    // If another surface covers the HUD, a tap on a button's position still presses it.
+    function hudButtonAt(cx, cy) {
+      for (const b of hudButtons) {
+        const scr = b.el.closest(".rw-screen");
+        if (scr && !scr.classList.contains("show")) continue;
+        if (!scr && hud.top.style.visibility === "hidden") continue;
+        const r = b.el.getBoundingClientRect();
+        if (r.width && cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom) return b;
+      }
+      return null;
+    }
     ctx.listen(window, "error", (ev) => reportError("window", ev.error || ev.message));
     ctx.listen(window, "unhandledrejection", (ev) => reportError("promise", ev.reason));
     ctx.listen(canvas, "pointerdown", () => { diag.canvas++; refreshDiag(); }, true);
-    ctx.listen(canvas, "pointerdown", (e) => {
-      e.preventDefault();
+    ctx.listen(inputHost, "pointerdown", (e) => {
+      diag.bit++; diag.target = describe(e.target); refreshDiag();
+      if (isHudButton(e)) return; // the button's own handler runs
+      const hb = hudButtonAt(e.clientX, e.clientY);
+      if (hb) { if (e.cancelable) e.preventDefault(); hb.fn(); return; }
+      if (e.cancelable) e.preventDefault();
       if (e.pointerType === "touch" && !input.usedTouch) { input.usedTouch = true; }
       if (run.state !== "play") { anyStart(); if (run.state !== "play") return; }
       audio.resume();
       const q = localXY(e);
-      try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
       const role = q.x < hud.layout.splitX ? "steer" : "time";
       input.touches.set(e.pointerId, { role, ox: q.x, oy: q.y, x: q.x, y: q.y, zone: role === "time" ? timeZone(q.x) : null });
+      diag.play++; refreshDiag();
       if (input.usedTouch) hud.touch.classList.add("on");
       refreshTouchVisuals();
       try { ctx.platform.interact({ type: role }); } catch (err) {}
-    });
-    ctx.listen(canvas, "pointermove", (e) => {
+    }, true);
+    ctx.listen(inputHost, "pointermove", (e) => {
       const t = input.touches.get(e.pointerId);
       if (!t) return;
       const q = localXY(e);
       t.x = q.x; t.y = q.y;
       if (t.role === "time") t.zone = timeZone(q.x);
       refreshTouchVisuals();
-    });
+    }, true);
     const endTouch = (e) => {
       if (input.touches.delete(e.pointerId)) refreshTouchVisuals();
     };
-    ctx.listen(canvas, "pointerup", endTouch);
-    ctx.listen(canvas, "pointercancel", endTouch);
-    ctx.listen(canvas, "lostpointercapture", endTouch);
+    ctx.listen(inputHost, "pointerup", endTouch, true);
+    ctx.listen(inputHost, "pointercancel", endTouch, true);
+    ctx.listen(window, "pointerup", endTouch);
+    ctx.listen(window, "pointercancel", endTouch);
+    // keep the browser from turning a held or dragged thumb into scrolling / zooming
+    ctx.listen(inputHost, "touchmove", (e) => { if (run.state === "play" && e.cancelable) e.preventDefault(); }, { passive: false, capture: true });
     ctx.listen(canvas, "contextmenu", (e) => e.preventDefault());
 
     function toggleMute() {
@@ -3353,7 +3381,9 @@ window.plethoraBit = {
       audio.setMuted(settings.muted);
       refreshSettingsUI();
     }
+    const hudButtons = [];
     const btn = (el, fn) => {
+      hudButtons.push({ el, fn });
       ctx.listen(el, "pointerdown", (e) => { e.stopPropagation(); e.preventDefault(); fn(); });
     };
     btn(hud.mute, toggleMute);
