@@ -29,6 +29,20 @@ window.plethoraBit = {
   },
 
   async init(ctx) {
+    try {
+      return await window.plethoraBit._run(ctx);
+    } catch (err) {
+      const msg = String((err && (err.stack || err.message)) || err);
+      try { ctx.platform.error({ stage: "init", message: msg.slice(0, 500) }); } catch (e) {}
+      try {
+        const r = ctx.createRoot({ style: "z-index:99;background:rgba(240,234,222,.94);color:#3a2a20;font:12px/1.4 monospace;padding:16px;white-space:pre-wrap;overflow:auto;" });
+        r.textContent = "REWIND could not start (build 2026-10-14 t4).\n\n" + msg.slice(0, 1200);
+      } catch (e) {}
+      try { ctx.platform.ready(); } catch (e) {}
+    }
+  },
+
+  async _run(ctx) {
     // =====================================================================
     // 1. CONSTANTS AND MATH
     // =====================================================================
@@ -153,7 +167,12 @@ window.plethoraBit = {
     // =====================================================================
     // HUD shell first, so the very first frame is never blank.
     // =====================================================================
-    const hudRoot = ctx.createRoot({ input: "passthrough", layer: "overlay", style: "pointer-events:none;" });
+    // Surfaces, in stacking order: the play canvas first (plain surface, native interactivity,
+    // the same pattern as this repo's pinball bit), then the HUD root above it, which lets
+    // touches pass through except on its own buttons.
+    const canvas = ctx.createCanvas({ touchAction: "none" });
+    try { if (ctx.surface && ctx.surface.enableInput) ctx.surface.enableInput(canvas); } catch (e) {}
+    const hudRoot = ctx.createRoot({ style: "pointer-events:none;" });
     hudRoot.innerHTML =
       '<div id="rw-boot" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;' +
       'background:linear-gradient(#efe6d6,#c9c3b8 60%,#8d9aa0);font-family:Georgia,serif;color:#3d4a4e;letter-spacing:0.5em;font-size:28px">REWIND</div>';
@@ -173,10 +192,6 @@ window.plethoraBit = {
     }
     if (disposed) return;
 
-    // The play surface must receive touches: declare it hit-testable explicitly
-    // (ctx.listen alone preserves, and does not grant, hit testing on managed surfaces).
-    const canvas = ctx.createCanvas({ touchAction: "none", layer: "content", input: "auto" });
-    try { if (ctx.surface && ctx.surface.enableInput) ctx.surface.enableInput(canvas); } catch (e) {}
     let renderer;
     try {
       renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
@@ -207,9 +222,10 @@ window.plethoraBit = {
     // Offscreen paint surfaces for procedural textures: created through the runtime, then
     // detached so they never take part in layout or input.
     function makeCanvas(w, h) {
-      const c = ctx.createCanvas2D({ input: "passthrough", layer: "background" });
+      if (typeof OffscreenCanvas === "function") return new OffscreenCanvas(w, h);
+      const c = ctx.createCanvas2D();
       c.style.display = "none";
-      if (c.parentNode) c.parentNode.removeChild(c);
+      c.style.pointerEvents = "none";
       c.width = w; c.height = h;
       return c;
     }
@@ -2732,6 +2748,7 @@ window.plethoraBit = {
       "</style>" +
       '<div class="rw">' +
       '<div class="rw-vignette" id="rw-vig"></div>' +
+      '<div id="rw-diag" style="position:absolute;left:8px;top:2px;font:9px/1 monospace;color:rgba(40,55,60,.55);pointer-events:none;z-index:5">build 2026-10-14 t4</div>' +
       '<div class="rw-top" id="rw-top">' +
       '<div><div class="rw-score" id="rw-score">0</div><div class="rw-sub"><span id="rw-dist">0 m</span><span class="rw-mult" id="rw-mult"></span><span class="rw-pips" id="rw-pips"></span></div></div>' +
       '<div class="rw-btns"><button class="rw-btn" id="rw-mute" aria-label="Sound"></button><button class="rw-btn" id="rw-pause" aria-label="Pause"><svg viewBox="0 0 10 10"><rect x="1.5" y="1" width="2.4" height="8" fill="currentColor"/><rect x="6.1" y="1" width="2.4" height="8" fill="currentColor"/></svg></button></div>' +
@@ -2775,7 +2792,7 @@ window.plethoraBit = {
       lastScore: -1, lastDist: -1, lastMult: "", ribbonCtx: null, layout: null
     };
     // the time ribbon is drawn on its own input-transparent overlay canvas, in CSS pixels
-    hud.ribbon = ctx.createCanvas2D({ coordinateSpace: "css", maxDpr: 2, layer: "overlay", order: -1, input: "passthrough" });
+    hud.ribbon = ctx.createCanvas2D({ coordinateSpace: "css", maxDpr: 2 });
     hud.ribbon.style.pointerEvents = "none";
     hud.ribbonCtx = hud.ribbon.getContext("2d");
     for (let i = 0; i < 8; i++) hud.pips.appendChild(document.createElement("i"));
@@ -3285,6 +3302,21 @@ window.plethoraBit = {
       const r = canvas.getBoundingClientRect();
       return { x: (e.clientX - r.left) * (ctx.width / r.width), y: (e.clientY - r.top) * (ctx.height / r.height) };
     }
+    const diag = { bit: 0, canvas: 0, err: "" };
+    function refreshDiag() {
+      const el = hudRoot.querySelector("#rw-diag");
+      if (el) el.textContent = "build 2026-10-14 t4 · taps " + diag.bit + "/" + diag.canvas + (diag.err ? " · ERR " + diag.err : "");
+    }
+    function reportError(where, e) {
+      if (diag.err) return;
+      diag.err = where + ": " + String((e && e.message) || e).slice(0, 80);
+      refreshDiag();
+      try { ctx.platform.error({ stage: where, message: String((e && (e.stack || e.message)) || e).slice(0, 500) }); } catch (x) {}
+    }
+    ctx.listen(ctx.container, "pointerdown", () => { diag.bit++; refreshDiag(); }, true);
+    ctx.listen(window, "error", (ev) => reportError("window", ev.error || ev.message));
+    ctx.listen(window, "unhandledrejection", (ev) => reportError("promise", ev.reason));
+    ctx.listen(canvas, "pointerdown", () => { diag.canvas++; refreshDiag(); }, true);
     ctx.listen(canvas, "pointerdown", (e) => {
       e.preventDefault();
       if (e.pointerType === "touch" && !input.usedTouch) { input.usedTouch = true; }
@@ -3403,8 +3435,8 @@ window.plethoraBit = {
       fixedHz: FIXED_HZ,
       maxDeltaMs: 100,
       maxSubsteps: 14,
-      fixedUpdate: () => fixedStep(),
-      render: (alpha, state) => renderFrame(alpha, Math.min((state && state.dtMs) || 16.7, 100) / 1000)
+      fixedUpdate: () => { try { fixedStep(); } catch (e) { reportError("step", e); } },
+      render: (alpha, state) => { try { renderFrame(alpha, Math.min((state && state.dtMs) || 16.7, 100) / 1000); } catch (e) { reportError("render", e); } }
     });
 
     // ---- debug hooks (local harness only; ctx.debugHooks is undefined in Plethora) ----
