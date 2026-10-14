@@ -266,7 +266,7 @@ window.plethoraBit = {
       if (disposed) return;
     }
     loadBar.style.width = "45%";
-    loadMsg.textContent = "Building " + (({ monaco: "Monaco", marina: "Marina Bay" })[settings.circuit] || "Aurora Ring") + "…";
+    loadMsg.textContent = "Building " + (({ monaco: "Monaco", suzuka: "Suzuka", marina: "Marina Bay" })[settings.circuit] || "Aurora Ring") + "…";
 
     // =====================================================================
     // Track generation
@@ -300,14 +300,30 @@ window.plethoraBit = {
         stands: [[-150, 90]], trees: false, hills: 0x9aa58e, ground: "city", lightSpacing: 70,
         buildings: { minH: 9, maxH: 30, colors: ["#e9d8bd", "#f2c9a0", "#d9b38c", "#f4e6cf", "#e7b8a4", "#cfd8c4", "#f0dca8"], depth: [10, 22], gap: 2.5 }
       },
+      suzuka: {
+        id: "suzuka", record: "suzuka", name: "Suzuka", length: "4.1 km", sf: [354, -911],
+        W: 7.0, CURB: 1.3, BARRIER: 12, street: false, night: false, bridge: true,
+        blurb: "Figure-eight · Esses, Spoon, 130R, crossover bridge",
+        ctrl: [[676, -845], [592, -880], [465, -898], [349, -915], [211, -939], [127, -956], [63, -956], [28, -932], [17, -893], [32, -858], [66, -845], [116, -845],
+          [163, -837], [198, -820], [229, -798], [265, -788], [306, -788], [346, -780], [384, -754], [420, -733], [454, -735], [486, -756], [518, -778], [552, -787],
+          [586, -779], [618, -758], [645, -729], [668, -695], [678, -647], [672, -597], [657, -560], [640, -526], [634, -491], [645, -454], [664, -417], [687, -395],
+          [740, -408], [803, -428], [898, -461], [926, -486], [951, -514], [974, -524], [987, -509], [974, -484], [949, -465], [919, -433], [914, -380], [922, -336],
+          [935, -302], [964, -270], [997, -237], [1041, -203], [1099, -186], [1157, -185], [1215, -190], [1264, -196], [1300, -185], [1317, -153], [1314, -106], [1291, -76],
+          [1258, -70], [1205, -87], [1131, -122], [1046, -167], [949, -229], [866, -298], [792, -354], [740, -412], [714, -454], [705, -507], [706, -565], [719, -624],
+          [729, -682], [731, -714], [725, -731], [706, -740], [695, -761], [695, -792], [689, -824]],
+        stands: [[-200, 140], [-40, 130]], trees: true, hills: 0x86a08e, ground: "grass", lightSpacing: 140
+      },
       marina: {
-        id: "marina", record: "marina_bay", name: "Marina Bay", length: "2.2 km", sf: [-120, 0],
+        id: "marina", record: "marina_bay", name: "Marina Bay", length: "3.4 km", sf: [1177.5, -324.6],
         W: 6.5, CURB: 1.0, BARRIER: 9.5, street: true, night: true,
-        blurb: "Floodlit night streets · long straights, chicane, heavy braking",
-        ctrl: [[-250, 0], [-120, 0], [60, 0], [190, 0], [222, 8], [232, 30], [244, 52], [266, 64], [278, 88], [280, 160], [282, 250], [276, 284], [250, 296],
-          [190, 298], [150, 300], [134, 292], [114, 300], [94, 306], [60, 312], [40, 326], [36, 350], [30, 404], [14, 428], [-20, 434], [-150, 432], [-200, 430],
-          [-226, 420], [-234, 394], [-232, 300], [-236, 268], [-252, 252], [-268, 232], [-264, 200], [-240, 182], [-200, 176], [-90, 176], [-60, 166], [-52, 140],
-          [-58, 110], [-84, 96], [-200, 96], [-250, 92], [-276, 76], [-282, 44], [-274, 16]],
+        blurb: "Floodlit night streets · 90° corners, Raffles, Anderson Bridge",
+        ctrl: [[1191, -423], [1179, -340], [1166, -249], [1153, -158], [1138, -98], [1126, -82], [1104, -79], [1081, -74], [1069, -62], [1057, -48], [1043, -47], [1033, -57],
+          [1030, -72], [1030, -106], [1037, -151], [1053, -204], [1066, -249], [1072, -283], [1066, -303], [1045, -314], [981, -312], [868, -306], [762, -300], [725, -285],
+          [672, -255], [626, -228], [574, -198], [540, -181], [528, -181], [516, -195], [494, -226], [474, -254], [462, -278], [451, -293], [441, -294], [429, -282],
+          [414, -260], [392, -230], [361, -213], [343, -219], [317, -249], [287, -302], [249, -362], [220, -414], [201, -450], [202, -476], [219, -497], [234, -509],
+          [257, -518], [267, -528], [270, -551], [275, -577], [287, -596], [317, -615], [341, -636], [352, -654], [364, -667], [377, -667], [386, -651], [390, -626],
+          [396, -544], [414, -460], [436, -389], [447, -355], [454, -334], [463, -320], [478, -323], [497, -337], [528, -366], [589, -415], [626, -428], [755, -436],
+          [915, -445], [931, -453], [939, -476], [956, -497], [981, -502], [1132, -510], [1149, -504], [1166, -476], [1186, -445]],
         stands: [[-190, 110]], trees: false, hills: 0, ground: "city", lightSpacing: 34,
         buildings: { minH: 24, maxH: 110, colors: ["#2a3446", "#1f2a3a", "#33405a", "#26303f", "#3a4660"], depth: [16, 34], gap: 4, lit: true }
       }
@@ -402,6 +418,44 @@ window.plethoraBit = {
         for (let k = -6; k <= 6; k++) { sl += limL0[(i + k + n) % n]; sr += limR0[(i + k + n) % n]; }
         limL[i] = sl / 13; limR[i] = sr / 13;
       }
+      // elevation: flat, except a figure-eight crossover where the later branch climbs over the earlier one
+      const Y = new Float32Array(n);
+      let bridge = null;
+      if (def.bridge) {
+        let bi = 0, bj = 0, bd = 1e9;
+        for (let i = 0; i < n; i++) for (let j = i + 150; j < Math.min(n, n - 150 + i); j++) {
+          const d = (X[i] - X[j]) * (X[i] - X[j]) + (Z[i] - Z[j]) * (Z[i] - Z[j]);
+          if (d < bd) { bd = d; bi = i; bj = j; }
+        }
+        const H = 7.5, PLAT = 26, RAMP = 115;
+        for (let k = 0; k < n; k++) {
+          let a = Math.abs(k - bj); a = Math.min(a, n - a) * ds;
+          const t = clamp(1 - (a - PLAT) / RAMP, 0, 1);
+          Y[k] = H * t * t * (3 - 2 * t);
+        }
+        bridge = { lower: bi, upper: bj, H };
+      }
+      // where two parts of the circuit run side by side, share the space between them
+      if (def.bridge || def.street) {
+        const capL = new Float32Array(n).fill(1e9), capR = new Float32Array(n).fill(1e9);
+        for (let i = 0; i < n; i++) for (let j = i + 60; j < Math.min(n, n - 60 + i); j++) {
+          const dx = X[j] - X[i], dz = Z[j] - Z[i];
+          if (Math.abs(dx) > 40 || Math.abs(dz) > 40 || Math.abs(Y[i] - Y[j]) > 3) continue;
+          const d = Math.hypot(dx, dz);
+          const li = dx * RX[i] + dz * RZ[i] < 0, lj = dx * RX[j] + dz * RZ[j] > 0;
+          if (d > (li ? limL[i] : limR[i]) + (lj ? limL[j] : limR[j]) + 1) continue;
+          const half = Math.max(W + CURB + 0.6, (d - 1) / 2);
+          if (li) capL[i] = Math.min(capL[i], half); else capR[i] = Math.min(capR[i], half);
+          if (lj) capL[j] = Math.min(capL[j], half); else capR[j] = Math.min(capR[j], half);
+        }
+        for (const [lim, cap] of [[limL, capL], [limR, capR]]) {
+          for (let i = 0; i < n; i++) {
+            let c = 1e9;
+            for (let k = -10; k <= 10; k++) c = Math.min(c, cap[(i + k + n) % n] + Math.abs(k) * ds * 0.35);
+            lim[i] = Math.min(lim[i], c);
+          }
+        }
+      }
       // curbs on both sides through corners, gravel on outside of corners
       const curbL = new Uint8Array(n), curbR = new Uint8Array(n), gravelL = new Uint8Array(n), gravelR = new Uint8Array(n);
       for (let i = 0; i < n; i++) {
@@ -412,7 +466,7 @@ window.plethoraBit = {
         for (let k = -6; k <= 22; k++) { const kk = Ks[(i - k + n) % n]; if (Math.abs(kk) > m2) { m2 = Math.abs(kk); sgn2 = Math.sign(kk); } }
         if (!def.street && m2 > 1 / 110) { if (sgn2 > 0) gravelL[i] = 1; else gravelR[i] = 1; }
       }
-      return { n, ds, length: n * ds, X, Z, FX, FZ, RX, RZ, K: Ks, limL, limR, curbL, curbR, gravelL, gravelR };
+      return { n, ds, length: n * ds, X, Z, Y, FX, FZ, RX, RZ, K: Ks, limL, limR, curbL, curbR, gravelL, gravelR, bridge };
     }
     let track = null, TN = 0, TDS = 2, TLEN = 1, racing = null, circuit = null;
 
@@ -448,7 +502,7 @@ window.plethoraBit = {
       const f = ((s / TDS) % TN + TN) % TN;
       const i = Math.floor(f), t = f - i, j = (i + 1) % TN;
       return {
-        i, x: lerp(track.X[i], track.X[j], t), z: lerp(track.Z[i], track.Z[j], t),
+        i, x: lerp(track.X[i], track.X[j], t), z: lerp(track.Z[i], track.Z[j], t), y: lerp(track.Y[i], track.Y[j], t),
         fx: lerp(track.FX[i], track.FX[j], t), fz: lerp(track.FZ[i], track.FZ[j], t),
         rx: lerp(track.RX[i], track.RX[j], t), rz: lerp(track.RZ[i], track.RZ[j], t)
       };
@@ -719,8 +773,9 @@ window.plethoraBit = {
       for (let k = fromI; k <= toI; k++) {
         const i = ((k % TN) + TN) % TN;
         const a = offA(i), b = offB(i);
-        pos.push(track.X[i] + track.RX[i] * a, y, track.Z[i] + track.RZ[i] * a);
-        pos.push(track.X[i] + track.RX[i] * b, yB != null ? yB : y, track.Z[i] + track.RZ[i] * b);
+        const ty = track.Y[i];
+        pos.push(track.X[i] + track.RX[i] * a, y + ty, track.Z[i] + track.RZ[i] * a);
+        pos.push(track.X[i] + track.RX[i] * b, (yB != null ? yB : y) + ty, track.Z[i] + track.RZ[i] * b);
         uv.push(0, vAcc / vScale, uFull || 1, vAcc / vScale);
         vAcc += TDS;
         if (count > 0) {
@@ -817,8 +872,10 @@ window.plethoraBit = {
       if (B.lit) {
         // distant skyline ring
         const c = trackCenter();
+        let r0 = 0;
+        for (let i = 0; i < TN; i += 4) r0 = Math.max(r0, Math.hypot(track.X[i] - c[0], track.Z[i] - c[1]));
         for (let k = 0; k < 70; k++) {
-          const a = (k / 70) * Math.PI * 2 + rrange(-0.03, 0.03), r = rrange(520, 820);
+          const a = (k / 70) * Math.PI * 2 + rrange(-0.03, 0.03), r = r0 + rrange(90, 390);
           items.push({ x: c[0] + Math.cos(a) * r, z: c[1] + Math.sin(a) * r, rot: rand() * 3, w: rrange(22, 40), d: rrange(22, 40), h: rrange(90, 230), c: B.colors[k % B.colors.length] });
         }
       }
@@ -902,15 +959,17 @@ window.plethoraBit = {
     wallTex.repeat.set(1, 1);
     const matFence = new THREE.MeshBasicMaterial({ map: fenceTex, transparent: true, side: THREE.DoubleSide, depthWrite: false, alphaTest: 0.05 });
     fenceTex.repeat.set(1, 1);
-    function wallRibbon(side, h0, h1, mat, vScale) {
+    // heights are relative to the track surface; functions give absolute heights (bridge embankments)
+    function wallRibbon(side, h0, h1, mat, vScale, from, to) {
       const pos = [], uv = [], idx = [];
-      for (let k = 0; k <= TN; k++) {
-        const i = k % TN;
+      const f0 = from || 0, t0 = to == null ? TN : to;
+      for (let k = f0; k <= t0; k++) {
+        const i = ((k % TN) + TN) % TN;
         const off = side < 0 ? -track.limL[i] : track.limR[i];
         const x = track.X[i] + track.RX[i] * off, z = track.Z[i] + track.RZ[i] * off;
-        pos.push(x, h0, z, x, h1, z);
+        pos.push(x, typeof h0 === "function" ? h0(i) : h0 + track.Y[i], z, x, typeof h1 === "function" ? h1(i) : h1 + track.Y[i], z);
         uv.push(k * TDS / vScale, 0, k * TDS / vScale, 1);
-        if (k > 0) { const b = (k - 1) * 2; idx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3); }
+        if (k > f0) { const b = (k - f0 - 1) * 2; idx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3); }
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
@@ -923,11 +982,53 @@ window.plethoraBit = {
     world.add(wallRibbon(1, 0, 1.1, matWall, 6));
     world.add(wallRibbon(-1, 1.1, 4.2, matFence, 3.2));
     world.add(wallRibbon(1, 1.1, 4.2, matFence, 3.2));
+    // crossover bridge: solid embankment up the ramps, an open deck where the lower branch passes beneath
+    const nearDeck = new Uint8Array(TN);
+    if (track.bridge) {
+      const lo = track.bridge.lower, TY = track.Y, DECK = 1.2;
+      const lowerClear = (x, z) => {
+        let best = 1e18, bi = lo;
+        for (let k = -80; k <= 80; k++) { const i = (lo + k + TN) % TN; const d = (x - track.X[i]) ** 2 + (z - track.Z[i]) ** 2; if (d < best) { best = d; bi = i; } }
+        return Math.sqrt(best) - Math.max(track.limL[bi], track.limR[bi]) - 2;
+      };
+      const span = new Uint8Array(TN), raised = new Uint8Array(TN);
+      for (let i = 0; i < TN; i++) {
+        if (TY[i] <= 0.01) continue;
+        raised[i] = 1;
+        if (TY[i] < 4) continue;
+        for (const off of [-track.limL[i], 0, track.limR[i]]) if (lowerClear(track.X[i] + track.RX[i] * off, track.Z[i] + track.RZ[i] * off) < 0) span[i] = 1;
+      }
+      for (let k = -80; k <= 80; k++) nearDeck[(lo + k + TN) % TN] = 1;
+      for (let i = 0; i < TN; i++) if (raised[i]) nearDeck[i] = 1;
+      const matConcrete = new THREE.MeshStandardMaterial({ color: 0xa8a69e, roughness: 0.85, side: THREE.DoubleSide });
+      const base = i => span[i] ? TY[i] - DECK : 0;
+      for (const [a, b] of runs(raised)) {
+        world.add(wallRibbon(-1, base, i => TY[i], matConcrete, 6, a - 1, b));
+        world.add(wallRibbon(1, base, i => TY[i], matConcrete, 6, a - 1, b));
+        world.add(ribbon(a - 1, b, i => -track.limL[i], () => -W, -0.02, matRunoff, 8));
+        world.add(ribbon(a - 1, b, () => W, i => track.limR[i], -0.02, matRunoff, 8));
+      }
+      for (const [a, b] of runs(span)) {
+        world.add(ribbon(a, b - 1, i => -track.limL[i], i => track.limR[i], -DECK, matConcrete, 8));
+        // abutments close the embankment at each end of the open span
+        for (const i of [a, b - 1]) {
+          const lx = track.X[i] - track.RX[i] * track.limL[i], lz = track.Z[i] - track.RZ[i] * track.limL[i];
+          const rx = track.X[i] + track.RX[i] * track.limR[i], rz = track.Z[i] + track.RZ[i] * track.limR[i];
+          const top = TY[i] - DECK + 0.05;
+          const g = new THREE.BufferGeometry();
+          g.setAttribute("position", new THREE.Float32BufferAttribute([lx, 0, lz, rx, 0, rz, lx, top, lz, rx, top, rz], 3));
+          g.setIndex([0, 1, 2, 1, 3, 2]); g.computeVertexNormals();
+          disposables.push(g);
+          world.add(new THREE.Mesh(g, matConcrete));
+        }
+      }
+      disposables.push(matConcrete);
+    }
 
     // Start/finish line + grid boxes
     function placeOnTrack(obj, s, d, y, yawExtra) {
       const p = sampleAt(s);
-      obj.position.set(p.x + p.rx * d, y || 0, p.z + p.rz * d);
+      obj.position.set(p.x + p.rx * d, (y || 0) + p.y, p.z + p.rz * d);
       obj.rotation.y = Math.atan2(p.fx, p.fz) + (yawExtra || 0);
       return obj;
     }
@@ -1040,6 +1141,7 @@ window.plethoraBit = {
       for (let s = 0; s < TLEN; s += spacing) {
         const p = sampleAt(s);
         const side = (Math.floor(s / spacing) % 2) ? 1 : -1;
+        if (nearDeck[p.i]) continue;
         const off = side > 0 ? track.limR[p.i] + 3 : -(track.limL[p.i] + 3);
         const pole = new THREE.Mesh(poleG, poleMat);
         pole.position.set(p.x + p.rx * off, 11, p.z + p.rz * off);
@@ -1060,7 +1162,7 @@ window.plethoraBit = {
         const side = ai % 2 ? 1 : -1;
         const off = side > 0 ? track.limR[p.i] - 0.25 : -(track.limL[p.i] - 0.25);
         const ad = new THREE.Mesh(adG, adMats[ai % ads.length]);
-        ad.position.set(p.x + p.rx * off, 1.9, p.z + p.rz * off);
+        ad.position.set(p.x + p.rx * off, 1.9 + p.y, p.z + p.rz * off);
         ad.rotation.y = Math.atan2(p.fx, p.fz) + (side > 0 ? Math.PI / 2 : -Math.PI / 2);
         world.add(ad);
         ai++;
@@ -1083,10 +1185,10 @@ window.plethoraBit = {
             const p = sampleAt(s);
             const off = -(W + CURB + 2.4);
             const board = new THREE.Mesh(boardG, boardMats[b]);
-            board.position.set(p.x + p.rx * off, 1.6, p.z + p.rz * off);
+            board.position.set(p.x + p.rx * off, 1.6 + p.y, p.z + p.rz * off);
             board.rotation.y = Math.atan2(p.fx, p.fz) + Math.PI;
             const post = new THREE.Mesh(postG2, poleMat);
-            post.position.set(board.position.x, 0.6, board.position.z);
+            post.position.set(board.position.x, 0.6 + p.y, board.position.z);
             world.add(board, post);
           }
         }
@@ -1150,8 +1252,8 @@ window.plethoraBit = {
         const j = (i + 1) % TN;
         for (const k of [i, j]) {
           const o = racing.off[k];
-          pos.push(track.X[k] + track.RX[k] * (o - 0.45), 0.035, track.Z[k] + track.RZ[k] * (o - 0.45));
-          pos.push(track.X[k] + track.RX[k] * (o + 0.45), 0.035, track.Z[k] + track.RZ[k] * (o + 0.45));
+          pos.push(track.X[k] + track.RX[k] * (o - 0.45), 0.035 + track.Y[k], track.Z[k] + track.RZ[k] * (o - 0.45));
+          pos.push(track.X[k] + track.RX[k] * (o + 0.45), 0.035 + track.Y[k], track.Z[k] + track.RZ[k] * (o + 0.45));
           col.push(0.2, 0.9, 0.5, 0.2, 0.9, 0.5);
         }
         idx.push(v, v + 1, v + 2, v + 1, v + 3, v + 2);
@@ -1562,7 +1664,7 @@ window.plethoraBit = {
         idx: 0, s: 0, d: 0, progress: 0, lapsDone: -1, lapStart: 0, lastLap: null, bestLap: null,
         lapValid: true, finished: false, finishTime: null, finishOrder: 0, gear: 1, rpm: 0, wheelRot: 0,
         susp: 0, suspV: 0, pitch: 0, roll: 0, boost: 1, boosting: false, slip: 0,
-        ai: null, holdTimer: 0, stuckTimer: 0, collideCooldown: 0, lastLapTimes: []
+        ai: null, holdTimer: 0, stuckTimer: 0, collideCooldown: 0, lastLapTimes: [], ry: 0, rs: 0, slope: 0
       };
     }
     const projTmp = { idx: 0, s: 0, d: 0 };
@@ -1572,7 +1674,7 @@ window.plethoraBit = {
       car.x = p.x + p.rx * d; car.z = p.z + p.rz * d;
       car.h = Math.atan2(p.fx, p.fz);
       car.vx = car.vz = car.wr = 0; car.ax = 0;
-      project(car.x, car.z, p.i, projTmp, true);
+      project(car.x, car.z, p.i, projTmp, !track.bridge);
       car.idx = projTmp.idx; car.s = projTmp.s; car.d = projTmp.d;
       car.px = car.rx = car.x; car.pz = car.rz = car.z; car.ph = car.rh = car.h;
     }
@@ -1742,6 +1844,8 @@ window.plethoraBit = {
       return hit;
     }
 
+    // cars on the bridge and cars passing beneath it never touch
+    const sameLevel = (a, b) => Math.abs(track.Y[a.idx] - track.Y[b.idx]) < 3;
     function carCollisions(onHit) {
       const n = cars.length;
       for (let a = 0; a < n; a++) {
@@ -1749,7 +1853,7 @@ window.plethoraBit = {
         for (let b = a + 1; b < n; b++) {
           const B = cars[b];
           const dx0 = B.x - A.x, dz0 = B.z - A.z;
-          if (dx0 * dx0 + dz0 * dz0 > 64) continue;
+          if (dx0 * dx0 + dz0 * dz0 > 64 || !sameLevel(A, B)) continue;
           const afx = Math.sin(A.h), afz = Math.cos(A.h), bfx = Math.sin(B.h), bfz = Math.cos(B.h);
           for (const sa of [1, -1]) for (const sb of [1, -1]) {
             const ax = A.x + afx * CAR_OFF * sa, az = A.z + afz * CAR_OFF * sa;
@@ -2044,9 +2148,9 @@ window.plethoraBit = {
       for (let i = 0; i < N; i++) { const s = new THREE.Sprite(mat.clone()); s.visible = false; scene.add(s); pool.push({ s, life: 0, vx: 0, vz: 0 }); disposables.push(s.material); }
       let next = 0;
       return {
-        emit(x, z, vx, vz) {
+        emit(x, z, vx, vz, y) {
           const p = pool[next]; next = (next + 1) % N;
-          p.life = 1; p.s.visible = true; p.s.position.set(x + rrange(-0.3, 0.3), 0.4, z + rrange(-0.3, 0.3));
+          p.life = 1; p.s.visible = true; p.s.position.set(x + rrange(-0.3, 0.3), 0.4 + (y || 0), z + rrange(-0.3, 0.3));
           p.vx = vx * 0.2 + rrange(-1, 1); p.vz = vz * 0.2 + rrange(-1, 1); p.s.scale.setScalar(1);
         },
         update(dt) {
@@ -2291,7 +2395,7 @@ window.plethoraBit = {
       }
     }
     function updateCircuitTexts() {
-      $(".fr-menu-sub", menu).textContent = `${circuit.name} · ${circuit.length} · Original circuit`;
+      $(".fr-menu-sub", menu).textContent = `${circuit.name} · ${circuit.length} · ${circuit.id === "aurora" ? "Original circuit" : circuit.street ? "Street circuit" : "Grand prix circuit"}`;
       $(".fr-pre-round", preRace).textContent = `ROUND 1 · ${circuit.name.toUpperCase()}`;
     }
     const modal = el("div", "fr-screen fr-hide");
@@ -2488,7 +2592,7 @@ window.plethoraBit = {
     function placeShowcase() {
       const sl = GRID_SLOT(0);
       const p = sampleAt(sl.s + 6);
-      showcase.group.position.set(p.x, 0, p.z);
+      showcase.group.position.set(p.x, p.y, p.z);
       showcase.group.rotation.y = Math.atan2(p.fx, p.fz);
       showcase.base = { x: p.x, z: p.z, h: Math.atan2(p.fx, p.fz) };
     }
@@ -2881,7 +2985,7 @@ window.plethoraBit = {
     }
     function resetCar(car, penalize) {
       // nearest safe point, facing the right way, clear of other cars
-      project(car.x, car.z, car.idx, projTmp, true);
+      project(car.x, car.z, car.idx, projTmp, !track.bridge);
       let s = projTmp.s - 4;
       let placed = false;
       for (let tries = 0; tries < 12 && !placed; tries++) {
@@ -2889,7 +2993,7 @@ window.plethoraBit = {
           const p = sampleAt(s);
           const x = p.x + p.rx * d, z = p.z + p.rz * d;
           let clear = true;
-          for (const o of cars) { if (o !== car && Math.hypot(o.x - x, o.z - z) < 7) { clear = false; break; } }
+          for (const o of cars) { if (o !== car && Math.hypot(o.x - x, o.z - z) < 7 && Math.abs(track.Y[o.idx] - p.y) < 3) { clear = false; break; } }
           if (clear) {
             const keepProgress = car.progress;
             placeCarAt(car, s, d);
@@ -3001,7 +3105,8 @@ window.plethoraBit = {
       const fx = Math.sin(CAM.yaw), fz = Math.cos(CAM.yaw);
       const dist = 6.1 + sp * 0.6 - CAM.accel * 0.006;
       const height = 1.92 + sp * 0.08;
-      out.pos.set(c.rx - fx * dist, height, c.rz - fz * dist);
+      const yBehind = track.bridge ? sampleAt(c.rs - dist).y : 0;
+      out.pos.set(c.rx - fx * dist, height + yBehind, c.rz - fz * dist);
       // barriers: ease the viewCam back inside rather than snapping through walls
       project(out.pos.x, out.pos.z, c.idx, projTmp, false);
       const lim = (projTmp.d < 0 ? track.limL[projTmp.idx] : track.limR[projTmp.idx]) - 0.9;
@@ -3014,7 +3119,7 @@ window.plethoraBit = {
       // other cars close to the lens: rise smoothly over them instead of clipping through
       let lift = 0;
       for (const o of cars) {
-        if (o === c) continue;
+        if (o === c || Math.abs(o.ry - c.ry) > 3) continue;
         const d = Math.hypot(o.rx - out.pos.x, o.rz - out.pos.z);
         if (d < 3.2) lift = Math.max(lift, (3.2 - d) * 0.45);
       }
@@ -3023,8 +3128,8 @@ window.plethoraBit = {
       // curb bumps follow the car's own suspension; impacts use a short decaying wobble (no random noise)
       out.pos.y += c.susp * 0.6 + CAM.shake * 0.07 * Math.sin(CAM.shakeT * 31);
       out.pos.x += CAM.shake * 0.04 * Math.sin(CAM.shakeT * 23 + 1);
-      out.pos.y = Math.max(out.pos.y, 0.6);
-      _look.set(c.rx + fx * 13, 0.45, c.rz + fz * 13);
+      out.pos.y = Math.max(out.pos.y, 0.6 + yBehind);
+      _look.set(c.rx + fx * 13, 0.45 + (track.bridge ? sampleAt(c.rs + 13).y : 0), c.rz + fz * 13);
       _m4.lookAt(out.pos, _look, UP);
       out.quat.setFromRotationMatrix(_m4);
       out.fov = 55 + sp * 7; out.near = 0.3;
@@ -3033,8 +3138,8 @@ window.plethoraBit = {
       // driver's eye inside the cockpit, just under the halo hoop, looking along the car's axis
       const sp = clamp(Math.max(0, c.u) / 85, 0, 1);
       const fx = Math.sin(c.rh), fz = Math.cos(c.rh);
-      out.pos.set(c.rx - fx * 0.04, 0.88 + c.susp, c.rz - fz * 0.04);
-      _eul.set(-0.03 - c.pitch * 0.6 + CAM.shake * 0.01 * Math.sin(CAM.shakeT * 31), c.rh + Math.PI, 0, "YXZ");
+      out.pos.set(c.rx - fx * 0.04, 0.88 + c.susp + c.ry, c.rz - fz * 0.04);
+      _eul.set(-0.03 + c.slope - c.pitch * 0.6 + CAM.shake * 0.01 * Math.sin(CAM.shakeT * 31), c.rh + Math.PI, 0, "YXZ");
       out.quat.setFromEuler(_eul);
       out.fov = 60 + sp * 4; out.near = 0.05;
     }
@@ -3047,7 +3152,7 @@ window.plethoraBit = {
       const inv = _cq.clone().invert();
       CAM.trans = {
         t: 0, dur: 0.32,
-        pos: viewCam.position.clone().sub(new THREE.Vector3(c.rx, 0, c.rz)).applyQuaternion(inv),
+        pos: viewCam.position.clone().sub(new THREE.Vector3(c.rx, c.ry, c.rz)).applyQuaternion(inv),
         quat: inv.multiply(viewCam.quaternion),
         fov: CAM.fov, near: viewCam.near
       };
@@ -3087,7 +3192,7 @@ window.plethoraBit = {
         tr.t += dt;
         const k0 = clamp(tr.t / tr.dur, 0, 1), k = k0 * k0 * (3 - 2 * k0);
         _cq.setFromAxisAngle(UP, c.rh);
-        _from.copy(tr.pos).applyQuaternion(_cq).add(_look.set(c.rx, 0, c.rz));
+        _from.copy(tr.pos).applyQuaternion(_cq).add(_look.set(c.rx, c.ry, c.rz));
         _fromQ.copy(_cq).multiply(tr.quat);
         _from.lerp(T.pos, k);
         _from.y += Math.sin(Math.PI * k) * 0.35;   // arc over the engine cover, never through the car
@@ -3104,10 +3209,20 @@ window.plethoraBit = {
     // =====================================================================
     // Visual sync for cars
     // =====================================================================
+    // height and pitch on the crossover ramps, from the rendered position
+    const heightTmp = { idx: 0, s: 0, d: 0 };
+    function carHeight(c) {
+      project(c.rx, c.rz, c.idx, heightTmp, false);
+      c.rs = heightTmp.s;
+      const p = sampleAt(c.rs);
+      c.ry = p.y;
+      const grade = (sampleAt(c.rs + 2).y - sampleAt(c.rs - 2).y) / 4;
+      c.slope = Math.atan(grade * (Math.sin(c.rh) * p.fx + Math.cos(c.rh) * p.fz));
+    }
     function syncCarVisual(c, dt) {
       const v = c.vis;
-      v.group.position.set(c.rx, 0, c.rz);
-      v.group.rotation.y = c.rh;
+      v.group.position.set(c.rx, c.ry, c.rz);
+      v.group.rotation.set(-c.slope, c.rh, 0, "YXZ");
       // suspension: pitch from accel, roll from lateral, bounce on curbs
       const latAcc = c.u * c.wr;
       c.pitch = damp(c.pitch, clamp(-c.ax * 0.0035, -0.03, 0.03), 8, dt);
@@ -3171,7 +3286,7 @@ window.plethoraBit = {
       let best = 0;
       const fx = Math.sin(car.h), fz = Math.cos(car.h);
       for (const o of cars) {
-        if (o === car) continue;
+        if (o === car || !sameLevel(o, car)) continue;
         const dx = o.x - car.x, dz = o.z - car.z;
         const lon = dx * fx + dz * fz;
         if (lon < 3 || lon > 34) continue;
@@ -3341,7 +3456,7 @@ window.plethoraBit = {
       let pl = 0, pr = 0;
       const fx = Math.sin(player.h), fz = Math.cos(player.h);
       for (const o of cars) {
-        if (o === player) continue;
+        if (o === player || !sameLevel(o, player)) continue;
         const dx = o.x - player.x, dz = o.z - player.z;
         const lon = dx * fx + dz * fz, lat = dx * (-fz) + dz * fx;
         if (lon > -10 && lon < 3 && Math.abs(lat) < 7 && Math.abs(lat) > 1.2) { if (lat < 0) pl = 1; else pr = 1; }
@@ -3452,6 +3567,7 @@ window.plethoraBit = {
           for (const c of cars) {
             c.rx = lerp(c.px, c.x, alpha); c.rz = lerp(c.pz, c.z, alpha);
             c.rh = c.ph + wrapAngle(c.h - c.ph) * alpha;
+            if (track.bridge) carHeight(c);
           }
           if (state === "finished") {
             finishedT += dt;
@@ -3465,7 +3581,7 @@ window.plethoraBit = {
               const sl = c.slip + (c.surf >= 2 && Math.abs(c.u) > 12 ? 0.15 : 0);
               if (sl > 0.12 && Math.hypot(c.x - viewCam.position.x, c.z - viewCam.position.z) < 140) {
                 const fx = Math.sin(c.h), fz = Math.cos(c.h);
-                smoke.emit(c.x - fx * 1.5, c.z - fz * 1.5, c.vx, c.vz);
+                smoke.emit(c.x - fx * 1.5, c.z - fz * 1.5, c.vx, c.vz, c.ry);
               }
             }
           }
@@ -3517,7 +3633,7 @@ window.plethoraBit = {
       TEST.api = {
         get state() { return state; }, get player() { return player; }, get cars() { return cars; }, get raceTime() { return raceTime; },
         settings, loadCircuit, get circuit() { return circuit; }, get world() { return world; }, startRace: () => startRaceFlow(), skipPre: () => { preRaceT = 99; }, get racing() { return racing; }, get track() { return track; }, PHYS, setState, standings,
-        scene, THREE, renderCam: viewCam, controls, toggleCam, get camMode() { return camMode; }, get camTrans() { return CAM.trans; },
+        scene, THREE, renderCam: viewCam, controls, toggleCam, placeCarAt, get camMode() { return camMode; }, get camTrans() { return CAM.trans; },
         get renderInfo() { return Object.assign({}, renderer.info.render, { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures }); }
       };
     }
