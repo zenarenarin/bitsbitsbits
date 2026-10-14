@@ -17,16 +17,16 @@ window.plethoraBit = {
     // =====================================================================
     const DEFAULT_SETTINGS = {
       difficulty: "medium", laps: 3, racingLine: true, steering: "touch",
-      sensitivity: 1, deadzone: 0.05, invertTilt: false, sound: true, volume: 0.8,
-      brakeAssist: "medium", circuit: "aurora", vibration: true, view: 0, quality: "high", grid: 8, livery: 0, screenSide: "left", ver: 2
+      sensitivity: 1, deadzone: 0.03, invertTilt: false, sound: true, volume: 0.8,
+      brakeAssist: "medium", circuit: "aurora", vibration: true, view: 0, quality: "high", grid: 8, livery: 0, screenSide: "left", ver: 3
     };
     const settings = Object.assign({}, DEFAULT_SETTINGS);
     let bestLapStored = null;
     try {
       const saved = ctx.storage.get("settings");
       if (saved && typeof saved === "object") {
-        // v1 saves predate the two-mode viewCam and touch-first steering; keep everything else
-        if (saved.ver !== 2) { delete saved.steering; }
+        // older saves predate button steering as the default and the retuned tilt; keep everything else
+        if (saved.ver !== 3) { delete saved.steering; delete saved.sensitivity; delete saved.deadzone; }
         for (const k of Object.keys(DEFAULT_SETTINGS)) {
           if (saved[k] !== undefined && typeof saved[k] === typeof DEFAULT_SETTINGS[k]) settings[k] = saved[k];
         }
@@ -39,7 +39,7 @@ window.plethoraBit = {
     if (settings.view !== 0 && settings.view !== 1) settings.view = 0;
     if (!["off", "medium", "full", "auto"].includes(settings.brakeAssist)) settings.brakeAssist = "medium";
     if (settings.screenSide !== "left" && settings.screenSide !== "right") settings.screenSide = "left";
-    settings.ver = 2;
+    settings.ver = 3;
     function saveSettings() {
       try { ctx.storage.set("settings", settings); } catch (e) { /* ignore */ }
     }
@@ -2670,7 +2670,7 @@ window.plethoraBit = {
         ["Racing line", "racingLine", [[true, "On"], [false, "Off"]]],
         ["Controls", "steering", [["motion", "Tilt steering"], ["touch", "Button steering"]]],
         ["Tilt sensitivity", "sensitivity", [[0.7, "Low"], [1, "Mid"], [1.4, "High"]]],
-        ["Tilt dead zone", "deadzone", [[0.02, "Small"], [0.05, "Mid"], [0.1, "Large"]]],
+        ["Tilt dead zone", "deadzone", [[0.015, "Small"], [0.03, "Mid"], [0.07, "Large"]]],
         ["Invert tilt", "invertTilt", [[false, "Off"], [true, "On"]]],
         ["View", "view", [[0, "Chase"], [1, "Cockpit"]]],
         ["Sound", "sound", [[true, "On"], [false, "Off"]]],
@@ -2805,7 +2805,7 @@ window.plethoraBit = {
       if (gx || gy) {
         const ang = Math.atan2(gy, gx);
         if (motionNeutral == null) motionNeutral = ang;
-        const maxA = (32 * Math.PI / 180) / settings.sensitivity;
+        const maxA = (22 * Math.PI / 180) / settings.sensitivity;   // full lock at ~22 degrees of wheel turn
         raw = clamp(wrapAngle(ang - motionNeutral) / maxA, -1, 1);
       } else {
         // phone held nearly flat: use the SDK's normalised tilt control
@@ -2814,12 +2814,12 @@ window.plethoraBit = {
       }
       if (settings.invertTilt) raw = -raw;
       // reject spikes (limit how fast the raw reading may move), then low-pass the remaining noise
-      const lim = approach(tilt.filt, raw, 9 * dt);
-      tilt.filt = damp(tilt.filt, lim, 18, dt);
+      const lim = approach(tilt.filt, raw, 16 * dt);
+      tilt.filt = damp(tilt.filt, lim, 24, dt);
       const dz = settings.deadzone, a = Math.abs(tilt.filt);
       if (a <= dz) return 0;
       const v = (a - dz) / (1 - dz);
-      return Math.sign(tilt.filt) * (0.35 * v + 0.65 * v * v);   // gentle centre, full lock at the edge
+      return Math.sign(tilt.filt) * (0.7 * v + 0.3 * v * v);   // responsive near centre, full lock at the edge
     }
 
     // ---- race setup ----
@@ -3330,9 +3330,9 @@ window.plethoraBit = {
       else if (effectiveSteering() === "motion") { const t = readTilt(dt); if (t != null) { target = t; src = "tilt"; } }
       const u = Math.max(0, player.u);
       const spN = clamp(u / 80, 0, 1);
-      target *= lerp(1, 0.75, clamp((u - 30) / 55, 0, 1));     // less authority at speed
+      target *= lerp(1, src === "tilt" ? 0.85 : 0.75, clamp((u - 30) / 55, 0, 1));     // less authority at speed
       let rate;
-      if (src === "tilt") rate = 7;                                // already filtered: only limit slew
+      if (src === "tilt") rate = 11;                               // already filtered: only limit slew
       else if (target === 0) rate = lerp(6, 4.5, spN);            // smooth return to centre
       else if (controls.steer !== 0 && Math.sign(target) !== Math.sign(controls.steer)) rate = lerp(8, 5.5, spN); // counter-steer
       else rate = lerp(4.5, 2.6, spN);                            // turn-in: quick at low speed, calmer at high speed
