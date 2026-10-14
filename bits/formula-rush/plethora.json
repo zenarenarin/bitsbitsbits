@@ -3,7 +3,7 @@
   "runtime": "plethora-bit@2",
   "entry": "main.js",
   "title": "Formula Rush",
-  "description": "A landscape 3D Formula-style racer: tilt or button steering, brake assist, and AI battles on Aurora Ring, Monaco, Suzuka and floodlit Marina Bay.",
+  "description": "A landscape 3D Formula-style racer: tilt or button steering, brake assist, and AI battles on Aurora Ring, Monaco, Silverstone, Suzuka and floodlit Marina Bay.",
   "tags": ["racing", "3d", "formula", "arcade", "motion"],
   "permissions": ["audio", "haptics", "motion", "storage"],
   "dependencies": ["three@0.164.1"],
@@ -18,7 +18,7 @@
         "scopes": ["following", "global"],
         "dedupe": "best_per_user",
         "dimensions": {
-          "circuit": ["aurora_ring", "monaco", "suzuka", "marina_bay"]
+          "circuit": ["aurora_ring", "monaco", "silverstone", "suzuka", "marina_bay"]
         }
       }
     }

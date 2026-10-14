@@ -18,7 +18,7 @@ window.plethoraBit = {
     const DEFAULT_SETTINGS = {
       difficulty: "medium", laps: 3, racingLine: true, steering: "touch",
       sensitivity: 1, deadzone: 0.05, invertTilt: false, sound: true, volume: 0.8,
-      brakeAssist: "medium", circuit: "aurora", vibration: true, view: 0, quality: "high", grid: 8, livery: 0, ver: 2
+      brakeAssist: "medium", circuit: "aurora", vibration: true, view: 0, quality: "high", grid: 8, livery: 0, screenSide: "left", ver: 2
     };
     const settings = Object.assign({}, DEFAULT_SETTINGS);
     let bestLapStored = null;
@@ -37,6 +37,8 @@ window.plethoraBit = {
     if (![3, 5, 10].includes(settings.laps)) settings.laps = 3;
     if (![6, 8, 10].includes(settings.grid)) settings.grid = 8;
     if (settings.view !== 0 && settings.view !== 1) settings.view = 0;
+    if (!["off", "medium", "full", "auto"].includes(settings.brakeAssist)) settings.brakeAssist = "medium";
+    if (settings.screenSide !== "left" && settings.screenSide !== "right") settings.screenSide = "left";
     settings.ver = 2;
     function saveSettings() {
       try { ctx.storage.set("settings", settings); } catch (e) { /* ignore */ }
@@ -129,7 +131,7 @@ window.plethoraBit = {
       .fr-pedal{position:absolute;pointer-events:auto;touch-action:none;border-radius:18px;display:flex;align-items:center;justify-content:center;font-size:1.1em;letter-spacing:.1em;background:rgba(255,255,255,.10);border:2px solid rgba(255,255,255,.28);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
       .fr-pedal.on{background:rgba(255,255,255,.32);border-color:#fff}
       .fr-gas.on{background:rgba(46,230,120,.45);border-color:#2ee678}
-      .fr-brake.on{background:rgba(255,42,61,.5);border-color:#ff2a3d}
+      .fr-brake.on,.fr-brake.fr-auto{background:rgba(255,42,61,.5);border-color:#ff2a3d}
       .fr-small{position:absolute;pointer-events:auto;touch-action:none;width:2.6em;height:2.6em;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(10,14,22,.55);border:1px solid rgba(255,255,255,.25);font-size:1em}
       .fr-small.on{background:rgba(255,255,255,.3)}
       .fr-card{pointer-events:auto;cursor:pointer;display:flex;align-items:center;gap:.6em;padding:.45em .6em;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);margin-bottom:.35em;font:600 .8em Inter,system-ui,sans-serif}
@@ -177,10 +179,10 @@ window.plethoraBit = {
     const loadMsg = loading.querySelector(".fr-load-msg");
     const loadBar = loading.querySelector(".fr-load-bar");
 
-    // Layout. The stage is never rotated. A landscape container uses its full area as the 3D view.
-    // A portrait container (host without orientation lock) gets an upright 16:9 view at the top and
-    // a control deck underneath, so the HUD, touch targets and projection all stay in screen space.
-    let SW = 800, SH = 400, portrait = false;
+    // Layout. The game is always presented in landscape. A landscape container uses its full area as
+    // the 3D view. A portrait container (host keeps the phone in portrait) gets the whole game, canvas
+    // and HUD together, turned a quarter turn so it fills the phone held sideways.
+    let SW = 800, SH = 400, portrait = false, rotated = 0, CW = 800, CH = 400;
     const VR = { x: 0, y: 0, w: 800, h: 400 };   // 3D view rect in container CSS pixels
     let deckTop = 400;
     let safe = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -190,9 +192,24 @@ window.plethoraBit = {
       const w = (info && info.width) || ctx.width || 800;
       const h = (info && info.height) || ctx.height || 400;
       const sa = (info && info.safeArea) || ctx.safeArea || {};
-      safe = { top: sa.top || 0, right: sa.right || 0, bottom: sa.bottom || 0, left: sa.left || 0 };
-      SW = w; SH = h;
-      portrait = h > w;
+      CW = w; CH = h;
+      rotated = h > w ? (settings.screenSide === "right" ? -90 : 90) : 0;   // "left": phone turned with its top to the left
+      const sT = sa.top || 0, sR = sa.right || 0, sB = sa.bottom || 0, sL = sa.left || 0;
+      if (rotated === -90) safe = { top: sL, right: sT, bottom: sR, left: sB };
+      else if (rotated === 90) safe = { top: sR, right: sB, bottom: sL, left: sT };
+      else safe = { top: sT, right: sR, bottom: sB, left: sL };
+      SW = rotated ? h : w; SH = rotated ? w : h;
+      return layoutStage();
+    }
+    // CSS transform that turns a landscape SW x SH box into the portrait container
+    function rotTransform() {
+      return rotated === -90 ? `translateY(${CH}px) rotate(-90deg)` : rotated === 90 ? `translateX(${CW}px) rotate(90deg)` : "";
+    }
+    function layoutStage() {
+      const w = SW, h = SH;
+      portrait = false;
+      stage.style.transformOrigin = "0 0";
+      stage.style.transform = rotTransform();
       if (portrait) {
         VR.x = 0; VR.w = w; VR.h = Math.round(w * 9 / 16); VR.y = Math.round(safe.top);
         deckTop = VR.y + VR.h;
@@ -266,7 +283,7 @@ window.plethoraBit = {
       if (disposed) return;
     }
     loadBar.style.width = "45%";
-    loadMsg.textContent = "Building " + (({ monaco: "Monaco", suzuka: "Suzuka", marina: "Marina Bay" })[settings.circuit] || "Aurora Ring") + "…";
+    loadMsg.textContent = "Building " + (({ monaco: "Monaco", silverstone: "Silverstone", suzuka: "Suzuka", marina: "Marina Bay" })[settings.circuit] || "Aurora Ring") + "…";
 
     // =====================================================================
     // Track generation
@@ -290,15 +307,43 @@ window.plethoraBit = {
         stands: [[-180, 120], [-40, 150], [130, 120], [560, 90]], trees: true, hills: 0x8aa39a, ground: "grass", groundCenter: [50, -290], lightSpacing: 120
       },
       monaco: {
-        id: "monaco", record: "monaco", name: "Monaco", length: "1.6 km", sf: [-80, 0],
+        id: "monaco", record: "monaco", name: "Monaco", length: "3.3 km", sf: [205, -262],
         W: 5.5, CURB: 1.0, BARRIER: 7.1, street: true, night: false,
-        blurb: "Tight harbour streets · hairpin, tunnel, close walls",
-        ctrl: [[-200, 0], [-80, 0], [40, 0], [78, -6], [90, -30], [92, -75], [105, -110], [130, -135], [170, -145], [205, -140], [232, -150], [242, -175], [236, -200], [214, -214],
-          [188, -222], [170, -238], [176, -257], [198, -262], [228, -264], [248, -280], [244, -302], [220, -312], [150, -316], [60, -310], [14, -304],
-          [-12, -298], [-34, -292], [-56, -300], [-80, -304], [-120, -300], [-150, -306],
-          [-174, -300], [-194, -292], [-214, -298], [-232, -294], [-252, -282], [-258, -262], [-254, -200], [-260, -120], [-256, -50], [-248, -16], [-228, -2]],
+        blurb: "Harbour streets · Casino, hairpin, swimming pool",
+        ctrl: [[231, -242], [248, -222], [265, -201], [282, -185], [295, -177], [309, -169], [332, -157], [350, -146], [370, -133], [380, -135], [388, -142], [396, -149], [408, -158], [432, -176],
+          [454, -193], [474, -206], [497, -220], [519, -236], [541, -252], [560, -266], [579, -278], [596, -289], [612, -296], [629, -301], [647, -308], [674, -319], [692, -328], [707, -339],
+          [725, -353], [749, -370], [767, -381], [781, -387], [794, -389], [807, -390], [819, -389], [831, -387], [841, -382], [850, -376], [857, -368], [863, -359], [869, -349], [873, -337],
+          [876, -324], [876, -310], [877, -288], [880, -276], [885, -267], [894, -261], [903, -257], [913, -254], [927, -250], [945, -248], [968, -245], [996, -241], [1025, -237], [1054, -234],
+          [1083, -230], [1094, -231], [1103, -235], [1109, -244], [1109, -254], [1106, -264], [1099, -272], [1090, -283], [1085, -301], [1082, -316], [1077, -335], [1076, -346], [1083, -353], [1092, -349],
+          [1096, -340], [1096, -329], [1096, -319], [1099, -301], [1103, -291], [1110, -284], [1120, -282], [1130, -286], [1139, -290], [1151, -296], [1166, -304], [1176, -312], [1182, -321], [1182, -331],
+          [1175, -339], [1167, -345], [1158, -352], [1144, -365], [1123, -383], [1100, -402], [1080, -418], [1063, -429], [1044, -440], [1023, -450], [1001, -459], [979, -467], [957, -474], [939, -477],
+          [922, -478], [907, -477], [892, -474], [876, -469], [856, -461], [837, -454], [812, -445], [783, -437], [755, -429], [736, -420], [719, -412], [701, -402], [682, -390], [664, -377],
+          [644, -363], [620, -345], [610, -342], [600, -345], [588, -350], [580, -343], [575, -334], [571, -323], [559, -310], [547, -302], [531, -290], [510, -274], [489, -257], [467, -239],
+          [444, -221], [421, -203], [405, -192], [396, -187], [385, -187], [375, -190], [365, -194], [352, -199], [334, -206], [318, -216], [303, -227], [290, -239], [278, -251], [271, -261],
+          [267, -271], [266, -282], [266, -302], [261, -314], [255, -324], [249, -334], [242, -344], [235, -355], [227, -365], [220, -375], [212, -385], [203, -394], [193, -401], [180, -403],
+          [158, -418], [152, -428], [146, -438], [141, -448], [135, -462], [130, -477], [127, -494], [125, -509], [125, -522], [128, -536], [133, -552], [136, -571], [132, -580], [122, -583],
+          [112, -580], [103, -574], [95, -568], [83, -560], [72, -550], [66, -541], [64, -531], [69, -522], [76, -515], [82, -501], [84, -486], [89, -466], [96, -446], [105, -425],
+          [115, -403], [126, -381], [139, -359], [153, -335], [164, -318], [176, -302], [190, -287], [206, -270], [223, -251]],
         stands: [[-150, 90]], trees: false, hills: 0x9aa58e, ground: "city", lightSpacing: 70,
         buildings: { minH: 9, maxH: 30, colors: ["#e9d8bd", "#f2c9a0", "#d9b38c", "#f4e6cf", "#e7b8a4", "#cfd8c4", "#f0dca8"], depth: [10, 22], gap: 2.5 }
+      },
+      silverstone: {
+        id: "silverstone", record: "silverstone", name: "Silverstone", length: "3.9 km", sf: [587, -130],
+        W: 7.5, CURB: 1.4, BARRIER: 15, street: false, night: false,
+        blurb: "Fast and flowing · Maggotts, Becketts, Stowe",
+        ctrl: [[570, -122], [598, -143], [629, -165], [661, -188], [694, -212], [726, -235], [747, -254], [755, -266], [759, -279], [760, -293], [759, -310], [758, -329], [754, -360], [753, -388],
+          [756, -406], [762, -422], [771, -437], [782, -452], [797, -470], [818, -494], [841, -521], [850, -536], [855, -549], [851, -562], [838, -569], [825, -573], [807, -578], [788, -586],
+          [778, -596], [777, -609], [787, -619], [800, -625], [814, -627], [828, -628], [853, -633], [885, -639], [898, -635], [909, -626], [919, -615], [930, -601], [949, -579], [975, -549],
+          [1002, -518], [1028, -487], [1054, -456], [1081, -425], [1107, -394], [1134, -364], [1160, -333], [1183, -305], [1192, -290], [1196, -276], [1195, -262], [1190, -249], [1181, -238], [1168, -232],
+          [1154, -230], [1138, -229], [1111, -223], [1100, -214], [1093, -201], [1093, -187], [1098, -174], [1107, -164], [1120, -158], [1135, -158], [1148, -162], [1161, -168], [1178, -176], [1204, -188],
+          [1234, -204], [1254, -218], [1269, -233], [1283, -249], [1293, -267], [1301, -285], [1306, -304], [1310, -327], [1313, -355], [1318, -392], [1323, -430], [1327, -469], [1331, -510], [1336, -550],
+          [1338, -583], [1335, -600], [1330, -613], [1321, -624], [1310, -633], [1298, -641], [1282, -647], [1264, -653], [1237, -660], [1203, -669], [1165, -678], [1137, -682], [1107, -684], [1070, -687],
+          [1029, -689], [999, -693], [979, -700], [957, -711], [932, -723], [917, -724], [903, -720], [890, -716], [869, -709], [838, -702], [823, -703], [809, -707], [797, -713], [782, -725],
+          [749, -740], [735, -739], [722, -734], [710, -725], [701, -715], [692, -701], [679, -679], [664, -661], [649, -650], [633, -642], [613, -632], [581, -616], [545, -598], [509, -580],
+          [473, -562], [437, -543], [401, -525], [365, -507], [328, -489], [295, -471], [264, -453], [235, -435], [210, -418], [194, -405], [185, -393], [179, -380], [177, -366], [179, -352],
+          [183, -338], [190, -326], [200, -316], [212, -308], [227, -300], [249, -288], [275, -271], [295, -255], [316, -234], [342, -209], [370, -181], [390, -164], [396, -151], [391, -138],
+          [381, -128], [379, -100], [388, -89], [399, -80], [411, -71], [426, -63], [442, -58], [457, -55], [471, -55], [484, -61], [496, -69], [510, -80], [533, -96], [564, -117]],
+        stands: [[-230, 150], [-70, 110]], trees: true, hills: 0x8fa88f, ground: "grass", lightSpacing: 140
       },
       suzuka: {
         id: "suzuka", record: "suzuka", name: "Suzuka", length: "4.1 km", sf: [354, -911],
@@ -436,7 +481,7 @@ window.plethoraBit = {
         bridge = { lower: bi, upper: bj, H };
       }
       // where two parts of the circuit run side by side, share the space between them
-      if (def.bridge || def.street) {
+      {
         const capL = new Float32Array(n).fill(1e9), capR = new Float32Array(n).fill(1e9);
         for (let i = 0; i < n; i++) for (let j = i + 60; j < Math.min(n, n - 60 + i); j++) {
           const dx = X[j] - X[i], dz = Z[j] - Z[i];
@@ -604,8 +649,12 @@ window.plethoraBit = {
     function applyRendererSize() {
       const q = settings.quality === "high" ? 2 : 1;
       renderer.setPixelRatio(Math.min(ctx.dpr || 1, q));
-      renderer.setSize(ctx.width || 800, ctx.height || 400, false);
-      canvas.style.width = "100%"; canvas.style.height = "100%";
+      renderer.setSize(SW, SH, false);
+      if (rotated) {
+        Object.assign(canvas.style, { position: "absolute", left: "0px", top: "0px", width: SW + "px", height: SH + "px", transformOrigin: "0 0", transform: rotTransform() });
+      } else {
+        Object.assign(canvas.style, { position: "", left: "", top: "", width: "100%", height: "100%", transformOrigin: "", transform: "" });
+      }
     }
     applyRendererSize();
     layoutListeners.push(applyRendererSize);
@@ -2382,8 +2431,8 @@ window.plethoraBit = {
         c.className = "fr-card" + (def.id === settings.circuit ? " sel" : "");
         c.style.cssText = "flex:1;min-width:0;flex-direction:column;align-items:stretch;gap:.4em;margin:0;padding:.5em";
         c.innerHTML = `<div style="flex:1;min-height:3em">${circuitPreview(def)}</div>
-          <div style="font-family:'Bebas Neue',Inter,sans-serif;font-size:1.5em;letter-spacing:.06em;font-weight:400">${def.name.toUpperCase()}${def.night ? ' <span style="font-size:.6em;color:#7fd0ff">NIGHT</span>' : ""}</div>
-          <div style="opacity:.6;font-weight:400;font-size:.85em">${def.length} · ${def.blurb}</div>`;
+          <div style="font-family:'Bebas Neue',Inter,sans-serif;font-size:1.12em;letter-spacing:.02em;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${def.name.toUpperCase()}</div>
+          <div style="opacity:.6;font-weight:400;font-size:.8em">${def.night ? '<span style="color:#7fd0ff;opacity:1">NIGHT</span> · ' : ""}${def.length} · ${def.blurb}</div>`;
         box.appendChild(c);
         ctx.input.activate(c, () => {
           if (settings.circuit === def.id) return;
@@ -2597,10 +2646,11 @@ window.plethoraBit = {
       showcase.base = { x: p.x, z: p.z, h: Math.atan2(p.fx, p.fz) };
     }
     // drag to rotate (car selection)
-    ctx.listen(canvas, "pointerdown", e => { if (state === "carSelect") { carSelDrag = { x: e.clientX, y: e.clientY, yaw: carSelYaw }; } });
+    const stageDragX = e => rotated === -90 ? -e.clientY : rotated === 90 ? e.clientY : e.clientX;
+    ctx.listen(canvas, "pointerdown", e => { if (state === "carSelect") { carSelDrag = { x: stageDragX(e), yaw: carSelYaw }; } });
     ctx.listen(canvas, "pointermove", e => {
       if (state === "carSelect" && carSelDrag) {
-        const dx = e.clientX - carSelDrag.x;
+        const dx = stageDragX(e) - carSelDrag.x;
         carSelYaw = carSelDrag.yaw + dx * 0.012;
       }
     });
@@ -2613,11 +2663,11 @@ window.plethoraBit = {
     // ---- settings modal ----
     function openSettings(fromPause) {
       const segs = [
+        ["Brake assist", "brakeAssist", [["off", "Off"], ["medium", "Medium"], ["full", "Full"], ["auto", "Auto"]]],
         ["Difficulty", "difficulty", [["easy", "Easy"], ["medium", "Medium"], ["hard", "Hard"]]],
         ["Laps", "laps", [[3, "3"], [5, "5"], [10, "10"]]],
         ["Grid size", "grid", [[6, "6"], [8, "8"], [10, "10"]]],
         ["Racing line", "racingLine", [[true, "On"], [false, "Off"]]],
-        ["Brake assist", "brakeAssist", [["off", "Off"], ["medium", "Medium"], ["full", "Full"]]],
         ["Controls", "steering", [["motion", "Tilt steering"], ["touch", "Button steering"]]],
         ["Tilt sensitivity", "sensitivity", [[0.7, "Low"], [1, "Mid"], [1.4, "High"]]],
         ["Tilt dead zone", "deadzone", [[0.02, "Small"], [0.05, "Mid"], [0.1, "Large"]]],
@@ -2626,7 +2676,8 @@ window.plethoraBit = {
         ["Sound", "sound", [[true, "On"], [false, "Off"]]],
         ["Volume", "volume", [[0.4, "Low"], [0.8, "Mid"], [1, "High"]]],
         ["Vibration", "vibration", [[true, "On"], [false, "Off"]]],
-        ["Graphics", "quality", [["high", "High"], ["low", "Low"]]]
+        ["Graphics", "quality", [["high", "High"], ["low", "Low"]]],
+        ["Sideways screen", "screenSide", [["left", "Top left"], ["right", "Top right"]]]
       ];
       const locked = fromPause ? new Set(["laps", "grid", "difficulty"]) : new Set();
       modalBody.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.3em"><div style="font-size:1.5em;letter-spacing:.08em">SETTINGS</div><button class="fr-btn fr-close" style="padding:.35em .9em;font-size:.9em">DONE</button></div><div class="fr-scroll fr-ui fr-set-list" style="flex:1;min-height:0;padding-right:.3em"></div>`;
@@ -2649,6 +2700,8 @@ window.plethoraBit = {
             if (key === "sound" || key === "volume") { audio.init(); audio.setVolume(); }
             if (key === "racingLine") guide.mesh.visible = !!val;
             if (key === "steering") { motionFallback = false; if (val === "motion" && fromPause) startMotion(); layoutHud(); }
+            if (key === "screenSide") layout();
+            if (key === "brakeAssist") updateAssistLabels();
             if (key === "quality") { renderer.shadowMap.enabled = val === "high"; scene.traverse(o => { if (o.material) o.material.needsUpdate = true; }); applyRendererSize(); }
           });
         }
@@ -2670,16 +2723,28 @@ window.plethoraBit = {
     const delegate = e => { const b = e.target.closest("button"); if (b && b.__frAct) { audio.resume(); b.__frAct(); } };
     ctx.listen(modalBody, "click", delegate);
     function closeModal() { modal.classList.add("fr-hide"); }
+    const ASSIST_NAMES = { off: "OFF", medium: "MEDIUM", full: "FULL", auto: "AUTO" };
+    function updateAssistLabels() {
+      const b = $(".fr-passist", modalBody);
+      if (b) b.textContent = "BRAKE ASSIST: " + ASSIST_NAMES[settings.brakeAssist];
+    }
     function openPauseMenu() {
       modalBody.innerHTML = `
         <div style="font-size:2em;letter-spacing:.1em;text-align:center;margin:.1em 0 .3em">PAUSED</div>
         <button class="fr-menu-btn primary fr-resume" style="text-align:center">RESUME</button>
         <button class="fr-menu-btn fr-restart" style="text-align:center">RESTART RACE</button>
+        <button class="fr-menu-btn fr-passist" style="text-align:center"></button>
         <button class="fr-menu-btn fr-psettings" style="text-align:center">SETTINGS</button>
         <button class="fr-menu-btn fr-quit" style="text-align:center">MAIN MENU</button>`;
       bindAct($(".fr-resume", modalBody), () => togglePause(false));
       bindAct($(".fr-restart", modalBody), () => { closeModal(); paused = false; startRaceFlow(true); });
       bindAct($(".fr-psettings", modalBody), () => openSettings(true));
+      bindAct($(".fr-passist", modalBody), () => {
+        const order = ["off", "medium", "full", "auto"];
+        settings.brakeAssist = order[(order.indexOf(settings.brakeAssist) + 1) % order.length]; saveSettings();
+        updateAssistLabels();
+      });
+      updateAssistLabels();
       bindAct($(".fr-quit", modalBody), () => { closeModal(); paused = false; audio.silence(); setState("menu"); });
       modal.classList.remove("fr-hide");
     }
@@ -3278,6 +3343,7 @@ window.plethoraBit = {
       controls.reverse = reverseHold > 0.35;
       controls.boost = !!(input.boost || keys.has("shift")) && player.boost > 0.02 && u > 10;
       controls.src = src;
+      if (TEST && TEST.steerBot) { controls.steer = TEST.steerBot(player); controls.throttle = 1; controls.brake = 0; }
     }
     const approach = (v, t, d) => (v < t ? Math.min(t, v + d) : Math.max(t, v - d));
     const playerCtrlRef = { steer: 0, throttle: 0, brake: 0, boost: false, slip: 0, gripAssist: 1, rearAssist: 1 };
@@ -3298,6 +3364,23 @@ window.plethoraBit = {
       return best;
     }
 
+    // Auto brake assist: the car brakes for corners by itself (the player steers and holds GAS)
+    function autoBrake(car, ctrl) {
+      const speed = Math.max(0, car.u);
+      let target = racing.v[(car.idx + Math.round(Math.max(4, speed * 0.25) / TDS)) % TN];
+      for (let k = 1; k < 40; k += 3) {
+        const j = (car.idx + k * 2) % TN, dist = k * 2 * TDS, vj = racing.v[j];
+        const brakeCap = 0.78 * PHYS.brakeMu * PHYS.mu * (PHYS.g + PHYS.kd * vj * vj / PHYS.mass);
+        target = Math.min(target, Math.sqrt(vj * vj + 2 * brakeCap * dist));
+      }
+      target *= 0.96 - 0.01 * Math.min(4, Math.max(0, Math.abs(car.d - racing.off[car.idx]) - 1.5));
+      car.autoBraking = false;
+      if (speed > target + 0.6) {
+        ctrl.throttle = 0;
+        ctrl.brake = Math.max(ctrl.brake, clamp((speed - target) * 0.4, 0.25, 1));
+        car.autoBraking = true;
+      } else if (speed > target - 1.5) ctrl.throttle = Math.min(ctrl.throttle, 0.35);
+    }
     function simulate(dt) {
       for (const c of cars) { c.px = c.x; c.pz = c.z; c.ph = c.h; }
       const racingOn = state === "racing" || state === "finished";
@@ -3319,7 +3402,8 @@ window.plethoraBit = {
             ctrl = playerCtrlRef;
             ctrl.steer = pc.steer; ctrl.throttle = pc.throttle; ctrl.brake = pc.brake; ctrl.boost = pc.boost; ctrl.reverse = !!pc.reverse;
             ctrl.gripAssist = PLAYER_ASSIST[settings.difficulty] || 1; ctrl.rearAssist = ctrl.gripAssist;
-            ctrl.brakeAssist = settings.brakeAssist === "full" ? 2 : settings.brakeAssist === "off" ? 0 : 1;
+            ctrl.brakeAssist = settings.brakeAssist === "full" || settings.brakeAssist === "auto" ? 2 : settings.brakeAssist === "off" ? 0 : 1;
+            if (settings.brakeAssist === "auto") autoBrake(c, ctrl);
             ctrl.slip = slipstreamFor(c);
             c.slipstream = ctrl.slip;
             // ERS energy
@@ -3462,6 +3546,7 @@ window.plethoraBit = {
         if (lon > -10 && lon < 3 && Math.abs(lat) < 7 && Math.abs(lat) > 1.2) { if (lat < 0) pl = 1; else pr = 1; }
       }
       H.proxL.style.opacity = pl ? "0.95" : "0"; H.proxR.style.opacity = pr ? "0.95" : "0";
+      H.brake.classList.toggle("fr-auto", !!player.autoBraking && settings.brakeAssist === "auto");
       H.vignette.style.opacity = clamp((Math.abs(player.u) - 55) / 45, 0, 0.4).toFixed(2);
       updateMinimap();
     }
