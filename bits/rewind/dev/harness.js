@@ -49,9 +49,18 @@
         stage.appendChild(el);
         return el;
       },
+      surface: {
+        enableInput(el) { el.style.pointerEvents = "auto"; return el; },
+        place(el) { return el; },
+        getPlacement() { return null; }
+      },
       createCanvas(opts = {}) {
         const c = document.createElement("canvas");
+        // Like the real runtime: a surface placed in a named layer is only hit-testable when
+        // input:"auto" is declared or enableInput() is called; ctx.listen does not grant it.
         c.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:" + (opts.touchAction || "auto");
+        if (opts.input === "auto") c.style.pointerEvents = "auto";
+        else if (opts.input === "passthrough" || opts.layer || opts.order != null) c.style.pointerEvents = "none";
         c.style.zIndex = opts.zIndex != null ? opts.zIndex : ({ background: 0, content: 1, overlay: 10, modal: 20 }[opts.layer] || 5);
         stage.appendChild(c);
         return c;

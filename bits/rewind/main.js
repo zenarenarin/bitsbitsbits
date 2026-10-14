@@ -173,7 +173,10 @@ window.plethoraBit = {
     }
     if (disposed) return;
 
-    const canvas = ctx.createCanvas({ touchAction: "none", layer: "content" });
+    // The play surface must receive touches: declare it hit-testable explicitly
+    // (ctx.listen alone preserves, and does not grant, hit testing on managed surfaces).
+    const canvas = ctx.createCanvas({ touchAction: "none", layer: "content", input: "auto" });
+    try { if (ctx.surface && ctx.surface.enableInput) ctx.surface.enableInput(canvas); } catch (e) {}
     let renderer;
     try {
       renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });

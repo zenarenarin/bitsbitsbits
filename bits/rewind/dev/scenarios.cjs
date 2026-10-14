@@ -509,3 +509,120 @@ module.exports.perf = async ({ page }) => {
     return { simMsPerGameSecond: +simMsPerSecond.toFixed(2), jsMsPerFrameExcludingGL: +jsMsPerFrame.toFixed(2), fullMsPerFrameSoftwareGL: +fullMsPerFrameSoftwareGL.toFixed(1), s: d.player.s, calls: d.renderer.info.render.calls };
   });
 };
+
+// End-to-end touch pipeline with real (CDP) touches, so browser hit testing decides which
+// element receives each touch. Records: topmost hit-testable element at each control, whether
+// the game's input handler saw the touch, the game-state change, and a pixel diff of the frame.
+module.exports.touchPipeline = async ({ page, shot }) => {
+  const sleep2 = (ms) => new Promise((r) => setTimeout(r, ms));
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type, pts) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: pts.map((p) => ({ x: p.x, y: p.y, id: p.id, radiusX: 4, radiusY: 4, force: 1 })) });
+  const st = () => page.evaluate(() => { const d = window.__rewindDebug, p = d.player; d.input.compute(); return { state: d.run.state, started: p.started, touches: d.input.touches.size, fwd: d.input.fwd, rev: d.input.rev, steer: +d.input.steer.toFixed(2), brake: d.input.brake, T: +d.clock.T.toFixed(3), s: +p.s.toFixed(2), x: +p.x.toFixed(3) }; });
+  const hitAt = (x, y) => page.evaluate(([x, y]) => {
+    const el = document.elementFromPoint(x, y);
+    const d = window.__rewindDebug;
+    const isGame = el === d.renderer.domElement;
+    return { tag: el && el.tagName, id: el && el.id, cls: el && String(el.className).slice(0, 30), isGameCanvas: isGame, gamePE: getComputedStyle(d.renderer.domElement).pointerEvents };
+  }, [x, y]);
+  const frameSig = () => page.evaluate(() => { const d = window.__rewindDebug; d.render(); const c = d.renderer.domElement; const g = document.createElement("canvas"); g.width = 48; g.height = 104; const x = g.getContext("2d"); x.drawImage(c, 0, 0, 48, 104); return Array.from(x.getImageData(0, 0, 48, 104).data); });
+  const diff = (a, b) => { let n = 0; for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 24) n++; return n; };
+  await sleep2(800);
+  const out = {};
+  const L0 = await page.evaluate(() => window.__rewindDebug.hud.layout);
+  const fwdX = L0.fx + L0.B / 2, revX = L0.rx + L0.B / 2, by = L0.by + L0.B / 2, steerX = 80, steerY = by;
+  out.hitTitle = await hitAt(195, 400);
+  await touch("touchStart", [{ id: 1, x: 195, y: 400 }]); await touch("touchEnd", []);
+  await sleep2(400);
+  out.afterStartTap = await st();
+  // in play: what does each control point hit?
+  out.hitFwd = await hitAt(fwdX, by);
+  out.hitRev = await hitAt(revX, by);
+  out.hitSteer = await hitAt(steerX, steerY);
+  out.hitCentre = await hitAt(195, 420);
+  out.hitPause = await hitAt(L0.W - 14 - 18, 12 + 18);
+  // 1) advance: hold the forward control; world time must advance and the frame must change
+  const s0 = await st(); const f0 = await frameSig();
+  await touch("touchStart", [{ id: 11, x: fwdX, y: by }]);
+  await sleep2(1200);
+  const s1 = await st(); const f1 = await frameSig();
+  out.advance = { before: s0, during: s1, frameChangedPixels: diff(f0, f1) };
+  // 2) simultaneous: add a steering finger on the left while still holding advance
+  await touch("touchStart", [{ id: 11, x: fwdX, y: by }, { id: 12, x: steerX, y: steerY }]);
+  await touch("touchMove", [{ id: 11, x: fwdX, y: by }, { id: 12, x: steerX + 50, y: steerY }]);
+  await sleep2(900);
+  const s2 = await st();
+  out.advancePlusSteer = { state: s2, dx: +(s2.x - s1.x).toFixed(3), dT: +(s2.T - s1.T).toFixed(3) };
+  // 3) slide the right thumb onto reverse while still steering: time must run backward
+  await touch("touchMove", [{ id: 11, x: revX, y: by }, { id: 12, x: steerX + 50, y: steerY }]);
+  await sleep2(900);
+  const s3 = await st();
+  out.reversePlusSteer = { state: s3, dT: +(s3.T - s2.T).toFixed(3) };
+  await shot("touchpipe-reverse");
+  // 4) release everything
+  await touch("touchEnd", []);
+  await sleep2(300);
+  out.released = await st();
+  // 5) HUD pause button by touch, then resume by touch
+  const P = { x: L0.W - 14 - 18, y: 12 + 18 };
+  await touch("touchStart", [{ id: 21, x: P.x, y: P.y }]); await touch("touchEnd", []);
+  await sleep2(300);
+  out.afterPauseTap = (await st()).state;
+  const resumeBtn = await page.evaluate(() => { const r = document.getElementById("rw-resume").getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  out.hitResume = await hitAt(resumeBtn.x, resumeBtn.y);
+  await touch("touchStart", [{ id: 22, x: resumeBtn.x, y: resumeBtn.y }]); await touch("touchEnd", []);
+  await sleep2(400);
+  out.afterResumeTap = (await st()).state;
+  // 6) keyboard still works: S reverses, D steers
+  const k0 = await st();
+  await page.keyboard.down("KeyS"); await page.keyboard.down("KeyD");
+  await sleep2(700);
+  const k1 = await st();
+  await page.keyboard.up("KeyS"); await page.keyboard.up("KeyD");
+  out.keyboard = { rev: k1.rev, steer: k1.steer, dT: +(k1.T - k0.T).toFixed(3), dx: +(k1.x - k0.x).toFixed(3) };
+  return out;
+};
+module.exports.keyboardCheck = async ({ page }) => {
+  const sleep2 = (ms) => new Promise((r) => setTimeout(r, ms));
+  const st = () => page.evaluate(() => { const d = window.__rewindDebug, p = d.player; return { state: d.run.state, T: +d.clock.T.toFixed(3), s: +p.s.toFixed(2), x: +p.x.toFixed(3), y: +p.y.toFixed(2) }; });
+  await sleep2(800);
+  await page.keyboard.press("Space");
+  await sleep2(300);
+  const out = { start: await st() };
+  await page.keyboard.down("KeyW"); await sleep2(1500); out.afterW = await st();
+  await page.keyboard.down("KeyA"); await sleep2(1200); out.afterWA = await st();
+  await page.keyboard.up("KeyA"); await page.keyboard.up("KeyW");
+  await page.keyboard.down("KeyS"); await sleep2(1000); out.afterS = await st(); await page.keyboard.up("KeyS");
+  await page.keyboard.press("Escape"); await sleep2(200); out.esc = (await st()).state;
+  await page.keyboard.press("Escape"); await sleep2(200); out.esc2 = (await st()).state;
+  return out;
+};
+// Real key events (window keydown/keyup listeners), deterministic simulation stepping.
+module.exports.keyboardSteps = async ({ page }) => {
+  const st = () => page.evaluate(() => { const d = window.__rewindDebug, p = d.player; return { state: d.run.state, T: +d.clock.T.toFixed(3), s: +p.s.toFixed(2), x: +p.x.toFixed(3) }; });
+  const step = (n) => page.evaluate((n) => { const d = window.__rewindDebug; for (let i = 0; i < n; i++) { d.course.ensure(d.player.s + 120); d.fixedStep(); } }, n);
+  await page.evaluate(() => { if (window.__loop.setManual) window.__loop.setManual(true); });
+  await page.keyboard.press("Space"); // keyboard start from title
+  const out = { start: await st() };
+  await page.keyboard.down("KeyW"); await step(240); out.W2s = await st();
+  await page.keyboard.down("KeyA"); await step(60); out.WA05s = await st();
+  await page.keyboard.up("KeyA"); await page.keyboard.up("KeyW");
+  await page.keyboard.down("KeyS"); await step(60); out.S05s = await st(); await page.keyboard.up("KeyS");
+  await page.keyboard.down("KeyD"); await step(60); out.D05s = await st(); await page.keyboard.up("KeyD");
+  return out;
+};
+module.exports.hitScan = async ({ page }) => {
+  await page.evaluate(() => { if (window.__loop.setManual) window.__loop.setManual(true); });
+  await page.keyboard.press("Space");
+  await new Promise((r) => setTimeout(r, 700)); // let the title fade transition finish
+  return page.evaluate(() => {
+    const d = window.__rewindDebug, W = innerWidth, H = innerHeight, c = d.renderer.domElement;
+    const tally = {};
+    for (let y = 4; y < H; y += 20) for (let x = 4; x < W; x += 20) {
+      const el = document.elementFromPoint(x, y);
+      let k = el === c ? "GAME_CANVAS" : (el.closest("button") ? "button#" + el.closest("button").id : el.tagName + (el.id ? "#" + el.id : "") + "." + String(el.className).slice(0, 18));
+      tally[k] = (tally[k] || 0) + 1;
+    }
+    const surfaces = [...document.querySelectorAll("#stage > *")].map((e) => ({ tag: e.tagName, z: getComputedStyle(e).zIndex, pe: getComputedStyle(e).pointerEvents, display: getComputedStyle(e).display }));
+    return { state: d.run.state, tally, surfaces };
+  });
+};
