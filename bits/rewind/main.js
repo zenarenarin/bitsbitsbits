@@ -201,8 +201,12 @@ window.plethoraBit = {
     // =====================================================================
     const TEX_UNIT = 4.8; // world units covered by one texture repeat
 
+    // Offscreen paint surfaces for procedural textures: created through the runtime, then
+    // detached so they never take part in layout or input.
     function makeCanvas(w, h) {
-      const c = document.createElement("canvas");
+      const c = ctx.createCanvas2D({ input: "passthrough", layer: "background" });
+      c.style.display = "none";
+      if (c.parentNode) c.parentNode.removeChild(c);
       c.width = w; c.height = h;
       return c;
     }
@@ -2684,7 +2688,6 @@ window.plethoraBit = {
       ".rw-btn{width:36px;height:36px;border-radius:50%;border:1px solid rgba(47,61,66,.25);background:rgba(250,246,238,.55);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);" +
       "display:flex;align-items:center;justify-content:center;color:#2f3d42;font-size:13px;cursor:pointer;padding:0}" +
       ".rw-btn svg{width:14px;height:14px}" +
-      ".rw-ribbon{position:absolute;left:50%;transform:translateX(-50%);top:14px;pointer-events:none}" +
       ".rw-hint{position:absolute;left:50%;top:70px;transform:translate(-50%,0);padding:9px 16px;border-radius:999px;background:rgba(250,246,238,.78);" +
       "backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);font-size:14px;letter-spacing:.02em;color:#2b393e;white-space:nowrap;opacity:0;transition:opacity .35s,transform .35s;pointer-events:none;box-shadow:0 4px 18px rgba(40,50,55,.12)}" +
       ".rw-hint.show{opacity:1;transform:translate(-50%,4px)}" +
@@ -2730,7 +2733,6 @@ window.plethoraBit = {
       '<div><div class="rw-score" id="rw-score">0</div><div class="rw-sub"><span id="rw-dist">0 m</span><span class="rw-mult" id="rw-mult"></span><span class="rw-pips" id="rw-pips"></span></div></div>' +
       '<div class="rw-btns"><button class="rw-btn" id="rw-mute" aria-label="Sound"></button><button class="rw-btn" id="rw-pause" aria-label="Pause"><svg viewBox="0 0 10 10"><rect x="1.5" y="1" width="2.4" height="8" fill="currentColor"/><rect x="6.1" y="1" width="2.4" height="8" fill="currentColor"/></svg></button></div>' +
       "</div>" +
-      '<canvas class="rw-ribbon" id="rw-ribbon"></canvas>' +
       '<div class="rw-hint" id="rw-hint"></div>' +
       '<div class="rw-toasts" id="rw-toasts"></div>' +
       '<div class="rw-touch" id="rw-touch">' +
@@ -2763,12 +2765,15 @@ window.plethoraBit = {
     const $ = (id) => hudRoot.querySelector("#" + id);
     const hud = {
       score: $("rw-score"), dist: $("rw-dist"), mult: $("rw-mult"), pips: $("rw-pips"), top: $("rw-top"),
-      ribbon: $("rw-ribbon"), hint: $("rw-hint"), toasts: $("rw-toasts"), touch: $("rw-touch"),
+      ribbon: null, hint: $("rw-hint"), toasts: $("rw-toasts"), touch: $("rw-touch"),
       trev: $("rw-trev"), tfwd: $("rw-tfwd"), stick: $("rw-stick"), knob: $("rw-knob"), padhint: $("rw-padhint"),
       title: $("rw-title"), results: $("rw-results"), pausescr: $("rw-pausescr"), vig: $("rw-vig"),
       mute: $("rw-mute"), pause: $("rw-pause"), sound: $("rw-sound"), motion: $("rw-motion"),
       lastScore: -1, lastDist: -1, lastMult: "", ribbonCtx: null, layout: null
     };
+    // the time ribbon is drawn on its own input-transparent overlay canvas, in CSS pixels
+    hud.ribbon = ctx.createCanvas2D({ coordinateSpace: "css", maxDpr: 2, layer: "overlay", order: -1, input: "passthrough" });
+    hud.ribbon.style.pointerEvents = "none";
     hud.ribbonCtx = hud.ribbon.getContext("2d");
     for (let i = 0; i < 8; i++) hud.pips.appendChild(document.createElement("i"));
 
@@ -2792,10 +2797,8 @@ window.plethoraBit = {
       const W = ctx.width, H = ctx.height, sb = (ctx.safeArea && ctx.safeArea.bottom) || 0;
       const rw = Math.round(Math.min(250, W * 0.5)), rh = 40;
       const dpr = Math.min(2, ctx.nativeDpr || 1);
-      hud.ribbon.width = rw * dpr; hud.ribbon.height = rh * dpr;
-      hud.ribbon.style.width = rw + "px"; hud.ribbon.style.height = rh + "px";
       const narrow = W < 420;
-      hud.ribbon.style.top = (narrow ? 78 : 14) + "px";
+      const ribbonTop = narrow ? 78 : 14;
       hud.hint.style.top = (narrow ? 126 : 66) + "px";
       hud.toasts.style.top = (narrow ? 172 : 112) + "px";
       const B = Math.round(clamp(W * 0.2, 64, 88));
@@ -2804,7 +2807,7 @@ window.plethoraBit = {
       Object.assign(hud.tfwd.style, { left: fx + "px", top: by + "px", width: B + "px", height: B + "px" });
       Object.assign(hud.trev.style, { left: rx + "px", top: by + "px", width: B + "px", height: B + "px" });
       Object.assign(hud.padhint.style, { left: "16px", top: (by + B / 2 - 12) + "px", width: Math.round(W * 0.36) + "px" });
-      hud.layout = { W, H, B, by, fx, rx, rw, rh, dpr, splitX: W * 0.5, revFwdMid: rx + B + 7 };
+      hud.layout = { W, H, B, by, fx, rx, rw, rh, dpr, ribbonX: Math.round((W - rw) / 2), ribbonTop, splitX: W * 0.5, revFwdMid: rx + B + 7 };
     }
 
     function toast(text, pts) {
@@ -2843,8 +2846,10 @@ window.plethoraBit = {
       const L = hud.layout, g = hud.ribbonCtx;
       if (!L) return;
       const w = L.rw, h = L.rh;
-      g.setTransform(L.dpr, 0, 0, L.dpr, 0, 0);
-      g.clearRect(0, 0, w, h);
+      // CSS-pixel surface: the runtime keeps the DPR transform; we only translate
+      g.clearRect(0, 0, ctx.width, ctx.height);
+      g.save();
+      g.translate(L.ribbonX, L.ribbonTop);
       const span = 9; // seconds visible each side
       const cx = w / 2, y = 15;
       const tx = (t) => cx + ((t - T) / span) * (w / 2 - 6);
@@ -2896,6 +2901,7 @@ window.plethoraBit = {
       const label = clock.atFloor ? "BEGINNING OF HISTORY" : d > 0 ? "TIME ▶" : d < 0 ? "◀◀ REVERSING" : "STILL";
       g.fillText(label, cx, h - 3);
       if (inWin) { g.fillStyle = "rgba(47,138,142,0.9)"; g.fillRect(cx - 14, 26, 28, 2); }
+      g.restore();
     }
     function roundRect(g, x, y, w, h, r) {
       g.beginPath();

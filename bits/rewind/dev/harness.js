@@ -56,6 +56,17 @@
         stage.appendChild(c);
         return c;
       },
+      createCanvas2D(opts = {}) {
+        const c = ctx.createCanvas(opts);
+        if (opts.input === "passthrough") c.style.pointerEvents = "none";
+        if (opts.coordinateSpace === "css") {
+          const dpr = Math.min(opts.maxDpr || 1, window.devicePixelRatio || 1);
+          c.width = Math.round(W * dpr); c.height = Math.round(H * dpr);
+          const g = c.getContext("2d");
+          g.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+        return c;
+      },
       listen(target, name, fn, options) {
         target.addEventListener(name, fn, options);
         cleanups.push(() => target.removeEventListener(name, fn, options));
