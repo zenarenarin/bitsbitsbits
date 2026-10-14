@@ -30,8 +30,6 @@ module.exports = {
 async function installAutopilot(page) {
   await page.evaluate(() => {
     const d = window.__rewindDebug;
-    const K = d.input.keys;
-    const set = (code, on) => { if (on) K.add(code); else K.delete(code); };
     function supportAt(x, s, foot, T) {
       const cols = d.colliders(T, s - 1, s + 1);
       let best = null;
@@ -44,118 +42,87 @@ async function installAutopilot(page) {
       }
       return best;
     }
-    const ap = { stuckAt: 0, lastProgress: 0, lastS: 0, mode: "" };
+    const ap = { mode: "" };
     d.autopilot = ap;
+    // drive with the same four inputs a player has: an analog move vector, REWIND, HURRY
     ap.decide = function () {
-      const p = d.player, c = d.clock, T = c.T;
-      let fwd = false, rev = false, brake = false, tx = p.x;
-      const v = Math.max(1, d.runSpeedAt(p.s));
-      // next timed element / hazard ahead
+      const p = d.player, T = d.clock.T;
+      let rew = false, ff = false, go = 1, tx = p.x;
       let el = null;
       d.course.forEachElement(p.s - 1, p.s + 16, (e) => {
-        if (e.crossS1 == null || e.type === "gyro") return;
+        if (e.crossS1 == null || e.type === "gyro" || e.type === "gnomon") return;
         if (e.crossS1 < p.s - 0.1) return;
-        if (Math.abs(e.crossX - p.x) > 3.4 && Math.abs(e.crossX) > 0.1) {
-          // a parallel route: only consider it if it is the route we are on
-          if (Math.abs(e.crossX - p.x) > 1.6) return;
-        }
+        if (Math.abs(e.crossX - p.x) > 1.8 && Math.abs(e.crossX) > 0.1) return;
         if (!el || e.crossS0 < el.crossS0) el = e;
       });
-      // steering: follow supported ground ahead; prefer the element's line
-      const look = p.s + 3.2;
       const candidates = [];
       for (let x = -4.6; x <= 4.6; x += 0.2) {
-        const t1 = supportAt(x, look, p.y, T), t0 = supportAt(x, p.s + 1.2, p.y, T);
+        const t1 = supportAt(x, p.s + 3.2, p.y, T), t0 = supportAt(x, p.s + 1.2, p.y, T);
         if (t1 != null && t0 != null) candidates.push(x);
       }
       if (el && Math.abs(el.crossX - p.x) < 4 && el.crossS0 - p.s < 14) tx = el.crossX;
-      else if (candidates.length && !candidates.some((x) => Math.abs(x - p.x) < 0.35)) {
-        tx = candidates.reduce((a, b) => (Math.abs(b - p.x) < Math.abs(a - p.x) ? b : a));
-      } else if (candidates.length) {
-        // centre within the current lane
-        const lane = candidates.filter((x) => Math.abs(x - p.x) < 1.6);
-        if (lane.length) tx = (Math.min(...lane) + Math.max(...lane)) / 2;
-      }
+      else if (candidates.length && !candidates.some((x) => Math.abs(x - p.x) < 0.35)) tx = candidates.reduce((a, b) => (Math.abs(b - p.x) < Math.abs(a - p.x) ? b : a));
+      else if (candidates.length) { const lane = candidates.filter((x) => Math.abs(x - p.x) < 1.6); if (lane.length) tx = (Math.min(...lane) + Math.max(...lane)) / 2; }
       ap.mode = "run";
+      const v = Math.max(1, d.runSpeedAt(p.s));
       if (el && el.type === "ferry") {
         const onFerry = p.groundId && p.groundId.startsWith(el.id);
         const cph = el.phaseC(T);
-        if (onFerry) { fwd = true; brake = cph < 0.97; ap.mode = "ride"; }
+        if (onFerry) { go = cph < 0.97 ? 0 : 1; ap.mode = "ride"; }
         else if (p.s < el.crossS0) {
-          const dist = el.crossS0 - p.s;
           const docked = cph < 0.015;
-          if (docked) {
-            // board: stand still in time until we are aboard
-            fwd = false; rev = false;
-          } else {
-            // bring the barge back to the near dock the shorter way
+          if (!docked) {
             const u = ((T - el.phase) % el.P + el.P) % el.P;
             const toFuture = el.P - u, toPast = u - el.dwell;
-            if (toPast > 0 && toPast < toFuture) rev = true; else fwd = true;
+            if (toPast > 0 && toPast / 1.6 < toFuture / 2.2) rew = true; else ff = true;
+            if (el.crossS0 - p.s < 2.2) go = 0;
           }
-          if (!docked && dist < 2.2) brake = true;
           ap.mode = "ferry";
         }
-      } else if (el && el.windows && el.type !== "gnomon") {
+      } else if (el && el.windows) {
         const dist = Math.max(0, el.crossS0 - p.s);
-        const need = (el.crossS1 - Math.max(p.s, el.crossS0)) / v + dist / v + 0.4;
+        const need = (el.crossS1 - Math.max(p.s, el.crossS0)) / v + dist / v + 0.3;
         const wins = el.windows(Math.max(0, T - 60), T + 60) || [];
         const inWin = wins.find((w) => T >= w[0] && T <= w[1]);
         if (inWin) {
-          if (inWin[1] - T > need + 0.8) fwd = true; // flow through
+          // time flows on its own: if the window closes before we are across, hold it open
+          if (inWin[1] - T < need) rew = true;
           ap.mode = "in-window";
         } else if (wins.length) {
           let bestW = null, bestCost = Infinity;
-          for (const w of wins) {
-            const cost = T < w[0] ? (w[0] - T) : (T - w[1]) / 1.5;
-            if (cost < bestCost) { bestCost = cost; bestW = w; }
-          }
-          if (T < bestW[0]) fwd = true; else rev = true;
-          const voidAhead = (el.type === "span" && !el.latch) || el.type === "ring";
-          if (dist < 2.4 && voidAhead) brake = true;
-          ap.mode = T < bestW[0] ? "wait-future" : "seek-past";
+          for (const w of wins) { const cost = T < w[0] ? (w[0] - T) / 2.2 : (T - w[1]) / 1.6; if (cost < bestCost) { bestCost = cost; bestW = w; } }
+          if (T < bestW[0]) ff = true; else rew = true;
+          const voidAhead = (el.type === "span" && !el.latch) || el.type === "ring" || el.type === "split" || el.type === "pillars";
+          if (dist < 2.4 && voidAhead) go = 0;
+          ap.mode = T < bestW[0] ? "hurry" : "rewind";
         }
-      } else {
-        fwd = true;
       }
-      // gnomon blades within reach: freeze them while clear, nudge them away when in the path
+      // blades: stop, and bend time whichever way clears them without sweeping one through us
       const hz = [];
       d.course.forEachElement(p.s - 2, p.s + 8, (e) => { if (e.type === "gnomon") hz.push(e); });
-      const armHits = (g, TT, xs, s0, s1, pad) => {
-        const ang = g.theta(TT);
-        for (let t = 0.2; t <= g.len; t += 0.2) {
-          const ax = g.px + Math.cos(ang) * t, as = g.ps + Math.sin(ang) * t;
-          if (Math.abs(ax - xs) < pad && as > s0 && as < s1) return true;
-        }
-        return false;
-      };
-      const near = hz.filter((g) => Math.abs(g.ps - p.s) <= g.len + 3);
-      const blockedAt = (TT) => near.some((g) => armHits(g, TT, p.x, p.s - 0.9, p.s + 2.6, 0.9));
-      const strikesAt = (TT) => near.some((g) => armHits(g, TT, p.x, p.s - 0.5, p.s + 0.5, 0.6));
+      const armHits = (g, TT, xs, s0, s1, pad) => { const ang = g.theta(TT); for (let t = 0.2; t <= g.len; t += 0.2) { const ax = g.px + Math.cos(ang) * t, as = g.ps + Math.sin(ang) * t; if (Math.abs(ax - xs) < pad && as > s0 && as < s1) return true; } return false; };
+      const near = hz.filter((g) => p.s < g.ps + g.len + 0.5 && p.s > g.ps - g.len - 4);
+      // pass a blade only when its sweep stays off our line long enough to get through
+      const overPath = (g, TT, s0, s1) => armHits(g, TT, p.x, s0, s1, 0.9);
+      if (near.length && !(el && p.s >= el.crossS0 - 1 && p.s <= el.crossS1 - 0.6 && el.type !== "gate")) { rew = false; ff = false; }
       for (const g of near) {
-        const blocking = blockedAt(T);
-        if (blocking) {
-          // stop, and turn time whichever way clears every blade without sweeping one through us
-          let choice = 0, bestD = 99;
-          const onBridge = p.groundId && p.groundId.includes(":sp");
-          for (const dir of onBridge ? [-1] : [1, -1]) {
-            for (let dd = 0.05; dd < 8; dd += 0.05) {
-              const TT = Math.max(0, T + dir * dd);
-              if (strikesAt(TT)) break;
-              if (!blockedAt(TT)) { if (dd < bestD) { bestD = dd; choice = dir; } break; }
-            }
-          }
-          fwd = choice > 0; rev = choice < 0; brake = true; ap.mode = "dodge";
+        const passTime = (g.ps + g.len + 0.6 - p.s) / v + 0.3;
+        let clear = true;
+        for (let t = 0; t <= passTime; t += 0.08) if (overPath(g, T + t, p.s - 0.6 + v * t - 1.2, p.s + v * t + 1.2)) { clear = false; break; }
+        if (!clear) {
+          const inReach = p.s > g.ps - g.len - 0.6;
+          go = inReach ? -0.7 : 0; rew = false; ff = false; ap.mode = "wait-blade";
           break;
         }
-        else if (Math.abs(g.ps - p.s) < g.len + 0.4) { fwd = false; rev = false; brake = false; ap.mode = "freeze"; }
       }
-      // falling: reverse and hope history catches us
-      if (!p.groundId && p.y < p.lastGroundY - 1.0) { rev = true; fwd = false; ap.mode = "fall"; }
-      const steer = Math.abs(tx - p.x) < 0.08 ? 0 : Math.max(-1, Math.min(1, (tx - p.x) * 2));
-      set("KeyW", fwd); set("KeyS", rev); set("Space", brake);
-      set("KeyA", steer < -0.25); set("KeyD", steer > 0.25);
-      return { fwd, rev, brake, steer };
+      if (!p.groundId && p.y < p.lastGroundY - 1.0) { rew = true; ff = false; ap.mode = "fall"; }
+      // move toward (tx, ahead) in course space, expressed in the camera's ground axes
+      let dx = Math.max(-1, Math.min(1, (tx - p.x) * 1.6)), ds = go;
+      const l = Math.hypot(dx, ds);
+      if (l > 1) { dx /= l; ds /= l; }
+      const f = d.cam.fwd, r = d.cam.right;
+      d.input.virtual = { mx: dx * r.x + ds * r.s, my: dx * f.x + ds * f.s, rew, ff };
+      return d.input.virtual;
     };
   });
 }
@@ -302,7 +269,7 @@ module.exports.rules = async ({ page }) => {
     d.startRun(4242); d.course.ensure(400); const a2 = sig();
     d.startRun(999); d.course.ensure(400); const b1 = sig();
     results.sameSeedSameCourse = a1 === a2;
-    results.introIdenticalAcrossSeeds = a1.split("|").slice(0, 6).join("|") === b1.split("|").slice(0, 6).join("|");
+    results.introIdenticalAcrossSeeds = a1.split("|").slice(0, d.INTRO.length).join("|") === b1.split("|").slice(0, d.INTRO.length).join("|");
     results.differentSeedDiffers = a1 !== b1;
     // 3. validator over many seeds: every generated encounter passes, with few retries
     let segs = 0, retries = 0, fallbacks = 0;
@@ -314,57 +281,35 @@ module.exports.rules = async ({ page }) => {
       fallbacks += d.course.log.filter((l) => l.attempt === 5).length;
     }
     results.validator = { seeds: 120, segments: segs, rejectedAttempts: retries, kinds };
-    // 4. reward accounting: collect a shard, then oscillate time across its existence
+    // 4. reward accounting on the opening bridge: its shards exist only while it stands.
+    //    Walk up, rewind while crossing (collect them), then oscillate time for a long while.
     d.startRun(77);
-    const K = d.input.keys;
-    // run down the right walk of the promenade (it holds three shards), holding time
-    let guard = 0;
-    while (d.player.s < 11 && guard++ < 6000) { K.clear(); K.add("KeyW"); if (d.player.x < 1.75) K.add("KeyD"); d.fixedStep(); }
-    while (d.run.shards === 0 && guard++ < 9000) { K.clear(); K.add("KeyW"); if (d.player.x < 1.6) K.add("KeyD"); if (d.player.x > 1.9) K.add("KeyA"); d.fixedStep(); }
-    const shardsAfterFirst = d.run.shards, bonusAfterFirst = d.run.bonus;
-    const collected = [...d.run.collected];
-    // brake and oscillate time for a long while
-    for (let k = 0; k < 6; k++) {
-      K.clear(); K.add("Space"); K.add("KeyS");
-      for (let i = 0; i < 240; i++) d.fixedStep();
-      K.clear(); K.add("Space"); K.add("KeyW");
-      for (let i = 0; i < 240; i++) d.fixedStep();
-    }
-    results.shardNoFarming = { shardsAfterFirst, shardsAfterOscillation: d.run.shards, bonusAfterFirst, bonusAfterOscillation: d.run.bonus, collected };
-    // 4b. a temporal shard: exists only in its window; collected once; reappears as "spent"
-    d.startRun(77);
-    const seg2 = d.course.segs.find((sg) => sg.kind === "intro2");
-    const tsh = seg2.shards[0];
-    const exist = [0, 2, 3.5, 3.9, 4.5, 8].map((t) => +tsh.existence(t).toFixed(2));
-    // drive to it with the bridge intact (T paused below collapse)
-    K.clear();
-    let g2 = 0;
-    const lane = () => { const want = d.player.s > 11 && d.player.s < 28.5 ? 1.75 : 0; if (d.player.x < want - 0.15) K.add("KeyD"); if (d.player.x > want + 0.15) K.add("KeyA"); };
-    // open the promenade gate (needs T >= 3.8), pass it, then reverse to before the collapse
-    while (d.player.s < 38 && g2++ < 9000) { K.clear(); K.add("KeyW"); lane(); d.fixedStep(); }
-    while (d.clock.T > 3.0 && g2++ < 12000) { K.clear(); K.add("KeyS"); K.add("Space"); d.fixedStep(); }
-    while (d.player.s < 60 && g2++ < 14000) { K.clear(); lane(); d.fixedStep(); }
-    const got = d.run.collected.has(tsh.id), shardsAt = d.run.shards;
-    for (let k = 0; k < 4; k++) {
-      K.clear(); K.add("Space"); K.add("KeyW"); for (let i = 0; i < 300; i++) d.fixedStep();
-      K.clear(); K.add("Space"); K.add("KeyS"); for (let i = 0; i < 300; i++) d.fixedStep();
-    }
-    results.temporalShard = { exist, collected: got, shardsAt, shardsAfterOscillation: d.run.shards, playerS: +d.player.s.toFixed(1), alive: d.player.alive };
-    // 5. distance accounting: frontier only
+    const V = (o) => { d.input.virtual = o; };
+    const run = (n) => { for (let i = 0; i < n; i++) { d.course.ensure(d.player.s + 120); d.fixedStep(); } };
+    const seg1 = d.course.segs.find((sg) => sg.kind === "intro1");
+    const exist = [0, 0.8, 1.2, 1.4, 3].map((t) => +seg1.shards[0].existence(t).toFixed(2));
+    V({ mx: 0, my: 1 }); run(200);
+    V({ mx: 0, my: 1, rew: true }); run(320);
+    V({ mx: 0, my: 1 }); run(40);
+    const shardsAfterCrossing = d.run.shards, bonusAfterCrossing = d.run.bonus;
+    V({ mx: 0, my: 0, rew: true }); run(1);
+    for (let k = 0; k < 6; k++) { V({ mx: 0, my: 0, rew: true }); run(240); V({ mx: 0, my: 0, ff: true }); run(240); }
+    results.temporalShards = { existence: exist, shardsAfterCrossing, shardsAfterOscillation: d.run.shards, bonusAfterCrossing, bonusAfterOscillation: d.run.bonus, playerS: +d.player.s.toFixed(1), alive: d.player.alive };
+    // 5. distance accounting: frontier only (stand still, bend time back and forth)
     const distBefore = d.run.distM;
-    K.clear(); K.add("Space");
-    for (let i = 0; i < 600; i++) d.fixedStep();
-    results.distanceStableWhileStopped = d.run.distM === distBefore;
-    // 6. beginning of history: reversing at T = 0 holds at 0 and flags it
+    for (let k = 0; k < 4; k++) { V({ mx: 0, my: 0, rew: true }); run(120); V({ mx: 0, my: 0, ff: true }); run(120); }
+    V({ mx: 0, my: -1 }); run(120);
+    results.distanceFrontierOnly = { before: distBefore, afterBendingAndWalkingBack: d.run.distM };
+    // 6. beginning of history: rewinding at T = 0 holds at 0 and flags it
     d.startRun(5);
-    K.clear(); K.add("KeyS"); K.add("Space");
-    for (let i = 0; i < 240; i++) d.fixedStep();
+    V({ mx: 0, my: 0, rew: true }); run(240);
     results.historyFloor = { T: d.clock.T, atFloor: d.clock.atFloor };
-    // 7. simultaneous input: steering and reversing at once both take effect
-    K.clear(); K.add("KeyW"); for (let i = 0; i < 360; i++) d.fixedStep();
-    const x0 = d.player.x, T0 = d.clock.T;
-    K.clear(); K.add("KeyS"); K.add("KeyA"); for (let i = 0; i < 60; i++) d.fixedStep();
-    results.steerWhileReversing = { dx: +(d.player.x - x0).toFixed(3), dT: +(d.clock.T - T0).toFixed(3), sMoved: d.player.s > 0 };
+    // 7. time flows on its own; movement is independent of time direction
+    V({ mx: 0, my: 0 }); run(120);
+    const T1 = d.clock.T;
+    V({ mx: -1, my: 0, rew: true }); const x0 = d.player.x; run(60);
+    results.flowAndIndependence = { idleFlowT: +T1.toFixed(2), sidestepWhileRewinding: +(d.player.x - x0).toFixed(2), Tafter: +d.clock.T.toFixed(2) };
+    d.input.virtual = null;
     // 8. restart resets run state
     d.startRun(5);
     results.restartReset = { score: d.run.score, shards: d.run.shards, T: d.clock.T, s: d.player.s, collected: d.run.collected.size, streak: d.run.streak };
@@ -634,4 +579,91 @@ module.exports.touchPipelineBlocked = async (c) => {
   const r = await module.exports.touchPipeline(c);
   r.diagLine = await c.page.evaluate(() => document.getElementById("rw-diag").textContent);
   return r;
+};
+module.exports.traceFerry = async ({ page }) => {
+  await installAutopilot(page);
+  return page.evaluate(() => {
+    const d = window.__rewindDebug;
+    if (window.__loop.setManual) window.__loop.setManual(true);
+    d.startRun(parseInt(new URLSearchParams(location.search).get("seed") || "2", 10));
+    const out = [];
+    for (let i = 0; i < 6000 && d.run.state === "play"; i++) {
+      d.course.ensure(d.player.s + 120);
+      const v = d.autopilot.decide();
+      d.fixedStep();
+      const p = d.player;
+      let fe = null; d.course.forEachElement(p.s - 6, p.s + 10, (e) => { if (e.type === "ferry") fe = e; });
+      if (fe && p.s > fe.crossS0 - 4 && i % 6 === 0) {
+        out.push([i, +p.s.toFixed(2), +p.x.toFixed(2), +p.y.toFixed(2), +p.vs.toFixed(2), p.groundId, d.autopilot.mode, +fe.phaseC(d.clock.T).toFixed(3), +fe.deckS(d.clock.T).toFixed(2), +d.clock.T.toFixed(2), JSON.stringify(v)]);
+      }
+      if (p.y < -3) break;
+    }
+    return out.slice(-40);
+  });
+};
+module.exports.opening = async ({ page, shot }) => {
+  const step = (n, v) => page.evaluate(([n, v]) => { const d = window.__rewindDebug; d.input.virtual = v; for (let i = 0; i < n; i++) { d.course.ensure(d.player.s + 120); d.fixedStep(); } for (let i = 0; i < 20; i++) d.render(); }, [n, v]);
+  const st = () => page.evaluate(() => { const d = window.__rewindDebug, p = d.player; return { T: +d.clock.T.toFixed(2), s: +p.s.toFixed(2), x: +p.x.toFixed(2), y: +p.y.toFixed(2), blocked: p.blocked, hint: d.hud.hint.classList.contains("show") ? d.hud.hint.textContent : null, shards: d.run.shards, score: d.run.score, toasts: [...document.querySelectorAll(".rw-toast")].map((e) => e.textContent), state: d.run.state }; });
+  await page.evaluate(() => { if (window.__loop.setManual) window.__loop.setManual(true); window.__rewindDebug.startRun(11); });
+  const out = {};
+  await step(60, { mx: 0, my: 0 }); out.t05_idle = await st(); await shot("open-1-start");
+  await step(180, { mx: 0, my: 1 }); out.t2_walked = await st(); await shot("open-2-latch");
+  await step(60, { mx: 0, my: 1, rew: true }); out.rewinding = await st(); await shot("open-3-rewinding");
+  await step(300, { mx: 0, my: 1, rew: true }); out.crossed = await st(); await shot("open-4-crossed");
+  await step(180, { mx: 0, my: 1 }); out.afterRelease = await st(); await shot("open-5-after");
+  return out;
+};
+
+// REWIND 2.0 controls with real CDP touches: left-thumb joystick + right-thumb REWIND / HURRY,
+// simultaneous, per-finger release, HUD buttons, plus keyboard. BLOCK=1 adds an overlay over the
+// play canvas, as seen on device.
+module.exports.controls2 = async ({ page, shot }) => {
+  const sleep2 = (ms) => new Promise((r) => setTimeout(r, ms));
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type, pts) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: pts.map((p) => ({ x: p.x, y: p.y, id: p.id, radiusX: 4, radiusY: 4, force: 1 })) });
+  const step = (n) => page.evaluate((n) => { const d = window.__rewindDebug; for (let i = 0; i < n; i++) { d.course.ensure(d.player.s + 120); d.fixedStep(); } d.render(); }, n);
+  const st = () => page.evaluate(() => { const d = window.__rewindDebug, p = d.player; d.input.compute(); return { state: d.run.state, n: d.input.touches.size, mx: +d.input.mx.toFixed(2), my: +d.input.my.toFixed(2), rew: d.input.rew, ff: d.input.ff, T: +d.clock.T.toFixed(3), rate: +d.clock.rate.toFixed(2), s: +p.s.toFixed(2), x: +p.x.toFixed(2) }; });
+  await page.evaluate(() => { if (window.__loop.setManual) window.__loop.setManual(true); });
+  if (process.env.BLOCK) await page.evaluate(() => { window.__rewindDebug.hud.ribbon.style.pointerEvents = "auto"; });
+  const L = await page.evaluate(() => window.__rewindDebug.hud.layout);
+  const out = {};
+  await touch("touchStart", [{ id: 1, x: 195, y: 420 }]); await touch("touchEnd", []);
+  await step(10); out.started = await st();
+  // 1. idle: time flows on its own
+  const a0 = await st(); await step(120); const a1 = await st();
+  out.timeFlowsIdle = { dT: +(a1.T - a0.T).toFixed(2), moved: +(a1.s - a0.s).toFixed(2) };
+  // 2. joystick up: move into the course
+  const jx = 90, jy = L.by + L.B / 2;
+  await touch("touchStart", [{ id: 11, x: jx, y: jy }]);
+  await touch("touchMove", [{ id: 11, x: jx, y: jy - 60 }]);
+  const b0 = await st(); await step(60); const b1 = await st();
+  out.stickUp = { mx: b1.mx, my: b1.my, ds: +(b1.s - b0.s).toFixed(2), dx: +(b1.x - b0.x).toFixed(2) };
+  // 3. add REWIND with the right thumb while still moving
+  await touch("touchStart", [{ id: 11, x: jx, y: jy - 60 }, { id: 12, x: L.revC.x, y: L.revC.y }]);
+  const c0 = await st(); await step(60); const c1 = await st();
+  out.moveAndRewind = { n: c1.n, rew: c1.rew, my: c1.my, dT: +(c1.T - c0.T).toFixed(2), ds: +(c1.s - c0.s).toFixed(2) };
+  await shot("controls2-move-rewind");
+  // 4. slide the right thumb to HURRY without lifting
+  await touch("touchMove", [{ id: 11, x: jx + 50, y: jy - 30 }, { id: 12, x: L.ffC.x, y: L.ffC.y }]);
+  const d0 = await st(); await step(60); const d1 = await st();
+  out.slideToHurry = { ff: d1.ff, rew: d1.rew, rate: d1.rate, mx: d1.mx, dT: +(d1.T - d0.T).toFixed(2), dx: +(d1.x - d0.x).toFixed(2) };
+  // 5. lift everything: time returns to normal flow, movement stops
+  await touch("touchEnd", []);
+  await step(60); out.released = await st();
+  // 6. pause and resume by touch
+  const P = await page.evaluate(() => { const r = document.getElementById("rw-pause").getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  await touch("touchStart", [{ id: 21, ...P }]); await touch("touchEnd", []);
+  const pT0 = (await st()).T; await step(60); const ps = await st();
+  out.paused = { state: ps.state, frozenT: ps.T === pT0 };
+  const R = await page.evaluate(() => { const r = document.getElementById("rw-resume").getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  await touch("touchStart", [{ id: 22, ...R }]); await touch("touchEnd", []);
+  await step(5); out.resumed = (await st()).state;
+  // 7. keyboard: W moves, Space rewinds, Shift hurries, diagonal not faster
+  await page.keyboard.down("KeyW"); const k0 = await st(); await step(60); const k1 = await st(); await page.keyboard.up("KeyW");
+  await page.keyboard.down("KeyW"); await page.keyboard.down("KeyD"); await step(2); const kd = await st(); await page.keyboard.up("KeyD"); await page.keyboard.up("KeyW");
+  await page.keyboard.down("Space"); const k2 = await st(); await step(60); const k3 = await st(); await page.keyboard.up("Space");
+  await page.keyboard.down("ShiftLeft"); const k4 = await st(); await step(60); const k5 = await st(); await page.keyboard.up("ShiftLeft");
+  out.keyboard = { W_ds: +(k1.s - k0.s).toFixed(2), diagonalMag: +Math.hypot(kd.mx, kd.my).toFixed(3), Space_dT: +(k3.T - k2.T).toFixed(2), Shift_dT: +(k5.T - k4.T).toFixed(2) };
+  out.diag = await page.evaluate(() => document.getElementById("rw-diag").textContent);
+  return out;
 };

@@ -36,7 +36,7 @@ window.plethoraBit = {
       try { ctx.platform.error({ stage: "init", message: msg.slice(0, 500) }); } catch (e) {}
       try {
         const r = ctx.createRoot({ style: "z-index:99;background:rgba(240,234,222,.94);color:#3a2a20;font:12px/1.4 monospace;padding:16px;white-space:pre-wrap;overflow:auto;" });
-        r.textContent = "REWIND could not start (build 2026-10-14 t5).\n\n" + msg.slice(0, 1200);
+        r.textContent = "REWIND could not start (REWIND 2.0 b1).\n\n" + msg.slice(0, 1200);
       } catch (e) {}
       try { ctx.platform.ready(); } catch (e) {}
     }
@@ -93,8 +93,14 @@ window.plethoraBit = {
     const BODY_H = 1.3;
     const STEP_UP = 0.55;
     const KILL_DEPTH = 19;        // fall this far below the last ground and history can no longer help
+    // The temporal current: the world always flows forward at FWD_RATE during play.
+    // Holding REWIND reverses it; holding FAST-FORWARD hurries it. Only the pause menu stops it.
     const FWD_RATE = 1.0;
-    const REV_RATE = 1.5;
+    const FF_RATE = 2.2;
+    const REV_RATE = 1.6;
+    const MOVE_ACCEL = 30;        // ground acceleration toward the stick's intended velocity
+    const MOVE_DECEL = 34;        // ground deceleration when the stick is released
+    const AIR_ACCEL = 7;
     const FIXED_HZ = 120;
     const DT = 1 / FIXED_HZ;
     const METERS_PER_UNIT = 0.8;
@@ -120,7 +126,7 @@ window.plethoraBit = {
     const settings = {
       muted: !!storage.get("muted", false),
       reducedMotion: storage.get("reducedMotion", null),
-      hintsSeen: storage.get("hintsSeen", {}) || {}
+      hintsSeen: storage.get("hintsSeen2", {}) || {}
     };
     if (settings.reducedMotion == null) settings.reducedMotion = !!(reducedMotionQuery && reducedMotionQuery.matches);
 
@@ -145,9 +151,10 @@ window.plethoraBit = {
       reset() {
         this.T = 0; this.prevT = 0; this.rate = 0; this.target = 0; this.frontier = 0; this.atFloor = false; this.dir = 0;
       },
-      step(dt, wantFwd, wantRev) {
+      // mode: "rev" | "ff" | "flow" | "stop"
+      step(dt, mode) {
         this.prevT = this.T;
-        this.target = wantRev && !wantFwd ? -REV_RATE : wantFwd && !wantRev ? FWD_RATE : 0;
+        this.target = mode === "rev" ? -REV_RATE : mode === "ff" ? FF_RATE : mode === "flow" ? FWD_RATE : 0;
         // Short spool so direction changes feel weighty but stay responsive (~70 ms).
         this.rate = damp(this.rate, this.target, 15, dt);
         if (Math.abs(this.rate - this.target) < 0.002) this.rate = this.target;
@@ -161,6 +168,7 @@ window.plethoraBit = {
         this.T = next;
         if (this.T > this.frontier) this.frontier = this.T;
         this.dir = this.rate > 0.15 ? 1 : this.rate < -0.15 ? -1 : 0;
+        this.fast = this.rate > FWD_RATE + 0.3;
       }
     };
 
@@ -640,6 +648,19 @@ window.plethoraBit = {
       }
       return out;
     }
+    // windows by sampling a predicate over [a, b]
+    function sampleWindows(ok, a, b) {
+      const out = [];
+      const t0 = Math.max(0, a), dt = 0.05;
+      let on = false, start = 0;
+      for (let t = t0; t <= b; t += dt) {
+        const v = ok(t);
+        if (v && !on) { on = true; start = t; }
+        if (!v && on) { on = false; if (t - start > 0.15) out.push([start, t]); }
+      }
+      if (on) out.push([start, b]);
+      return out;
+    }
     // periodic windows: open when ((T - phase) mod P) in [o0, o1)
     function periodicWindows(P, phase, o0, o1, a, b) {
       const out = [];
@@ -786,7 +807,7 @@ window.plethoraBit = {
         }
         if (this.latch) {
           const h = 0.95 * (1 - this.latchOpen(T));
-          if (h > 0.22) out.push({ id: this.id + ":latch", x: this.x, s: this.s0 - 0.3, hx: this.w / 2 + 0.1, hs: 0.12, top: h, bottom: -0.2, sup: false });
+          if (h > 0.22) out.push({ id: this.id + ":latch", x: this.x, s: this.s0 - 0.3, hx: this.w / 2 + 0.1, hs: 0.12, top: h, bottom: -0.2, sup: false, pushDir: -1 });
         }
       }
       render(T) {
@@ -902,11 +923,12 @@ window.plethoraBit = {
       colliders(T, out) {
         const s = this.deckS(T), r = this.rails(T);
         out.push({ id: this.id + ":deck", x: this.x, s, hx: this.w / 2, hs: this.len / 2 + 0.02, top: 0, bottom: -0.5, sup: true, carry: true });
-        if (r.f > 0.3) out.push({ id: this.id + ":rf", x: this.x, s: s + this.len / 2 - 0.15, hx: this.w / 2, hs: 0.08, top: 1.0 * r.f, bottom: -0.3, sup: false });
-        if (r.b > 0.3) out.push({ id: this.id + ":rb", x: this.x, s: s - this.len / 2 + 0.15, hx: this.w / 2, hs: 0.08, top: 1.0 * r.b, bottom: -0.3, sup: false });
+        // rails always push a rider inward, onto the deck, never off it
+        if (r.f > 0.3) out.push({ id: this.id + ":rf", x: this.x, s: s + this.len / 2 - 0.15, hx: this.w / 2, hs: 0.08, top: 1.0 * r.f, bottom: -0.3, sup: false, pushDir: -1 });
+        if (r.b > 0.3) out.push({ id: this.id + ":rb", x: this.x, s: s - this.len / 2 + 0.15, hx: this.w / 2, hs: 0.08, top: 1.0 * r.b, bottom: -0.3, sup: false, pushDir: 1 });
         if (this.dockLatch) {
           const h = 1.0 * smooth((r.c - 0.015) / 0.05);
-          if (h > 0.22) out.push({ id: this.id + ":latch", x: this.x, s: this.s0 - 0.3, hx: this.w / 2 + 0.1, hs: 0.12, top: h, bottom: -0.2, sup: false });
+          if (h > 0.22) out.push({ id: this.id + ":latch", x: this.x, s: this.s0 - 0.3, hx: this.w / 2 + 0.1, hs: 0.12, top: h, bottom: -0.2, sup: false, pushDir: -1 });
         }
       }
       render(T) {
@@ -1282,6 +1304,139 @@ window.plethoraBit = {
     }
 
     // ---------------------------------------------------------------------
+    // DIVIDING BRIDGE — a bridge that splits into two halves sliding apart sideways, then
+    // reconnects. Fully apart, neither half lines up with the walkways; riding a half carries
+    // the player sideways with it.
+    // ---------------------------------------------------------------------
+    class SplitBridge {
+      constructor(o) {
+        this.type = "split";
+        this.id = o.id;
+        this.x = o.x; this.s0 = o.s0; this.s1 = o.s1; this.w = o.w;
+        this.period = o.period; this.phase = o.phase || 0;
+        this.closedFrac = o.closedFrac || 0.36;
+        this.maxGap = this.w / 2 + 0.9;
+        this.sMin = this.s0 - 2; this.sMax = this.s1 + 2;
+        this.crossS0 = this.s0; this.crossS1 = this.s1; this.crossX = this.x;
+        const len = this.s1 - this.s0, hw = this.w / 2;
+        this.group = new THREE.Group();
+        // guide rails beneath, across the gap, showing where the halves travel
+        for (const sc of [this.s0 + 0.6, this.s1 - 0.6]) {
+          const rail = boxMesh(this.w + this.maxGap * 2 + 1.2, 0.22, 0.24, mats.patinaDark);
+          rail.position.set(this.x, -1.0, -sc);
+          this.group.add(rail);
+        }
+        this.halves = [];
+        for (const side of [-1, 1]) {
+          const g = new THREE.Group();
+          const slab = stoneBox(hw - 0.02, 0.5, len);
+          slab.position.y = -0.25;
+          const under = boxMesh(hw * 0.7, 0.7, len * 0.86, mats.side);
+          under.position.y = -0.85;
+          // interlocking teeth along the inner edge: they read as "these two belong together"
+          const teeth = new THREE.Group();
+          const n = Math.max(3, Math.round(len / 1.2));
+          for (let i = 0; i < n; i++) {
+            const t = boxMesh(0.16, 0.12, len / n * 0.5, mats.brass, { noShadow: true });
+            t.position.set(-side * (hw / 2 - 0.02), -0.03, -len / 2 + (i + (side > 0 ? 0.25 : 0.75)) * len / n);
+            teeth.add(t);
+          }
+          const edge = boxMesh(0.08, 0.1, len, mats.patina, { noShadow: true });
+          edge.position.set(side * (hw / 2 - 0.04), -0.02, 0);
+          g.add(slab, under, teeth, edge);
+          mergeRigid(g);
+          this.group.add(g);
+          this.halves.push({ side, g });
+        }
+      }
+      gap(T) {
+        const u = posMod(T - this.phase, this.period) / this.period;
+        const c = this.closedFrac, m = (1 - c) / 3;
+        if (u < c) return 0;
+        if (u < c + m) return this.maxGap * smoother((u - c) / m);
+        if (u < c + 2 * m) return this.maxGap;
+        return this.maxGap * (1 - smoother((u - c - 2 * m) / m));
+      }
+      colliders(T, out) {
+        const d = this.gap(T), hw = this.w / 2;
+        for (const h of this.halves) {
+          out.push({ id: this.id + ":" + h.side, x: this.x + h.side * (hw / 2 + d), s: (this.s0 + this.s1) / 2, hx: hw / 2, hs: (this.s1 - this.s0) / 2 + 0.02,
+            top: 0, bottom: -0.6, sup: true, carry: true });
+        }
+      }
+      render(T) {
+        const d = this.gap(T), hw = this.w / 2;
+        for (const h of this.halves) h.g.position.set(this.x + h.side * (hw / 2 + d), 0, -(this.s0 + this.s1) / 2);
+      }
+      attach(T, key) {
+        const d = this.gap(T), hw = this.w / 2;
+        return { x: this.x + key.side * (hw / 2 + d) + (key.dx || 0), y: 0.8, s: (this.s0 + this.s1) / 2 + key.s };
+      }
+      // walkable straight through while the halves still overlap the walkways comfortably
+      // the window is "joined": the seam down the middle is closed enough to walk straight over
+      windows(a, b) { return sampleWindows((t) => this.gap(t) <= 0.12, a, b); }
+      events(prevT, T, sink) {
+        if (prevT === T) return;
+        const a = this.gap(prevT) < 0.01, b = this.gap(T) < 0.01;
+        if (a !== b) sink("clunk", this.x, (this.s0 + this.s1) / 2);
+      }
+    }
+
+    // ---------------------------------------------------------------------
+    // PILLAR WAVE — a field of pillars rising and sinking as a travelling wave. Along a column
+    // neighbours never differ by more than a step, so you can always walk with the wave; getting
+    // in, getting out and changing column depend on its phase. Reversing sends the wave back.
+    // ---------------------------------------------------------------------
+    class PillarWave {
+      constructor(o) {
+        this.type = "pillars";
+        this.id = o.id;
+        this.x = o.x; this.s0 = o.s0; this.w = o.w;
+        this.rows = o.rows; this.cols = 3; this.pitch = o.pitch || 1.25;
+        this.s1 = this.s0 + this.rows * this.pitch;
+        this.A = o.A || 1.35; this.k = o.k || 0.3; this.period = o.period || 6.5; this.phase = o.phase || 0;
+        this.colPhase = o.colPhase || [0.0, 1.0, 2.0];
+        this.holes = new Set(o.holes || []);
+        this.sMin = this.s0 - 2; this.sMax = this.s1 + 2;
+        this.crossS0 = this.s0; this.crossS1 = this.s1; this.crossX = this.x;
+        this.cw = this.w / this.cols;
+        this.group = new THREE.Group();
+        const n = this.rows * this.cols;
+        this.body = new THREE.InstancedMesh(cachedGeo("pillarBody", () => new THREE.BoxGeometry(1, 1, 1)), mats.side, n);
+        this.cap = new THREE.InstancedMesh(cachedGeo("pillarCap", () => new THREE.BoxGeometry(1, 1, 1)), mats.ivory, n);
+        this.band = new THREE.InstancedMesh(cachedGeo("pillarBand", () => new THREE.BoxGeometry(1, 1, 1)), mats.patina, n);
+        for (const m of [this.body, this.cap, this.band]) { m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; this.group.add(m); }
+        this._m = new THREE.Matrix4(); this._q = new THREE.Quaternion(); this._p = new THREE.Vector3(); this._sc = new THREE.Vector3();
+      }
+      h(T, r, c) { return this.A * Math.sin((TAU * (T - this.phase)) / this.period - this.k * r + this.colPhase[c]); }
+      key(r, c) { return r * 3 + c; }
+      colliders(T, out) {
+        for (let r = 0; r < this.rows; r++) for (let c = 0; c < this.cols; c++) {
+          if (this.holes.has(this.key(r, c))) continue;
+          const top = this.h(T, r, c);
+          out.push({ id: this.id + ":" + r + ":" + c, x: this.x + (c - 1) * this.cw, s: this.s0 + (r + 0.5) * this.pitch, hx: this.cw / 2, hs: this.pitch / 2 + 0.01, top, bottom: top - 40, sup: true });
+        }
+      }
+      render(T) {
+        let i = 0;
+        for (let r = 0; r < this.rows; r++) for (let c = 0; c < this.cols; c++, i++) {
+          const hole = this.holes.has(this.key(r, c));
+          const top = hole ? -200 : this.h(T, r, c);
+          const px = this.x + (c - 1) * this.cw, pz = -(this.s0 + (r + 0.5) * this.pitch);
+          const W = this.cw * 0.94, D = this.pitch * 0.94;
+          this._p.set(px, top - 0.2 - 15, pz); this._sc.set(W * 0.92, 30, D * 0.92); this._m.compose(this._p, this._q, this._sc); this.body.setMatrixAt(i, this._m);
+          this._p.set(px, top - 0.2, pz); this._sc.set(W, 0.4, D); this._m.compose(this._p, this._q, this._sc); this.cap.setMatrixAt(i, this._m);
+          this._p.set(px, top - 0.75, pz); this._sc.set(W * 0.96, 0.14, D * 0.96); this._m.compose(this._p, this._q, this._sc); this.band.setMatrixAt(i, this._m);
+        }
+        this.body.instanceMatrix.needsUpdate = true; this.cap.instanceMatrix.needsUpdate = true; this.band.instanceMatrix.needsUpdate = true;
+      }
+      attach(T, key) { return { x: this.x + (key.c - 1) * this.cw, y: this.h(T, key.r, key.c) + 0.8, s: this.s0 + (key.r + 0.5) * this.pitch }; }
+      // centre column: in (first row no taller than a step) and out (last row no lower than a step)
+      windows(a, b) { return sampleWindows((t) => this.h(t, 0, 1) <= STEP_UP - 0.05 && this.h(t, this.rows - 1, 1) >= -STEP_UP + 0.05, a, b); }
+      events() {}
+    }
+
+    // ---------------------------------------------------------------------
     // ECHO SHARD — refracted light lodged in the architecture. Its existence follows the
     // world timeline; whether it has already been scored is a separate run achievement.
     // ---------------------------------------------------------------------
@@ -1436,96 +1591,68 @@ window.plethoraBit = {
       return b;
     }
 
-    // ---- designed opening: one mechanic at a time, taught by the world itself ----
+    // ---- designed opening: the magic within three seconds, then one idea at a time ----
     function tplStart(b) {
       const s0 = b.s0;
-      b.floor(0, s0, s0 + 18, 7.6, { parapet: "both" });
-      b.obelisk(-3.05, s0 + 3); b.obelisk(3.05, s0 + 3);
-      b.obelisk(-3.05, s0 + 12.5, 5.5); b.obelisk(3.05, s0 + 12.5, 5.5);
-      b.hint("time", s0, s0 + 30);
-      return 18;
+      b.floor(0, s0, s0 + 9, 6.4, { parapet: "both" });
+      b.obelisk(-2.6, s0 + 1.5); b.obelisk(2.6, s0 + 1.5);
+      b.hint("move", s0, s0 + 9);
+      return 9;
     }
 
-    function tplPromenade(b) {
-      const s0 = b.s0;
-      b.floor(0, s0, s0 + 8, 5.2, { parapet: "both" });
-      b.arch(s0 + 1.5, 2.6);
-      // light well splits the promenade; the right walk holds a line of shards
-      b.floor(-1.75, s0 + 8, s0 + 22, 1.7, { parapet: "left", piers: true });
-      b.floor(1.75, s0 + 8, s0 + 22, 1.7, { parapet: "right", piers: true });
-      b.add(new Gyro({ id: b.id("gy"), x: 0, s: s0 + 15, y: -1.4 }));
-      // balustrade around the light well: you are stopped and steer, never dropped in
-      b.floors.push({ id: b.id("bal"), x: 0, s: s0 + 8.2, hx: 0.9, hs: 0.2, top: 0.95, bottom: -0.2, sup: true });
-      b.boxes.push({ x: 0, top: 0.95, s0: s0 + 8.0, s1: s0 + 8.4, w: 1.8, depth: 0.95, mat: "trim" });
-      b.boxes.push({ x: 0, top: 0.95, s0: s0 + 21.6, s1: s0 + 22.0, w: 1.3, depth: 0.95, mat: "trim" });
-      b.boxes.push({ x: 0, top: 1.12, s0: s0 + 7.9, s1: s0 + 8.5, w: 2.0, depth: 0.17, mat: "brass" });
-      for (let i = 0; i < 3; i++) b.shard(1.75, s0 + 11 + i * 3.2);
-      b.floor(0, s0 + 22, s0 + 34, 5.2, { parapet: "both" });
-      b.add(new Gate({ id: b.id("gt"), x: 0, s: s0 + 31, w: 5.2 - 0.6, openAt: 3.8 }));
-      b.hint("steer", s0 + 4, s0 + 20);
-      b.hint("time", s0 + 22, s0 + 31.5);
-      return 34;
-    }
-
+    // Seconds into the run, the bridge ahead is already cracking and falls away. A latch stops
+    // the player at the edge; rewinding pulls it back together; holding REWIND while crossing
+    // keeps it whole. Its shards exist only while the bridge stands.
     function tplFirstSpan(b) {
       const s0 = b.s0;
-      b.floor(0, s0, s0 + 7, MAIN_W, { parapet: "both", noPierEnd: true });
-      b.add(new Span({ id: b.id("sp"), x: 0, s0: s0 + 7, s1: s0 + 19, w: MAIN_W, collapseAt: 3.6, collapseDir: -1, cascade: 0.12, latch: true, seed: b.seed + 3 }));
-      b.shard(0, s0 + 13, { b: 3.9 });
-      b.floor(0, s0 + 19, s0 + 25, MAIN_W, { parapet: "both", noPierStart: true });
-      b.hint("rewind", s0 + 1, s0 + 19);
-      return 25;
+      b.floor(0, s0, s0 + 2, MAIN_W, { parapet: "both", noPierEnd: true });
+      const Tc = 1.0;
+      b.add(new Span({ id: b.id("sp"), x: 0, s0: s0 + 2, s1: s0 + 12, w: MAIN_W, collapseAt: Tc, collapseDir: -1, cascade: 0.12, latch: true, seed: b.seed + 3 }));
+      for (let i = 0; i < 5; i++) b.shard(Math.sin(i * 1.3) * 0.7, s0 + 3.2 + i * 1.9, { b: Tc + 0.35 });
+      b.floor(0, s0 + 12, s0 + 17, MAIN_W, { parapet: "both", noPierStart: true });
+      b.hint("rewind", s0 - 4, s0 + 2.6);
+      b.hint("hold", s0 + 1, s0 + 11);
+      return 17;
     }
 
-    function tplFirstFerry(b) {
-      const s0 = b.s0;
-      b.floor(0, s0, s0 + 5, MAIN_W, { parapet: "both", noPierEnd: true });
-      const fe = b.add(new Ferry({ id: b.id("fe"), x: 0, s0: s0 + 5, s1: s0 + 21, w: 3.2, len: 4.6, dwell: 2.4, travel: 2.6, phase: b.tn(s0 + 5) - 1.0, dockLatch: true }));
-      b.shard(0, 0, { host: fe, key: { x: 0.8, s: 0.6 } });
-      b.floor(0, s0 + 21, s0 + 28, MAIN_W, { parapet: "both", noPierStart: true });
-      b.shard(-1.0, s0 + 24); b.shard(1.0, s0 + 26);
-      b.hint("ferry", s0, s0 + 20);
-      return 28;
-    }
-
+    // First choice: the ring is short and direct but needs its deck aligned; the dividing
+    // bridge is longer, carries shards on its halves, and asks you to cross while it is joined.
     function tplFirstChoice(b) {
-      const s0 = b.s0, PX = 3.2, PW = 2.2;
-      b.floor(0, s0, s0 + 6, PX * 2 + PW, { parapet: "both" });
-      b.arch(s0 + 1.2, PX + PW / 2);
-      // left: the great ring — short, timing-critical, rich in shards
-      b.prow(0, PX * 2 - PW, s0 + 6);
-      b.floor(-PX, s0 + 6, s0 + 10, PW, { parapet: "left", noPierEnd: true });
-      const ring = b.add(new Ring({ id: b.id("rg"), x: -PX, s0: s0 + 10, s1: s0 + 14, R: 3.4, period: 9, phase: b.tn(s0 + 10) + 0.8, deckW: PW + 0.2 }));
+      const s0 = b.s0, PX = 3.2, PW = 2.4;
+      b.floor(0, s0, s0 + 4, PX * 2 + PW, { parapet: "both" });
+      b.arch(s0 + 1.0, PX + PW / 2);
+      b.prow(0, PX * 2 - PW, s0 + 4);
+      b.floor(-PX, s0 + 4, s0 + 6, PW, { parapet: "left", noPierEnd: true });
+      const ring = b.add(new Ring({ id: b.id("rg"), x: -PX, s0: s0 + 6, s1: s0 + 10, R: 3.4, period: 7, phase: b.tn(s0 + 6) + 2.4, deckW: PW + 0.2 }));
       b.shard(0, 0, { host: ring, key: { k: 0, s: 0 } });
-      b.shard(0, 0, { host: ring, key: { k: 1, s: 0 } });
-      b.floor(-PX, s0 + 14, s0 + 20, PW, { parapet: "left", noPierStart: true });
-      b.shard(-PX, s0 + 16.5); b.shard(-PX, s0 + 18.5);
-      // right: a longer bridge that rises as time advances
-      b.floor(PX, s0 + 6, s0 + 8, PW, { parapet: "right", noPierEnd: true });
-      b.add(new Span({ id: b.id("sp"), x: PX, s0: s0 + 8, s1: s0 + 18, w: PW, assembleAt: b.tn(s0 + 8) + 0.6, assembleDir: 1, assembleStagger: 0.12, latch: true, seed: b.seed + 9 }));
-      b.floor(PX, s0 + 18, s0 + 20, PW, { parapet: "right", noPierStart: true });
-      b.floor(0, s0 + 20, s0 + 27, PX * 2 + PW, { parapet: "both" });
-      b.hint("choice", s0, s0 + 9);
-      return 27;
+      b.floor(-PX, s0 + 10, s0 + 16, PW, { parapet: "left", noPierStart: true });
+      b.floor(PX, s0 + 4, s0 + 6, PW + 0.4, { parapet: "right", noPierEnd: true });
+      const sp = b.add(new SplitBridge({ id: b.id("sb"), x: PX, s0: s0 + 6, s1: s0 + 14, w: PW + 0.4, period: 6.5, phase: b.tn(s0 + 6) - 2.2 }));
+      for (let i = 0; i < 3; i++) b.shard(0, 0, { host: sp, key: { side: i % 2 ? 1 : -1, dx: 0, s: -2.6 + i * 2.6 } });
+      b.floor(PX, s0 + 14, s0 + 16, PW + 0.4, { parapet: "right", noPierStart: true });
+      b.floor(0, s0 + 16, s0 + 21, PX * 2 + PW, { parapet: "both" });
+      b.hint("choice", s0, s0 + 5);
+      return 21;
     }
 
+    // First combination: a fallen bridge you must rewind, guarded by a blade that rewinds with
+    // it; then a stair that has not unfolded yet — the first reason to HURRY time.
     function tplFirstCombo(b) {
-      const s0 = b.s0, v = b.v;
-      b.floor(0, s0, s0 + 5, MAIN_W, { parapet: "both", noPierEnd: true });
-      // the bridge gives way behind you: keep moving, or hold time still
-      const cascade = 1.5 / (0.78 * v);
-      b.add(new Span({ id: b.id("sp"), x: 0, s0: s0 + 5, s1: s0 + 17, w: MAIN_W, collapseAt: b.tn(s0 + 5) + 0.9, collapseDir: 1, cascade, chase: true, seed: b.seed + 5 }));
-      b.shard(0, s0 + 12);
-      b.floor(0, s0 + 17, s0 + 29, MAIN_W, { parapet: "right", noPierStart: true });
-      b.add(new Gnomon({ id: b.id("gn"), px: -MAIN_W / 2 - 0.75, ps: s0 + 21.2, len: 4.0, period: 3.8, phase: b.r(0, 3.8), dir: 1, pathX: 0, pathW: MAIN_W }));
-      b.shard(0.9, s0 + 21.2);
-      b.add(new FoldStair({ id: b.id("fs"), x: 0, sWall: s0 + 29, H: 2.4, w: MAIN_W, K: 4, extendAt: b.tn(s0 + 26) + 1.6 }));
-      b.terrace(0, s0 + 29, s0 + 37, MAIN_W, 2.4);
-      b.shard(0, s0 + 33, { y: 3.2 });
-      const e = b.steps(0, s0 + 37, MAIN_W, 2.4, 0, 4);
-      b.floor(0, e, e + 6, MAIN_W, { parapet: "both" });
-      b.hint("brake", s0, s0 + 6);
-      return e + 6 - s0;
+      const s0 = b.s0;
+      b.floor(0, s0, s0 + 3, MAIN_W, { parapet: "both", noPierEnd: true });
+      const sp = b.add(new Span({ id: b.id("sp"), x: 0, s0: s0 + 3, s1: s0 + 13, w: MAIN_W, collapseAt: b.tn(s0 + 3) - 1.2, collapseDir: 1, cascade: 0.1, seed: b.seed + 5 }));
+      const w = sp.windows(0, 1e9)[0];
+      b.shard(0, s0 + 8, { a: w[0] - 0.2, b: w[1] + 0.35 });
+      b.floor(0, s0 + 13, s0 + 27, MAIN_W, { parapet: "right", noPierStart: true });
+      b.add(new Gnomon({ id: b.id("gn"), px: -MAIN_W / 2 - 0.75, ps: s0 + 19, len: 4.0, period: 4.2, phase: b.r(0, 4.2), dir: 1, pathX: 0, pathW: MAIN_W }));
+      b.shard(0.9, s0 + 19);
+      b.add(new FoldStair({ id: b.id("fs"), x: 0, sWall: s0 + 27, H: 2.4, w: MAIN_W, K: 4, extendAt: b.tn(s0 + 24) + 4.5 }));
+      b.terrace(0, s0 + 27, s0 + 33, MAIN_W, 2.4);
+      b.shard(0, s0 + 30, { y: 3.2 });
+      const e = b.steps(0, s0 + 33, MAIN_W, 2.4, 0, 4);
+      b.floor(0, e, e + 4, MAIN_W, { parapet: "both" });
+      b.hint("hurry", s0 + 21, s0 + 27);
+      return e + 4 - s0;
     }
 
     // ---- endless templates (difficulty d in 0..1) ----
@@ -1623,16 +1750,17 @@ window.plethoraBit = {
     function tplGnomons(b) {
       const s0 = b.s0, d = b.diff;
       const n = d < 0.3 ? 1 : d < 0.65 ? 2 : 3;
-      const L = 8 + n * 10;
+      const L = 8 + n * 11;
       const parapet = d < 0.3 ? "both" : null;
       b.floor(0, s0, s0 + L + 6, MAIN_W, { parapet });
       b.arch(s0 + 1.5, MAIN_W / 2);
       for (let i = 0; i < n; i++) {
         const side = i % 2 === 0 ? b.pick([-1, 1]) : -1 * (b._lastSide || 1);
         b._lastSide = side;
-        // 10 units apart with 4-unit blades: a safe pocket of stone between each sweep
-        const ps = s0 + 8 + i * 10;
-        b.add(new Gnomon({ id: b.id("gn"), px: side * (MAIN_W / 2 + 0.75), ps, len: 4.0, period: b.r(3.2, 4.6) - d * 0.8, phase: b.r(0, 4), dir: b.pick([1, -1]), pathX: 0, pathW: MAIN_W }));
+        // 11 units apart with 3.8-unit blades: a clear pocket of stone between each sweep, since
+        // a blade can no longer be frozen in place — only reversed or hurried
+        const ps = s0 + 8 + i * 11;
+        b.add(new Gnomon({ id: b.id("gn"), px: side * (MAIN_W / 2 + 0.75), ps, len: 3.8, period: b.r(3.2, 4.6) - d * 0.8, phase: b.r(0, 4), dir: b.pick([1, -1]), pathX: 0, pathW: MAIN_W }));
         b.shard(-side * 0.9, ps);
       }
       return L + 6;
@@ -1687,26 +1815,108 @@ window.plethoraBit = {
       return s + 6 - s0;
     }
 
-    const INTRO = [tplStart, tplPromenade, tplFirstSpan, tplFirstFerry, tplFirstChoice, tplFirstCombo];
+    function tplSplit(b) {
+      const s0 = b.s0, d = b.diff, W = MAIN_W;
+      b.floor(0, s0, s0 + 4, W, { noPierEnd: true });
+      const L = Math.round(b.r(8, 10 + d * 3));
+      const sp = b.add(new SplitBridge({ id: b.id("sb"), x: 0, s0: s0 + 4, s1: s0 + 4 + L, w: W, period: b.r(5.5, 7) - d, phase: b.tn(s0 + 4) + b.r(-3, 3), closedFrac: 0.38 - d * 0.1 }));
+      // shards ride the outer edges of the halves: reach them while the bridge is splitting
+      b.shard(0, 0, { host: sp, key: { side: -1, dx: -0.4, s: -L / 4 } });
+      b.shard(0, 0, { host: sp, key: { side: 1, dx: 0.4, s: L / 4 } });
+      b.floor(0, s0 + 4 + L, s0 + 9 + L, W, { noPierStart: true });
+      return 9 + L;
+    }
+
+    function tplPillars(b) {
+      const s0 = b.s0, d = b.diff;
+      b.floor(0, s0, s0 + 4, MAIN_W, { noPierEnd: true, parapet: d < 0.4 ? "both" : null });
+      b.arch(s0 + 1.2, MAIN_W / 2);
+      const rows = Math.round(b.r(7, 9 + d * 4));
+      const holes = [];
+      if (d > 0.3) for (let r = 1; r < rows - 1; r++) if (b.rnd() < 0.18 + d * 0.15) holes.push(r * 3 + (b.rnd() < 0.5 ? 0 : 2));
+      const pw = b.add(new PillarWave({ id: b.id("pw"), x: 0, s0: s0 + 4, w: MAIN_W, rows, period: b.r(5.5, 7.5) - d, phase: b.tn(s0 + 4) + b.r(-3, 3), A: 1.25 + d * 0.3, holes }));
+      for (let i = 0; i < 3; i++) b.shard(0, 0, { host: pw, key: { r: Math.floor((rows - 1) * (0.25 + i * 0.25)), c: i === 1 ? 1 : (i === 0 ? 0 : 2) } });
+      b.floor(0, pw.s1, pw.s1 + 5, MAIN_W, { noPierStart: true });
+      return pw.s1 + 5 - s0;
+    }
+
+    function tplSplitGnomon(b) {
+      const s0 = b.s0, d = b.diff, W = MAIN_W;
+      b.floor(0, s0, s0 + 4, W, { noPierEnd: true });
+      const sp = b.add(new SplitBridge({ id: b.id("sb"), x: 0, s0: s0 + 4, s1: s0 + 13, w: W, period: b.r(5.5, 6.5), phase: b.tn(s0 + 4) + b.r(-2, 2) }));
+      b.shard(0, 0, { host: sp, key: { side: 1, dx: 0.3, s: 0 } });
+      b.floor(0, s0 + 13, s0 + 27, W, { noPierStart: true });
+      b.add(new Gnomon({ id: b.id("gn"), px: b.pick([-1, 1]) * (W / 2 + 0.75), ps: s0 + 20.5, len: 4.0, period: b.r(3.4, 4.4) - d * 0.5, phase: b.r(0, 4), dir: b.pick([1, -1]), pathX: 0, pathW: W }));
+      b.shard(0, s0 + 20.5);
+      return 27;
+    }
+
+    function tplPillarsSpan(b) {
+      const s0 = b.s0, d = b.diff;
+      b.floor(0, s0, s0 + 4, MAIN_W, { noPierEnd: true });
+      const pw = b.add(new PillarWave({ id: b.id("pw"), x: 0, s0: s0 + 4, w: MAIN_W, rows: 7, period: b.r(6, 7), phase: b.tn(s0 + 4) + b.r(-2, 2), A: 1.3 }));
+      b.shard(0, 0, { host: pw, key: { r: 3, c: 1 } });
+      let s = pw.s1;
+      b.floor(0, s, s + 3, MAIN_W, { noPierStart: true, noPierEnd: true });
+      s += 3;
+      // the bridge ahead fell a moment ago: rewinding restores it, but also sends the wave back
+      const sp = b.add(new Span({ id: b.id("sp"), x: 0, s0: s, s1: s + 9, w: MAIN_W, collapseAt: b.tn(s) - b.r(0.6, 1.4), collapseDir: -1, cascade: 0.1, seed: b.seed + 8 }));
+      const w = sp.windows(0, 1e9)[0];
+      b.shard(0, s + 4.5, { a: w[0] - 0.2, b: w[1] + 0.35 });
+      b.floor(0, s + 9, s + 14, MAIN_W, { noPierStart: true });
+      void d;
+      return s + 14 - s0;
+    }
+
+    function tplRingSplit(b) {
+      const s0 = b.s0, d = b.diff;
+      b.floor(0, s0, s0 + 4, MAIN_W, { noPierEnd: true });
+      const rg = b.add(new Ring({ id: b.id("rg"), x: 0, s0: s0 + 4, s1: s0 + 8, R: 3.6, period: b.r(6, 8) - d, phase: b.tn(s0 + 4) + b.r(-3, 3), dir: b.pick([1, -1]), deckW: MAIN_W }));
+      b.shard(0, 0, { host: rg, key: { k: 1, s: 0 } });
+      b.floor(0, s0 + 8, s0 + 11, MAIN_W, { noPierStart: true, noPierEnd: true });
+      const sp = b.add(new SplitBridge({ id: b.id("sb"), x: 0, s0: s0 + 11, s1: s0 + 19, w: 3.4, period: b.r(5.5, 7), phase: b.tn(s0 + 11) + b.r(-3, 3) }));
+      b.shard(0, 0, { host: sp, key: { side: -1, dx: -0.3, s: 1 } });
+      b.floor(0, s0 + 19, s0 + 24, MAIN_W, { noPierStart: true });
+      return 24;
+    }
+
+    const INTRO = [tplStart, tplFirstSpan, tplFirstChoice, tplFirstCombo];
+    // Five regions. Each unlocks new mechanisms and favours them, then recombines the old.
+    const PHASES = [
+      { at: 0, name: "I · First Contact", tint: 0xffffff },
+      { at: 5, name: "II · Interlocking", tint: 0xd7efec },
+      { at: 11, name: "III · Verticality", tint: 0xf3d9d2 },
+      { at: 17, name: "IV · Convergence", tint: 0xd8dcf2 },
+      { at: 24, name: "V · Transformation", tint: 0xf6e3b8 }
+    ];
+    const phaseOf = (k) => { const e = Math.max(0, k - INTRO.length); let p = 0; for (let i = 0; i < PHASES.length; i++) if (e >= PHASES[i].at) p = i; return p; };
     const LIBRARY = [
-      { fn: tplSpan, minD: 0, w: 3, name: "span" },
-      { fn: tplFerry, minD: 0, w: 2, name: "ferry" },
-      { fn: tplRing, minD: 0, w: 2, name: "ring" },
-      { fn: tplGnomons, minD: 0, w: 2, name: "gnomons" },
-      { fn: tplStair, minD: 0.1, w: 2, name: "stair" },
-      { fn: tplGates, minD: 0.2, w: 2, name: "gates" },
-      { fn: tplTwinSpan, minD: 0.35, w: 2, name: "twin" },
-      { fn: tplSpanGnomon, minD: 0.4, w: 2, name: "spanGnomon" },
-      { fn: tplFerryRing, minD: 0.55, w: 1.5, name: "ferryRing" }
+      { fn: tplSpan, phase: 0, w: 3, name: "span" },
+      { fn: tplRing, phase: 0, w: 2, name: "ring" },
+      { fn: tplSplit, phase: 0, w: 2.5, name: "split" },
+      { fn: tplFerry, phase: 0, w: 2, name: "ferry" },
+      { fn: tplGnomons, phase: 1, w: 2, name: "gnomons" },
+      { fn: tplGates, phase: 1, w: 2, name: "gates" },
+      { fn: tplSpanGnomon, phase: 1, w: 2.5, name: "spanGnomon" },
+      { fn: tplSplitGnomon, phase: 1, w: 2, name: "splitGnomon" },
+      { fn: tplTwinSpan, phase: 1, w: 2, name: "twin" },
+      { fn: tplStair, phase: 2, w: 2.5, name: "stair" },
+      { fn: tplPillars, phase: 2, w: 3, name: "pillars" },
+      { fn: tplPillarsSpan, phase: 3, w: 2.5, name: "pillarsSpan" },
+      { fn: tplFerryRing, phase: 3, w: 2, name: "ferryRing" },
+      { fn: tplRingSplit, phase: 3, w: 2.5, name: "ringSplit" }
     ];
 
     function chooseTemplate(rnd, k, last) {
-      const d = clamp((k - INTRO.length) / 14, 0, 1);
-      const pool = LIBRARY.filter((t) => t.minD <= d + 1e-6 && t.name !== last);
+      const d = clamp((k - INTRO.length) / 16, 0, 1);
+      const ph = phaseOf(k);
+      const pool = LIBRARY.filter((t) => t.phase <= ph && t.name !== last);
       let total = 0;
-      for (const t of pool) total += t.w;
+      // the newest region's mechanisms appear more often while that region lasts
+      const weight = (t) => t.w * (t.phase === ph ? 2.2 : 1);
+      for (const t of pool) total += weight(t);
       let x = rnd() * total;
-      for (const t of pool) { x -= t.w; if (x <= 0) return { t, d }; }
+      for (const t of pool) { x -= weight(t); if (x <= 0) return { t, d }; }
       return { t: pool[pool.length - 1], d };
     }
 
@@ -1819,7 +2029,7 @@ window.plethoraBit = {
       segs: [],
       seed: 1,
       k: 0,
-      nextS: -12,
+      nextS: -6,
       lastTpl: "",
       rnd: mulberry32(1),
       root: new THREE.Group(),
@@ -1829,7 +2039,7 @@ window.plethoraBit = {
         this.segs = [];
         this.seed = seed >>> 0;
         this.rnd = mulberry32(this.seed ^ 0xa5a5a5);
-        this.k = 0; this.nextS = -12; this.lastTpl = ""; this.log = [];
+        this.k = 0; this.nextS = -6; this.lastTpl = ""; this.log = [];
       },
       buildNext() {
         const k = this.k;
@@ -1867,6 +2077,7 @@ window.plethoraBit = {
             seg = new Segment(b, tplGnomons(b));
           }
         }
+        seg.phase = k < INTRO.length ? 0 : phaseOf(k);
         this.segs.push(seg);
         this.root.add(seg.group);
         this.k++;
@@ -2055,7 +2266,7 @@ window.plethoraBit = {
       x: 0, y: 0, s: 0, vx: 0, vy: 0, vs: 0,
       px: 0, py: 0, ps: 0,
       groundId: null, ground: null, lastGroundY: 0, airTime: 0, maxFallSpeed: 0,
-      stumble: 0, blocked: false, started: false, alive: true,
+      stumble: 0, blocked: false, started: false, alive: true, intent: 0, atLedge: false,
       frontierS: 0, landedImpact: 0, wasFalling: false, deepFall: false,
       reset() {
         this.x = 0; this.y = 0; this.s = 0; this.vx = 0; this.vy = 0; this.vs = 0;
@@ -2125,27 +2336,60 @@ window.plethoraBit = {
       const grounded = !!p.groundId;
       if (p.stumble > 0) p.stumble -= dt;
       const ctrl = p.stumble > 0 ? 0.12 : grounded ? 1 : 0.3;
-      if (p.started && p.alive) {
-        const cruise = runSpeedAt(p.s);
-        const target = inp.brake ? 0 : cruise;
-        const acc = target < p.vs ? BRAKE_DECEL : RUN_ACCEL;
-        if (grounded || target < p.vs) p.vs = moveToward(p.vs, target, acc * dt * (grounded ? Math.max(ctrl, 0.5) : 0.4));
-        p.vx = moveToward(p.vx, inp.steer * STEER_SPEED * (inp.brake ? 0.75 : 1), 32 * dt * ctrl);
-        // a stumbling body skids to a halt quickly on stone
-        if (grounded && p.stumble > 0) p.vx = moveToward(p.vx, 0, 16 * dt);
+      // Continuous, camera-relative movement: the stick says where on the visible ground the
+      // player wants to go; velocity eases toward that intent with a little weight.
+      let mag = 0;
+      if (p.alive) {
+        const mx = inp.mx || 0, my = inp.my || 0;
+        mag = Math.min(1, Math.hypot(mx, my));
+        const spd = runSpeedAt(p.s) * mag;
+        let tx = 0, ts = 0;
+        if (mag > 0.001) {
+          const ux = (mx * cam.right.x + my * cam.fwd.x), us = (mx * cam.right.s + my * cam.fwd.s);
+          const ul = Math.hypot(ux, us) || 1;
+          let dxn = ux / ul, dsn = us / ul;
+          // gentle path assist: a push within ~20 degrees of along-the-course goes straight along it
+          if (Math.abs(dxn) < 0.34) { dxn = 0; dsn = Math.sign(dsn) || 1; }
+          tx = dxn * spd; ts = dsn * spd;
+        }
+        if (p.stumble > 0) { tx = p.vx; ts = p.vs; }
+        const rate = !grounded ? AIR_ACCEL : (mag > 0.05 ? MOVE_ACCEL : MOVE_DECEL) * (p.stumble > 0 ? 0.5 : 1);
+        // ease the velocity vector toward the target (no per-axis snapping, so turns are round)
+        const dvx = tx - p.vx, dvs = ts - p.vs, dl = Math.hypot(dvx, dvs);
+        const stepv = rate * dt;
+        if (dl <= stepv) { p.vx = tx; p.vs = ts; } else { p.vx += (dvx / dl) * stepv; p.vs += (dvs / dl) * stepv; }
+        if (grounded && p.stumble > 0) { p.vx = moveToward(p.vx, 0, 16 * dt); p.vs = moveToward(p.vs, 0, 16 * dt); }
       } else {
         p.vs = moveToward(p.vs, 0, BRAKE_DECEL * dt);
         p.vx = moveToward(p.vx, 0, 20 * dt);
       }
+      p.intent = mag;
       // 3. gravity
       p.vy = Math.max(-38, p.vy - G * dt);
-      // 4. integrate, with a lateral edge guard: you never sidestep into the void by accident
-      let nx = p.x + p.vx * dt;
-      if (grounded && p.stumble <= 0 && nx !== p.x && !supportBelow(nx + Math.sign(p.vx) * 0.05, p.s, p.y, colList) && supportBelow(p.x, p.s, p.y, colList)) {
-        nx = p.x; p.vx = 0;
+      p.atLedge = false;
+      // 4. integrate. Ledge care: stepping sideways or backwards toward a drop stops at the edge
+      // (and slides along it), so a misleading nudge never drops you. Only a committed run
+      // forward, off the end of a walkway, carries you over.
+      let nx = p.x + p.vx * dt, ns = p.s + p.vs * dt;
+      const committed = mag >= 0.88 && p.vs > Math.abs(p.vx) * 1.2;
+      if (grounded && p.stumble <= 0 && (nx !== p.x || ns !== p.s) && !committed && supportBelow(p.x, p.s, p.y, colList)) {
+        const lx = nx + Math.sign(p.vx) * 0.05, ls = ns + Math.sign(p.vs) * 0.05;
+        if (!supportBelow(lx, ls, p.y, colList)) {
+          if (supportBelow(lx, p.s, p.y, colList)) { ns = p.s; p.vs = 0; }
+          else if (supportBelow(p.x, ls, p.y, colList)) { nx = p.x; p.vx = 0; }
+          else { nx = p.x; ns = p.s; p.vx = 0; p.vs = 0; }
+          p.atLedge = true;
+        }
       }
+      // even a committed run only goes over a walkway's end, never over its side
+      if (grounded && p.stumble <= 0 && committed && nx !== p.x && supportBelow(p.x, p.s, p.y, colList) && !supportBelow(nx + Math.sign(p.vx) * 0.05, p.s, p.y, colList)) {
+        nx = p.x; p.vx = 0; p.atLedge = true;
+      }
+      // the world behind the oldest kept segment is gone: a soft wall
+      const sMinWorld = course.segs.length ? course.segs[0].s0 + 1 : -1e9;
+      if (ns < sMinWorld) { ns = sMinWorld; if (p.vs < 0) p.vs = 0; }
       p.x = nx;
-      p.s += p.vs * dt;
+      p.s = ns;
       p.y += p.vy * dt;
       // 5. barriers and walls
       p.blocked = false;
@@ -2158,8 +2402,10 @@ window.plethoraBit = {
         const d2 = dx * dx + ds * ds;
         if (d2 >= BODY_R * BODY_R) continue;
         if (c.gate || !c.sup) {
-          // thin barrier: resolve along the course, toward the side we came from
-          const from = p.ps <= c.s ? -1 : 1;
+          // thin barrier: resolve along the course toward its safe side if it has one
+          // (rails push riders onto the deck, latches push walkers back off the void),
+          // otherwise toward the side we came from
+          const from = c.pushDir || (p.ps <= c.s ? -1 : 1);
           p.s = c.s + from * (c.hs + BODY_R + 0.001);
           if (from < 0) { p.vs = Math.min(p.vs, 0); p.blocked = true; }
           continue;
@@ -2314,8 +2560,13 @@ window.plethoraBit = {
           st.squash = damp(st.squash, 0, 9, dtReal);
           st.push = damp(st.push, p.blocked && grounded ? 1 : 0, 10, dtReal);
           st.lean = damp(st.lean, clamp(0.1 * r + accel * 0.025, -0.3, 0.35) + st.push * 0.35, 8, dtReal);
-          st.roll = damp(st.roll, clamp(-p.vx * 0.07, -0.3, 0.3), 8, dtReal);
-          st.yaw = damp(st.yaw, clamp(Math.atan2(-p.vx, Math.max(1.5, p.vs)) * 0.6, -0.6, 0.6), 10, dtReal);
+          // face the direction of travel; turn the short way round, and lean into the turn
+          let turn = 0;
+          if (speed > 0.35) {
+            turn = wrapAngle(Math.atan2(-p.vx, p.vs) - st.yaw);
+            st.yaw = wrapAngle(st.yaw + turn * (1 - Math.exp(-11 * dtReal)));
+          }
+          st.roll = damp(st.roll, clamp(turn * speed * 0.09, -0.32, 0.32), 9, dtReal);
           st.idle += dtReal;
           const runAmt = grounded ? r : 0;
           for (let i = 0; i < 2; i++) {
@@ -2344,7 +2595,10 @@ window.plethoraBit = {
     // =====================================================================
     // 9. CAMERA AND ATMOSPHERE
     // =====================================================================
-    const cam = { fx: 0, fy: 0, fs: 0, shake: 0, init: false };
+    // fwd/right: the camera's ground-plane axes in course space (x, s). Movement input is
+    // mapped through these, so "up" on the stick is "into the picture".
+    const cam = { fx: 0, fy: 0, fs: 0, shake: 0, init: false, fwd: { x: 0, s: 1 }, right: { x: 1, s: 0 } };
+    const camV0 = new THREE.Vector3(), camV1 = new THREE.Vector3(), camV2 = new THREE.Vector3();
     function cameraUpdate(dtReal, rx, ry, rs) {
       const aspect = ctx.width / ctx.height;
       const portrait = clamp((1.15 - aspect) / 0.65, 0, 1); // 0 landscape .. 1 tall phone
@@ -2361,6 +2615,22 @@ window.plethoraBit = {
       camera.position.set(cam.fx + 3.3 * k, cam.fy + 10.6 * k + Math.sin(performance.now() * 0.05) * sh * 0.05, -cam.fs + 11.2 * k);
       camera.lookAt(cam.fx * 0.9, cam.fy + 0.4, -(cam.fs + lookAhead));
       camera.updateProjectionMatrix();
+      // Ground axes that look like "up" and "right" on screen at the player's position: project a
+      // step along the course and a step across it, then invert that 2x2 map.
+      camera.updateMatrixWorld();
+      const P0 = camV0.set(rx, ry, -rs).project(camera);
+      const Pf = camV1.set(rx, ry, -(rs + 1)).project(camera);
+      const Pr = camV2.set(rx + 1, ry, -rs).project(camera);
+      const Fx = Pf.x - P0.x, Fy = Pf.y - P0.y, Rx = Pr.x - P0.x, Ry = Pr.y - P0.y; // NDC: y up
+      const det = Fx * Ry - Rx * Fy;
+      if (Math.abs(det) > 1e-9) {
+        // a·F + b·R = target, with a along +s (into the course) and b along +x
+        const ua = -Rx / det, ub = Fx / det;      // target (0, 1): screen up
+        const ra = Ry / det, rb = -Fy / det;      // target (1, 0): screen right
+        const ul = Math.hypot(ua, ub) || 1, rl = Math.hypot(ra, rb) || 1;
+        cam.fwd.s = ua / ul; cam.fwd.x = ub / ul;
+        cam.right.s = ra / rl; cam.right.x = rb / rl;
+      }
     }
 
     const palettes = {
@@ -2448,6 +2718,16 @@ window.plethoraBit = {
     })();
     scene.add(motes);
 
+    // The beacon: a far column of light standing over the way ahead. It tells you where the
+    // journey goes, never how to get there.
+    const beacon = new THREE.Group();
+    const beamMat = new THREE.SpriteMaterial({ map: tex.glow, color: 0xffe2b0, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+    const beam = new THREE.Sprite(beamMat); beam.scale.set(5, 120, 1); beam.position.y = 20;
+    const crown = new THREE.Sprite(beamMat.clone()); crown.scale.set(26, 26, 1); crown.position.y = 34; crown.material.opacity = 0.5;
+    beacon.add(beam, crown);
+    scene.add(beacon);
+    ctx.onDestroy(() => { beamMat.dispose(); crown.material.dispose(); });
+
     // mist banks in the abyss
     function makeMistTexture() {
       const S = 256, c = makeCanvas(S, S), g = c.getContext("2d");
@@ -2479,7 +2759,7 @@ window.plethoraBit = {
       ctx.onDestroy(() => { m.geometry.dispose(); m.material.dispose(); t.dispose(); });
     }
 
-    const atmo = { dirS: 1, color: new THREE.Color() };
+    const atmo = { dirS: 1, color: new THREE.Color(), tint: new THREE.Color(0xffffff), tintNow: new THREE.Color(0xffffff) };
     function atmosphereUpdate(dtReal, T, fx, fs) {
       atmo.dirS = damp(atmo.dirS, clock.dir, 3.5, dtReal);
       const d = atmo.dirS;
@@ -2488,6 +2768,10 @@ window.plethoraBit = {
       skyUniforms.cHor.value.copy(a.hor).lerp(b.hor, t);
       skyUniforms.cBot.value.copy(a.bot).lerp(b.bot, t);
       skyUniforms.sunCol.value.copy(a.sun).lerp(b.sun, t);
+      // region tint: each region of the journey lights the world a little differently
+      atmo.tintNow.lerp(atmo.tint, 1 - Math.exp(-0.6 * dtReal));
+      skyUniforms.cHor.value.multiply(atmo.tintNow);
+      skyUniforms.cTop.value.multiply(atmo.tintNow);
       scene.fog.color.copy(skyUniforms.cHor.value);
       hemi.color.copy(a.hemiS).lerp(b.hemiS, t);
       hemi.groundColor.copy(a.hemiG).lerp(b.hemiG, t);
@@ -2503,6 +2787,8 @@ window.plethoraBit = {
         mi.m.position.x = fx; mi.m.position.z = -fs - 40;
         mi.t.offset.set(fx / 320 * mi.scale + T * 0.004, (fs + 40) / 320 * mi.scale + T * 0.002);
       }
+      beacon.position.set(0, cam.fy, -(fs + 135));
+      beam.material.color.copy(d < 0 ? palettes.rev.mote : palettes.fwd.mote);
       sun.position.set(fx - 12, cam.fy + 17, -fs - 11);
       sun.target.position.set(fx, cam.fy, -fs - 5);
     }
@@ -2657,34 +2943,46 @@ window.plethoraBit = {
     // Esc/P pause, M mute. Touch: left side steers (drag) and brakes (pull down); right side
     // holds the time controls. Each finger owns one role; lifting one never releases another.
     // =====================================================================
+    // Movement and time are separate inputs. Movement: an analog vector (mx right, my into
+    // the picture), from WASD/arrows or a floating left-thumb stick. Time: REWIND and
+    // FAST-FORWARD holds (Space / Shift, or the right-thumb buttons). Releasing both = normal flow.
+    const STICK_R = 56;
     const input = {
       keys: new Set(),
-      touches: new Map(),  // pointerId -> { role, ox, oy, x, y }
-      steer: 0, brake: false, fwd: false, rev: false,
+      touches: new Map(),  // pointerId -> { role: "move"|"time", ox, oy, x, y, zone }
+      mx: 0, my: 0, rew: false, ff: false, steer: 0,
+      virtual: null,       // test hook: { mx, my, rew, ff }
       usedTouch: coarsePointer,
-      clearAll() { this.keys.clear(); this.touches.clear(); this.steer = 0; this.brake = false; this.fwd = false; this.rev = false; },
+      clearAll() { this.keys.clear(); this.touches.clear(); this.mx = 0; this.my = 0; this.rew = false; this.ff = false; this.steer = 0; },
       compute() {
-        let steer = 0, brake = false, fwd = false, rev = false;
+        let mx = 0, my = 0, rew = false, ff = false;
         const k = this.keys;
-        if (k.has("ArrowLeft") || k.has("KeyA")) steer -= 1;
-        if (k.has("ArrowRight") || k.has("KeyD")) steer += 1;
-        if (k.has("Space") || k.has("ShiftLeft") || k.has("ShiftRight")) brake = true;
-        if (k.has("ArrowUp") || k.has("KeyW")) fwd = true;
-        if (k.has("ArrowDown") || k.has("KeyS")) rev = true;
+        if (k.has("ArrowLeft") || k.has("KeyA")) mx -= 1;
+        if (k.has("ArrowRight") || k.has("KeyD")) mx += 1;
+        if (k.has("ArrowUp") || k.has("KeyW")) my += 1;
+        if (k.has("ArrowDown") || k.has("KeyS")) my -= 1;
+        const kl = Math.hypot(mx, my);
+        if (kl > 1) { mx /= kl; my /= kl; } // diagonals are not faster
+        if (k.has("Space") || k.has("KeyK")) rew = true;
+        if (k.has("ShiftLeft") || k.has("ShiftRight") || k.has("KeyL")) ff = true;
         for (const t of this.touches.values()) {
-          if (t.role === "steer") {
-            const dx = t.x - t.ox, dy = t.y - t.oy;
-            const s = clamp(dx / 42, -1, 1);
-            steer += Math.abs(s) < 0.12 ? 0 : s;
-            if (dy > 34) brake = true;
+          if (t.role === "move") {
+            let dx = (t.x - t.ox) / STICK_R, dy = -(t.y - t.oy) / STICK_R;
+            let m = Math.hypot(dx, dy);
+            if (m > 0.12) {
+              const curved = Math.pow(Math.min(1, (m - 0.12) / 0.88), 1.2);
+              mx = (dx / m) * curved; my = (dy / m) * curved;
+            }
           } else if (t.role === "time") {
-            if (t.zone === "rev") rev = true; else fwd = true;
+            if (t.zone === "rev") rew = true; else ff = true;
           }
         }
-        this.steer = clamp(steer, -1, 1); this.brake = brake; this.fwd = fwd; this.rev = rev;
+        const v = this.virtual;
+        if (v) { mx = v.mx || 0; my = v.my || 0; rew = !!v.rew; ff = !!v.ff; }
+        this.mx = mx; this.my = my; this.rew = rew; this.ff = ff && !rew; this.steer = mx;
       }
     };
-    const GAME_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "KeyA", "KeyD", "KeyW", "KeyS", "Space", "ShiftLeft", "ShiftRight"]);
+    const GAME_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "KeyA", "KeyD", "KeyW", "KeyS", "Space", "ShiftLeft", "ShiftRight", "KeyK", "KeyL"]);
     function isTypingTarget(e) {
       const t = e.target;
       return t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
@@ -2721,13 +3019,15 @@ window.plethoraBit = {
       ".rw-tb svg{width:42%;height:42%}.rw-tb.down{background:rgba(255,242,214,.85);border-color:rgba(190,130,50,.7);transform:scale(.94)}" +
       ".rw-tb.rev.down{background:rgba(220,246,247,.9);border-color:rgba(60,150,160,.75)}" +
       ".rw-tb small{position:absolute;bottom:-18px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(40,55,60,.65)}" +
-      ".rw-stick{position:absolute;width:84px;height:84px;margin:-42px 0 0 -42px;border-radius:50%;border:1.5px solid rgba(47,61,66,.25);background:rgba(250,246,238,.22);display:none}" +
-      ".rw-stick i{position:absolute;left:50%;top:50%;width:30px;height:30px;margin:-15px;border-radius:50%;background:rgba(250,246,238,.85);box-shadow:0 2px 8px rgba(0,0,0,.12)}" +
+      ".rw-stick{position:absolute;width:112px;height:112px;margin:-56px 0 0 -56px;border-radius:50%;border:1.5px solid rgba(47,61,66,.28);background:radial-gradient(circle,rgba(250,246,238,.08),rgba(250,246,238,.3));display:none}" +
+      ".rw-stick i{position:absolute;left:50%;top:50%;width:40px;height:40px;margin:-20px;border-radius:50%;background:rgba(250,246,238,.9);border:1.5px solid rgba(190,110,70,.55);box-shadow:0 2px 8px rgba(0,0,0,.12)}" +
+      ".rw-rest{position:absolute;width:96px;height:96px;margin:-48px 0 0 -48px;border-radius:50%;border:1.5px dashed rgba(47,61,66,.22);display:flex;align-items:center;justify-content:center;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(40,55,60,.5)}" +
       ".rw-padhint{position:absolute;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(40,55,60,.55);text-align:center}" +
       ".rw-screen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;pointer-events:none;opacity:0;transition:opacity .5s}" +
       ".rw-screen.show{opacity:1}" +
       ".rw-screen.show.click{pointer-events:auto}" +
       ".rw-veil{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 45%,rgba(248,243,233,.62),rgba(236,229,216,.86) 75%)}" +
+      "#rw-title .rw-veil{background:radial-gradient(ellipse at 50% 40%,rgba(248,243,233,.55),rgba(236,229,216,.1) 72%)}" +
       ".rw-title{position:relative;font-family:" + FONT_TITLE + ";font-weight:300;font-size:min(17vw,84px);letter-spacing:.32em;margin-right:-.32em;color:#22323a}" +
       ".rw-tag{position:relative;font-family:" + FONT_TITLE + ";font-style:italic;font-weight:300;font-size:19px;color:#4a5b60;margin-top:6px;padding:0 24px;line-height:1.35}" +
       ".rw-cta{position:relative;margin-top:30px;font-size:12px;letter-spacing:.28em;text-transform:uppercase;color:#1f6f73;animation:rwp 2.2s ease-in-out infinite}" +
@@ -2748,7 +3048,7 @@ window.plethoraBit = {
       "</style>" +
       '<div class="rw">' +
       '<div class="rw-vignette" id="rw-vig"></div>' +
-      '<div id="rw-diag" style="position:absolute;left:8px;top:2px;font:9px/1 monospace;color:rgba(40,55,60,.55);pointer-events:none;z-index:5">build 2026-10-14 t5</div>' +
+      '<div id="rw-diag" style="position:absolute;left:8px;top:2px;font:9px/1 monospace;color:rgba(40,55,60,.55);pointer-events:none;z-index:5">REWIND 2.0 b1</div>' +
       '<div class="rw-top" id="rw-top">' +
       '<div><div class="rw-score" id="rw-score">0</div><div class="rw-sub"><span id="rw-dist">0 m</span><span class="rw-mult" id="rw-mult"></span><span class="rw-pips" id="rw-pips"></span></div></div>' +
       '<div class="rw-btns"><button class="rw-btn" id="rw-mute" aria-label="Sound"></button><button class="rw-btn" id="rw-pause" aria-label="Pause"><svg viewBox="0 0 10 10"><rect x="1.5" y="1" width="2.4" height="8" fill="currentColor"/><rect x="6.1" y="1" width="2.4" height="8" fill="currentColor"/></svg></button></div>' +
@@ -2756,14 +3056,14 @@ window.plethoraBit = {
       '<div class="rw-hint" id="rw-hint"></div>' +
       '<div class="rw-toasts" id="rw-toasts"></div>' +
       '<div class="rw-touch" id="rw-touch">' +
-      '<div class="rw-tb rev" id="rw-trev"><svg viewBox="0 0 20 20"><path d="M10 4 L2 10 L10 16 Z M18 4 L10 10 L18 16 Z" fill="#2f5f63"/></svg><small>reverse</small></div>' +
-      '<div class="rw-tb fwd" id="rw-tfwd"><svg viewBox="0 0 20 20"><path d="M5 3 L17 10 L5 17 Z" fill="#8a5a22"/></svg><small>advance</small></div>' +
+      '<div class="rw-tb rev" id="rw-trev"><svg viewBox="0 0 20 20"><path d="M10 4 L2 10 L10 16 Z M18 4 L10 10 L18 16 Z" fill="#2f5f63"/></svg><small>rewind</small></div>' +
+      '<div class="rw-tb fwd" id="rw-tfwd"><svg viewBox="0 0 20 20"><path d="M2 4 L10 10 L2 16 Z M10 4 L18 10 L10 16 Z" fill="#8a5a22"/></svg><small>hurry</small></div>' +
+      '<div class="rw-rest" id="rw-padhint">move</div>' +
       '<div class="rw-stick" id="rw-stick"><i id="rw-knob"></i></div>' +
-      '<div class="rw-padhint" id="rw-padhint">drag to steer<br>pull down to brake</div>' +
       "</div>" +
       '<div class="rw-screen" id="rw-title"><div class="rw-veil"></div>' +
       '<div class="rw-title">REWIND</div>' +
-      '<div class="rw-tag">The world moves through time.<br>You move through the world.</div>' +
+      '<div class="rw-tag">Time never stops.<br>Bend it to make a way.</div>' +
       '<div class="rw-cta" id="rw-cta">Tap to begin</div>' +
       '<div class="rw-legend" id="rw-legend"></div>' +
       '<div class="rw-best" id="rw-tbest"></div>' +
@@ -2809,9 +3109,9 @@ window.plethoraBit = {
 
     function legendHTML() {
       if (input.usedTouch) {
-        return "<b>Right thumb</b><span>hold ▶ advance · ◀◀ reverse time</span><b>Left thumb</b><span>drag to steer · pull down to brake</span>";
+        return "<b>Left thumb</b><span>drag to move</span><b>Right thumb</b><span>hold ◀◀ to rewind · ▶▶ to hurry</span><b>Time</b><span>always flows unless you bend it</span>";
       }
-      return "<b>W / ↑</b><span>advance time</span><b>S / ↓</b><span>reverse time</span><b>A D / ← →</b><span>steer</span><b>Space</b><span>brake</span>";
+      return "<b>WASD / arrows</b><span>move</span><b>Space</b><span>hold to rewind time</span><b>Shift</b><span>hold to hurry time</span>";
     }
 
     function layoutHUD() {
@@ -2822,13 +3122,16 @@ window.plethoraBit = {
       const ribbonTop = narrow ? 78 : 14;
       hud.hint.style.top = (narrow ? 126 : 66) + "px";
       hud.toasts.style.top = (narrow ? 172 : 112) + "px";
-      const B = Math.round(clamp(W * 0.2, 64, 88));
-      const by = H - sb - 30 - B;
-      const fx = W - 16 - B, rx = fx - B - 14;
-      Object.assign(hud.tfwd.style, { left: fx + "px", top: by + "px", width: B + "px", height: B + "px" });
+      // right thumb: a large REWIND button, a smaller HURRY (fast-forward) button beside it
+      const B = Math.round(clamp(W * 0.23, 74, 96)), Bf = Math.round(B * 0.72);
+      const by = H - sb - 34 - B;
+      const rx = W - 16 - B;
+      const fx = rx - Bf - 12, fy = by + (B - Bf) * 0.15 - 6;
       Object.assign(hud.trev.style, { left: rx + "px", top: by + "px", width: B + "px", height: B + "px" });
-      Object.assign(hud.padhint.style, { left: "16px", top: (by + B / 2 - 12) + "px", width: Math.round(W * 0.36) + "px" });
-      hud.layout = { W, H, B, by, fx, rx, rw, rh, dpr, ribbonX: Math.round((W - rw) / 2), ribbonTop, splitX: W * 0.5, revFwdMid: rx + B + 7 };
+      Object.assign(hud.tfwd.style, { left: fx + "px", top: fy + "px", width: Bf + "px", height: Bf + "px" });
+      Object.assign(hud.padhint.style, { left: "78px", top: (by + B / 2) + "px" });
+      hud.layout = { W, H, B, Bf, by, fx, fy, rx, rw, rh, dpr, ribbonX: Math.round((W - rw) / 2), ribbonTop, splitX: W * 0.48,
+        revC: { x: rx + B / 2, y: by + B / 2 }, ffC: { x: fx + Bf / 2, y: fy + Bf / 2 } };
     }
 
     function toast(text, pts) {
@@ -2841,19 +3144,18 @@ window.plethoraBit = {
     }
 
     const HINTS = {
-      time: () => input.usedTouch ? "Hold <b>▶</b> to let time flow" : "Hold <b>W</b> or <b>↑</b> to let time flow",
-      steer: () => input.usedTouch ? "Drag on the <b>left</b> to steer" : "<b>A D</b> or <b>← →</b> to steer",
-      rewind: () => input.usedTouch ? "Hold <b>◀◀</b> to reverse time" : "Hold <b>S</b> or <b>↓</b> to reverse time",
-      ferry: () => "Time moves the barge. <b>You</b> ride it.",
-      choice: () => "Two routes. The ring holds more light.",
-      brake: () => input.usedTouch ? "Pull <b>down</b> on the left to brake" : "Hold <b>Space</b> to brake",
-      fall: () => input.usedTouch ? "Falling? Hold <b>◀◀</b> — history may catch you" : "Falling? Hold <b>S</b> — history may catch you"
+      move: () => input.usedTouch ? "Drag on the <b>left</b> to move" : "<b>WASD</b> or <b>arrows</b> to move",
+      rewind: () => input.usedTouch ? "Hold <b>◀◀</b> to rewind the bridge" : "Hold <b>Space</b> to rewind the bridge",
+      hold: () => "Keep holding — cross while it is whole",
+      choice: () => "Two routes: the ring is quicker, the split bridge richer",
+      hurry: () => input.usedTouch ? "Hold <b>▶▶</b> to hurry time" : "Hold <b>Shift</b> to hurry time",
+      fall: () => input.usedTouch ? "Falling? Hold <b>◀◀</b> — history may catch you" : "Falling? Hold <b>Space</b> — history may catch you"
     };
     const hintState = { key: null, shownAt: 0, progress: {} };
     function markHintDone(key) {
       if (settings.hintsSeen[key]) return;
       settings.hintsSeen[key] = true;
-      storage.set("hintsSeen", settings.hintsSeen);
+      storage.set("hintsSeen2", settings.hintsSeen);
     }
     function showHint(key) {
       if (hintState.key === key) return;
@@ -2919,7 +3221,7 @@ window.plethoraBit = {
       g.font = "600 10px " + FONT_UI;
       g.textAlign = "center";
       g.fillStyle = "rgba(40,55,60,0.75)";
-      const label = clock.atFloor ? "BEGINNING OF HISTORY" : d > 0 ? "TIME ▶" : d < 0 ? "◀◀ REVERSING" : "STILL";
+      const label = clock.atFloor ? "BEGINNING OF HISTORY" : d < 0 ? "◀◀ REWINDING" : clock.fast ? "TIME ▶▶" : d > 0 ? "TIME ▶" : "PAUSED";
       g.fillText(label, cx, h - 3);
       if (inWin) { g.fillStyle = "rgba(47,138,142,0.9)"; g.fillRect(cx - 14, 26, 28, 2); }
       g.restore();
@@ -2960,8 +3262,8 @@ window.plethoraBit = {
     const run = {
       state: "title", time: 0, frame: 0, seed: 1, attempt: 0,
       bonus: 0, shards: 0, collected: new Set(), given: new Set(), crossing: new Map(),
-      streak: 0, chain: 0, chainAt: -9, leftId: null, leftAt: -9, stateAt: 0, newBest: false, deathAt: 0,
-      revTime: 0, steerTime: 0, brakeTime: 0, lastTick: 0,
+      streak: 0, chain: 0, chainAt: -9, crossings: 0, leftId: null, leftAt: -9, stateAt: 0, newBest: false, deathAt: 0,
+      revTime: 0, steerTime: 0, ffTime: 0, lastTick: 0,
       get mult() { return 1 + 0.25 * Math.min(this.streak, 8); },
       get distM() { return Math.floor(player.frontierS * METERS_PER_UNIT); },
       get score() { return this.distM * 10 + this.bonus; }
@@ -2984,7 +3286,7 @@ window.plethoraBit = {
       clock.reset();
       player.reset();
       run.time = 0; run.bonus = 0; run.shards = 0; run.collected.clear(); run.given.clear(); run.crossing.clear();
-      run.streak = 0; run.chain = 0; run.newBest = false; run.leftId = null; run.passedBest = false;
+      run.streak = 0; run.chain = 0; run.newBest = false; run.leftId = null; run.passedBest = false; run.crossings = 0; run.phase = -1;
       course.ensure(130); scenery.ensure(220);
       prevCols.clear(); curCols.clear();
       cam.init = false;
@@ -3053,15 +3355,17 @@ window.plethoraBit = {
     }
 
     // ---- per-step game logic ----
-    const idleInput = { steer: 0, brake: false, fwd: false, rev: false };
+    const idleInput = { mx: 0, my: 0, rew: false, ff: false, steer: 0 };
     function fixedStep() {
       run.time += DT;
       if (run.state === "paused") return; // the whole simulation holds: world and player
       input.compute();
       const playing = run.state === "play";
       const inp = playing ? input : idleInput;
-      if (playing && !player.started && (run.time - run.stateAt > 0.7 || inp.fwd || inp.rev || inp.steer !== 0)) player.started = true;
-      clock.step(DT, playing && inp.fwd, playing && inp.rev);
+      if (playing && !player.started && (inp.rew || inp.ff || Math.hypot(inp.mx, inp.my) > 0.1)) player.started = true;
+      // The temporal current never stops in play: flow, or the player's rewind / fast-forward.
+      // The title screen lets the world flow too, so it is visibly alive behind the menu.
+      clock.step(DT, playing ? (inp.rew ? "rev" : inp.ff ? "ff" : "flow") : (run.state === "title" || run.state === "dying" || run.state === "results") ? "flow" : "stop");
       if (playing && clock.atFloor && !run.floorBuzz) { run.floorBuzz = true; audio.floor(); haptic("light"); }
       if (!clock.atFloor) run.floorBuzz = false;
       gatherColliders(clock.T);
@@ -3069,13 +3373,13 @@ window.plethoraBit = {
       if (run.state !== "title") playerStep(DT, inp);
       if (player.groundId !== prevGround && prevGround) { run.leftId = prevGround; run.leftAt = run.time; }
       if (playing) {
-        if (inp.rev) run.revTime += DT;
-        if (inp.steer !== 0) run.steerTime += DT;
-        if (inp.brake) run.brakeTime += DT;
+        if (inp.rew) run.revTime += DT;
+        if (inp.ff) run.ffTime += DT;
+        if (Math.hypot(inp.mx, inp.my) > 0.2) run.steerTime += DT;
       }
       // world-time ticks
       const tk = Math.floor(clock.T * 2);
-      if (tk !== run.lastTick) { if (playing) audio.tick(clock.T > clock.prevT); run.lastTick = tk; }
+      if (tk !== run.lastTick) { if (playing && (clock.dir < 0 || clock.fast)) audio.tick(clock.T > clock.prevT); run.lastTick = tk; }
       // element events near the player (sound)
       if (clock.T !== clock.prevT) {
         course.forEachElement(player.s - 12, player.s + 34, (el) => {
@@ -3141,29 +3445,49 @@ window.plethoraBit = {
       }
     }
 
+    // Outcome rewards. Each timed structure is judged once, when the player steps off its far
+    // end: was it closed when they approached, and did they open it by bending time?
+    //   Perfect reversal  — shut on approach, crossed by rewinding (250)
+    //   Ahead of time     — not yet open on approach, crossed by hurrying (180)
+    //   Clean crossing    — crossed without falling (60)
+    // Holding a button earns nothing by itself.
     function crossingBonuses() {
       const p = player;
-      course.forEachElement(p.s - 3, p.s + 3, (el) => {
-        if (el.crossS0 == null || el.type === "gate" || el.type === "gyro") return;
-        if (run.given.has(el.id + ":flow")) return;
-        if (Math.abs(p.x - el.crossX) > 2.6) return;
+      course.forEachElement(p.s - 3, p.s + 8, (el) => {
+        if (el.crossS0 == null || !el.windows || el.type === "gate" || el.type === "gyro") return;
+        if (run.given.has(el.id + ":x")) return;
+        if (Math.abs(p.x - el.crossX) > 2.8) return;
         let c = run.crossing.get(el.id);
-        if (p.s >= el.crossS0 && p.s <= el.crossS1) {
-          if (!c) { c = { paused: false, rev: 0, t: 0, fell: false }; run.crossing.set(el.id, c); }
-          c.t += DT;
-          if (clock.dir === 0) c.paused = true;
-          if (clock.dir < 0) c.rev += DT;
-          if (p.deepFall) c.fell = true;
-        } else if (c && p.s > el.crossS1 && p.groundId) {
+        if (!c && p.s >= el.crossS0 - 7 && p.s <= el.crossS1) {
+          const open = (el.windows(clock.T - 0.01, clock.T + 0.01) || []).length > 0;
+          c = { closedOnApproach: !open && p.s < el.crossS0, rev: 0, ff: 0, fell: false, onIt: false };
+          run.crossing.set(el.id, c);
+        }
+        if (!c) return;
+        // "shut on approach": at any moment before stepping on, the way was closed
+        if (p.s < el.crossS0 && !c.closedOnApproach && (el.windows(clock.T - 0.01, clock.T + 0.01) || []).length === 0) c.closedOnApproach = true;
+        if (clock.dir < 0) c.rev += DT;
+        if (clock.fast) c.ff += DT;
+        if (p.deepFall) c.fell = true;
+        if (p.s >= el.crossS0 && p.s <= el.crossS1) c.onIt = true;
+        if (p.s > el.crossS1 + 0.2 && p.groundId) {
           run.crossing.delete(el.id);
-          if (!c.paused && !c.fell && c.t > 0.35) {
-            run.given.add(el.id + ":flow");
-            if (c.rev > c.t * 0.5) award(null, "Against the current", 200);
-            else award(null, "In motion", 150);
-            audio.bonus();
-          } else run.given.add(el.id + ":flow");
+          run.given.add(el.id + ":x");
+          if (!c.onIt || c.fell) return;
+          if (c.closedOnApproach && c.rev > 0.2) { award(null, "Perfect reversal", 250); audio.bonus(); ripple(0x9feef2); haptic("success"); }
+          else if (c.closedOnApproach && c.ff > 0.2) { award(null, "Ahead of time", 180); audio.bonus(); ripple(0xffd18a); }
+          else award(null, "Clean crossing", 60);
+          run.crossings++;
         }
       });
+    }
+    function ripple(color) {
+      const ring = new THREE.Mesh(cachedGeo("rippleRing", () => new THREE.RingGeometry(0.5, 0.62, 48)), new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(player.x, player.y + 0.05, -player.s);
+      ring.userData.ownMat = true;
+      scene.add(ring);
+      sparkles.push({ m: ring, ring: true, flat: true, life: 0.7, age: 0 });
     }
 
     function segmentProgress() {
@@ -3180,6 +3504,13 @@ window.plethoraBit = {
         }
       }
       if (scoreTrack) scoreTrack.set(run.score);
+      // entering a new region: a banner, and the light of the world shifts
+      const here = course.segAt(p.s);
+      if (here && here.phase > run.phase) {
+        if (run.phase >= 0 || here.phase > 0) { toast(PHASES[here.phase].name, 0); audio.best(); }
+        run.phase = here.phase;
+        atmo.tint.setHex(PHASES[here.phase].tint);
+      }
       if (!run.passedBest && best.dist > 20 && run.distM > best.dist) {
         run.passedBest = true;
         toast("Beyond your furthest", 0);
@@ -3189,32 +3520,36 @@ window.plethoraBit = {
 
     function updateHints() {
       const p = player;
-      const sg = course.segAt(p.s);
-      // completion conditions
-      if (clock.T > 0.6) markHintDone("time");
-      if (run.steerTime > 0.35) markHintDone("steer");
-      if (run.revTime > 0.5) markHintDone("rewind");
-      if (run.brakeTime > 0.4) markHintDone("brake");
+      if (run.steerTime > 0.35) markHintDone("move");
+      if (run.revTime > 0.5 && hintState.key === "rewind") markHintDone("rewind");
+      if (run.ffTime > 0.5) markHintDone("hurry");
       if (p.groundId && hintState.key === "fall" && run.time - hintState.shownAt > 1.5) markHintDone("fall");
+      if (hintState.key === "choice" && run.time - hintState.shownAt > 4.5) markHintDone("choice");
+      if (hintState.key === "hold" && clock.dir >= 0 && run.time - hintState.shownAt > 0.6) showHint(null);
       if (hintState.key && settings.hintsSeen[hintState.key]) showHint(null);
-      if (hintState.key === "ferry" || hintState.key === "choice") {
-        if (run.time - hintState.shownAt > 4.5) { markHintDone(hintState.key); showHint(null); }
-      }
       if (hintState.key === "fall" && !p.deepFall && run.time - hintState.shownAt > 2.5) showHint(null);
       if (hintState.key) return;
-      if (!sg) return;
-      for (const h of sg.hints) {
-        if (settings.hintsSeen[h.key]) continue;
-        if (p.s < h.sa || p.s > h.sb) continue;
-        if (h.key === "time" && (run.time - run.stateAt < 1.2 || clock.T > 0.6)) continue;
-        if (h.key === "rewind") {
-          // only once the bridge ahead has actually fallen
-          let fallen = false;
-          for (const el of sg.elements) if (el.type === "span" && clock.T > el.winEnd) fallen = true;
-          if (!fallen) continue;
+      for (const sg of course.segs) {
+        if (sg.s1 < p.s - 20 || sg.s0 > p.s + 20) continue;
+        for (const h of sg.hints) {
+          if (settings.hintsSeen[h.key]) continue;
+          if (p.s < h.sa || p.s > h.sb) continue;
+          if (h.key === "hold" && p.s > h.sb - 0.5) { markHintDone("hold"); continue; }
+          if (h.key === "move" && run.time - run.stateAt < 0.8) continue;
+          if (h.key === "rewind" || h.key === "hold") {
+            const span = sg.elements.find((el) => el.type === "span");
+            if (!span) continue;
+            const open = span.windows(clock.T - 0.01, clock.T + 0.01).length > 0;
+            if (h.key === "rewind" && open) continue;            // only once the bridge has fallen
+            if (h.key === "hold" && !(open && clock.dir < 0)) continue; // while rewinding it back
+          }
+          if (h.key === "hurry") {
+            const st = sg.elements.find((el) => el.type === "stair");
+            if (!st || st.windows(clock.T - 0.01, clock.T + 0.01).length > 0) continue;
+          }
+          showHint(h.key);
+          return;
         }
-        showHint(h.key);
-        break;
       }
     }
 
@@ -3243,9 +3578,9 @@ window.plethoraBit = {
         sp.life -= dt;
         if (sp.ring) {
           sp.age += dt;
-          sp.m.scale.setScalar(1 + sp.age * 5);
-          sp.m.material.opacity = Math.max(0, sp.life / 0.45);
-          sp.m.lookAt(camera.position);
+          sp.m.scale.setScalar(1 + sp.age * (sp.flat ? 9 : 5));
+          sp.m.material.opacity = Math.max(0, sp.life / (sp.flat ? 0.7 : 0.45));
+          if (!sp.flat) sp.m.lookAt(camera.position);
         } else {
           sp.vy -= 6 * dt;
           sp.m.position.x += sp.vx * dt; sp.m.position.y += sp.vy * dt; sp.m.position.z += sp.vz * dt;
@@ -3282,22 +3617,30 @@ window.plethoraBit = {
     ctx.listen(window, "blur", () => { input.clearAll(); if (run.state === "play") togglePause(true); });
     ctx.listen(document, "visibilitychange", () => { if (document.hidden) { input.clearAll(); if (run.state === "play") togglePause(true); } });
 
-    function timeZone(x) { return x < hud.layout.revFwdMid ? "rev" : "fwd"; }
+    // a right-thumb touch belongs to whichever time button is nearer (forgiving, and a thumb can
+    // slide from one to the other without lifting)
+    function timeZone(x, y) {
+      const L = hud.layout;
+      const dr = Math.hypot(x - L.revC.x, y - L.revC.y) / (L.B / 2), df = Math.hypot(x - L.ffC.x, y - L.ffC.y) / (L.Bf / 2);
+      return df < dr ? "ff" : "rev";
+    }
     function refreshTouchVisuals() {
       let rev = false, fwd = false, stick = null;
       for (const t of input.touches.values()) {
         if (t.role === "time") { if (t.zone === "rev") rev = true; else fwd = true; }
-        if (t.role === "steer") stick = t;
+        if (t.role === "move") stick = t;
       }
       hud.trev.classList.toggle("down", rev);
-      hud.tfwd.classList.toggle("down", fwd);
+      hud.tfwd.classList.toggle("down", fwd && !rev);
       if (stick) {
         hud.stick.style.display = "block";
         hud.stick.style.left = stick.ox + "px"; hud.stick.style.top = stick.oy + "px";
-        const dx = clamp(stick.x - stick.ox, -42, 42), dy = clamp(stick.y - stick.oy, -10, 42);
+        let dx = stick.x - stick.ox, dy = stick.y - stick.oy;
+        const m = Math.hypot(dx, dy);
+        if (m > STICK_R) { dx *= STICK_R / m; dy *= STICK_R / m; }
         hud.knob.style.transform = "translate(" + dx + "px," + dy + "px)";
         hud.padhint.style.opacity = "0";
-      } else hud.stick.style.display = "none";
+      } else { hud.stick.style.display = "none"; hud.padhint.style.opacity = "1"; }
     }
     // Touch routing. On device, the play canvas itself received no touches (diagnostics showed
     // taps reaching the bit but 0 reaching the canvas: a surface above it takes them). So all
@@ -3311,7 +3654,7 @@ window.plethoraBit = {
     const diag = { bit: 0, canvas: 0, play: 0, target: "", err: "" };
     function refreshDiag() {
       const el = hudRoot.querySelector("#rw-diag");
-      if (el) el.textContent = "build 2026-10-14 t5 · taps " + diag.bit + "/" + diag.canvas + "/" + diag.play + (diag.target ? " · on " + diag.target : "") + (diag.err ? " · ERR " + diag.err : "");
+      if (el) el.textContent = "REWIND 2.0 b1 · taps " + diag.bit + "/" + diag.canvas + "/" + diag.play + (diag.target ? " · on " + diag.target : "") + (diag.err ? " · ERR " + diag.err : "");
     }
     function reportError(where, e) {
       if (diag.err) return;
@@ -3348,8 +3691,8 @@ window.plethoraBit = {
       if (run.state !== "play") { anyStart(); if (run.state !== "play") return; }
       audio.resume();
       const q = localXY(e);
-      const role = q.x < hud.layout.splitX ? "steer" : "time";
-      input.touches.set(e.pointerId, { role, ox: q.x, oy: q.y, x: q.x, y: q.y, zone: role === "time" ? timeZone(q.x) : null });
+      const role = q.x < hud.layout.splitX ? "move" : "time";
+      input.touches.set(e.pointerId, { role, ox: q.x, oy: q.y, x: q.x, y: q.y, zone: role === "time" ? timeZone(q.x, q.y) : null });
       diag.play++; refreshDiag();
       if (input.usedTouch) hud.touch.classList.add("on");
       refreshTouchVisuals();
@@ -3360,7 +3703,7 @@ window.plethoraBit = {
       if (!t) return;
       const q = localXY(e);
       t.x = q.x; t.y = q.y;
-      if (t.role === "time") t.zone = timeZone(q.x);
+      if (t.role === "time") t.zone = timeZone(q.x, q.y);
       refreshTouchVisuals();
     }, true);
     const endTouch = (e) => {
@@ -3420,8 +3763,9 @@ window.plethoraBit = {
       scenery.render(Tr);
       dustMaterial.uniforms.uT.value = Tr;
       // character
-      const accel = (p.vs - prevVs) / Math.max(dtReal, 1e-3);
-      prevVs = p.vs;
+      const spNow = Math.hypot(p.vx, p.vs);
+      const accel = (spNow - prevVs) / Math.max(dtReal, 1e-3);
+      prevVs = spNow;
       rig.root.position.set(rx, ry, -rs);
       rig.root.scale.setScalar(1.12);
       rig.update(dtReal, p, clamp(accel, -20, 20), (r) => { if (run.state === "play") audio.step(r); });
@@ -3472,7 +3816,7 @@ window.plethoraBit = {
     // ---- debug hooks (local harness only; ctx.debugHooks is undefined in Plethora) ----
     if (ctx.debugHooks) {
       Object.assign(ctx.debugHooks, {
-        THREE, scene, camera, renderer, clock, player, course, run, input, settings, loop, hud,
+        THREE, scene, camera, renderer, clock, player, course, run, input, settings, loop, hud, cam,
         startRun, fixedStep, setState, validateSegment, makeBuilder, LIBRARY, INTRO, runSpeedAt,
         colliders(T, sa, sb) { return course.colliders(T, sa, sb, []); },
         stepN(n) { for (let i = 0; i < n; i++) fixedStep(); renderFrame(1, DT); },

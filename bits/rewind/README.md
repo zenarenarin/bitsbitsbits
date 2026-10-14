@@ -7,19 +7,22 @@ Plethora Bit (`plethora-bit@2`, three.js 0.164.1). The world's history is yours 
 forward and back; your own body is not. You keep steering while bridges fall upward into
 place, ferries return along their tracks and great rings turn back into alignment.
 
-## Controls
+## Controls (REWIND 2.0)
+
+Time **always flows** during play. You bend it; only the pause menu stops it.
 
 | | Keyboard | Touch |
 |---|---|---|
-| Advance time | hold **W** / **↑** | hold **▶** (right thumb) |
-| Reverse time | hold **S** / **↓** | hold **◀◀** (slide between the two without lifting) |
-| Release both | time stands still | lift the right thumb |
-| Steer | **A D** / **← →** | drag on the left half |
-| Brake | **Space** / **Shift** | pull down on the left half |
+| Move (camera-relative, analog) | **WASD** / **arrows** (diagonals normalised) | drag anywhere on the left half: a floating stick |
+| Rewind time | hold **Space** (or **K**) | hold **◀◀** (large, bottom right) |
+| Hurry time | hold **Shift** (or **L**) | hold **▶▶** (beside it; slide between the two) |
 | Pause | **Esc** / **P** | ❚❚ button |
 | Mute | **M** | speaker button |
 
-The runner moves forward on their own; braking is the only speed control.
+Movement and time are independent: you can walk, stop, back up and turn while time runs
+forward, backward or fast. Sideways and backward steps stop at ledges; only a committed run
+straight off the end of a walkway carries you over. A push within ~20° of the course goes
+straight along it (gentle path assist).
 
 ## Run it locally
 
@@ -94,11 +97,24 @@ Everything is in `main.js`, in numbered sections:
 
 ### Scoring
 
-- 10 points per metre of forward frontier.
-- Echo Shard: 100, plus 20 per shard in a quick chain.
-- *In motion* (150) / *Against the current* (200): cross a timed structure without ever
-  stopping time.
-- *Knife-edge* (120): leave a bridge block just before it falls.
-- *Caught by history* (200): be caught by a structure you rewound into place mid-fall.
-- Encounter cleared without a fall: 50, and the streak multiplier grows by +0.25 (up to ×3).
-  A fall you recover from halves the streak.
+- 10 points per metre of forward frontier (walking back or bending time never adds distance).
+- Echo Shards: 100, +20 per shard in a quick chain. Some exist only while their structure stands.
+- **Perfect reversal** (250): a crossing that was shut when you approached, crossed by rewinding.
+- **Ahead of time** (180): a crossing not yet open when you approached, crossed by hurrying.
+- **Clean crossing** (60), *Knife-edge* (120), *Caught by history* (200).
+- Each encounter cleared without a fall: 50, and the streak multiplier rises by +0.25 (up to ×3).
+  Every bonus is keyed to a stable id and pays once per run, however often time oscillates.
+
+### REWIND 2.0 structure
+
+- **Opening:** three steps from spawn, the first bridge is already cracking and falls. A latch
+  holds you; hold rewind and it reassembles; keep holding while you cross (time pins at the
+  beginning of history) and collect the shard trail that exists only while the bridge stands.
+  Then a fork (orrery ring vs dividing bridge), then a fallen bridge guarded by a blade that
+  rewinds with it, and a stair that has not unfolded yet: the first reason to hurry time.
+- **Mechanisms:** voussoir bridges (collapse/assemble), ferries, orrery rings, folding stairs,
+  escapement gates, sundial blades, **dividing bridges** (halves slide apart and rejoin) and
+  **pillar waves** (a travelling wave of rising/sinking pillars).
+- **Regions:** I First Contact, II Interlocking, III Verticality, IV Convergence,
+  V Transformation. Each unlocks mechanisms, favours its new ones, then recombines old ones;
+  the light shifts per region and a banner marks the change. A distant beacon marks the way.
