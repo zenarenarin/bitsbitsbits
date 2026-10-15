@@ -18,7 +18,7 @@ window.plethoraBit = {
     const DEFAULT_SETTINGS = {
       difficulty: "medium", laps: 3, racingLine: true, steering: "motion",
       sensitivity: 1, deadzone: 0.03, invertTilt: false, sound: true, volume: 0.8,
-      brakeAssist: "auto", tc: "medium", ttLaps: 3, ghost: true,
+      brakeAssist: "auto", tc: "medium", ghost: true,
       circuit: "aurora", vibration: true, view: 0, quality: "high", grid: 8, livery: 0, screenSide: "left", ver: 4
     };
     const settings = Object.assign({}, DEFAULT_SETTINGS);
@@ -41,7 +41,6 @@ window.plethoraBit = {
     if (settings.view !== 0 && settings.view !== 1) settings.view = 0;
     if (!["off", "medium", "full", "auto"].includes(settings.brakeAssist)) settings.brakeAssist = "medium";
     if (settings.screenSide !== "left" && settings.screenSide !== "right") settings.screenSide = "left";
-    if (![1, 3, 5, 10].includes(settings.ttLaps)) settings.ttLaps = 3;
     if (!["off", "medium", "full"].includes(settings.tc)) settings.tc = "medium";
     settings.ver = 4;
     let raceMode = "race", raceLaps = settings.laps;   // "race" against the AI grid, or "tt" (time trial, solo with ghost)
@@ -1739,11 +1738,11 @@ window.plethoraBit = {
       if (ghost.vis && ghost.visTeam === settings.livery) return ghost.vis;
       if (ghost.vis) scene.remove(ghost.vis.group);
       const v = buildCar(settings.livery, false);
+      if (!ghost.mat) ghost.mat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xb8c0cc, roughness: 0.4, transparent: true, opacity: 0.45, depthWrite: false });
       v.group.traverse(o => {
         if (!o.isMesh) return;
-        o.material = o.material.clone();
-        o.material.transparent = true; o.material.opacity = 0.32; o.material.depthWrite = false;
-        o.castShadow = false; o.renderOrder = 3;
+        o.material = ghost.mat;
+        o.castShadow = false; o.receiveShadow = false; o.renderOrder = 3;
       });
       v.helmet.visible = true;
       scene.add(v.group);
@@ -1775,7 +1774,7 @@ window.plethoraBit = {
       return lerp(p[lo * 5], p[hi * 5], d1 > d0 ? (d - d0) / (d1 - d0) : 0);
     }
     function updateGhost() {
-      const show = raceMode === "tt" && settings.ghost && ghost.data && player && !player.finished && (state === "racing" || state === "countdown");
+      const show = settings.ghost && ghost.data && player && !player.finished && (state === "racing" || state === "countdown");
       if (!show) { if (ghost.vis) ghost.vis.group.visible = false; return; }
       const v = ghostVisual();
       const p = ghost.data.p, n = p.length / 5;
@@ -2790,8 +2789,7 @@ window.plethoraBit = {
         ["Laps", "laps", [[3, "3"], [5, "5"], [10, "10"]]],
         ["Grid size", "grid", [[6, "6"], [8, "8"], [10, "10"]]],
         ["Racing line", "racingLine", [[true, "On"], [false, "Off"]]],
-        ["Time trial laps", "ttLaps", [[1, "1"], [3, "3"], [5, "5"], [10, "10"]]],
-        ["Ghost car (time trial)", "ghost", [[true, "On"], [false, "Off"]]],
+        ["Ghost car (best lap)", "ghost", [[true, "On"], [false, "Off"]]],
         ["Controls", "steering", [["motion", "Tilt steering"], ["touch", "Button steering"]]],
         ["Tilt sensitivity", "sensitivity", [[0.7, "Low"], [1, "Mid"], [1.4, "High"]]],
         ["Tilt dead zone", "deadzone", [[0.015, "Small"], [0.03, "Mid"], [0.07, "Large"]]],
@@ -2861,9 +2859,8 @@ window.plethoraBit = {
         const seg = (key, opts) => opts.map(([v, t]) => `<button data-k="${key}" data-v="${v}" class="${settings[key] === v ? "sel" : ""}">${t}</button>`).join("");
         modalBody.innerHTML = `
           <div style="font-size:1.6em;letter-spacing:.08em">TIME TRIAL</div>
-          <div class="fr-ui" style="font-size:.75em;opacity:.7;margin:.1em 0 .5em">${circuit.name} · solo against the clock${ghost.data ? ` · ghost ${fmtTime(ghost.data.t)}` : " · your best lap becomes your ghost"}</div>
+          <div class="fr-ui" style="font-size:.75em;opacity:.7;margin:.1em 0 .5em">${circuit.name} · one lap, solo against the clock${ghost.data ? ` · ghost ${fmtTime(ghost.data.t)}` : " · your best lap becomes your ghost"}</div>
           <div class="fr-ui">
-            <div class="fr-row"><div style="font-size:.8em">Laps</div><div class="fr-seg">${seg("ttLaps", [[1, "1"], [3, "3"], [5, "5"], [10, "10"]])}</div></div>
             <div class="fr-row"><div style="font-size:.8em">Ghost car</div><div class="fr-seg">${seg("ghost", [[true, "On"], [false, "Off"]])}</div></div>
           </div>
           <div style="display:flex;gap:.6em;margin-top:.6em">
@@ -3044,7 +3041,7 @@ window.plethoraBit = {
     }
     function startRaceFlow(isRestart, mode) {
       if (mode) raceMode = mode;
-      raceLaps = raceMode === "tt" ? settings.ttLaps : settings.laps;
+      raceLaps = raceMode === "tt" ? 1 : settings.laps;   // a time trial is one lap
       attempt++;
       requestLandscape();
       audio.init(); audio.resume(); audio.setVolume();
@@ -3053,7 +3050,8 @@ window.plethoraBit = {
       if (settings.steering === "motion") startMotion(); else motionActive = false;
       setupRace();
       ghost.rec = []; ghost.recT = 0; wrongDist = 0; wrongLast = null;
-      if (raceMode === "tt") { loadGhost(); fetchWorldBest(); }
+      loadGhost();
+      if (raceMode === "tt") fetchWorldBest();
       if (showcase) showcase.group.visible = false;
       paused = false; closeModal();
       setState(isRestart ? "countdown" : "preRace");
@@ -3082,7 +3080,7 @@ window.plethoraBit = {
       if (s === "preRace") {
         preRaceT = 0;
         const t = TEAMS[settings.livery];
-        $(".fr-pre-title", preRace).textContent = raceMode === "tt" ? `TIME TRIAL · ${raceLaps} LAP${raceLaps > 1 ? "S" : ""}` : `${raceLaps} LAP${raceLaps > 1 ? "S" : ""} · START P${player.gridPos}/${cars.length}`;
+        $(".fr-pre-title", preRace).textContent = raceMode === "tt" ? "TIME TRIAL · ONE LAP" : `${raceLaps} LAP${raceLaps > 1 ? "S" : ""} · START P${player.gridPos}/${cars.length}`;
         const steerTxt = effectiveSteering() === "motion" ? "Tilt to steer" : "◀ ▶ to steer";
         $(".fr-pre-sub", preRace).innerHTML = `${t.name} #${t.num} · ${raceMode === "tt" ? (ghost.data ? "GHOST " + fmtTime(ghost.data.t) : "SET A LAP TO RACE YOUR GHOST") : settings.difficulty.toUpperCase()}<br>${steerTxt} · hold GAS to go · BRAKE before corners`;
       }
@@ -3727,7 +3725,7 @@ window.plethoraBit = {
       lapListKey = key;
       let best = null;
       for (const l of laps) if (l.valid && (best == null || l.t < best)) best = l.t;
-      let html = `<div class="fr-lb-row" style="opacity:.7;letter-spacing:.08em">TIME TRIAL · ${raceLaps} LAP${raceLaps > 1 ? "S" : ""}</div>`;
+      let html = `<div class="fr-lb-row" style="opacity:.7;letter-spacing:.08em">TIME TRIAL</div>`;
       laps.forEach((l, i) => {
         const col = !l.valid ? "#ffcf2e" : l.t === best ? "#b26bff" : "#fff";
         html += `<div class="fr-lb-row"><span style="width:2.2em;opacity:.7">L${i + 1}</span><span style="margin-left:auto;color:${col}">${fmtTime(l.t)}${l.valid ? "" : " ✕"}</span></div>`;
