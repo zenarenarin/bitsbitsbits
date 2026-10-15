@@ -16,17 +16,19 @@ window.plethoraBit = {
     // Settings
     // =====================================================================
     const DEFAULT_SETTINGS = {
-      difficulty: "medium", laps: 3, racingLine: true, steering: "touch",
+      difficulty: "medium", laps: 3, racingLine: true, steering: "motion",
       sensitivity: 1, deadzone: 0.03, invertTilt: false, sound: true, volume: 0.8,
-      brakeAssist: "medium", circuit: "aurora", vibration: true, view: 0, quality: "high", grid: 8, livery: 0, screenSide: "left", ver: 3
+      brakeAssist: "auto", tc: "medium", ttLaps: 3, ghost: true,
+      circuit: "aurora", vibration: true, view: 0, quality: "high", grid: 8, livery: 0, screenSide: "left", ver: 4
     };
     const settings = Object.assign({}, DEFAULT_SETTINGS);
     let bestLapStored = null;
     try {
       const saved = ctx.storage.get("settings");
       if (saved && typeof saved === "object") {
-        // older saves predate button steering as the default and the retuned tilt; keep everything else
-        if (saved.ver !== 3) { delete saved.steering; delete saved.sensitivity; delete saved.deadzone; }
+        // older saves predate the current defaults (tilt steering, Auto brake assist, Medium) and the retuned tilt
+        if (saved.ver !== 4) { delete saved.steering; delete saved.brakeAssist; delete saved.difficulty; }
+        if (saved.ver !== 3 && saved.ver !== 4) { delete saved.sensitivity; delete saved.deadzone; }
         for (const k of Object.keys(DEFAULT_SETTINGS)) {
           if (saved[k] !== undefined && typeof saved[k] === typeof DEFAULT_SETTINGS[k]) settings[k] = saved[k];
         }
@@ -39,7 +41,10 @@ window.plethoraBit = {
     if (settings.view !== 0 && settings.view !== 1) settings.view = 0;
     if (!["off", "medium", "full", "auto"].includes(settings.brakeAssist)) settings.brakeAssist = "medium";
     if (settings.screenSide !== "left" && settings.screenSide !== "right") settings.screenSide = "left";
-    settings.ver = 3;
+    if (![1, 3, 5, 10].includes(settings.ttLaps)) settings.ttLaps = 3;
+    if (!["off", "medium", "full"].includes(settings.tc)) settings.tc = "medium";
+    settings.ver = 4;
+    let raceMode = "race", raceLaps = settings.laps;   // "race" against the AI grid, or "tt" (time trial, solo with ghost)
     function saveSettings() {
       try { ctx.storage.set("settings", settings); } catch (e) { /* ignore */ }
     }
@@ -1718,6 +1723,89 @@ window.plethoraBit = {
     }
     const projTmp = { idx: 0, s: 0, d: 0 };
 
+    // ---- time-trial ghost: the personal best lap on this circuit, replayed as a translucent car ----
+    // Samples every GHOST_MS of lap time: [t ms, x dm, z dm, heading mrad, lap distance m].
+    const GHOST_MS = 100;
+    const ghost = { data: null, vis: null, visTeam: -1, rec: [], recT: 0, world: null };
+    function ghostKey() { return "ghost_" + circuit.id; }
+    function loadGhost() {
+      ghost.data = null;
+      try {
+        const g = ctx.storage.get(ghostKey());
+        if (g && typeof g.t === "number" && isFinite(g.t) && Array.isArray(g.p) && g.p.length >= 50 && g.p.length % 5 === 0) ghost.data = g;
+      } catch (e) { /* storage optional */ }
+    }
+    function ghostVisual() {
+      if (ghost.vis && ghost.visTeam === settings.livery) return ghost.vis;
+      if (ghost.vis) scene.remove(ghost.vis.group);
+      const v = buildCar(settings.livery, false);
+      v.group.traverse(o => {
+        if (!o.isMesh) return;
+        o.material = o.material.clone();
+        o.material.transparent = true; o.material.opacity = 0.32; o.material.depthWrite = false;
+        o.castShadow = false; o.renderOrder = 3;
+      });
+      v.helmet.visible = true;
+      scene.add(v.group);
+      ghost.vis = v; ghost.visTeam = settings.livery;
+      return v;
+    }
+    function recordGhostSample(car) {
+      const t = raceTime - car.lapStart;
+      if (t < ghost.recT) return;
+      const d = car.progress - Math.max(0, car.lapsDone) * TLEN;
+      ghost.rec.push(Math.round(t), Math.round(car.x * 10), Math.round(car.z * 10), Math.round(car.h * 1000), Math.round(d * 10) / 10);
+      ghost.recT = t + GHOST_MS;
+    }
+    function ghostLapDone(lt, valid) {
+      if (valid && ghost.rec.length >= 50 && (!ghost.data || lt < ghost.data.t)) {
+        ghost.data = { t: Math.round(lt), p: ghost.rec, team: settings.livery };
+        try { ctx.storage.set(ghostKey(), ghost.data); } catch (e) { /* storage optional */ }
+      }
+      ghost.rec = []; ghost.recT = 0;
+    }
+    // ghost time at a given lap distance (for the live delta)
+    function ghostTimeAt(d) {
+      const p = ghost.data.p, n = p.length / 5;
+      let lo = 0, hi = n - 1;
+      if (d <= p[4]) return p[0];
+      if (d >= p[(n - 1) * 5 + 4]) return p[(n - 1) * 5];
+      while (hi - lo > 1) { const m = (lo + hi) >> 1; if (p[m * 5 + 4] < d) lo = m; else hi = m; }
+      const d0 = p[lo * 5 + 4], d1 = p[hi * 5 + 4];
+      return lerp(p[lo * 5], p[hi * 5], d1 > d0 ? (d - d0) / (d1 - d0) : 0);
+    }
+    function updateGhost() {
+      const show = raceMode === "tt" && settings.ghost && ghost.data && player && !player.finished && (state === "racing" || state === "countdown");
+      if (!show) { if (ghost.vis) ghost.vis.group.visible = false; return; }
+      const v = ghostVisual();
+      const p = ghost.data.p, n = p.length / 5;
+      const t = state === "countdown" ? 0 : raceTime - player.lapStart;
+      if (t > p[(n - 1) * 5]) { v.group.visible = false; return; }
+      let i = clamp(Math.floor(t / GHOST_MS), 0, n - 2);
+      while (i > 0 && p[i * 5] > t) i--;
+      while (i < n - 2 && p[(i + 1) * 5] < t) i++;
+      const t0 = p[i * 5], t1 = p[(i + 1) * 5], f = t1 > t0 ? clamp((t - t0) / (t1 - t0), 0, 1) : 0;
+      const a = i * 5, b = a + 5;
+      const x = lerp(p[a + 1], p[b + 1], f) / 10, z = lerp(p[a + 2], p[b + 2], f) / 10;
+      const h0 = p[a + 3] / 1000, h = h0 + wrapAngle(p[b + 3] / 1000 - h0) * f;
+      const y = track.bridge ? sampleAt(lerp(p[a + 4], p[b + 4], f)).y : 0;
+      v.group.visible = true;
+      v.group.position.set(x, y, z);
+      v.group.rotation.set(0, h, 0, "YXZ");
+    }
+    loadGhost();
+    function fetchWorldBest() {
+      ghost.world = null;
+      try {
+        const r = ctx.memory && ctx.memory.record && ctx.memory.record("best_lap").leaderboard({ scope: "global", period: "all_time", dimensions: { circuit: circuit.record }, limit: 1 });
+        if (r && r.then) r.then(lb => {
+          const row = lb && lb.rows && lb.rows[0];
+          const v = row && (typeof row.value === "number" ? row.value : typeof row.score === "number" ? row.score : null);
+          if (v != null && isFinite(v) && v > 0) ghost.world = v;
+        }).catch(() => {});
+      } catch (e) { /* leaderboard optional */ }
+    }
+
     function placeCarAt(car, s, d) {
       const p = sampleAt(s);
       car.x = p.x + p.rx * d; car.z = p.z + p.rz * d;
@@ -1774,6 +1862,13 @@ window.plethoraBit = {
       if (ctrl.throttle > 0) {
         const fmax = P.power * boostMul / Math.max(Math.abs(u), 6);
         Fdrive = ctrl.throttle * Math.min(fmax, mu * Nr * 0.85);
+        // traction control: keep enough rear grip in reserve for cornering, and cut power when the rear slides
+        const tc = ctrl.tc || 0;
+        if (tc) {
+          const k = Math.max(0.3, lerp(0.8, 0.3, clamp((Math.abs(u) - 12) / 30, 0, 1)));
+          Fdrive = Math.min(Fdrive, (tc === 2 ? 0.55 : 0.75) * mu * Nr / k);
+          if (car.slipR > (tc === 2 ? 0.08 : 0.12)) Fdrive *= tc === 2 ? 0.4 : 0.65;
+        }
       }
       let Fbrake = 0, reverse = 0;
       if (ctrl.brake > 0) {
@@ -1786,6 +1881,11 @@ window.plethoraBit = {
       }
       let brakeF = Fbrake * 0.7, brakeR = Fbrake * 0.3;
       const assist = ctrl.brakeAssist || 0;   // 0 off, 1 medium, 2 full (player only)
+      if (ctrl.abs && !assist && Fbrake > 0) {
+        // basic ABS for the player at every assist level: the wheels never lock solid, a little steering always remains
+        const maxF = 0.92 * mu * Nf, maxR = 0.8 * mu * Nr;
+        if (brakeF > maxF || brakeR > maxR) { brakeF = Math.min(brakeF, maxF); brakeR = Math.min(brakeR, maxR); Fbrake = brakeF + brakeR; }
+      }
       if (assist && Fbrake > 0) {
         // ABS-style assist: keep each axle below its lock point so part of its grip stays available
         // for steering (more when the player is turning); spill any front excess to the rear if it has room.
@@ -1806,7 +1906,7 @@ window.plethoraBit = {
       const rearLong = Math.max(0, Fdrive) * lerp(0.8, 0.3, clamp((Math.abs(u) - 12) / 30, 0, 1)) + brakeR;
       const capR = Math.sqrt(Math.max(0, (mu * Nr) ** 2 - rearLong * rearLong)) * (ctrl.rearAssist || 1);
       // brake assist keeps the car's balance on the understeer side while braking (no snap spins)
-      const capFa = assist && Fbrake > 0 ? Math.min(capF, capR * (P.b / P.a) * (assist === 2 ? 0.9 : 1.0)) : capF;
+      const capFa = (assist || ctrl.abs) && Fbrake > 0 ? Math.min(capF, capR * (P.b / P.a) * (assist === 2 ? 0.9 : 1.0)) : capF;
       let Fyf = pacejka(aF, capFa);
       let Fyr = pacejka(aR, capR);
       car.slipF = Math.abs(aF); car.slipR = Math.abs(aR);
@@ -1826,12 +1926,12 @@ window.plethoraBit = {
       car.vz += (axb * fz + ayb * rz) * dt;
       car.wr += (torque / P.iz) * dt;
       // brake assist: calm oversteer while braking (yaw beyond what the steering asks for)
-      if (assist && Fbrake > 0 && speed > 8) {
+      if ((assist || ctrl.abs) && Fbrake > 0 && speed > 8) {
         // target = requested yaw rate, limited to what the tyres can sustain at this speed
         const cap = mu * (Nf + Nr) / (P.mass * Math.max(u, 5));
         const want = clamp(u * Math.tan(delta) / P.L, -cap, cap);
         const over = car.wr - want;
-        if (Math.abs(car.wr) > Math.abs(want) && Math.sign(over) === Math.sign(car.wr || 1)) car.wr -= over * clamp(dt * (assist === 2 ? 7 : 3.5), 0, 1);
+        if (Math.abs(car.wr) > Math.abs(want) && Math.sign(over) === Math.sign(car.wr || 1)) car.wr -= over * clamp(dt * (assist === 2 ? 7 : assist ? 3.5 : 2), 0, 1);
       }
       // stability: yaw damping when nearly stopped
       if (speed < 4) {
@@ -2230,7 +2330,7 @@ window.plethoraBit = {
           <div class="fr-lap" style="font-size:1.6em;line-height:1">1/3</div>
         </div>
         <div class="fr-panel" style="padding:.25em .7em;text-align:left">
-          <div style="font-size:.7em;opacity:.7;letter-spacing:.12em">POS</div>
+          <div class="fr-pos-label" style="font-size:.7em;opacity:.7;letter-spacing:.12em">POS</div>
           <div class="fr-pos" style="font-size:1.6em;line-height:1">P1/8</div>
         </div>
       </div>
@@ -2260,6 +2360,7 @@ window.plethoraBit = {
       <div class="fr-prox-l" style="position:absolute;left:31%;top:58%;font-size:2.2em;color:#ffcf2e;opacity:0;transition:opacity .15s;text-shadow:0 0 8px #000">❮</div>
       <div class="fr-prox-r" style="position:absolute;right:31%;top:58%;font-size:2.2em;color:#ffcf2e;opacity:0;transition:opacity .15s;text-shadow:0 0 8px #000">❯</div>
       <div class="fr-banner" style="opacity:0"></div>
+      <div class="fr-wrong fr-hide fr-pulse" style="position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);font-size:2.4em;letter-spacing:.1em;padding:.15em .6em;border-radius:10px;background:rgba(255,196,0,.92);color:#111;white-space:nowrap;pointer-events:none">⚠️ WRONG WAY</div>
       <div class="fr-hint fr-ui fr-hide" style="position:absolute;left:50%;top:36%;transform:translateX(-50%);text-align:center;font-size:.8em;line-height:1.6;padding:.6em 1em;background:rgba(0,0,0,.55);border-radius:10px;max-width:70%"></div>
       </div>
       <div class="fr-deck"><div class="fr-deck-row fr-hud-deckrow"></div><div class="fr-hud-deckmap" style="display:flex;justify-content:center"></div></div>
@@ -2273,6 +2374,7 @@ window.plethoraBit = {
       <div class="fr-small fr-boost" style="font-size:.85em">ERS</div>
       <div class="fr-small fr-cam" role="button" aria-label="Switch view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="2.5" y="7" width="13" height="10" rx="2"/><path d="M15.5 10.5l6-3.5v10l-6-3.5z"/></svg><span class="fr-cam-label">CHASE</span></div>
       <div class="fr-small fr-reset" aria-label="Reset car">↺</div>
+      <div class="fr-small fr-cam fr-steermode" role="button" aria-label="Switch steering"><span class="fr-steer-label">TILT</span></div>
       </div>
     `;
     const $ = (sel, scope) => (scope || stage).querySelector(sel);
@@ -2283,7 +2385,8 @@ window.plethoraBit = {
       cluster: $(".fr-cluster", hud), steerBox: $(".fr-steer", hud), left: $(".fr-left", hud), right: $(".fr-right", hud),
       brake: $(".fr-brake", hud), gas: $(".fr-gas", hud), boost: $(".fr-boost", hud), cam: $(".fr-cam", hud), reset: $(".fr-reset", hud),
       pause: $(".fr-pause", hud), banner: $(".fr-banner", hud), hint: $(".fr-hint", hud), proxL: $(".fr-prox-l", hud), proxR: $(".fr-prox-r", hud),
-      vignette: $(".fr-vignette", hud), camLabel: $(".fr-cam-label", hud), ctl: $(".fr-ctl", hud)
+      vignette: $(".fr-vignette", hud), camLabel: $(".fr-cam-label", hud), ctl: $(".fr-ctl", hud),
+      posLabel: $(".fr-pos-label", hud), steerMode: $(".fr-steermode", hud), steerLabel: $(".fr-steer-label", hud), wrong: $(".fr-wrong", hud)
     };
     docks.push([H.cluster, H.cluster.parentNode, $(".fr-hud-deckrow", hud)]);
     docks.push([$(".fr-topc", hud), $(".fr-topc", hud).parentNode, $(".fr-hud-deckrow", hud)]);
@@ -2339,7 +2442,11 @@ window.plethoraBit = {
         H.cam.style.top = pt + "px"; H.cam.style.right = (pr + lbW + 0.6 * em) + "px";
         const camW = H.cam.offsetWidth || 6 * ce;
         H.reset.style.top = pt + "px"; H.reset.style.right = (pr + lbW + camW + 1.1 * em) + "px";
+        // steering switch sits under the view button (the top row is full)
+        const camH = H.cam.offsetHeight || 2.6 * ce;
+        H.steerMode.style.bottom = "auto"; H.steerMode.style.top = (pt + camH + 0.45 * em) + "px"; H.steerMode.style.right = (pr + lbW + 0.6 * em) + "px";
       }
+      H.steerLabel.textContent = settings.steering === "motion" ? "TILT" : "BUTTONS";
       H.steerBox.classList.toggle("fr-hide", !touch);
       const bs = 4.4 * 1.25 * ce;
       if (touch) {
@@ -2363,7 +2470,7 @@ window.plethoraBit = {
         <div style="font-size:.8em;letter-spacing:.35em;color:#ff2a3d">GRAND PRIX</div>
         <div style="font-size:3.4em;line-height:.9;letter-spacing:.04em">FORMULA<br>RUSH</div>
         <div class="fr-ui fr-menu-sub" style="font-size:.7em;opacity:.65;margin:.5em 0 .8em">Aurora Ring · 2.5 km · Original circuit</div>
-        <button class="fr-menu-btn primary fr-play">PLAY RACE</button>
+        <div style="display:flex;gap:.4em"><button class="fr-menu-btn primary fr-play" style="white-space:nowrap;padding-left:.7em;padding-right:.4em">PLAY RACE</button><button class="fr-menu-btn fr-tt" style="white-space:nowrap;padding-left:.7em;padding-right:.4em;border-left-color:#36c8ff">TIME TRIAL</button></div>
         <button class="fr-menu-btn fr-circuits">CIRCUIT</button>
         <button class="fr-menu-btn fr-cars">CAR SELECTION</button>
         <button class="fr-menu-btn fr-settings">SETTINGS</button>
@@ -2500,6 +2607,7 @@ window.plethoraBit = {
     let camMode = settings.view;
     let finishedT = 0;
     let finishCount = 0;
+    let wrongDist = 0, wrongLast = null;   // metres driven against the race direction
     let penaltyMs = 0, trackLimitWarnings = 0, offTrackTimer = 0;
     let resetHold = 0;
     let lastWarnText = "";
@@ -2513,6 +2621,16 @@ window.plethoraBit = {
     let steerSmoothed = 0, reverseHold = 0;
 
     function effectiveSteering() { return (settings.steering === "motion" && !motionFallback) ? "motion" : "touch"; }
+    // quick switch between tilt and button steering (HUD and pause menu)
+    function toggleSteering() {
+      settings.steering = settings.steering === "motion" ? "touch" : "motion"; saveSettings();
+      motionFallback = false;
+      releaseAll();
+      if (settings.steering === "motion") { motionNeutral = null; startMotion(); } else motionActive = false;
+      layoutHud();
+      showToast(settings.steering === "motion" ? "Tilt steering · turn the phone like a wheel" : "Button steering", 2);
+      ctx.platform.interact({ type: "steering", mode: settings.steering });
+    }
 
     // ---- input wiring ----
     // Hold-to-press controls. Each button tracks its own pointer ids, so releasing one finger never
@@ -2577,18 +2695,20 @@ window.plethoraBit = {
     }
     pressButton(H.cam, () => toggleCam());
     pressButton(H.reset, () => requestReset());
+    pressButton(H.steerMode, () => toggleSteering());
     pressButton(H.pause, () => togglePause(true));
 
     // ---- menu wiring ----
     const tap = (elm, fn) => ctx.input.activate(elm, () => { audio.init(); audio.resume(); ctx.platform.interact({ type: "ui" }); fn(); });
-    tap($(".fr-play", menu), () => startRaceFlow());
+    tap($(".fr-play", menu), () => startRaceFlow(false, "race"));
+    tap($(".fr-tt", menu), () => openTimeTrial());
     tap($(".fr-cars", menu), () => setState("carSelect"));
     tap($(".fr-circuits", menu), () => setState("circuitSelect"));
     tap($(".fr-cback", circSel), () => setState("menu"));
-    tap($(".fr-cstart", circSel), () => startRaceFlow());
+    tap($(".fr-cstart", circSel), () => startRaceFlow(false, "race"));
     tap($(".fr-settings", menu), () => openSettings(false));
     tap($(".fr-back", carSel), () => setState("menu"));
-    tap($(".fr-start", carSel), () => startRaceFlow());
+    tap($(".fr-start", carSel), () => startRaceFlow(false, "race"));
 
     function renderLiveries() {
       const box = $(".fr-liveries", carSel);
@@ -2632,6 +2752,7 @@ window.plethoraBit = {
         }
       });
       loadCircuitData(def);
+      loadGhost();
       buildWorld(def);
       guide.mesh.visible = false;
       mapState = buildMinimap();
@@ -2664,10 +2785,13 @@ window.plethoraBit = {
     function openSettings(fromPause) {
       const segs = [
         ["Brake assist", "brakeAssist", [["off", "Off"], ["medium", "Medium"], ["full", "Full"], ["auto", "Auto"]]],
+        ["Traction control", "tc", [["off", "Off"], ["medium", "Medium"], ["full", "Full"]]],
         ["Difficulty", "difficulty", [["easy", "Easy"], ["medium", "Medium"], ["hard", "Hard"]]],
         ["Laps", "laps", [[3, "3"], [5, "5"], [10, "10"]]],
         ["Grid size", "grid", [[6, "6"], [8, "8"], [10, "10"]]],
         ["Racing line", "racingLine", [[true, "On"], [false, "Off"]]],
+        ["Time trial laps", "ttLaps", [[1, "1"], [3, "3"], [5, "5"], [10, "10"]]],
+        ["Ghost car (time trial)", "ghost", [[true, "On"], [false, "Off"]]],
         ["Controls", "steering", [["motion", "Tilt steering"], ["touch", "Button steering"]]],
         ["Tilt sensitivity", "sensitivity", [[0.7, "Low"], [1, "Mid"], [1.4, "High"]]],
         ["Tilt dead zone", "deadzone", [[0.015, "Small"], [0.03, "Mid"], [0.07, "Large"]]],
@@ -2726,22 +2850,63 @@ window.plethoraBit = {
     const ASSIST_NAMES = { off: "OFF", medium: "MEDIUM", full: "FULL", auto: "AUTO" };
     function updateAssistLabels() {
       const b = $(".fr-passist", modalBody);
-      if (b) b.textContent = "BRAKE ASSIST: " + ASSIST_NAMES[settings.brakeAssist];
+      if (b) b.textContent = "BRAKES: " + ASSIST_NAMES[settings.brakeAssist];
+      const st = $(".fr-psteer", modalBody), tc = $(".fr-ptc", modalBody);
+      if (st) st.textContent = "STEER: " + (settings.steering === "motion" ? "TILT" : "BUTTONS");
+      if (tc) tc.textContent = "TC: " + ({ off: "OFF", medium: "MEDIUM", full: "FULL" })[settings.tc];
+    }
+    function openTimeTrial() {
+      loadGhost();
+      const render = () => {
+        const seg = (key, opts) => opts.map(([v, t]) => `<button data-k="${key}" data-v="${v}" class="${settings[key] === v ? "sel" : ""}">${t}</button>`).join("");
+        modalBody.innerHTML = `
+          <div style="font-size:1.6em;letter-spacing:.08em">TIME TRIAL</div>
+          <div class="fr-ui" style="font-size:.75em;opacity:.7;margin:.1em 0 .5em">${circuit.name} · solo against the clock${ghost.data ? ` · ghost ${fmtTime(ghost.data.t)}` : " · your best lap becomes your ghost"}</div>
+          <div class="fr-ui">
+            <div class="fr-row"><div style="font-size:.8em">Laps</div><div class="fr-seg">${seg("ttLaps", [[1, "1"], [3, "3"], [5, "5"], [10, "10"]])}</div></div>
+            <div class="fr-row"><div style="font-size:.8em">Ghost car</div><div class="fr-seg">${seg("ghost", [[true, "On"], [false, "Off"]])}</div></div>
+          </div>
+          <div style="display:flex;gap:.6em;margin-top:.6em">
+            <button class="fr-menu-btn fr-ttback" style="text-align:center">BACK</button>
+            <button class="fr-menu-btn primary fr-ttgo" style="text-align:center">START</button>
+          </div>`;
+        for (const b of modalBody.querySelectorAll("button[data-k]")) {
+          bindAct(b, () => {
+            const k = b.dataset.k, raw = b.dataset.v;
+            settings[k] = k === "ghost" ? raw === "true" : Number(raw); saveSettings(); render();
+          });
+        }
+        bindAct($(".fr-ttback", modalBody), () => closeModal());
+        bindAct($(".fr-ttgo", modalBody), () => { closeModal(); startRaceFlow(false, "tt"); });
+      };
+      render();
+      modal.classList.remove("fr-hide");
     }
     function openPauseMenu() {
+      // two-column grid so every option (MAIN MENU included) fits on a short landscape screen
       modalBody.innerHTML = `
-        <div style="font-size:2em;letter-spacing:.1em;text-align:center;margin:.1em 0 .3em">PAUSED</div>
-        <button class="fr-menu-btn primary fr-resume" style="text-align:center">RESUME</button>
-        <button class="fr-menu-btn fr-restart" style="text-align:center">RESTART RACE</button>
-        <button class="fr-menu-btn fr-passist" style="text-align:center"></button>
-        <button class="fr-menu-btn fr-psettings" style="text-align:center">SETTINGS</button>
-        <button class="fr-menu-btn fr-quit" style="text-align:center">MAIN MENU</button>`;
+        <div style="font-size:1.7em;letter-spacing:.1em;text-align:center;margin:0 0 .2em">PAUSED</div>
+        <div class="fr-scroll fr-pause-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:0 .6em;font-size:.82em">
+          <button class="fr-menu-btn primary fr-resume" style="text-align:center;grid-column:1 / span 2">RESUME</button>
+          <button class="fr-menu-btn fr-quit" style="text-align:center">MAIN MENU</button>
+          <button class="fr-menu-btn fr-restart" style="text-align:center">RESTART</button>
+          <button class="fr-menu-btn fr-psteer" style="text-align:center"></button>
+          <button class="fr-menu-btn fr-passist" style="text-align:center"></button>
+          <button class="fr-menu-btn fr-ptc" style="text-align:center"></button>
+          <button class="fr-menu-btn fr-psettings" style="text-align:center">SETTINGS</button>
+        </div>`;
       bindAct($(".fr-resume", modalBody), () => togglePause(false));
       bindAct($(".fr-restart", modalBody), () => { closeModal(); paused = false; startRaceFlow(true); });
       bindAct($(".fr-psettings", modalBody), () => openSettings(true));
       bindAct($(".fr-passist", modalBody), () => {
         const order = ["off", "medium", "full", "auto"];
         settings.brakeAssist = order[(order.indexOf(settings.brakeAssist) + 1) % order.length]; saveSettings();
+        updateAssistLabels();
+      });
+      bindAct($(".fr-psteer", modalBody), () => { toggleSteering(); updateAssistLabels(); });
+      bindAct($(".fr-ptc", modalBody), () => {
+        const order = ["off", "medium", "full"];
+        settings.tc = order[(order.indexOf(settings.tc) + 1) % order.length]; saveSettings();
         updateAssistLabels();
       });
       updateAssistLabels();
@@ -2831,8 +2996,8 @@ window.plethoraBit = {
       seed = (Date.now() & 0xffff) + 99;
       clearCars();
       smoke.clear();
-      const N = settings.grid;
-      const playerSlot = settings.difficulty === "easy" ? Math.floor(N / 2) - 1 : settings.difficulty === "hard" ? N - 1 : N - 2;
+      const N = raceMode === "tt" ? 1 : settings.grid;
+      const playerSlot = raceMode === "tt" ? 0 : settings.difficulty === "easy" ? Math.floor(N / 2) - 1 : settings.difficulty === "hard" ? N - 1 : N - 2;
       const teamPool = TEAMS.map((_, i) => i).filter(i => i !== settings.livery);
       const skillBase = DIFF[settings.difficulty] * tune("ai_pace", 1);
       for (let k = 0; k < N; k++) {
@@ -2877,14 +3042,18 @@ window.plethoraBit = {
       raceAccum = 0;
       refreshLeaderboardRows();
     }
-    function startRaceFlow(isRestart) {
+    function startRaceFlow(isRestart, mode) {
+      if (mode) raceMode = mode;
+      raceLaps = raceMode === "tt" ? settings.ttLaps : settings.laps;
       attempt++;
       requestLandscape();
       audio.init(); audio.resume(); audio.setVolume();
-      ctx.platform.start({ attempt, laps: settings.laps, difficulty: settings.difficulty });
+      ctx.platform.start({ attempt, laps: raceLaps, difficulty: settings.difficulty, mode: raceMode });
       motionFallback = false;
       if (settings.steering === "motion") startMotion(); else motionActive = false;
       setupRace();
+      ghost.rec = []; ghost.recT = 0; wrongDist = 0; wrongLast = null;
+      if (raceMode === "tt") { loadGhost(); fetchWorldBest(); }
       if (showcase) showcase.group.visible = false;
       paused = false; closeModal();
       setState(isRestart ? "countdown" : "preRace");
@@ -2913,9 +3082,9 @@ window.plethoraBit = {
       if (s === "preRace") {
         preRaceT = 0;
         const t = TEAMS[settings.livery];
-        $(".fr-pre-title", preRace).textContent = `${settings.laps} LAP${settings.laps > 1 ? "S" : ""} · START P${player.gridPos}/${cars.length}`;
+        $(".fr-pre-title", preRace).textContent = raceMode === "tt" ? `TIME TRIAL · ${raceLaps} LAP${raceLaps > 1 ? "S" : ""}` : `${raceLaps} LAP${raceLaps > 1 ? "S" : ""} · START P${player.gridPos}/${cars.length}`;
         const steerTxt = effectiveSteering() === "motion" ? "Tilt to steer" : "◀ ▶ to steer";
-        $(".fr-pre-sub", preRace).innerHTML = `${t.name} #${t.num} · ${settings.difficulty.toUpperCase()}<br>${steerTxt} · hold GAS to go · BRAKE before corners`;
+        $(".fr-pre-sub", preRace).innerHTML = `${t.name} #${t.num} · ${raceMode === "tt" ? (ghost.data ? "GHOST " + fmtTime(ghost.data.t) : "SET A LAP TO RACE YOUR GHOST") : settings.difficulty.toUpperCase()}<br>${steerTxt} · hold GAS to go · BRAKE before corners`;
       }
       if (s === "countdown") {
         if (camMode === 1 && camInit) beginCamTransition();
@@ -2949,7 +3118,7 @@ window.plethoraBit = {
       });
     }
     let lbRows = [], lbLaidOut = false;
-    function refreshLeaderboardRows() { lbRows = []; H.lb.innerHTML = ""; }
+    function refreshLeaderboardRows() { lbRows = []; H.lb.innerHTML = ""; if (typeof lapListKey !== "undefined") lapListKey = ""; }
     function updateLeaderboard() {
       const st = standings();
       const me = st.indexOf(player);
@@ -3005,11 +3174,11 @@ window.plethoraBit = {
           car.lastLap = lt;
           car.lapTimes.push({ t: lt, valid: car.lapValid });
           if (car.lapValid && (car.bestLap == null || lt < car.bestLap)) car.bestLap = lt;
-          if (car === player) onPlayerLap(lt, car.lapValid);
+          if (car === player) { onPlayerLap(lt, car.lapValid); ghostLapDone(lt, car.lapValid); }
         }
         if (prev >= 0) car.lapStart = raceTime;
         car.lapValid = true;
-        if (car.lapsDone >= settings.laps && !car.finished) {
+        if (car.lapsDone >= raceLaps && !car.finished) {
           car.finished = true; car.finishTime = raceTime; car.finishOrder = ++finishCount;
           if (car === player) onPlayerFinish();
         }
@@ -3017,10 +3186,10 @@ window.plethoraBit = {
     }
     function onPlayerLap(lt, valid) {
       ctx.platform.milestone("lap_complete", { lap: player.lapsDone, timeMs: Math.round(lt), valid });
-      if (player.lapsDone < settings.laps) {
+      if (player.lapsDone < raceLaps) {
         const isBest = valid && player.bestLap === lt;
         banner(`LAP ${fmtTime(lt)}`, 1.8, isBest ? "#b26bff" : valid ? "#fff" : "#ffcf2e");
-        if (player.lapsDone === settings.laps - 1) {
+        if (player.lapsDone === raceLaps - 1) {
           ctx.timeout(() => { if (!disposed && state === "racing") banner("FINAL LAP", 1.8, "#fff"); }, 1900);
           audio.blip(880, 0.15, "triangle", 0.2); audio.blip(1175, 0.2, "triangle", 0.2, 0.16);
         }
@@ -3033,7 +3202,8 @@ window.plethoraBit = {
     function onPlayerFinish() {
       state = "finished";
       finishedT = 0;
-      banner(player.finishOrder === 1 ? "VICTORY!" : `FINISHED P${player.finishOrder}`, 3.2, player.finishOrder === 1 ? "#ffcf2e" : "#fff");
+      if (raceMode === "tt") banner("TIME TRIAL COMPLETE", 3.2, "#36c8ff");
+      else banner(player.finishOrder === 1 ? "VICTORY!" : `FINISHED P${player.finishOrder}`, 3.2, player.finishOrder === 1 ? "#ffcf2e" : "#fff");
       audio.fanfare();
       haptic("success");
       ctx.platform.milestone("race_finished", { position: player.finishOrder });
@@ -3081,13 +3251,51 @@ window.plethoraBit = {
     ctx.listen(resultsEl, "click", delegate);
     resultsEl.style.pointerEvents = "auto";
     resultsEl.style.background = "linear-gradient(90deg,rgba(4,6,11,.92),rgba(4,6,11,.7))";
+    function showTTResults() {
+      const laps = player.lapTimes || [];
+      let best = null;
+      for (const l of laps) if (l.valid && (best == null || l.t < best)) best = l.t;
+      const total = player.finishTime + penaltyMs;
+      const rows = laps.map((l, i) => `<div class="fr-lb-row" style="font-size:.85em"><span style="width:3em;opacity:.7">LAP ${i + 1}</span><span style="margin-left:auto;color:${!l.valid ? "#ffcf2e" : l.t === best ? "#b26bff" : "#fff"}">${fmtTime(l.t)}${l.valid ? "" : " (invalid)"}</span></div>`).join("");
+      resultsEl.innerHTML = `
+        <div class="fr-res-left" style="position:absolute;left:var(--pl);top:var(--pt);bottom:var(--pb);width:44%;display:flex;flex-direction:column;justify-content:center;padding-left:1em">
+          <div style="font-size:.85em;letter-spacing:.3em;color:#36c8ff">TIME TRIAL · ${circuit.name.toUpperCase()}</div>
+          <div style="font-size:3.6em;line-height:.95;color:#b26bff">${fmtTime(best)}</div>
+          <div class="fr-ui" style="display:grid;grid-template-columns:auto auto;gap:.25em 1.2em;font-size:.8em;margin:.6em 0 .9em">
+            <div style="opacity:.6">Total time</div><div style="font-weight:700">${fmtTime(total)}</div>
+            <div style="opacity:.6">Personal best lap</div><div style="font-weight:700">${fmtTime(bestLapStored)}</div>
+            <div style="opacity:.6">Ghost</div><div style="font-weight:700;color:#7fd0ff">${ghost.data ? fmtTime(ghost.data.t) : "–"}</div>
+            ${ghost.world != null ? `<div style="opacity:.6">Leaderboard best</div><div style="font-weight:700;color:#ffcf2e">${fmtTime(ghost.world)}</div>` : ""}
+          </div>
+          <div style="display:flex;gap:.6em;flex-wrap:wrap">
+            <button class="fr-menu-btn primary fr-again" style="width:auto;text-align:center">GO AGAIN</button>
+            <button class="fr-menu-btn fr-home" style="width:auto;text-align:center">MAIN MENU</button>
+          </div>
+        </div>
+        <div class="fr-panel fr-res-right" style="position:absolute;right:var(--pr);top:var(--pt);bottom:var(--pb);width:46%;padding:.5em .4em;display:flex;flex-direction:column">
+          <div style="font-size:1em;letter-spacing:.12em;padding:0 .4em .3em">LAP TIMES</div>
+          <div class="fr-scroll" style="flex:1;min-height:0">${rows}</div>
+        </div>`;
+      resultsEl.classList.remove("fr-hide");
+      bindAct($(".fr-again", resultsEl), () => { audio.resume(); startRaceFlow(true); });
+      bindAct($(".fr-home", resultsEl), () => setState("menu"));
+      const myAttempt = attempt;
+      requestAnimationFrameSafe(() => {
+        if (disposed || myAttempt !== attempt) return;
+        try { ctx.pulse.complete({ timeMs: Math.round(best != null ? best : total), timeLabel: fmtTime(best != null ? best : total), result: "time trial", mode: "time_trial", text: `Time trial at ${circuit.name} · best lap ${fmtTime(best)}` }); } catch (e) { /* ignore */ }
+      });
+      if (best != null && ctx.memory && ctx.memory.record) {
+        try { ctx.memory.record("best_lap").submit(Math.round(best), { label: fmtTime(best), dimensions: { circuit: circuit.record } }).catch(() => {}); } catch (e) { /* ignore */ }
+      }
+    }
     function showResults() {
+      if (raceMode === "tt") return showTTResults();
       const st = standings();
       // estimate finish times for cars still running
-      const avg = player.finishTime / Math.max(1, settings.laps * TLEN);
+      const avg = player.finishTime / Math.max(1, raceLaps * TLEN);
       const rowsData = st.map(c => {
         let t = c.finishTime;
-        if (!c.finished) t = raceTime + (settings.laps * TLEN - c.progress) * avg * 1.02;
+        if (!c.finished) t = raceTime + (raceLaps * TLEN - c.progress) * avg * 1.02;
         return { c, t };
       });
       rowsData.sort((a, b) => a.t - b.t);
@@ -3107,7 +3315,7 @@ window.plethoraBit = {
           <div class="fr-ui" style="display:grid;grid-template-columns:auto auto;gap:.25em 1.2em;font-size:.8em;margin:.6em 0 .9em">
             <div style="opacity:.6">Race time</div><div style="font-weight:700">${fmtTime(total)}${penaltyMs ? ` <span style="color:#ffcf2e">(+${(penaltyMs / 1000).toFixed(0)}s pen.)</span>` : ""}</div>
             <div style="opacity:.6">Best lap</div><div style="font-weight:700;color:#b26bff">${fmtTime(best)}</div>
-            <div style="opacity:.6">Laps</div><div style="font-weight:700">${Math.min(player.lapsDone, settings.laps)} / ${settings.laps}</div>
+            <div style="opacity:.6">Laps</div><div style="font-weight:700">${Math.min(player.lapsDone, raceLaps)} / ${raceLaps}</div>
             <div style="opacity:.6">Personal best lap</div><div style="font-weight:700">${fmtTime(bestLapStored)}</div>
           </div>
           <div style="display:flex;gap:.6em;flex-wrap:wrap">
@@ -3404,6 +3612,8 @@ window.plethoraBit = {
             ctrl.gripAssist = PLAYER_ASSIST[settings.difficulty] || 1; ctrl.rearAssist = ctrl.gripAssist;
             ctrl.brakeAssist = settings.brakeAssist === "full" || settings.brakeAssist === "auto" ? 2 : settings.brakeAssist === "off" ? 0 : 1;
             if (settings.brakeAssist === "auto") autoBrake(c, ctrl);
+            ctrl.abs = true;
+            ctrl.tc = settings.tc === "full" ? 2 : settings.tc === "off" ? 0 : 1;
             ctrl.slip = slipstreamFor(c);
             c.slipstream = ctrl.slip;
             // ERS energy
@@ -3448,6 +3658,7 @@ window.plethoraBit = {
           if (hit > 6) showWarn("BARRIER CONTACT", 1.2);
         }
         checkLaps(c);
+        if (c === player && state === "racing" && !c.finished) recordGhostSample(c);
         // stuck detection for AI
         if (!c.isPlayer || state === "finished" || (TEST && TEST.autopilot)) {
           if (Math.abs(c.u) < 1.5 && c.holdTimer <= 0) c.stuckTimer += dt; else c.stuckTimer = 0;
@@ -3507,6 +3718,24 @@ window.plethoraBit = {
       col.needsUpdate = true;
     }
 
+    // time trial: lap-by-lap times in place of the standings
+    let lapListKey = "";
+    function updateLapList() {
+      const laps = player.lapTimes || [];
+      const key = laps.length + "|" + raceLaps + "|" + (ghost.data ? ghost.data.t : 0) + "|" + (ghost.world || 0) + "|" + (bestLapStored || 0);
+      if (key === lapListKey) return;
+      lapListKey = key;
+      let best = null;
+      for (const l of laps) if (l.valid && (best == null || l.t < best)) best = l.t;
+      let html = `<div class="fr-lb-row" style="opacity:.7;letter-spacing:.08em">TIME TRIAL · ${raceLaps} LAP${raceLaps > 1 ? "S" : ""}</div>`;
+      laps.forEach((l, i) => {
+        const col = !l.valid ? "#ffcf2e" : l.t === best ? "#b26bff" : "#fff";
+        html += `<div class="fr-lb-row"><span style="width:2.2em;opacity:.7">L${i + 1}</span><span style="margin-left:auto;color:${col}">${fmtTime(l.t)}${l.valid ? "" : " ✕"}</span></div>`;
+      });
+      if (ghost.data) html += `<div class="fr-lb-row" style="border-top:1px solid rgba(255,255,255,.15)"><span style="opacity:.7">GHOST</span><span style="margin-left:auto;color:#7fd0ff">${fmtTime(ghost.data.t)}</span></div>`;
+      if (ghost.world != null) html += `<div class="fr-lb-row"><span style="opacity:.7">TOP</span><span style="margin-left:auto;color:#ffcf2e">${fmtTime(ghost.world)}</span></div>`;
+      H.lb.innerHTML = html;
+    }
     function updateHud(dt) {
       if (!player) return;
       const kmh = Math.round(Math.abs(player.u) * 3.6);
@@ -3515,19 +3744,40 @@ window.plethoraBit = {
       H.rpm.style.width = clamp((player.rpm - 3800) / 8600 * 100, 0, 100).toFixed(0) + "%";
       H.ers.style.width = (player.boost * 100).toFixed(0) + "%";
       H.boost.classList.toggle("on", !!player.boosting);
-      const lapShown = clamp(player.lapsDone + 1, 1, settings.laps);
-      H.lap.textContent = `${lapShown}/${settings.laps}`;
-      const me = updateLeaderboard();
-      H.pos.textContent = `P${me + 1}/${cars.length}`;
-      const finalLap = player.lapsDone === settings.laps - 1 && state === "racing";
+      const lapShown = clamp(player.lapsDone + 1, 1, raceLaps);
+      H.lap.textContent = `${lapShown}/${raceLaps}`;
+      if (raceMode === "tt") {
+        const pb = player.bestLap != null && (bestLapStored == null || player.bestLap < bestLapStored) ? player.bestLap : bestLapStored;
+        H.posLabel.textContent = "BEST";
+        H.pos.textContent = pb != null ? fmtTime(pb) : "--:--";
+        updateLapList();
+      } else {
+        H.posLabel.textContent = "POS";
+        const me = updateLeaderboard();
+        H.pos.textContent = `P${me + 1}/${cars.length}`;
+      }
+      // wrong-way warning after 100 m driven against the race direction
+      if (wrongLast == null) wrongLast = player.progress;
+      const dpw = player.progress - wrongLast; wrongLast = player.progress;
+      if (state === "racing" && !player.finished && player.holdTimer <= 0 && Math.abs(dpw) < 20) {
+        if (dpw < 0) wrongDist -= dpw; else wrongDist = Math.max(0, wrongDist - dpw * 2);
+      } else if (state !== "racing") wrongDist = 0;
+      const ww = wrongDist >= 100 || (H.wwOn && wrongDist > 30);
+      if (ww !== !!H.wwOn) { H.wwOn = ww; H.wrong.classList.toggle("fr-hide", !ww); if (ww) haptic("heavy"); }
+      const finalLap = player.lapsDone === raceLaps - 1 && raceLaps > 1 && state === "racing";
       if (finalLap !== H.finalShown) {
         H.finalShown = finalLap;
         H.lapLabel.innerHTML = finalLap ? `<span style="display:inline-block;width:1.1em;height:.75em;vertical-align:-.05em;background:repeating-conic-gradient(#fff 0 25%,#111 0 50%) 0 0/.375em .375em"></span> FINAL` : "LAP";
         H.lapLabel.style.opacity = finalLap ? "1" : ".7";
       }
       H.timer.textContent = fmtTime(state === "countdown" ? 0 : (player.finished ? player.finishTime : raceTime));
-      // delta vs best lap (projected by distance fraction)
-      if (player.bestLap != null && state === "racing" && player.lapsDone >= 0) {
+      // delta vs the ghost (time trial) or vs best lap (projected by distance fraction)
+      const lapD = player.progress - Math.max(0, player.lapsDone) * TLEN;
+      if (raceMode === "tt" && ghost.data && state === "racing" && lapD > 5) {
+        const delta = (raceTime - player.lapStart) - ghostTimeAt(lapD);
+        H.delta.textContent = "GHOST " + (delta >= 0 ? "+" : "−") + Math.abs(delta / 1000).toFixed(2);
+        H.delta.style.color = delta >= 0 ? "#ff5a6a" : "#2ee678";
+      } else if (player.bestLap != null && state === "racing" && player.lapsDone >= 0) {
         const frac = clamp((player.progress - player.lapsDone * TLEN) / TLEN, 0, 1);
         const cur = raceTime - player.lapStart;
         const delta = cur - player.bestLap * frac;
@@ -3687,6 +3937,7 @@ window.plethoraBit = {
         hudT -= dt;
         if (hudT <= 0 && state !== "preRace") { hudT = 0.066; updateHud(dt); }
         for (const c of cars) syncCarVisual(c, dt);
+        updateGhost();
       }
       // sun/shadow follows the viewCam focus
       const fxp = player ? { x: player.rx, z: player.rz } : (showcase ? { x: showcase.base.x, z: showcase.base.z } : { x: 0, z: 0 });
@@ -3717,8 +3968,8 @@ window.plethoraBit = {
     if (TEST) {
       TEST.api = {
         get state() { return state; }, get player() { return player; }, get cars() { return cars; }, get raceTime() { return raceTime; },
-        settings, loadCircuit, get circuit() { return circuit; }, get world() { return world; }, startRace: () => startRaceFlow(), skipPre: () => { preRaceT = 99; }, get racing() { return racing; }, get track() { return track; }, PHYS, setState, standings,
-        scene, THREE, renderCam: viewCam, controls, toggleCam, placeCarAt, get camMode() { return camMode; }, get camTrans() { return CAM.trans; },
+        settings, loadCircuit, get circuit() { return circuit; }, get world() { return world; }, startRace: (mode) => startRaceFlow(false, mode || "race"), skipPre: () => { preRaceT = 99; }, get racing() { return racing; }, get track() { return track; }, PHYS, setState, standings,
+        scene, THREE, renderCam: viewCam, controls, toggleCam, placeCarAt, get ghost() { return ghost; }, toggleSteering, get wrongDist() { return wrongDist; }, get camMode() { return camMode; }, get camTrans() { return CAM.trans; },
         get renderInfo() { return Object.assign({}, renderer.info.render, { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures }); }
       };
     }
