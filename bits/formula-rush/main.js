@@ -2158,8 +2158,6 @@ window.plethoraBit = {
     // =====================================================================
     // Audio (procedural Web Audio)
     // =====================================================================
-    // the game's rev range (3,800-12,400) mapped onto a V10's (6,500-19,000) for the sound only
-    const v10Rpm = rpm => 6500 + clamp((rpm - 3800) / 8600, 0, 1) * 12500;
     const audio = {
       ac: null, master: null, engine: null, ready: false,
       init() {
@@ -2179,14 +2177,12 @@ window.plethoraBit = {
           for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
           this.noiseBuf = nb;
           const noise = () => { const s = ac.createBufferSource(); s.buffer = nb; s.loop = true; s.start(); return s; };
-          // engine: V10-era voice. Ten cylinders fire five times per revolution, so the firing order sits
-          // high (over 1.5 kHz at 19,000 rpm); a crank-order square adds the rasp, the shaper the bite.
+          // engine: detuned saws + square sub through filter + shaper
           const eGain = ac.createGain(); eGain.gain.value = 0;
-          const filt = ac.createBiquadFilter(); filt.type = "lowpass"; filt.frequency.value = 3000; filt.Q.value = 1.6;
-          const peak = ac.createBiquadFilter(); peak.type = "peaking"; peak.frequency.value = 2600; peak.Q.value = 1.2; peak.gain.value = 7;
+          const filt = ac.createBiquadFilter(); filt.type = "lowpass"; filt.frequency.value = 1200; filt.Q.value = 2.5;
           const shaper = ac.createWaveShaper();
           const curve = new Float32Array(512);
-          for (let i = 0; i < 512; i++) { const x = i / 256 - 1; curve[i] = Math.tanh(x * 3.2); }
+          for (let i = 0; i < 512; i++) { const x = i / 256 - 1; curve[i] = Math.tanh(x * 2.2); }
           shaper.curve = curve;
           const o1 = ac.createOscillator(); o1.type = "sawtooth";
           const o2 = ac.createOscillator(); o2.type = "sawtooth"; o2.detune.value = 9;
@@ -2195,12 +2191,12 @@ window.plethoraBit = {
           const o4 = ac.createOscillator(); o4.type = "triangle";
           const g4 = ac.createGain(); g4.gain.value = 0.25;
           o1.connect(shaper); o2.connect(shaper); o3.connect(g3); g3.connect(shaper); o4.connect(g4); g4.connect(shaper);
-          shaper.connect(filt); filt.connect(peak); peak.connect(eGain); eGain.connect(master);
+          shaper.connect(filt); filt.connect(eGain); eGain.connect(master);
           [o1, o2, o3, o4].forEach(o => o.start());
-          this.engine = { o1, o2, o3, o4, filt, gain: eGain, lastThrottle: 0 };
+          this.engine = { o1, o2, o3, o4, filt, gain: eGain };
           // rival engine bed
           const rG = ac.createGain(); rG.gain.value = 0;
-          const rF = ac.createBiquadFilter(); rF.type = "lowpass"; rF.frequency.value = 2200;
+          const rF = ac.createBiquadFilter(); rF.type = "lowpass"; rF.frequency.value = 900;
           const r1 = ac.createOscillator(); r1.type = "sawtooth";
           r1.connect(rF); rF.connect(rG); rG.connect(master); r1.start();
           this.rival = { osc: r1, gain: rG };
@@ -2240,18 +2236,14 @@ window.plethoraBit = {
         if (!this.ready) return;
         const t = this.ac.currentTime;
         const rpm = p.rpm;
-        const v10 = v10Rpm(rpm);
-        const crank = v10 / 60, fire = crank * 5;
+        const f = rpm / 60 * 1.5;
         const e = this.engine;
-        e.o1.frequency.setTargetAtTime(fire * 0.5, t, 0.02);          // half-order body
-        e.o2.frequency.setTargetAtTime(fire * 0.5 * 1.006, t, 0.02);
-        e.o3.frequency.setTargetAtTime(crank, t, 0.02);                // crank-order rasp
-        e.o4.frequency.setTargetAtTime(fire, t, 0.02);                 // the scream
-        e.filt.frequency.setTargetAtTime(1500 + p.throttle * 4200 + v10 * 0.12, t, 0.04);
-        e.gain.gain.setTargetAtTime(0.05 + p.throttle * 0.1 + (v10 / 19000) * 0.05, t, 0.04);
-        // overrun crackle when lifting at high revs
-        if (e.lastThrottle > 0.6 && p.throttle < 0.15 && v10 > 12000) this.crackle();
-        e.lastThrottle = p.throttle;
+        e.o1.frequency.setTargetAtTime(f, t, 0.03);
+        e.o2.frequency.setTargetAtTime(f * 1.005, t, 0.03);
+        e.o3.frequency.setTargetAtTime(f * 0.5, t, 0.03);
+        e.o4.frequency.setTargetAtTime(f * 2, t, 0.03);
+        e.filt.frequency.setTargetAtTime(600 + p.throttle * 2600 + rpm * 0.12, t, 0.05);
+        e.gain.gain.setTargetAtTime(0.07 + p.throttle * 0.11 + (rpm / 12400) * 0.04, t, 0.05);
         const speed = Math.abs(p.u);
         this.wind.gain.gain.setTargetAtTime(Math.min(0.22, speed * speed * 0.00003), t, 0.1);
         this.wind.filt.frequency.setTargetAtTime(400 + speed * 12, t, 0.1);
@@ -2268,17 +2260,6 @@ window.plethoraBit = {
           this.rival.gain.gain.setTargetAtTime(rivalInfo.g, t, 0.08);
         }
         this.crowd.gain.gain.setTargetAtTime(crowdAmt * 0.05, t, 0.3);
-      },
-      crackle() {
-        const ac = this.ac, t = ac.currentTime;
-        for (let k = 0; k < 4; k++) {
-          const s = ac.createBufferSource(); s.buffer = this.noiseBuf;
-          const f = ac.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 900 + Math.random() * 900; f.Q.value = 1.4;
-          const g = ac.createGain(); const at = t + k * 0.06 + Math.random() * 0.04;
-          g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.16, at + 0.004); g.gain.exponentialRampToValueAtTime(0.001, at + 0.05);
-          s.connect(f); f.connect(g); g.connect(this.master);
-          s.start(at, Math.random()); s.stop(at + 0.06);
-        }
       },
       blip(freq, dur, type, gain, when) {
         if (!this.ready) return;
@@ -3956,7 +3937,7 @@ window.plethoraBit = {
           if (audio.ready) {
             let nearest = null, nd = 1e9;
             for (const c of cars) { if (c === player) continue; const d = Math.hypot(c.x - player.x, c.z - player.z); if (d < nd) { nd = d; nearest = c; } }
-            rivalEngineInfo = nearest ? { f: v10Rpm(nearest.rpm || 6000) / 60 * 2.5 * (1 + clamp((player.u - nearest.u) * 0.004, -0.12, 0.12)), g: clamp(1 - nd / 60, 0, 1) * 0.07 } : null;
+            rivalEngineInfo = nearest ? { f: (nearest.rpm || 6000) / 60 * 1.5 * (1 + clamp((player.u - nearest.u) * 0.004, -0.12, 0.12)), g: clamp(1 - nd / 60, 0, 1) * 0.07 } : null;
             const crowdAmt = clamp(1 - Math.abs(player.progress % TLEN < TLEN / 2 ? player.progress % TLEN : TLEN - player.progress % TLEN) / 260, 0, 1);
             audio.update(player, rivalEngineInfo, crowdAmt);
           }
