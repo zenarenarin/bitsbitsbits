@@ -33,8 +33,6 @@ window.plethoraBit = {
           if (saved[k] !== undefined && typeof saved[k] === typeof DEFAULT_SETTINGS[k]) settings[k] = saved[k];
         }
       }
-      const bl = ctx.storage.get("bestLap");
-      if (typeof bl === "number" && isFinite(bl)) bestLapStored = bl;
     } catch (e) { /* storage optional */ }
     if (![3, 5, 10].includes(settings.laps)) settings.laps = 3;
     if (![6, 8, 10].includes(settings.grid)) settings.grid = 8;
@@ -634,10 +632,14 @@ window.plethoraBit = {
       track = makeTrack(def);
       TN = track.n; TDS = track.ds; TLEN = track.length;
       racing = makeRacing();
+      loadBest();
+    }
+    function loadBest() {
       try { const bl = ctx.storage.get(bestLapKey()); bestLapStored = (typeof bl === "number" && isFinite(bl)) ? bl : null; } catch (e) { bestLapStored = null; }
     }
-    // Aurora Ring keeps its original storage key so existing personal bests survive
-    function bestLapKey() { return circuit.id === "aurora" ? "bestLap" : "bestLap_" + circuit.id; }
+    // personal bests are kept per mode (race / time trial) and per circuit; the v2 keys start everyone fresh
+    function bestLapKey() { return "pb2_" + raceMode + "_" + circuit.id; }
+    function modeRecord() { return raceMode === "tt" ? "time_trial" : "race"; }
     loadCircuitData(CIRCUITS[settings.circuit]);
 
     // =====================================================================
@@ -1148,6 +1150,25 @@ window.plethoraBit = {
       world.add(placeOnTrack(gantry, 0.5, 0, 0));
     }
     // Trackside: grandstands, pit building, light towers, boards, trees, hills
+    // Buildings are straight boxes beside a track that may curve: push each one out until its whole
+    // footprint clears the barriers of every part of the circuit (null when no spot within 60 m works).
+    const fitTmp = { idx: 0, s: 0, d: 0 };
+    function clearOffset(p, side, d0, halfLen, near, far) {
+      for (let extra = 0; extra <= 60; extra += 3) {
+        const dc = d0 + extra;
+        let ok = true;
+        for (let u = -halfLen; u <= halfLen + 0.01 && ok; u += Math.max(4, halfLen / 12)) {
+          for (const v of [-near, 0, far]) {
+            const off = side * (dc + v);
+            project(p.x + p.fx * u + p.rx * off, p.z + p.fz * u + p.rz * off, p.i, fitTmp, true);
+            const lim = fitTmp.d < 0 ? track.limL[fitTmp.idx] : track.limR[fitTmp.idx];
+            if (Math.abs(fitTmp.d) < lim + 1.5) { ok = false; break; }
+          }
+        }
+        if (ok) return dc;
+      }
+      return null;
+    }
     {
       const standMat = new THREE.MeshStandardMaterial({ color: 0x9aa3ad, roughness: 0.8 });
       const crowdMat = new THREE.MeshLambertMaterial({ map: crowdTex });
@@ -1170,8 +1191,8 @@ window.plethoraBit = {
         grp.add(back, roof);
         for (const m of grp.children) { m.castShadow = false; m.receiveShadow = false; }
         const p = sampleAt(s0 + len / 2);
-        const i = p.i;
-        const d = track.limR[i] + 6;
+        const d = clearOffset(p, 1, track.limR[p.i] + 6, len / 2 + 1, 2, 14);
+        if (d == null) continue;
         grp.position.set(p.x + p.rx * d, 0, p.z + p.rz * d);
         grp.rotation.y = Math.atan2(p.fx, p.fz) - Math.PI / 2;
         world.add(grp);
@@ -1190,10 +1211,14 @@ window.plethoraBit = {
       const towerGlass = new THREE.Mesh(new THREE.BoxGeometry(10.4, 4, 10.4), glassMat); towerGlass.position.set(30, 19, 4);
       pit.add(body, glass, garages, tower, towerGlass);
       const pp = sampleAt(-10);
-      const pd = -(track.limL[pp.i] + 12);
-      pit.position.set(pp.x + pp.rx * pd, 0, pp.z + pp.rz * pd);
-      pit.rotation.y = Math.atan2(pp.fx, pp.fz) + Math.PI / 2;
-      world.add(pit);
+      const pdc = clearOffset(pp, -1, track.limL[pp.i] + 12, 116, 8.2, 9.5);
+      if (pdc != null) {
+        const pd = -pdc;
+        pit.position.set(pp.x + pp.rx * pd, 0, pp.z + pp.rz * pd);
+        pit.rotation.y = Math.atan2(pp.fx, pp.fz) + Math.PI / 2;
+        world.add(pit);
+      }
+      if (TEST) TEST.stats.pitOffset = pdc;
       // light towers
       const poleMat = new THREE.MeshStandardMaterial({ color: 0x777f88, roughness: 0.6, metalness: 0.5 });
       const headMat = new THREE.MeshBasicMaterial({ color: def.night ? 0xffffff : 0xfff8e0 });
@@ -1735,11 +1760,11 @@ window.plethoraBit = {
     // Samples every GHOST_MS of lap time: [t ms, x dm, z dm, heading mrad, lap distance m].
     const GHOST_MS = 100;
     const ghost = { data: null, vis: null, visTeam: -1, rec: [], recT: 0, world: null };
-    function ghostKey() { return "ghost_" + circuit.id; }
-    function loadGhost() {
+    function ghostKey(mode) { return "ghost2_" + (mode || raceMode) + "_" + circuit.id; }
+    function loadGhost(mode) {
       ghost.data = null;
       try {
-        const g = ctx.storage.get(ghostKey());
+        const g = ctx.storage.get(ghostKey(mode));
         if (g && typeof g.t === "number" && isFinite(g.t) && Array.isArray(g.p) && g.p.length >= 50 && g.p.length % 5 === 0) ghost.data = g;
       } catch (e) { /* storage optional */ }
     }
@@ -1805,7 +1830,7 @@ window.plethoraBit = {
     function fetchWorldBest() {
       ghost.world = null;
       try {
-        const r = ctx.memory && ctx.memory.record && ctx.memory.record("best_lap").leaderboard({ scope: "global", period: "all_time", dimensions: { circuit: circuit.record }, limit: 1 });
+        const r = ctx.memory && ctx.memory.record && ctx.memory.record("best_lap").leaderboard({ scope: "global", period: "all_time", dimensions: { circuit: circuit.record, mode: modeRecord() }, limit: 1 });
         if (r && r.then) r.then(lb => {
           const row = lb && lb.rows && lb.rows[0];
           const v = row && (typeof row.value === "number" ? row.value : typeof row.score === "number" ? row.score : null);
@@ -2866,7 +2891,7 @@ window.plethoraBit = {
       if (tc) tc.textContent = "TC: " + ({ off: "OFF", medium: "MEDIUM", full: "FULL" })[settings.tc];
     }
     function openTimeTrial() {
-      loadGhost();
+      loadGhost("tt");
       const render = () => {
         const seg = (key, opts) => opts.map(([v, t]) => `<button data-k="${key}" data-v="${v}" class="${settings[key] === v ? "sel" : ""}">${t}</button>`).join("");
         modalBody.innerHTML = `
@@ -3054,6 +3079,7 @@ window.plethoraBit = {
     function startRaceFlow(isRestart, mode) {
       if (mode) raceMode = mode;
       raceLaps = raceMode === "tt" ? 1 : settings.laps;   // a time trial is one lap
+      loadBest();
       attempt++;
       requestLandscape();
       audio.init(); audio.resume(); audio.setVolume();
@@ -3295,7 +3321,7 @@ window.plethoraBit = {
         try { ctx.pulse.complete({ timeMs: Math.round(best != null ? best : total), timeLabel: fmtTime(best != null ? best : total), result: "time trial", mode: "time_trial", text: `Time trial at ${circuit.name} · best lap ${fmtTime(best)}` }); } catch (e) { /* ignore */ }
       });
       if (best != null && ctx.memory && ctx.memory.record) {
-        try { ctx.memory.record("best_lap").submit(Math.round(best), { label: fmtTime(best), dimensions: { circuit: circuit.record } }).catch(() => {}); } catch (e) { /* ignore */ }
+        try { ctx.memory.record("best_lap").submit(Math.round(best), { label: fmtTime(best), dimensions: { circuit: circuit.record, mode: modeRecord() } }).catch(() => {}); } catch (e) { /* ignore */ }
       }
     }
     function showResults() {
@@ -3350,7 +3376,7 @@ window.plethoraBit = {
       });
       if (best != null && ctx.memory && ctx.memory.record) {
         try {
-          ctx.memory.record("best_lap").submit(Math.round(best), { label: fmtTime(best), dimensions: { circuit: circuit.record } })
+          ctx.memory.record("best_lap").submit(Math.round(best), { label: fmtTime(best), dimensions: { circuit: circuit.record, mode: modeRecord() } })
             .catch(() => {});
         } catch (e) { /* ignore */ }
       }

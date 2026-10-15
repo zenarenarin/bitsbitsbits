@@ -18,7 +18,8 @@
         "scopes": ["following", "global"],
         "dedupe": "best_per_user",
         "dimensions": {
-          "circuit": ["aurora_ring", "monaco", "silverstone", "suzuka", "marina_bay"]
+          "circuit": ["aurora_ring", "monaco", "silverstone", "suzuka", "marina_bay"],
+          "mode": ["race", "time_trial"]
         }
       }
     }
