@@ -8,6 +8,9 @@
   "permissions": ["audio", "haptics", "motion", "storage"],
   "dependencies": ["three@0.164.1"],
   "memory": {
+    "local": {
+      "best_laps": { "label": "Best laps" }
+    },
     "records": {
       "best_lap": {
         "label": "Best Lap",

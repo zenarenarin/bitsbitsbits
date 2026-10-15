@@ -634,13 +634,44 @@ window.plethoraBit = {
       racing = makeRacing();
       loadBest();
     }
-    function loadBest() {
-      try { const bl = ctx.storage.get(bestLapKey()); bestLapStored = (typeof bl === "number" && isFinite(bl)) ? bl : null; } catch (e) { bestLapStored = null; }
-    }
+    function loadBest() { bestLapStored = readPb(bestLapKey()); }
     // personal bests are kept per mode (race / time trial) and per circuit; the v2 keys start everyone fresh
     function bestLapKey() { return "pb2_" + raceMode + "_" + circuit.id; }
     function modeRecord() { return raceMode === "tt" ? "time_trial" : "race"; }
+    // Best laps live in ctx.storage (instant reads) and are mirrored to the viewer's private
+    // memory.local channel, so they survive reinstalls, cleared WebView data and new versions of the Bit.
+    const PB_CHANNEL = "best_laps";
+    const pbMirror = {};
+    function readPb(key) { try { const v = ctx.storage.get(key); return typeof v === "number" && isFinite(v) && v > 0 ? v : null; } catch (e) { return null; } }
+    function savePb(key, ms) {
+      try { ctx.storage.set(key, ms); } catch (e) { /* storage optional */ }
+      pbMirror[key] = Math.round(ms);
+      try { const r = ctx.memory && ctx.memory.local && ctx.memory.local(PB_CHANNEL).set(Object.assign({}, pbMirror)); if (r && r.catch) r.catch(() => {}); } catch (e) { /* memory optional */ }
+    }
+    function syncPbs() {
+      for (const id of Object.keys(CIRCUITS)) for (const m of ["race", "tt"]) { const k = "pb2_" + m + "_" + id, v = readPb(k); if (v != null) pbMirror[k] = Math.round(v); }
+      try {
+        const r = ctx.memory && ctx.memory.local && ctx.memory.local(PB_CHANNEL).get();
+        if (!r || !r.then) return;
+        r.then(saved => {
+          if (disposed || !saved || typeof saved !== "object") return;
+          let changed = false;
+          for (const [k, v] of Object.entries(saved)) {
+            if (!/^pb2_(race|tt)_[a-z]+$/.test(k) || typeof v !== "number" || !isFinite(v) || v <= 0) continue;
+            const cur = pbMirror[k];
+            if (cur == null || v < cur) { pbMirror[k] = v; try { ctx.storage.set(k, v); } catch (e) { /* ignore */ } changed = true; }
+            else if (v > cur) changed = true;
+          }
+          if (changed) {
+            try { const w = ctx.memory.local(PB_CHANNEL).set(Object.assign({}, pbMirror)); if (w && w.catch) w.catch(() => {}); } catch (e) { /* ignore */ }
+          }
+          loadBest();
+          if (state === "circuitSelect") renderCircuits();
+        }).catch(() => {});
+      } catch (e) { /* memory optional */ }
+    }
     loadCircuitData(CIRCUITS[settings.circuit]);
+    syncPbs();
 
     // =====================================================================
     // Renderer / scene
@@ -2573,7 +2604,8 @@ window.plethoraBit = {
         c.style.cssText = "flex:1;min-width:0;flex-direction:column;align-items:stretch;gap:.4em;margin:0;padding:.5em";
         c.innerHTML = `<div style="flex:1;min-height:3em">${circuitPreview(def)}</div>
           <div style="font-family:'Bebas Neue',Inter,sans-serif;font-size:1.12em;letter-spacing:.02em;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${def.name.toUpperCase()}</div>
-          <div style="opacity:.6;font-weight:400;font-size:.8em">${def.night ? '<span style="color:#7fd0ff;opacity:1">NIGHT</span> · ' : ""}${def.length} · ${def.blurb}</div>`;
+          <div style="opacity:.6;font-weight:400;font-size:.8em">${def.night ? '<span style="color:#7fd0ff;opacity:1">NIGHT</span> · ' : ""}${def.length} · ${def.blurb}</div>
+          <div class="fr-ui" style="font-weight:600;font-size:.72em;line-height:1.5"><span style="opacity:.6">RACE</span> ${fmtTime(readPb("pb2_race_" + def.id))} &nbsp;<span style="opacity:.6">TT</span> <span style="color:#b26bff">${fmtTime(readPb("pb2_tt_" + def.id))}</span></div>`;
         box.appendChild(c);
         ctx.input.activate(c, () => {
           if (settings.circuit === def.id) return;
@@ -3232,7 +3264,7 @@ window.plethoraBit = {
       }
       if (valid && (bestLapStored == null || lt < bestLapStored)) {
         bestLapStored = lt;
-        try { ctx.storage.set(bestLapKey(), lt); } catch (e) { /* ignore */ }
+        savePb(bestLapKey(), lt);
       }
     }
     function onPlayerFinish() {
