@@ -2588,11 +2588,14 @@ window.plethoraBit = {
       <div style="position:absolute;inset:0;background:rgba(5,7,12,.72)"></div>
       <div style="position:absolute;left:var(--pl);top:var(--pt);display:flex;gap:.6em;align-items:center">
         <button class="fr-btn fr-cback" style="padding:.4em .8em;font-size:.9em">◀ BACK</button>
-        <div style="font-size:1.6em;letter-spacing:.08em">SELECT CIRCUIT</div>
+        <div class="fr-ctitle" style="font-size:1.6em;letter-spacing:.08em">SELECT CIRCUIT</div>
       </div>
       <div class="fr-circ-col" style="position:absolute;left:var(--pl);right:var(--pr);top:calc(var(--pt) + 3.4em);bottom:var(--pb);display:flex;flex-direction:column">
         <div class="fr-circ-cards" style="flex:1;min-height:0;display:flex;gap:.8em"></div>
-        <button class="fr-menu-btn primary fr-cstart" style="text-align:center;margin-top:.6em">START RACE ▶</button>
+        <div style="display:flex;gap:.6em;margin-top:.6em">
+          <button class="fr-menu-btn fr-cghost fr-hide" style="text-align:center;width:auto;flex:0 0 auto;padding-left:1em;padding-right:1em;border-left-color:#7fd0ff"></button>
+          <button class="fr-menu-btn primary fr-cstart" style="text-align:center;flex:1">START RACE ▶</button>
+        </div>
       </div>
       </div>
       <div class="fr-deck"><div class="fr-circ-deck" style="flex:1;min-height:0;display:flex;flex-direction:column"></div></div>
@@ -2786,11 +2789,23 @@ window.plethoraBit = {
     // ---- menu wiring ----
     const tap = (elm, fn) => ctx.input.activate(elm, () => { audio.init(); audio.resume(); ctx.platform.interact({ type: "ui" }); fn(); });
     tap($(".fr-play", menu), () => startRaceFlow(false, "race"));
-    tap($(".fr-tt", menu), () => openTimeTrial());
+    // circuit selection is shared by races and time trials; circSelMode says which one START begins
+    let circSelMode = "race";
+    function openCircuitSelect(mode) {
+      circSelMode = mode;
+      $(".fr-ctitle", circSel).textContent = mode === "tt" ? "TIME TRIAL · SELECT CIRCUIT" : "SELECT CIRCUIT";
+      $(".fr-cstart", circSel).textContent = mode === "tt" ? "START TIME TRIAL ▶" : "START RACE ▶";
+      $(".fr-cghost", circSel).classList.toggle("fr-hide", mode !== "tt");
+      updateGhostButton();
+      setState("circuitSelect");
+    }
+    function updateGhostButton() { $(".fr-cghost", circSel).textContent = "GHOST: " + (settings.ghost ? "ON" : "OFF"); }
+    tap($(".fr-tt", menu), () => openCircuitSelect("tt"));
+    tap($(".fr-cghost", circSel), () => { settings.ghost = !settings.ghost; saveSettings(); updateGhostButton(); });
     tap($(".fr-cars", menu), () => setState("carSelect"));
-    tap($(".fr-circuits", menu), () => setState("circuitSelect"));
+    tap($(".fr-circuits", menu), () => openCircuitSelect("race"));
     tap($(".fr-cback", circSel), () => setState("menu"));
-    tap($(".fr-cstart", circSel), () => startRaceFlow(false, "race"));
+    tap($(".fr-cstart", circSel), () => startRaceFlow(false, circSelMode));
     tap($(".fr-settings", menu), () => openSettings(false));
     tap($(".fr-back", carSel), () => setState("menu"));
     tap($(".fr-start", carSel), () => startRaceFlow(false, "race"));
@@ -2940,32 +2955,6 @@ window.plethoraBit = {
       const st = $(".fr-psteer", modalBody), tc = $(".fr-ptc", modalBody);
       if (st) st.textContent = "STEER: " + (settings.steering === "motion" ? "TILT" : "BUTTONS");
       if (tc) tc.textContent = "TC: " + ({ off: "OFF", medium: "MEDIUM", full: "FULL" })[settings.tc];
-    }
-    function openTimeTrial() {
-      loadGhost("tt");
-      const render = () => {
-        const seg = (key, opts) => opts.map(([v, t]) => `<button data-k="${key}" data-v="${v}" class="${settings[key] === v ? "sel" : ""}">${t}</button>`).join("");
-        modalBody.innerHTML = `
-          <div style="font-size:1.6em;letter-spacing:.08em">TIME TRIAL</div>
-          <div class="fr-ui" style="font-size:.75em;opacity:.7;margin:.1em 0 .5em">${circuit.name} · one lap, solo against the clock${ghost.data ? ` · ghost ${fmtTime(ghost.data.t)}` : " · your best lap becomes your ghost"}</div>
-          <div class="fr-ui">
-            <div class="fr-row"><div style="font-size:.8em">Ghost car</div><div class="fr-seg">${seg("ghost", [[true, "On"], [false, "Off"]])}</div></div>
-          </div>
-          <div style="display:flex;gap:.6em;margin-top:.6em">
-            <button class="fr-menu-btn fr-ttback" style="text-align:center">BACK</button>
-            <button class="fr-menu-btn primary fr-ttgo" style="text-align:center">START</button>
-          </div>`;
-        for (const b of modalBody.querySelectorAll("button[data-k]")) {
-          bindAct(b, () => {
-            const k = b.dataset.k, raw = b.dataset.v;
-            settings[k] = k === "ghost" ? raw === "true" : Number(raw); saveSettings(); render();
-          });
-        }
-        bindAct($(".fr-ttback", modalBody), () => closeModal());
-        bindAct($(".fr-ttgo", modalBody), () => { closeModal(); startRaceFlow(false, "tt"); });
-      };
-      render();
-      modal.classList.remove("fr-hide");
     }
     function openPauseMenu() {
       // two-column grid so every option (MAIN MENU included) fits on a short landscape screen
