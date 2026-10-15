@@ -3184,7 +3184,7 @@ window.plethoraBit = {
         showHint(effectiveSteering() === "motion" ? "Hold your phone in a comfortable driving position.<br>Rev with GAS — go when the lights go out!" : "Hold GAS to rev — go when the lights go out!", 4.5);
         layoutHud();
       }
-      if (s === "results") showResults();
+      if (s === "results") { audio.silence(); showResults(); }
       else resultsEl.classList.add("fr-hide");
     }
 
@@ -3291,6 +3291,7 @@ window.plethoraBit = {
       finishedT = 0;
       if (raceMode === "tt") banner("TIME TRIAL COMPLETE", 3.2, "#36c8ff");
       else banner(player.finishOrder === 1 ? "VICTORY!" : `FINISHED P${player.finishOrder}`, 3.2, player.finishOrder === 1 ? "#ffcf2e" : "#fff");
+      audio.silence();
       audio.fanfare();
       haptic("success");
       ctx.platform.milestone("race_finished", { position: player.finishOrder });
@@ -4011,7 +4012,7 @@ window.plethoraBit = {
           lineColorT -= dt;
           if (lineColorT <= 0) { lineColorT = 0.12; updateGuideColors(); }
           // audio
-          if (audio.ready) {
+          if (audio.ready && state !== "finished") {   // the race is over: engines, wind and crowd stay silent
             let nearest = null, nd = 1e9;
             for (const c of cars) { if (c === player) continue; const d = Math.hypot(c.x - player.x, c.z - player.z); if (d < nd) { nd = d; nearest = c; } }
             rivalEngineInfo = nearest ? { f: (nearest.rpm || 6000) / 60 * 1.5 * (1 + clamp((player.u - nearest.u) * 0.004, -0.12, 0.12)), g: clamp(1 - nd / 60, 0, 1) * 0.07 } : null;
