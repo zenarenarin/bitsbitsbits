@@ -1802,6 +1802,7 @@ window.plethoraBit = {
     function ghostVisual() {
       if (ghost.vis && ghost.visTeam === settings.livery) return ghost.vis;
       if (ghost.vis) scene.remove(ghost.vis.group);
+      ghost.tag = null; ghost.tagLabel = null;
       const v = buildCar(settings.livery, false);
       if (!ghost.mat) ghost.mat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xb8c0cc, roughness: 0.4, transparent: true, opacity: 0.45, depthWrite: false });
       v.group.traverse(o => {
@@ -1853,11 +1854,29 @@ window.plethoraBit = {
       const x = lerp(p[a + 1], p[b + 1], f) / 10, z = lerp(p[a + 2], p[b + 2], f) / 10;
       const h0 = p[a + 3] / 1000, h = h0 + wrapAngle(p[b + 3] / 1000 - h0) * f;
       const y = track.bridge ? sampleAt(lerp(p[a + 4], p[b + 4], f)).y : 0;
+      updateGhostTag(v);
       v.group.visible = true;
       v.group.position.set(x, y, z);
       v.group.rotation.set(0, h, 0, "YXZ");
     }
     loadGhost();
+    // floating name tag over the ghost: "GHOST · best lap time"
+    function updateGhostTag(v) {
+      const label = "GHOST · " + fmtTime(ghost.data.t);
+      if (ghost.tagLabel === label && ghost.tag) return;
+      if (ghost.tag) { v.group.remove(ghost.tag); ghost.tag.material.map.dispose(); ghost.tag.material.dispose(); }
+      const tex = canvasTexture(256, 48, (g, w, h) => {
+        g.clearRect(0, 0, w, h);
+        g.fillStyle = "rgba(10,14,22,.72)";
+        const r = 14; g.beginPath(); g.moveTo(r, 2); g.lineTo(w - r, 2); g.quadraticCurveTo(w - 2, 2, w - 2, r); g.lineTo(w - 2, h - r); g.quadraticCurveTo(w - 2, h - 2, w - r, h - 2); g.lineTo(r, h - 2); g.quadraticCurveTo(2, h - 2, 2, h - r); g.lineTo(2, r); g.quadraticCurveTo(2, 2, r, 2); g.fill();
+        g.fillStyle = "#ffffff"; g.font = "bold 26px Inter, Arial, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
+        g.fillText(label, w / 2, h / 2 + 1);
+      });
+      const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0.9 }));
+      tag.scale.set(3.2, 0.6, 1); tag.position.set(0, 2.0, 0); tag.renderOrder = 4;
+      v.group.add(tag);
+      ghost.tag = tag; ghost.tagLabel = label;
+    }
     function fetchWorldBest() {
       ghost.world = null;
       try {
