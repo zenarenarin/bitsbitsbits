@@ -120,10 +120,15 @@ window.plethoraBit = {
     }
     function makeCanvas(w, h) {
       w = Math.max(1, Math.ceil(w)); h = Math.max(1, Math.ceil(h));
-      let c = null;
-      try { c = document.createElement("canvas"); c.width = w; c.height = h; } catch (e) { c = null; }
-      if (!c && typeof OffscreenCanvas !== "undefined") c = new OffscreenCanvas(w, h);
-      return c;
+      if (typeof OffscreenCanvas !== "undefined") {
+        try { return new OffscreenCanvas(w, h); } catch (e) { /* fall through */ }
+      }
+      // older WebViews: a hidden SDK-owned canvas used only as an image cache
+      try {
+        const c = ctx.createCanvas2D({ layer: "background", input: "passthrough" });
+        c.style.display = "none"; c.width = w; c.height = h;
+        return c;
+      } catch (e) { return null; }
     }
 
     // =====================================================================
@@ -718,7 +723,11 @@ window.plethoraBit = {
       const keep = o => (o.x1 !== undefined ? o.x1 : o.x !== undefined ? o.x : o.bx) > cut;
       route.anchors = route.anchors.filter(a => a.bx > cut || a === player.anchor);
       route.platforms = route.platforms.filter(p => p.x1 > cut);
-      route.structures = route.structures.filter(s => { const k = s.x + s.w > cut; if (!k) s.sprite = null; return k; });
+      route.structures = route.structures.filter(s => {
+        const k = s.x + s.w > cut;
+        if (!k && s.sprite) { if (s.sprite.cv.remove) s.sprite.cv.remove(); s.sprite = null; }
+        return k;
+      });
       route.rewards = route.rewards.filter(keep);
       route.decor = route.decor.filter(o => (o.x1 !== undefined ? o.x1 : o.x) > cut);
       route.winds = route.winds.filter(w => w.x1 > cut);
