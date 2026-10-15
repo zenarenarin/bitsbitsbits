@@ -63,6 +63,17 @@
         "intent": "gameplay",
         "apply": "restart"
       },
+      "com_front": {
+        "label": "Centre of mass (front weight share)",
+        "type": "number",
+        "default": 0.54,
+        "min": 0.44,
+        "max": 0.62,
+        "step": 0.01,
+        "group": "handling",
+        "intent": "feel",
+        "apply": "restart"
+      },
       "ai_pace": {
         "label": "AI pace multiplier",
         "type": "number",
