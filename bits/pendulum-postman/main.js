@@ -23,7 +23,7 @@ window.plethoraBit = {
     const FIXED_HZ = 120, SUBSTEPS = 2, DT = 1 / (FIXED_HZ * SUBSTEPS);
     const FOG_Y = 1000, DEATH_Y = FOG_Y + 80;
     const HOP_VY = -640, HOP_VX = 170, KICK = 420;
-    const ANCHOR_MIN_Y = 220, ANCHOR_MAX_Y = 620;
+    const ANCHOR_MIN_Y = 220, ANCHOR_MAX_Y = 660;
     const LETTERS_PER_DISTRICT = 4;
     const TAU = Math.PI * 2;
     const FONT_UI = "Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif";
@@ -465,15 +465,15 @@ window.plethoraBit = {
       for (let i = route.clusters.length - 1; i >= 0 && i > route.clusters.length - 24; i--) {
         const c = route.clusters[i];
         if (c.role !== "support") continue;
-        if (Math.abs(c.x - x) < c.w * 0.5 + 30 && c.top < y - 24) {
-          const pt = { x: clamp(x, c.x - c.w * 0.5 + 8, c.x + c.w * 0.5 - 8), y, z: c.z + c.dz * 0.5 + 2 };
+        if (Math.abs(c.x - x) < c.w * 0.5 + 170 && c.top < y - 24) {
+          const pt = { x: clamp(x, c.x - c.w * 0.5 + 8, c.x + c.w * 0.5 - 8), y: Math.max(y, c.top + 30), z: c.z + c.dz * 0.5 + 2 };
           c.brackets.push(pt);
           return pt;
         }
       }
       const P = DISTRICTS[d];
-      const w = rr(rng, 70, 130), dz = rr(rng, 60, 120);
-      const z = (zPref !== undefined ? zPref : -rr(rng, 70, 170)) - dz * 0.5;
+      const w = rr(rng, 80, 140), dz = rr(rng, 70, 120);
+      const z = (zPref !== undefined ? zPref : -rr(rng, 170, 300)) - dz * 0.5;
       const c = addCluster({ x, w, dz, z, top: y - rr(rng, 40, 170), d, role: "support", style: P.style, seed: Math.floor(rng() * 1e9) });
       const pt = { x, y, z: c.z + dz * 0.5 + 2 };
       c.brackets.push(pt);
@@ -533,6 +533,7 @@ window.plethoraBit = {
         const F = ring(A.bx + base * 0.95, A.by - rr(rng, 0, 28) * scale, reach() - 4);
         const N2 = ring(N.bx + base * 0.62, N.by - rr(rng, 30, 50), reach());
         const M = ring(A.bx + base * 1.85, A.by + rr(rng, 30, 60), reach());
+        N.noBias = F.noBias = true; // the fork's geometry is relative to the entry ring
         c.anchors.push(N, F, N2, M);
         c.links.push([A, N, { others: [F] }], [A, F, { others: [N], need: 2 }], [N, N2, { others: [F] }], [N2, M, { others: [] }], [F, M, { others: [N2], need: 3 }]);
         c.exit = M; c.hosts.push(F, N);
@@ -593,7 +594,7 @@ window.plethoraBit = {
       let bias = clamp((400 - A.by) * 0.5, -70, 70);
       if ((type === "rise" && bias < 0) || (type === "dip" && bias > 0)) bias *= 0.3;
       if (Math.abs(bias) > 1) {
-        for (const a of c.anchors) { const ny = cy(a.by + bias), dyb = ny - a.by; a.by = ny; a.hy += dyb; updateAnchorPos(a, 0); a.px = a.x; a.py = a.y; }
+        for (const a of c.anchors) { if (a.noBias) continue; const ny = cy(a.by + bias), dyb = ny - a.by; a.by = ny; a.hy += dyb; updateAnchorPos(a, 0); a.px = a.x; a.py = a.y; }
         for (const rw of c.rewards) rw.y += bias;
         for (const pp of c.plats) pp.y += bias;
       }
@@ -619,7 +620,7 @@ window.plethoraBit = {
 
     // ---- receivers: where a letter goes and how it must arrive ----
     const RECV_TEXT = {
-      chute: "letter hatch", balcony: "high balcony", roofbox: "rooftop box", shutter: "shuttered hatch"
+      chute: "hatch", balcony: "high balcony", roofbox: "rooftop box", shutter: "shuttered hatch"
     };
     function planReceiver(c, d, rng, lap, forced) {
       const P = DISTRICTS[d];
@@ -711,8 +712,7 @@ window.plethoraBit = {
       const x0 = route.frontX, x1 = c.exit.bx;
       if (rng() < 0.8) route.decor.push({ kind: "wire", x0: x0 - rr(rng, 40, 160), y0: rr(rng, 120, 340), z0: -rr(rng, 40, 260), x1: x1 + rr(rng, -40, 80), y1: rr(rng, 120, 340), z1: -rr(rng, 40, 260), sag: rr(rng, 30, 90) });
       if (rng() < 0.35) route.decor.push({ kind: "wire", x0: lerp(x0, x1, 0.2), y0: rr(rng, -40, 120), z0: rr(rng, 60, 140), x1: lerp(x0, x1, 0.9), y1: rr(rng, -40, 120), z1: rr(rng, 60, 140), sag: rr(rng, 30, 70), near: true });
-      const nMid = rng() < 0.3 ? 0 : 1 + Math.floor(rng() * 2);
-      for (let i = 0; i < nMid; i++) addCluster({ x: rr(rng, x0, x1), w: rr(rng, 90, 170), dz: rr(rng, 80, 150), z: -rr(rng, 300, 560), top: rr(rng, 60, 520), d, role: "mid", style: P.style, seed: Math.floor(rng() * 1e9) });
+      if (rng() < 0.45) addCluster({ x: rr(rng, x0, x1), w: rr(rng, 90, 160), dz: rr(rng, 80, 150), z: -rr(rng, 620, 900), top: rr(rng, -100, 420), d, role: "mid", style: P.style, seed: Math.floor(rng() * 1e9) });
       route.last = c.exit;
       route.frontX = c.exit.bx;
       route.encIndex++;
@@ -755,6 +755,8 @@ window.plethoraBit = {
       }
       route.firstInDistrict = false;
       const A = route.last;
+      // a fork needs vertical room below the entry ring for its low branch
+      if (type === "fork" && A.by > 500) type = "rise";
       for (const scale of [1, 0.92, 0.85, 0.78, 0.7]) {
         const crng = mulberry32(hash2(route.seed, route.encIndex * 31 + Math.round(scale * 100)));
         const c = buildCandidate(type, A, d, crng, scale, lap);
@@ -1298,14 +1300,14 @@ window.plethoraBit = {
           speck(g2, s, rng, 500, 0.12, false);
         }),
         timber: tex(256, (g2, s, rng) => {
-          g2.fillStyle = "#b08e6c"; g2.fillRect(0, 0, s, s);
+          g2.fillStyle = "#9c8a76"; g2.fillRect(0, 0, s, s);
           let y = 0;
-          while (y < s) { const h = 10 + rng() * 9; g2.fillStyle = "rgb(" + (140 + rng() * 50 | 0) + "," + (110 + rng() * 40 | 0) + "," + (80 + rng() * 30 | 0) + ")"; g2.fillRect(0, y, s, h - 1.5); g2.fillStyle = "rgba(40,28,18,0.6)"; g2.fillRect(0, y + h - 1.5, s, 1.5); for (let k = 0; k < 3; k++) { g2.fillStyle = "rgba(40,28,18,0.35)"; g2.fillRect(rng() * s, y, 1.2, h - 1.5); } y += h; }
+          while (y < s) { const h = 10 + rng() * 9; g2.fillStyle = "rgb(" + (128 + rng() * 38 | 0) + "," + (112 + rng() * 32 | 0) + "," + (94 + rng() * 26 | 0) + ")"; g2.fillRect(0, y, s, h - 1.5); g2.fillStyle = "rgba(40,28,18,0.6)"; g2.fillRect(0, y + h - 1.5, s, 1.5); for (let k = 0; k < 3; k++) { g2.fillStyle = "rgba(40,28,18,0.35)"; g2.fillRect(rng() * s, y, 1.2, h - 1.5); } y += h; }
           for (let i = 0; i < 400; i++) { g2.fillStyle = "rgba(50,35,20," + 0.12 * rng() + ")"; g2.fillRect(rng() * s, rng() * s, 6 + rng() * 30, 1); }
         }),
         metal: tex(128, (g2, s, rng) => {
           for (let x = 0; x < s; x++) { const v = 0.55 + 0.45 * Math.sin((x / s) * TAU * 8); g2.fillStyle = "rgb(" + (120 + v * 50 | 0) + "," + (122 + v * 48 | 0) + "," + (118 + v * 44 | 0) + ")"; g2.fillRect(x, 0, 1, s); }
-          for (let i = 0; i < 26; i++) { g2.fillStyle = "rgba(" + (140 + rng() * 40 | 0) + "," + (70 + rng() * 30 | 0) + ",40," + (0.25 + rng() * 0.3) + ")"; g2.beginPath(); g2.ellipse(rng() * s, rng() * s, 4 + rng() * 20, 6 + rng() * 26, 0, 0, TAU); g2.fill(); }
+          for (let i = 0; i < 26; i++) { g2.fillStyle = "rgba(" + (120 + rng() * 30 | 0) + "," + (86 + rng() * 20 | 0) + ",62," + (0.12 + rng() * 0.16) + ")"; g2.beginPath(); g2.ellipse(rng() * s, rng() * s, 4 + rng() * 20, 6 + rng() * 26, 0, 0, TAU); g2.fill(); }
           speck(g2, s, rng, 200, 0.2, false);
         }),
         masonry: tex(256, (g2, s, rng) => {
@@ -1325,7 +1327,7 @@ window.plethoraBit = {
         beam: new THREE.MeshLambertMaterial({ vertexColors: true }),
         under: new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }),
         glass: new THREE.MeshLambertMaterial({ color: 0x1f2a2a }),
-        warm: new THREE.MeshBasicMaterial({ color: 0xffc98a }),
+        warm: new THREE.MeshBasicMaterial({ color: 0xf0a85c, toneMapped: false }),
         cloth: new THREE.MeshLambertMaterial({ map: T.cloth, vertexColors: true, side: THREE.DoubleSide }),
         steel: new THREE.MeshLambertMaterial({ color: 0x2b2e2d }),
         cable: new THREE.MeshLambertMaterial({ color: 0x1e2120 }),
@@ -1333,7 +1335,7 @@ window.plethoraBit = {
         rope: new THREE.MeshLambertMaterial({ color: 0x3a312a }),
         laundry: new THREE.MeshLambertMaterial({ color: 0xbdb39c }),
         far: new THREE.MeshLambertMaterial({ vertexColors: false }),
-        farWin: new THREE.MeshBasicMaterial({ color: 0xffbf78 })
+        farWin: new THREE.MeshBasicMaterial({ color: 0xe9a35c, toneMapped: false })
       };
       const TILE = { plaster: 140, timber: 90, metal: 46, masonry: 120 };
 
@@ -1434,8 +1436,8 @@ window.plethoraBit = {
 
       // ---- the architecture library ----
       const PAL = {
-        colony: { walls: [[M.timber, 0xb7987a], [M.plaster, 0xcfc4ad], [M.timber, 0x9c7f63], [M.plaster, 0xb9b39f], [M.metal, 0x9a9688]], roof: [0x7b5a45, 0x6e706a, 0x8a5d43, 0x5f6763], beam: 0x3b2f26, core: [M.masonry, 0xa79f91], frame: 0x3a2f27 },
-        market: { walls: [[M.plaster, 0xc9b99a], [M.timber, 0xa48466], [M.plaster, 0xa9a68f], [M.metal, 0x8f8d80], [M.plaster, 0xb88e72]], roof: [0x84553f, 0x5d6a66, 0x7e6a54, 0x4f5e5b], beam: 0x342a22, core: [M.masonry, 0x9a9384], frame: 0x2f2620 },
+        colony: { walls: [[M.timber, 0xb3a28c], [M.plaster, 0xcbc4b2], [M.timber, 0x9a8a76], [M.plaster, 0xb5b3a3], [M.metal, 0x9a9a8f]], roof: [0x6f5c4e, 0x667069, 0x7a5f4c, 0x5a6562], beam: 0x3a3029, core: [M.masonry, 0xa39e93], frame: 0x352d27 },
+        market: { walls: [[M.plaster, 0xc4b9a2], [M.timber, 0xa08e78], [M.plaster, 0xa8a896], [M.metal, 0x8f8f85], [M.plaster, 0xb39a85]], roof: [0x7a5a48, 0x5b6865, 0x766a5a, 0x4e5c5a], beam: 0x332b25, core: [M.masonry, 0x99948a], frame: 0x2e2722 },
         lift: { walls: [[M.metal, 0x8e8a80], [M.metal, 0x8a6a55], [M.timber, 0x8d7258], [M.plaster, 0xa8a697]], roof: [0x5b5f5c, 0x7a5442, 0x4b5352], beam: 0x2c2826, core: [M.masonry, 0x86817a], frame: 0x2a2624 },
         spine: { walls: [[M.masonry, 0xb2a792], [M.plaster, 0xc2b69c], [M.timber, 0x9a7b5a], [M.masonry, 0x9d927e]], roof: [0x6e5640, 0x5a5f58, 0x7d6448], beam: 0x30281f, core: [M.masonry, 0xa89c86], frame: 0x2e261f },
         stacks: { walls: [[M.plaster, 0xc8c6bb], [M.timber, 0xa58b70], [M.metal, 0x9c9a90], [M.plaster, 0xb0b8b0]], roof: [0x6c7672, 0x8b5d45, 0x5c6764], beam: 0x332c26, core: [M.masonry, 0x9ea19a], frame: 0x2d2824 }
@@ -1447,9 +1449,9 @@ window.plethoraBit = {
         // base band where floor meets wall
         box(B, M.beam, x0 - 1, x1 + 1, bot - 3, bot, z0, z1 + 1.2, pal.beam);
         const w = x1 - x0, h = bot - top;
-        const nW = Math.max(1, Math.round(w / 40));
+        const nW = Math.max(1, Math.round(w / 58));
         for (let i = 0; i < nW; i++) {
-          if (rng() < 0.18) continue;
+          if (rng() < 0.3) continue;
           const ww = rr(rng, 9, 15), wh = Math.min(h - 18, rr(rng, 14, 22));
           if (wh < 8) continue;
           const cx = x0 + (w / nW) * (i + 0.5) + rr(rng, -4, 4);
@@ -1696,7 +1698,7 @@ window.plethoraBit = {
       const CHUNK = 2600;
       function farChunk(i) {
         const rng = mulberry32(hash2(route.seed, 9000 + i));
-        const n = 120, grp = new THREE.Group();
+        const n = 110, grp = new THREE.Group();
         const mat = new THREE.MeshLambertMaterial({ color: 0xffffff });
         const im = new THREE.InstancedMesh(farBox, mat, n);
         const wins = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), M.farWin, 160);
@@ -1705,16 +1707,17 @@ window.plethoraBit = {
         const d = districtIndexFor(Math.max(0, route.letters - 2));
         const styleK = DISTRICTS[d].farTone || 0;
         for (let k = 0; k < n; k++) {
-          const z = -rr(rng, 700, 4200);
+          const z = -rr(rng, 1300, 5200);
           const x = i * CHUNK + rng() * CHUNK;
-          const w = rr(rng, 40, 140) * (1 + (-z / 4200)), dz = rr(rng, 40, 120);
-          const top = k % 9 === 0 ? rr(rng, -1400, -600) : rr(rng, -600, 650);
+          const spire = k % 14 === 0;
+          const w = (spire ? rr(rng, 26, 50) : rr(rng, 34, 110)) * (1 + (-z / 5200) * 0.8), dz = rr(rng, 40, 110);
+          const top = spire ? rr(rng, -1300, -500) : rr(rng, -250, 700);
           const h = FOG_Y + 400 - top;
           m4.makeScale(w, h, dz); m4.setPosition(x, -(FOG_Y + 400), z);
           im.setMatrixAt(k, m4);
-          col.setHSL(0.42 + rng() * 0.08, 0.06 + rng() * 0.06, 0.36 + rng() * 0.12 + styleK);
+          col.setHSL(0.4 + rng() * 0.1, 0.05 + rng() * 0.05, 0.22 + rng() * 0.1 + styleK);
           im.setColorAt(k, col);
-          const lit = Math.floor(rng() * 3);
+          const lit = rng() < 0.5 ? 1 : 0;
           for (let j = 0; j < lit && wi < 160; j++) {
             m4.makeScale(5, 6, 1); m4.setPosition(x + rr(rng, -w * 0.4, w * 0.4), -rr(rng, Math.max(top + 20, 0), FOG_Y - 60), z + dz / 2 + 1);
             wins.setMatrixAt(wi++, m4);
@@ -2035,7 +2038,7 @@ window.plethoraBit = {
         camD = (Hd / S) / 2 / FOV_T;
         camera.near = Math.max(20, camD - 1500); camera.far = camD + 6000;
         camera.updateProjectionMatrix();
-        fog.near = camD - 60; fog.far = camD + 3900;
+        fog.near = camD - 20; fog.far = camD + 2300;
       }
       function frame(dt, time, alpha, rx, ry, pred) {
         camera.position.set(cam.x, -cam.y, camD);
@@ -2141,9 +2144,10 @@ window.plethoraBit = {
       }
       function updateCourier(dt, time, x, y) {
         const a = player.anchor;
-        const sc2 = Math.max(1, 24 / (30 * S));
+        const sc2 = Math.max(1, 27 / (30 * S));
         const cr = courier;
-        cr.root.position.set(x, -y + 2 * sc2, 2);
+        vis.lift = lerp(vis.lift || 0, player.mode === "ground" ? 17.5 * sc2 : 0, 1 - Math.exp(-dt * 14));
+        cr.root.position.set(x, -y + vis.lift, 2);
         cr.root.scale.setScalar(sc2);
         let target;
         if (a && player.mode !== "ground") target = Math.atan2(a.x - x, -(a.y - y));
@@ -2186,7 +2190,8 @@ window.plethoraBit = {
           const end = [ax, -(ay + anchorRadius(a) - 1.5), 0.5];
           const ex = [lerp(reelW.x, end[0], fx.ropeExtend), lerp(reelW.y, end[1], fx.ropeExtend), lerp(reelW.z, end[2], fx.ropeExtend)];
           const d = Math.hypot(end[0] - reelW.x, end[1] - reelW.y);
-          const slack = (player.mode === "slack" || player.mode === "ground") ? Math.sqrt(Math.max(0, player.L * player.L - d * d)) * 0.5 : 0;
+          const dPhys = Math.hypot(player.x - a.x, player.y - a.y);
+          const slack = player.mode === "slack" ? Math.sqrt(Math.max(0, player.L * player.L - dPhys * dPhys)) * 0.5 : 0;
           fx.ropeVib *= Math.exp(-dt * 8);
           pts = [];
           const nx = -(ex[1] - reelW.y) / (d || 1), ny = (ex[0] - reelW.x) / (d || 1);
@@ -2203,7 +2208,7 @@ window.plethoraBit = {
           if (t >= 1) fx.retract = null;
         }
         rope.mesh.visible = !!pts;
-        if (pts) rope.update(pts, 1.0 * Math.max(1, 0.9 / S * 0.6));
+        if (pts) rope.update(pts, Math.max(1.1, 1.15 / S));
       }
       function setQuality(level) {
         // 2: full, 1: no shadows, 0: no shadows and lower resolution
@@ -2254,7 +2259,7 @@ window.plethoraBit = {
   .pp { position:absolute; inset:0; font-family:${FONT_UI}; color:#ede8dc; -webkit-font-smoothing:antialiased; pointer-events:none; }
   .pp * { box-sizing:border-box; }
   .pp .bar { position:absolute; left:0; right:0; top:0; display:flex; justify-content:space-between; align-items:flex-start; padding:0 18px; }
-  .pp .to { margin-top:2px; max-width:62%; transition:opacity .4s; text-shadow:0 1px 10px rgba(20,26,24,.45); }
+  .pp .to { margin-top:2px; max-width:72%; transition:opacity .4s; text-shadow:0 1px 10px rgba(20,26,24,.45); }
   .pp .to .n { font-weight:600; font-size:15px; letter-spacing:.005em; }
   .pp .to .d { font-weight:400; font-size:12.5px; opacity:.74; margin-top:2px; }
   .pp .right { display:flex; align-items:center; gap:4px; }
@@ -2274,7 +2279,7 @@ window.plethoraBit = {
   .pp .screen.on { display:block; }
   .pp .shade { position:absolute; inset:0; background:linear-gradient(180deg, rgba(18,24,22,0) 38%, rgba(18,24,22,.62) 100%); }
   .pp .block { position:absolute; left:24px; right:24px; }
-  .pp .title { font-family:${FONT_DISPLAY}; font-weight:500; font-size:clamp(28px, 9vw, 46px); letter-spacing:.18em; line-height:1.02; text-transform:uppercase; }
+  .pp .title { font-family:${FONT_DISPLAY}; font-weight:500; font-size:clamp(26px, min(9vw, 7.5vh), 46px); letter-spacing:.18em; line-height:1.02; text-transform:uppercase; }
   .pp .sub { font-size:15px; opacity:.8; margin-top:12px; max-width:320px; line-height:1.4; }
   .pp .cta { margin-top:22px; padding:12px 26px; background:#ece5d6; color:#1d2422; font-weight:600; font-size:15px; letter-spacing:.02em; border-radius:2px; }
   .pp .big { font-family:${FONT_DISPLAY}; font-weight:400; font-size:64px; line-height:1; letter-spacing:-.01em; }
@@ -2314,7 +2319,7 @@ window.plethoraBit = {
       function place() {
         const top = (ctx.safeArea && ctx.safeArea.top) || 0, bot = (ctx.safeArea && ctx.safeArea.bottom) || 0;
         el.bar.style.paddingTop = (top + 12) + "px";
-        el.toast.style.top = (top + 64) + "px";
+        el.toast.style.top = (top + 70) + "px";
         el.district.style.top = (top + 96) + "px";
         el.teach.style.bottom = (bot + 34) + "px";
         for (const b of blocks) b.style.bottom = (bot + 40) + "px";
@@ -2353,10 +2358,11 @@ window.plethoraBit = {
             lastLetter = L;
             if (L) {
               el.n.textContent = "To " + L.name;
-              const how = L.type === "chute" || L.type === "shutter" ? (L.dir > 0 ? " · enter moving right" : " · enter moving left") : L.type === "roofbox" ? " · drop in from above" : "";
-              el.d.textContent = "No. " + L.number + ", " + RECV_TEXT[L.type] + how;
+              const how = L.type === "chute" || L.type === "shutter" ? (L.dir > 0 ? ", from the left" : ", from the right") : L.type === "roofbox" ? ", drop in" : "";
+              el.d.textContent = "No. " + L.number + " · " + RECV_TEXT[L.type] + how;
             } else { el.n.textContent = ""; el.d.textContent = ""; }
           }
+          if (!playing) { toastT = 0; distT = 0; el.toast.className = "toast"; el.district.className = "district"; el.teach.className = "teach"; }
           if (toastT > 0) { toastT -= dt; if (toastT <= 0) el.toast.className = el.toast.className.replace(" on", ""); }
           if (teachT > 0 && !paused) { teachT -= dt; if (teachT <= 0) { el.teach.className = "teach"; if (teachKey) records.seen[teachKey] = true; } }
           if (distT > 0) { distT -= dt; if (distT <= 0) el.district.className = "district"; }
@@ -2409,7 +2415,7 @@ window.plethoraBit = {
       const L = activeLetter();
       if (L && Math.abs(L.x - rx) < wW * 0.7) ty = lerp(ty, L.y, 0.15);
       ty = Math.min(ty, FOG_Y + 150 - wH / 2);
-      if (gameState === "title") { tx = rx + wW * 0.18; ty = Math.min(ry - wH * 0.08, FOG_Y + 150 - wH / 2); }
+      if (gameState === "title") { tx = Wd > Hd ? rx - wW * 0.14 : rx + wW * 0.18; ty = Math.min(ry - wH * (Wd > Hd ? 0.12 : 0.08), FOG_Y + 150 - wH / 2); }
       if (gameState === "dying" || gameState === "results") { tx = cam.x; ty = cam.y; }
       if (cam.snap) { cam.x = tx; cam.y = ty; cam.snap = false; }
       else { cam.x += (tx - cam.x) * (1 - Math.exp(-dt * 3.4)); cam.y += (ty - cam.y) * (1 - Math.exp(-dt * 2.6)); }
