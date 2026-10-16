@@ -4,7 +4,7 @@ window.plethoraBit = {
     runtime: "plethora-bit@2",
     tags: ["arcade", "physics", "swing", "delivery"],
     permissions: ["haptics", "audio", "backgroundMusic", "storage"],
-    dependencies: ["three@0.164.1", "space-grotesk@1.0.0", "inter@1.0.0"]
+    dependencies: ["three@0.164.1"]
   },
 
   async init(ctx) {

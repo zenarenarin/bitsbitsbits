@@ -17,9 +17,7 @@
     "storage"
   ],
   "dependencies": [
-    "three@0.164.1",
-    "space-grotesk@1.0.0",
-    "inter@1.0.0"
+    "three@0.164.1"
   ],
   "memory": {
     "records": {
