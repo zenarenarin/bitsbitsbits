@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "Pendulum Postman Compact",
+  "description": "Swing a courier through a vertical city above the fog. Read your momentum, choose your ring, shape the line, and post each letter through its window.",
+  "tags": [
+    "arcade",
+    "physics",
+    "swing",
+    "delivery"
+  ],
+  "permissions": [
+    "haptics",
+    "audio",
+    "backgroundMusic",
+    "storage"
+  ],
+  "dependencies": [
+    "three@0.164.1"
+  ],
+  "memory": {
+    "records": {
+      "score": {
+        "label": "Postal Ledger",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": [
+          "daily",
+          "weekly",
+          "all_time"
+        ],
+        "scopes": [
+          "following",
+          "global"
+        ],
+        "dedupe": "best_per_user"
+      }
+    }
+  },
+  "onboarding": {
+    "kind": "one_line",
+    "version": 2,
+    "message": "Tap to let go of the line; your hook catches the next ring in reach. Drag up or down to reel."
+  }
+}
