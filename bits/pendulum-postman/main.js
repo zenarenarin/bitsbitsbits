@@ -34,27 +34,27 @@ window.plethoraBit = {
       {
         name: "The Roof Colony", sky: ["#b9c2b6", "#93a69c"], fog: "#839790", sun: "#ffe1bd", sunI: 2.1, hemiSky: "#c6d1c7", hemiGround: "#3e4943",
         style: "colony", reach: [170, 182], dx: [220, 270], dy: [-55, 55], amp: 0.9, req: 6, reel: false, plat: 0.6, letterEvery: 2,
-        sig: "fork", pool: { gap: 2, rise: 2, dip: 1, fork: 3 }, recv: { chute: 3, balcony: 1 }, zoneR: 34
+        sig: "fork", pool: { gap: 2, rise: 2, dip: 1, fork: 3 }, recv: { chute: 2, balcony: 1, flythrough: 2 }, zoneR: 34
       },
       {
         name: "The Wire Market", sky: ["#b8bba8", "#8d9b8f"], fog: "#7b8b81", sun: "#ffdcb0", sunI: 2.0, hemiSky: "#c4c9b8", hemiGround: "#3f4640",
         style: "market", reach: [164, 176], dx: [230, 285], dy: [-65, 70], amp: 0.95, req: 5, reel: true, plat: 0.5, letterEvery: 2,
-        sig: "laundry", pool: { gap: 1, rise: 1, dip: 1, fork: 3, laundry: 2, reelroof: 2 }, recv: { chute: 2, balcony: 2, roofbox: 2 }, zoneR: 30
+        sig: "laundry", pool: { gap: 1, rise: 1, dip: 1, fork: 3, laundry: 2, reelroof: 2 }, recv: { chute: 1, balcony: 2, flythrough: 3, roofbox: 2 }, zoneR: 30
       },
       {
         name: "The Liftworks", sky: ["#aeb6b4", "#7f8f90"], fog: "#6f8183", sun: "#f3e1c8", sunI: 1.8, hemiSky: "#bcc6c6", hemiGround: "#363e40",
         style: "lift", reach: [158, 172], dx: [240, 295], dy: [-75, 80], amp: 1.0, req: 4, reel: true, plat: 0.4, letterEvery: 2,
-        sig: "pulley", pool: { gap: 1, fork: 2, laundry: 1, pulley: 3, reelroof: 1, longline: 2 }, recv: { chute: 2, balcony: 2, roofbox: 1 }, zoneR: 28
+        sig: "pulley", pool: { gap: 1, fork: 2, laundry: 1, pulley: 3, reelroof: 1, longline: 2 }, recv: { chute: 2, balcony: 2, flythrough: 3, roofbox: 2 }, zoneR: 28
       },
       {
         name: "The Clock Spine", sky: ["#c2b9a3", "#94988a"], fog: "#828676", sun: "#ffd6a0", sunI: 2.2, hemiSky: "#cdc5b0", hemiGround: "#433f36",
         style: "spine", reach: [152, 168], dx: [245, 300], dy: [-80, 90], amp: 1.05, req: 3, reel: true, plat: 0.3, letterEvery: 2,
-        sig: "clock", pool: { fork: 2, pulley: 1, clock: 3, fragile: 2, longline: 1, reelroof: 1 }, recv: { chute: 1, balcony: 2, roofbox: 1, shutter: 2 }, zoneR: 26
+        sig: "clock", pool: { fork: 2, pulley: 1, clock: 3, fragile: 2, longline: 1, reelroof: 1 }, recv: { chute: 1, balcony: 2, flythrough: 2, roofbox: 1, shutter: 2 }, zoneR: 26
       },
       {
         name: "The Upper Stacks", sky: ["#cfd3cb", "#a3b3b0"], fog: "#90a19f", sun: "#fff0dc", sunI: 2.4, hemiSky: "#d6ddd8", hemiGround: "#47504e",
         style: "stacks", reach: [148, 165], dx: [250, 310], dy: [-80, 100], amp: 1.1, req: 3, reel: true, plat: 0.22, letterEvery: 2,
-        sig: "wind", pool: { fork: 2, wind: 3, pulley: 1, clock: 1, fragile: 1, laundry: 1, longline: 1, reelroof: 1 }, recv: { chute: 1, balcony: 2, roofbox: 2, shutter: 2 }, zoneR: 24
+        sig: "wind", pool: { fork: 2, wind: 3, pulley: 1, clock: 1, fragile: 1, laundry: 1, longline: 1, reelroof: 1 }, recv: { chute: 1, balcony: 2, flythrough: 3, roofbox: 2, shutter: 2 }, zoneR: 24
       }
     ];
 
@@ -294,7 +294,7 @@ window.plethoraBit = {
     function mkAnchor(kind, x, y, reach, extra) {
       const a = Object.assign({
         id: ++uid, kind, bx: x, by: y, x, y, vx: 0, vy: 0, px: x, py: y, reach, catchable: true,
-        locked: false, broken: false, sag: 0, sagV: 0, sagMax: 14, load: 0, hold: 0, glint: 0, vib: 0,
+        locked: false, broken: false, sag: 0, sagV: 0, sagMax: 10, load: 0, hold: 0, glint: 0, vib: 0,
         phase: 0, speed: 0, amp: 0, cx: x, hx: x, hy: y, R: 0, ang: 0, angV: 0, life: 0
       }, extra || {});
       updateAnchorPos(a, 0);
@@ -311,8 +311,9 @@ window.plethoraBit = {
         a.x = a.hx + Math.cos(a.ang) * a.R; a.y = a.hy + Math.sin(a.ang) * a.R;
       } else if (a.kind === "laundry") {
         const tgt = a.load ? a.sagMax : 0;
-        // critically damped: the line gives under load and settles, so the pivot stays readable
-        a.sagV += (140 * (tgt - a.sag) - 2 * Math.sqrt(140) * a.sagV) * dt;
+        // critically damped and stiff: the line visibly gives under load but settles in
+        // about a tenth of a second, so a release is never spoiled by a still-moving pivot
+        a.sagV += (900 * (tgt - a.sag) - 60 * a.sagV) * dt;
         a.sag += a.sagV * dt;
         a.x = a.bx; a.y = a.by + a.sag;
       } else { a.x = a.bx; a.y = a.by; }
@@ -430,17 +431,142 @@ window.plethoraBit = {
       }
       return false;
     }
-    // A rooftop box is fair only if real releases from the host land on it.
-    function roofboxScore(host, plat, zx, zr, plats, wind, Ls, amp) {
-      let n = 0;
-      for (const Lf of Ls) {
-        const states = swingStates({ x: host.bx, y: host.by }, clamp(host.reach * Lf, LMIN, LMAX), amp, 40, wind);
-        for (const s of states) {
-          const r = flightOutcome(s, [], plats, wind);
-          if (r && r.landed === plat && Math.abs(r.x - zx) < zr) n++;
-        }
+    // A full released flight, sampled, plus what it met first.
+    function tracePath(s, anchors, plats, wind) {
+      const q = makePlayer();
+      q.x = s.x; q.y = s.y; q.vx = s.vx; q.vy = s.vy; q.mode = "fly";
+      let caught = null, landed = null, impact = 0;
+      const W = { wind, platforms: plats, anchors, ev: (t, d) => { if (t === "catch") caught = d.a; else if (t === "land") { landed = q.plat; impact = d; } } };
+      const pts = [];
+      for (let i = 0; i < 640; i++) {
+        stepPlayer(q, DT, W);
+        if (landed || caught || q.y > DEATH_Y) break;
+        pts.push(q.x, q.y, q.vx);
       }
-      return n;
+      return { caught, landed, impact, pts, x: q.x };
+    }
+    // Every sampled release on a transfer H -> X, traced against the real surroundings.
+    function pairProxies(pair) {
+      const list = (pair.opts.others || []).map(o => proxyAnchor(o, o.bx, o.by));
+      const px = proxyAnchor(pair.X, pair.X.bx, pair.X.by);
+      list.push(px);
+      return { list, px };
+    }
+    function transferFlights(pair, P, plats, wind) {
+      const { H } = pair, { list, px } = pairProxies(pair);
+      const Ls = pair.opts.Ls || (P.reel ? [1, 0.85, 0.7] : [1, 0.85]);
+      const src = { x: H.bx, y: H.by + (H.kind === "laundry" ? H.sagMax : 0) };
+      const out = [];
+      for (const Lf of Ls) {
+        const states = swingStates(src, clamp(H.reach * Lf, LMIN, LMAX), pair.opts.amp || P.amp, 40, wind, pair.opts.maxT);
+        for (const st of states) { const f = tracePath(st, list, plats, wind); f.ok = f.caught === px; out.push(f); }
+      }
+      return out;
+    }
+    function passesZone(f, zx, zy, zr) {
+      const r2 = zr * zr, p = f.pts;
+      for (let i = 0; i < p.length; i += 3) { const dx = p[i] - zx, dy = p[i + 1] - zy; if (dx * dx + dy * dy < r2 && p[i + 2] > 0) return true; }
+      return false;
+    }
+    function segDist(a, pl) {
+      const x = clamp(a.bx, pl.x0, pl.x1);
+      return Math.hypot(a.bx - x, a.by - pl.y);
+    }
+    // Transfers a receiver can sit on: host and next ring both fixed in place.
+    function receiverPairs(c, rng) {
+      const out = [];
+      for (const [src, dst, opts] of c.links) {
+        if (src.kind === "pulley" || src.kind === "clock" || dst.kind === "pulley" || dst.kind === "clock") continue;
+        if (src.isDelivery || src.start || dst.bx - src.bx < 170) continue;
+        out.push({ H: src, X: dst, opts: opts || {}, pri: c.type === "fork" && dst === c.anchors[1] ? 1 : rng() * 0.5 });
+      }
+      // the fork's high line first: that is where the choice already is
+      return out.sort((a, b) => b.pri - a.pri);
+    }
+    // A window across the gap: it only takes a letter in flight, and it sits on the line
+    // of some successful releases but not most, so the release itself is the delivery.
+    const FLY_SWINGS = [[1, 0.8], [0.9, 0.95], [1, 1.1], [0.82, 0.88]];
+    function planFlythrough(pair, P, rng, zr, plats, wind) {
+      const { H, X } = pair;
+      // the swing a player actually has varies, so the window must sit on the line of
+      // every typical swing (length and strength), yet on only part of each
+      const sets = FLY_SWINGS.map(([Lf, amp]) => transferFlights({ H, X, opts: Object.assign({}, pair.opts, { Ls: [Lf], amp: amp * (P.amp / 0.9) }) }, P, plats, wind).filter(f => f.ok));
+      if (sets.some(g => g.length < 4)) return null;
+      const all = [].concat(...sets);
+      // rasterise every flight onto a grid of candidate window centres
+      const STEP = 10, gx0 = H.bx + 70, gx1 = X.bx - 20;
+      let gy0 = 1e9, gy1 = -1e9;
+      for (const f of all) for (let i = 1; i < f.pts.length; i += 3) { gy0 = Math.min(gy0, f.pts[i]); gy1 = Math.max(gy1, f.pts[i]); }
+      gy0 = Math.max(100, gy0 - zr); gy1 = Math.min(FOG_Y - 150, gy1 + zr);
+      const nx = Math.floor((gx1 - gx0) / STEP) + 1, ny = Math.floor((gy1 - gy0) / STEP) + 1;
+      if (nx < 1 || ny < 1) return null;
+      const counts = sets.map(() => new Uint16Array(nx * ny)), stamp = new Int32Array(nx * ny).fill(-1);
+      const rc = Math.ceil(zr / STEP), r2 = zr * zr;
+      let fid = 0;
+      sets.forEach((g, si) => {
+        for (const f of g) {
+          fid++;
+          const p = f.pts;
+          for (let i = 0; i < p.length; i += 3) {
+            if (p[i + 2] <= 0) continue;
+            const cx = Math.round((p[i] - gx0) / STEP), cy = Math.round((p[i + 1] - gy0) / STEP);
+            for (let iy = Math.max(0, cy - rc); iy <= Math.min(ny - 1, cy + rc); iy++) {
+              for (let ix = Math.max(0, cx - rc); ix <= Math.min(nx - 1, cx + rc); ix++) {
+                const c = iy * nx + ix;
+                if (stamp[c] === fid) continue;
+                const dx = gx0 + ix * STEP - p[i], dy = gy0 + iy * STEP - p[i + 1];
+                if (dx * dx + dy * dy < r2) { stamp[c] = fid; counts[si][c]++; }
+              }
+            }
+          }
+        }
+      });
+      const okCells = [];
+      let bestWorst = 2;
+      for (let c = 0; c < nx * ny; c++) {
+        // every typical swing reaches it, and all but one of them with some margin
+        let worst = 1e9, second = 1e9, hit = 0;
+        for (const cn of counts) { const h = cn[c]; if (h < worst) { second = worst; worst = h; } else if (h < second) second = h; hit += h; }
+        if (worst < 1 || second < 2 || hit > all.length * 0.55) continue;
+        worst = second;
+        if (worst > bestWorst) { bestWorst = worst; okCells.length = 0; }
+        // prefer windows off the hanging swing's arc, so the window reads as out in the gap
+        const gx = gx0 + (c % nx) * STEP, gy = gy0 + Math.floor(c / nx) * STEP;
+        const offArc = Math.hypot(gx - H.bx, gy - H.by) > H.reach + zr * 0.6;
+        if (worst >= bestWorst - 1) okCells.push([c, hit, offArc]);
+      }
+      if (!okCells.length) return null;
+      const pool = okCells.some(o => o[2]) ? okCells.filter(o => o[2]) : okCells;
+      const [c, hit] = pool[Math.floor(rng() * pool.length)];
+      return { type: "flythrough", host: H, next: X, x: gx0 + (c % nx) * STEP, y: gy0 + Math.floor(c / nx) * STEP, r: zr, dir: 1, odds: hit / all.length };
+    }
+    // A rooftop box: a deck under the gap, below both swings. Early, low releases drop
+    // onto it, later ones carry on to the next ring, and a hop from anywhere on it
+    // reaches that ring again.
+    function planRoofbox(pair, P, rng, plats, wind) {
+      const { H, X } = pair;
+      const { list, px } = pairProxies(pair);
+      for (let k = 0; k < 5; k++) {
+        const w = rr(rng, 112, 146);
+        const cx = lerp(H.bx, X.bx, rr(rng, 0.42, 0.62));
+        const plat = { x0: cx - w / 2, x1: cx + w / 2, y: Math.max(H.by, X.by) + 60, id: -1 };
+        while (plat.y < FOG_Y && (segDist(H, plat) < H.reach + 14 || segDist(X, plat) < X.reach + 12)) plat.y += 8;
+        plat.y += rr(rng, 0, 24);
+        if (plat.y > FOG_Y - 120) continue;
+        const pl2 = plats.concat([plat]);
+        const fl = transferFlights(pair, P, pl2, wind);
+        const land = fl.filter(f => f.landed === plat).length, direct = fl.filter(f => f.ok).length;
+        if (land < 4 || direct < 3) continue;
+        let hopOk = true;
+        for (const hx of [plat.x0 + 8, cx, plat.x1 - 8]) {
+          const f = tracePath({ x: hx, y: plat.y, vx: HOP_VX, vy: HOP_VY }, list, pl2, wind);
+          if (f.caught !== px) { hopOk = false; break; }
+        }
+        if (!hopOk) continue;
+        const bx = cx + rr(rng, -10, 16);
+        return { type: "roofbox", host: H, next: X, x: bx, y: plat.y - 10, r: w / 2, plat, dir: 0, odds: land / (land + direct) };
+      }
+      return null;
     }
 
     // =====================================================================
@@ -546,7 +672,7 @@ window.plethoraBit = {
         c.plats.push({ x: R.bx + rr(rng, -10, 20), w: rr(rng, 150, 190), y: top, kind: "obstacle" });
         c.anchors.push(R, Cn); c.exit = Cn; c.hosts.push(R);
         c.links.push([A, R, { others: [] }], [R, Cn, { others: [], Ls: [0.66, 0.6], obstacle: true }]);
-        c.reelHost = { L: 0.64 };
+        c.reelHost = { L: 0.64 }; R.reelLesson = true;
         c.hint = { a: R.id, text: "A roof sits under this swing. Drag up to reel in and clear it", key: "reel" };
       } else if (type === "longline") {
         const B = ring(A.bx + A.reach * rr(rng, 1.85, 2.05) * scale, A.by + rr(rng, 40, 80) * scale, reach());
@@ -620,26 +746,27 @@ window.plethoraBit = {
 
     // ---- receivers: where a letter goes and how it must arrive ----
     const RECV_TEXT = {
-      chute: "hatch", balcony: "high balcony", roofbox: "rooftop box", shutter: "shuttered hatch"
+      chute: "hatch", balcony: "high balcony", roofbox: "rooftop box", shutter: "shuttered hatch", flythrough: "gap window"
+    };
+    const RECV_HINT = {
+      flythrough: "This window sits out in the gap. Let go so your flight passes through it",
+      roofbox: "The rooftop box is below the line. Let go early to drop onto its roof"
     };
     function planReceiver(c, d, rng, lap, forced) {
       const P = DISTRICTS[d];
       const wind = windFnFor(route.winds.concat(c.winds));
-      const tries = forced ? [forced] : [weighted(rng, P.recv), "chute"];
+      const tries = forced ? [forced, "chute"] : [weighted(rng, P.recv), "chute"];
+      const zr = Math.max(18, P.zoneR - Math.min(6, lap * 2));
       for (const type of tries) {
-        for (const host of c.hosts) {
-          const zr = Math.max(18, P.zoneR - Math.min(6, lap * 2));
-          if (type === "roofbox") {
-            for (let k = 0; k < 4; k++) {
-              const zx = host.bx + rr(rng, 120, 190), top = clamp(host.by + rr(rng, 170, 240), 520, FOG_Y - 120);
-              const plat = { x0: zx - rr(rng, 50, 70), x1: zx + rr(rng, 40, 60), y: top, id: -1 };
-              const plats = candPlats(c).concat([plat]);
-              if (roofboxScore(host, plat, zx, zr, plats, wind, P.reel ? [1, 0.85, 0.7] : [1, 0.85], P.amp) >= 2) {
-                return { type, host, x: zx, y: top - 10, r: zr, plat, dir: 0 };
-              }
-            }
-            continue;
+        if (type === "roofbox" || type === "flythrough") {
+          const plats = candPlats(c);
+          for (const pair of receiverPairs(c, rng)) {
+            const r = type === "roofbox" ? planRoofbox(pair, P, rng, plats, wind) : planFlythrough(pair, P, rng, zr + 4, plats, wind);
+            if (r) return r;
           }
+          continue;
+        }
+        for (const host of c.hosts) {
           let phi, dz, dir = 1;
           const reelFactor = c.reelHost && host === c.hosts[0] ? c.reelHost.L : null;
           if (reelFactor) dz = host.reach * reelFactor;
@@ -649,7 +776,7 @@ window.plethoraBit = {
           else { phi = rr(rng, 0.08, 0.42); if (d >= 2 && rng() < 0.3) { phi = -phi; } if (d >= 1 && rng() < 0.25) dir = -1; }
           if (type === "shutter") phi = Math.sign(phi) * Math.min(Math.abs(phi), 0.35);
           return {
-            type, host, phi, dz, dir, r: type === "balcony" ? zr + 4 : zr,
+            type, host, phi, dz, dir, r: type === "balcony" ? zr + 4 : zr, reelNeed: Math.abs(dz / host.reach - 1) > 0.12,
             x: host.bx + Math.sin(phi) * dz, y: host.by + Math.cos(phi) * dz,
             cycle: type === "shutter" ? { period: rr(rng, 3.2, 4.2), open: 0.55, phase: rng() * TAU } : null
           };
@@ -658,7 +785,7 @@ window.plethoraBit = {
       return null;
     }
 
-    function commitCandidate(c, d, rng, wantLetter, forcedRecv) {
+    function commitCandidate(c, d, rng, wantLetter, forcedRecv, preRecv) {
       const P = DISTRICTS[d];
       for (const a of c.anchors) { a.d = d; route.anchors.push(a); decorateAnchor(a, d, rng); }
       for (const w of c.winds) route.winds.push(w);
@@ -683,7 +810,7 @@ window.plethoraBit = {
         }
       }
       let recv = null;
-      if (wantLetter) recv = planReceiver(c, d, rng, lapFor(route.letters), forcedRecv);
+      if (wantLetter) recv = preRecv || planReceiver(c, d, rng, lapFor(route.letters), forcedRecv);
       if (recv) {
         const n = route.deliveries.length;
         let hostCluster = null;
@@ -704,6 +831,7 @@ window.plethoraBit = {
         route.deliveries.push(L);
         if (hostCluster) hostCluster.recv = L;
         else addCluster({ x: L.x + rr(rng, -10, 30) * (L.dir || 1), w: rr(rng, 140, 190), dz: rr(rng, 70, 110), z: -24 - 50, top: L.y - rr(rng, 70, 140), d, role: "recipient", style: P.style, seed: Math.floor(rng() * 1e9), recv: L });
+        if (RECV_HINT[L.type] && !route.hints[L.type]) route.hints[L.type] = { a: L.D.id, text: RECV_HINT[L.type], key: L.type, onEntry: true };
         route.letters++;
         route.sinceLetter = 0;
       } else route.sinceLetter++;
@@ -727,8 +855,8 @@ window.plethoraBit = {
       { type: "gap", letter: "chute" },
       { type: "fork", letter: "balcony" },
       { type: "reelroof", letter: "chute" },
-      { type: "rise", letter: null },
-      { type: "dip", letter: "roofbox" }
+      { type: "gap", letter: "flythrough" },
+      { type: "dip", letter: null }
     ];
     function addEncounter() {
       const opening = route.opening < OPENING.length ? OPENING[route.opening] : null;
@@ -757,11 +885,16 @@ window.plethoraBit = {
       const A = route.last;
       // a fork needs vertical room below the entry ring for its low branch
       if (type === "fork" && A.by > 500) type = "rise";
+      // a taught receiver in the opening is worth a few seeded variations of the encounter
+      const special = forcedRecv === "flythrough" || forcedRecv === "roofbox";
       for (const scale of [1, 0.92, 0.85, 0.78, 0.7]) {
-        const crng = mulberry32(hash2(route.seed, route.encIndex * 31 + Math.round(scale * 100)));
-        const c = buildCandidate(type, A, d, crng, scale, lap);
-        if (validateCandidate(c, d)) {
-          commitCandidate(c, d, crng, wantLetter, forcedRecv);
+        for (let v = 0; v < (special ? 5 : 1); v++) {
+          const crng = mulberry32(hash2(route.seed, route.encIndex * 31 + Math.round(scale * 100) + v * 7919));
+          const c = buildCandidate(type, A, d, crng, scale, lap);
+          if (!validateCandidate(c, d)) continue;
+          let pre = null;
+          if (special) { pre = planReceiver(c, d, crng, lap, forcedRecv); if ((!pre || pre.type !== forcedRecv) && v < 4) continue; }
+          commitCandidate(c, d, crng, wantLetter, forcedRecv, pre);
           if (route.genLog.length < 200) route.genLog.push(type + "@" + scale);
           return;
         }
@@ -843,7 +976,7 @@ window.plethoraBit = {
       run = {
         seed, score: 0, delivered: 0, clean: 0, perfect: 0, missed: 0, streak: 0, bestStreak: 0, airmail: 0, skilled: 0,
         maxX: 0, distPts: 0, district: 0, started: false, dyingT: 0, catches: 0, ledger: [], reelUsed: 0, resultsAt: 0,
-        hangT: 0, lastRelease: null, landedSinceLetter: false, deathNear: null
+        hangT: 0, lastRelease: null, landedSinceLetter: false, deathNear: null, reelOnAnchor: 0, landedOnAnchor: false
       };
       if (score) score.reset();
       fx.retract = null; fx.ropeExtend = 1; fx.nearMiss = null; fx.renderOff = null;
@@ -882,11 +1015,22 @@ window.plethoraBit = {
           addScore(pts, "transfer");
           if (label) hud.toast(label + "  +" + pts, "quiet");
         }
+        // rope work is paid once per ring: clearing a roof by reeling, without touching it
+        const prev = run.prevAnchor;
+        if (prev && prev !== a && prev.reelLesson && !prev.reelPaid && !run.landedOnAnchor && a.bx > prev.bx) {
+          prev.reelPaid = true; run.skilled++;
+          addScore(30, "rope");
+          hud.toast("Cleared the roof  +30", "quiet");
+        }
+        run.prevAnchor = a; run.reelOnAnchor = 0; run.landedOnAnchor = false;
         if (a.kind === "fragile") a.hold = 0;
         audio.catchSfx(clean ? 1 : 0.5, a.kind);
         haptic("light");
         fx.catchFlash = { a, t: 0 };
         flightNear.clear();
+        // a flight already inside a window posts the letter before the next ring takes the line
+        const W0 = activeLetter();
+        if (W0 && W0.inZone && W0.type === "flythrough") resolvePass(W0, true);
         const L = activeLetter();
         if (L && a !== L.D && a.bx > L.D.bx + 40 && !a.start) missLetter(L);
         const hint = Object.values(route.hints).find(h => h.a === a.id && !h.onEntry);
@@ -900,6 +1044,7 @@ window.plethoraBit = {
         if (data > 300) haptic("light");
         const L = activeLetter();
         if (L && !(L.type === "roofbox" && player.plat === L.plat)) run.landedSinceLetter = true;
+        run.landedOnAnchor = true;
       }
     }
 
@@ -914,7 +1059,15 @@ window.plethoraBit = {
       run.missed++; run.streak = 0;
       run.ledger.push("missed");
       run.landedSinceLetter = false;
-      hud.toast("Letter for " + L.name + " returned", "miss");
+      let why = "";
+      if (L.type === "flythrough" && L.nearD < 160) {
+        why = L.nearDy < 0 ? "  ·  flew " + Math.round(L.nearD) + " over the window" : "  ·  passed " + Math.round(L.nearD) + " under the window";
+        hud.teach("flymiss", L.nearDy < 0 ? "Too high over the window. Let go a little earlier" : "Under the window. Let go a little later, higher in the swing");
+      } else if (L.type === "roofbox" && player.anchor === L.next) {
+        why = "  ·  the rooftop box was below your line";
+        hud.teach("roofmiss", "To post into a rooftop box, let go early and drop onto its roof");
+      }
+      hud.toast("Letter for " + L.name + " returned" + why, "miss");
       audio.miss();
     }
     function shutterOpen(L, t) {
@@ -931,6 +1084,7 @@ window.plethoraBit = {
     function approachOk(L, vx, vy) {
       const sp = Math.hypot(vx, vy) || 1;
       if (L.type === "chute" || L.type === "shutter") return Math.sign(vx) === L.dir && Math.abs(vx) / sp > 0.62;
+      if (L.type === "flythrough") return vx > 0;
       return true;
     }
     function deliver(L) {
@@ -941,8 +1095,9 @@ window.plethoraBit = {
       if (clean && precision >= 0.5) {
         if (L.type === "chute" || L.type === "shutter") perfect = Math.abs(e.vy) / (Math.hypot(e.vx, e.vy) || 1) < 0.35;
         else if (L.type === "balcony") perfect = e.speed < 320;
-        else if (L.type === "roofbox") perfect = e.speed < 820;
+        else if (L.type === "flythrough") perfect = precision >= 0.55;
       }
+      if (clean && L.type === "roofbox") perfect = precision >= 0.6 && e.speed < 900;
       L.status = "delivered"; L.flash = 1;
       run.delivered++; run.streak++; run.bestStreak = Math.max(run.bestStreak, run.streak);
       if (clean) run.clean++;
@@ -951,8 +1106,11 @@ window.plethoraBit = {
       const base = 100 + (clean ? 60 : 0) + (perfect ? 150 : 0);
       const pts = Math.round(base * mult * (1 + 0.1 * L.d));
       addScore(pts, "delivery");
+      // a letter posted at a reeled length (the line shaped to reach it) also pays for the rope work
+      const lineWork = L.reelNeed && run.reelOnAnchor >= 30 && player.anchor === L.D;
+      if (lineWork) { addScore(40, "rope"); run.skilled++; }
       run.ledger.push(perfect ? "perfect" : clean ? "clean" : "delivered");
-      hud.toast((perfect ? "Perfect delivery" : clean ? "Clean delivery" : "Delivered") + "  +" + pts + (run.streak >= 3 ? "  ·  streak " + run.streak : ""), perfect ? "gold" : "plain");
+      hud.toast((perfect ? "Perfect delivery" : clean ? "Clean delivery" : "Delivered") + "  +" + pts + (lineWork ? "  ·  line work +40" : "") + (run.streak >= 3 ? "  ·  streak " + run.streak : ""), perfect ? "gold" : "plain");
       audio.deliver(perfect || clean);
       haptic("success");
       records.seenDeliver = true;
@@ -964,15 +1122,20 @@ window.plethoraBit = {
       const L = activeLetter();
       if (!L) return;
       if (L.type === "roofbox") {
-        if (player.mode === "ground" && player.plat === L.plat && Math.abs(player.x - L.x) < L.r) {
-          L.minD = Math.abs(player.x - L.x);
+        // the whole roof takes the letter; landing near the box itself is the precise post
+        if (player.mode === "ground" && player.plat === L.plat) {
+          L.minD = Math.min(L.r, Math.abs(player.x - L.x));
           L.entry = { vx: player.vx, vy: run.lastImpact || 0, speed: run.lastImpact || 0 };
           deliver(L);
         }
       } else if (player.mode !== "ground") {
         const dd = Math.hypot(player.x - L.x, player.y - L.y);
+        if (L.type === "flythrough" && !player.anchor && run.prevAnchor === L.D && !(L.nearD < dd)) { L.nearD = dd; L.nearDy = player.y - L.y; }
         const open = shutterOpen(L, simTime) > 0.6;
-        if (dd < L.r) {
+        if (L.type === "flythrough" && player.anchor) {
+          // a window takes letters only in flight; swinging through it just shows the rule
+          if (dd < L.r && !L.swungThrough) { L.swungThrough = true; L.rattle = 1; hud.teach("flyrule", "Windows across a gap take letters in flight. Let go of the line to post it"); }
+        } else if (dd < L.r) {
           if (!L.inZone) { L.inZone = true; L.minD = dd; L.entry = { vx: player.vx, vy: player.vy, speed: Math.hypot(player.vx, player.vy) }; }
           if (dd < L.minD) { L.minD = dd; L.entry = { vx: player.vx, vy: player.vy, speed: Math.hypot(player.vx, player.vy) }; }
           if (dd > L.prevD + 0.001) resolvePass(L, open);
@@ -1012,6 +1175,7 @@ window.plethoraBit = {
       const W = { wind: worldWind, platforms: route.platforms, anchors: route.anchors, ev: onEvent };
       stepPlayer(player, dt, W);
       if (player.mode === "ground" && vyBefore > 0) run.lastImpact = vyBefore;
+      if (player.anchor && player.Ldot) run.reelOnAnchor += Math.abs(player.Ldot) * dt;
       if (player.anchor && player.mode === "swing") {
         run.hangT += dt;
         if (run.hangT > 5 && player.Ldot < -40 && Math.abs(player.th) < 0.3) records.seenPump = true;
@@ -1616,6 +1780,22 @@ window.plethoraBit = {
           box(B, M.warm, x - 9, x + 9, by - 34, by, zF - 0.5, zF + 0.5, 0xffffff);
           box(B, M.beam, x - 11, x + 11, by - 36, by - 34, zF, zF + 2, pal.frame);
           signs.push({ kind: "house", L, x: x + 44, y: by - 30, z: zF + 1.5 });
+          return;
+        }
+        if (L.type === "flythrough") {
+          // a window frame hung out over the gap on stays: the letter goes through it, in flight
+          const w = L.r * 0.72, h = L.r * 0.95, x0 = x - w, x1 = x + w, y0 = y - h, y1 = y + h, zf = -3;
+          beam(B, M.beam, x0, y0, zf, x1, y0, zf, 2.4, pal.frame);
+          beam(B, M.beam, x0, y1, zf, x1, y1, zf, 2.4, pal.frame);
+          beam(B, M.beam, x0, y0, zf, x0, y1, zf, 2.4, pal.frame);
+          beam(B, M.beam, x1, y0, zf, x1, y1, zf, 2.4, pal.frame);
+          beam(B, M.beam, x0 + 2, y0, zf, x0 + 10, y0 - 70, zF, 1.1, pal.beam);
+          beam(B, M.beam, x1 - 2, y0, zf, x1 - 10, y0 - 70, zF, 1.1, pal.beam);
+          // the post slot sits on the far jamb, lit, facing the courier
+          box(B, M.metal, x1 + 1, x1 + 13, y - 13, y + 13, -12, 3, 0x6f5a48, 30);
+          box(B, M.warm, x1 - 0.2, x1 + 0.8, y - 7, y + 7, -8, 1, 0xffffff);
+          signs.push({ kind: "house", L, x: x1 + 26, y: y0 + 4, z: 2 });
+          L.hatch = { x: x1 + 7, mx: x1, side: -1, hw: 12, hh: 26 };
           return;
         }
         // hatch box mounted on brackets; the open side faces the courier's approach
@@ -2333,7 +2513,7 @@ window.plethoraBit = {
       for (const b of root.querySelectorAll("button")) ctx.listen(b, "pointerdown", e => e.stopPropagation());
       place(); sound();
       return {
-        place,
+        place, sound,
         reset() { lastLetter = null; lastScore = -1; el.toast.className = "toast"; el.teach.className = "teach"; teachKey = null; },
         toast(text, kind) { el.toast.textContent = text; el.toast.className = "toast " + (kind || "plain") + " on"; toastT = kind === "quiet" ? 1.2 : 2.2; },
         teach(key, text) {
@@ -2358,7 +2538,7 @@ window.plethoraBit = {
             lastLetter = L;
             if (L) {
               el.n.textContent = "To " + L.name;
-              const how = L.type === "chute" || L.type === "shutter" ? (L.dir > 0 ? ", from the left" : ", from the right") : L.type === "roofbox" ? ", drop in" : "";
+              const how = L.type === "chute" || L.type === "shutter" ? (L.dir > 0 ? ", from the left" : ", from the right") : L.type === "roofbox" ? ", drop in" : L.type === "flythrough" ? ", fly through" : "";
               el.d.textContent = "No. " + L.number + " · " + RECV_TEXT[L.type] + how;
             } else { el.n.textContent = ""; el.d.textContent = ""; }
           }
@@ -2505,7 +2685,31 @@ window.plethoraBit = {
       ctx.listen(target, "pointerup", e => end(e, false));
       ctx.listen(target, "pointercancel", e => end(e, true));
     }
-    function cancelAllPointers() { pointers.clear(); dragId = null; player.reelTarget = null; }
+    // keyboard: Space/Enter taps, Up/W and Down/S hold to reel, P pauses, M mutes
+    const keysHeld = new Set();
+    function keyReel() {
+      if (dragId !== null) return;
+      const dir = (keysHeld.has("down") ? 1 : 0) - (keysHeld.has("up") ? 1 : 0);
+      if (!dir || !player.anchor || gameState !== "play" || paused) { if (keysHeld.has("reel")) { keysHeld.delete("reel"); player.reelTarget = null; } return; }
+      keysHeld.add("reel");
+      // a held key reels at a steady, controllable rate (about 260 units a second)
+      player.reelTarget = clamp(player.L + dir * 2.2, LMIN, LMAX);
+    }
+    function bindKeys() {
+      const KEY = { ArrowUp: "up", KeyW: "up", ArrowDown: "down", KeyS: "down" };
+      ctx.listen(window, "keydown", e => {
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
+        const k = KEY[e.code];
+        if (k) { e.preventDefault(); if (!keysHeld.has(k)) { keysHeld.add(k); run.reelUsed += 20; if (run.reelUsed > 80) hud.learned("reel"); if (run.reelUsed > 40) hud.learned("reelroof"); } keyReel(); return; }
+        if (e.repeat) return;
+        if (e.code === "Space" || e.code === "Enter" || e.code === "ArrowRight" || e.code === "KeyD") { e.preventDefault(); audio.unlock(); handleTap(sx(player.x) + 60, 0, null); }
+        else if (e.code === "ArrowLeft" || e.code === "KeyA") { e.preventDefault(); if (gameState === "play" && player.mode === "ground") handleTap(sx(player.x) - 60, 0, null); }
+        else if (e.code === "KeyP" || e.code === "Escape") { if (gameState === "play") { if (paused) resume(); else { paused = true; cancelAllPointers(); } } }
+        else if (e.code === "KeyM") { audio.unlock(); setMuted(!records.muted); hud.sound(); }
+      });
+      ctx.listen(window, "keyup", e => { const k = KEY[e.code]; if (k) { keysHeld.delete(k); keyReel(); } });
+    }
+    function cancelAllPointers() { pointers.clear(); dragId = null; player.reelTarget = null; keysHeld.clear(); }
     function resume() { paused = false; audio.resume(); try { if (ctx.music && ctx.music.resume && musicOn) ctx.music.resume(); } catch (e) { /* ignore */ } }
     function startPlay() {
       gameState = "play";
@@ -2541,6 +2745,7 @@ window.plethoraBit = {
       player.px = player.x; player.py = player.y;
       for (const a of route.anchors) { a.px = a.x; a.py = a.y; }
       if (gameState === "play" || gameState === "dying") {
+        if (keysHeld.size) keyReel();
         for (let i = 0; i < SUBSTEPS; i++) gameStep(DT);
         if (gameState === "dying") { run.dyingT += 1 / FIXED_HZ; if (run.dyingT > 1.1) endRun(); }
         ensureRoute(player.x, 1);
@@ -2576,6 +2781,7 @@ window.plethoraBit = {
     catch (e) { try { ctx.platform.error({ stage: "renderer", message: String(e && e.message || e) }); } catch (err) { /* ignore */ } throw e; }
     hud = createHud();
     bindInput(world.canvas);
+    bindKeys();
     ctx.listen(window, "blur", () => { cancelAllPointers(); if (gameState === "play") paused = true; });
     ctx.listen(document, "visibilitychange", () => {
       if (document.hidden) { cancelAllPointers(); if (gameState === "play") paused = true; audio.suspend(); }
@@ -2596,7 +2802,7 @@ window.plethoraBit = {
       window.__pp = {
         get player() { return player; }, get route() { return route; }, get run() { return run; }, get state() { return gameState; },
         records, stepPlayer, linkScore, makePlayer, newRun, handleTap, releaseLine, tick, DT, G, windFnFor, swingStates, cam,
-        get S() { return S; }, _gen: () => addEncounter(), _dbg: (type, d, n) => { const out = []; for (let i = 0; i < n; i++) { const rng = mulberry32(i * 77 + 5); const c = buildCandidate(type, route.last, d, rng, 1, 0); const wind = windFnFor(c.winds); const plats = candPlats(c); out.push(c.links.map(([s2, d2, o]) => linkScore(s2, d2, o.others || [], plats, wind, Object.assign({ amp: DISTRICTS[d].amp }, o)) + '/' + Math.min(DISTRICTS[d].req, o.need || DISTRICTS[d].req)).join(',')); } return out; }, frame, setQuality: q => world.setQuality(q), world: () => world, flightOutcome
+        get S() { return S; }, _gen: () => addEncounter(), _dbg: (type, d, n) => { const out = []; for (let i = 0; i < n; i++) { const rng = mulberry32(i * 77 + 5); const c = buildCandidate(type, route.last, d, rng, 1, 0); const wind = windFnFor(c.winds); const plats = candPlats(c); out.push(c.links.map(([s2, d2, o]) => linkScore(s2, d2, o.others || [], plats, wind, Object.assign({ amp: DISTRICTS[d].amp }, o)) + '/' + Math.min(DISTRICTS[d].req, o.need || DISTRICTS[d].req)).join(',')); } return out; }, frame, setQuality: q => world.setQuality(q), world: () => world, flightOutcome, transferFlights, planFlythrough, planRoofbox, passesZone, DISTRICTS, windFnFor, mulberry32
       };
     }
     ctx.platform.ready();
