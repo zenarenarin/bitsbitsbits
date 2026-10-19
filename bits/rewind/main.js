@@ -3820,7 +3820,8 @@ window.plethoraBit = {
         startRun, fixedStep, setState, validateSegment, makeBuilder, LIBRARY, INTRO, runSpeedAt,
         colliders(T, sa, sb) { return course.colliders(T, sa, sb, []); },
         stepN(n) { for (let i = 0; i < n; i++) fixedStep(); renderFrame(1, DT); },
-        render() { renderFrame(1, DT); }
+        render() { renderFrame(1, DT); },
+        renderAt(dt) { renderFrame(1, dt); }
       });
     }
 
