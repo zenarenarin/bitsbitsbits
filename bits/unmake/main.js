@@ -93,7 +93,7 @@ function raySegDist(o, d, L, a, b) {
 //   free    — a falling load: lands, rests, rides whatever it rests on.
 //   pend    — a weight on a rod: driven swing, latched, or free.
 //   ball    — a released weight in flight or rolling.
-//   kin     — scripted motion (lifts, floats on water, presses).
+//   kin     — scripted movement (lifts, floats on water, presses).
 // Connections (cables, chains, pins, braces, latches) are the things the
 // player severs. Bodies marked `erase` belong to the preservation layer:
 // the traveller can unmake them outright (a wall, a section of floor, a
@@ -407,7 +407,7 @@ class Phys {
         case 'free': this.stepFree(b, dt); break;
         case 'ball': this.stepBall(b, dt); break;
         case 'pend': this.updatePend(b, dt); break;
-        case 'kin': if (b.motion) b.motion(this, b, dt); break;
+        case 'kin': if (b.drive) b.drive(this, b, dt); break;
         case 'rest': this.stepRest(b); break;
       }
       if (b.type !== 'static') this.updateAxes(b);
@@ -1138,7 +1138,7 @@ const FAMILIES = {
       const cx = -2.6, czz = z1 - 3.2;
       const casket = b.body({ type: 'kin', pos: [cx, -1.5, czz], size: [0.6, 0.5, 0.6], style: 'casket', passable: true }, 'casket');
       casket.solid = false;
-      casket.motion = (P, c, dt) => { if (c.rising) { c.pos[1] = Math.min(c.top, c.pos[1] + 3 * dt); if (c.pos[1] >= c.top && !c.done) { c.done = true; P.emit({ type: 'lift', body: c, tag: c.tag, pos: c.pos.slice() }); } } };
+      casket.drive = (P, c, dt) => { if (c.rising) { c.pos[1] = Math.min(c.top, c.pos[1] + 3 * dt); if (c.pos[1] >= c.top && !c.done) { c.done = true; P.emit({ type: 'lift', body: c, tag: c.tag, pos: c.pos.slice() }); } } };
       casket.top = b.o[1] + 0.2;
       const relic = b.pick('relic', cx, -1.0, czz, { ride: casket.id, sealed: true });
       const lever = b.body({ type: 'static', pos: [-1.5, 0.15, z1 - 0.9], size: [0.12, 0.08, 0.9], style: 'lever', passable: true, walk: false }, 'lever');
@@ -1190,7 +1190,7 @@ const FAMILIES = {
         const za = -4 - i * len, zb = za - len + 0.15;
         const t = b.body({ type: 'kin', pos: [0, -0.3, (za + zb) / 2], size: [1.6, 0.3, (za - zb) / 2], style: 'terraceSlab', crusher: false }, 't' + i);
         t.y0 = t.pos[1]; t.y1 = t.y0 - drop * (i + 1) - 0.6; t.delay = 0.35 * i;
-        t.motion = (P, s, dt) => {
+        t.drive = (P, s, dt) => {
           const start = s.start;
           if (start === undefined) return;
           const k = clamp((P.t - start - s.delay) / 1.1, 0, 1);
@@ -1240,7 +1240,7 @@ const FAMILIES = {
       const water = b.P.addWater({ x0: b.o[0] - 4.5, x1: b.o[0] + 2.1, z0: b.o[2] - 6, z1: b.o[2] + z1, level: b.o[1] + floorY, target: b.o[1] + floorY, rate: 2.2, center: b.w(-1.2, -1, -6 - len / 2), seg: b.seg });
       b.key('water', water);
       const barge = b.body({ type: 'kin', pos: [0, floorY + 0.35, -6 - len / 2], size: [1.3, 0.35, len / 2 - 0.25], style: 'barge' }, 'barge');
-      barge.motion = (P, s) => { s.pos[1] = Math.max(b.o[1] + floorY + 0.35, water.level - 0.05); };
+      barge.drive = (P, s) => { s.pos[1] = Math.max(b.o[1] + floorY + 0.35, water.level - 0.05); };
       // the gate sits low in a side channel, below the walkway: it can be reached by
       // intervention, never walked on
       const gate = b.body({ type: 'static', pos: [-4.6, -3.6, -6 - len / 2], size: [0.3, 1.6, 1.2], style: 'preserved', erase: true }, 'gate');
@@ -1266,7 +1266,7 @@ const FAMILIES = {
       b.deck(0, -6, { w: 8.4, x: -0.5 });
       const lift = b.body({ type: 'kin', pos: [-2.2, -0.2, -7.6], size: [1.3, 0.2, 1.4], style: 'liftDeck' }, 'lift');
       lift.y0 = lift.pos[1]; lift.y1 = lift.y0 + H; lift.vy = 0;
-      lift.motion = (P, s, dt) => {
+      lift.drive = (P, s, dt) => {
         if (!s.go) return;
         const prev = s.pos[1];
         s.pos[1] = Math.min(s.y1, s.pos[1] + 2.9 * dt);
@@ -2844,7 +2844,7 @@ const MEMORIES = [
   'Let the water find its old line. Let the tree be untidy. Let it change.'
 ];
 const SAVE_KEY = 'unmake2_save';
-const defaultSave = () => ({ best: 0, bestDist: 0, bank: 0, restored: 0, relics: [], runs: 0, seenIntro: false, settings: { view: 'third', look: 1, steer: 1, reduceMotion: false, volume: 0.8, music: true, highVis: false, freeUnmaking: false } });
+const defaultSave = () => ({ best: 0, bestDist: 0, bank: 0, restored: 0, relics: [], runs: 0, seenIntro: false, settings: { view: 'third', look: 1, steer: 1, calmCamera: false, volume: 0.8, music: true, highVis: false, freeUnmaking: false } });
 
 // Typography: DM Serif Display for numerals and titles, Nunito Sans for labels.
 // Scale (px): 11 label · 14 body · 24 heading · 32 numeral · 60 title.
@@ -3272,7 +3272,7 @@ window.plethoraBit = {
       if (s === 'root' || s === 'rootBridge' || s === 'knuckle') return 'root';
       return 'stone';
     }
-    function camKick(k, p) { if (save.settings.reduceMotion) return; if (p) { const d = vLen(vSub(p, run.player.pos)); k *= clamp(1 - d / 30, 0, 1); } cam.shake = Math.max(cam.shake, k); }
+    function camKick(k, p) { if (save.settings.calmCamera) return; if (p) { const d = vLen(vSub(p, run.player.pos)); k *= clamp(1 - d / 30, 0, 1); } cam.shake = Math.max(cam.shake, k); }
     // when water returns, so does green: moss and leaves along the wet edges
     function livingReturns(w) {
       const seg = run.segs.find(s => s.idx === w.seg);
@@ -3388,7 +3388,7 @@ window.plethoraBit = {
       const speed = Math.hypot(pl.vel[0], pl.vel[2]);
       const air = pl.grounded ? 0 : 1;
       cam.pull = Math.max(0, cam.pull - dt * 0.55);
-      const pull = save.settings.reduceMotion ? 0 : smooth(Math.min(1, cam.pull));
+      const pull = save.settings.calmCamera ? 0 : smooth(Math.min(1, cam.pull));
       const back = (portrait ? 7.2 : 6.0) + speed * 0.12 + pull * 2.4;
       const up = (portrait ? 3.7 : 3.1) + air * 0.6 + pull * 1.6;
       const lookAhead = portrait ? 7.5 : 6.5;
@@ -3413,7 +3413,7 @@ window.plethoraBit = {
       const m4 = new THREE.Matrix4().lookAt(c3, camTarget, new THREE.Vector3(0, 1, 0));
       q3.setFromRotationMatrix(m4);
       // first person: eye height, look yaw/pitch, gentle bob
-      const bob = save.settings.reduceMotion || !pl.grounded ? 0 : Math.sin(time * 11 * clamp(speed / 5, 0, 1.4)) * 0.035 * clamp(speed / 5, 0, 1);
+      const bob = save.settings.calmCamera || !pl.grounded ? 0 : Math.sin(time * 11 * clamp(speed / 5, 0, 1.4)) * 0.035 * clamp(speed / 5, 0, 1);
       fpPos.set(pl.pos[0], pl.pos[1] + 1.42 + bob - (pl.justLanded > 0 ? pl.justLanded * 0.4 : 0), pl.pos[2]);
       eul.set(cam.pitch, cam.yaw, 0); qf.setFromEuler(eul);
       // blend between the two
@@ -3603,7 +3603,7 @@ window.plethoraBit = {
         `<div class="um-set"><span>Steering sensitivity</span><input type="range" min="0.5" max="1.5" step="0.05" value="${s.steer}" data-k="steer"></div>` +
         `<div class="um-set"><span>Volume</span><input type="range" min="0" max="1" step="0.05" value="${s.volume}" data-k="volume"></div>` +
         `<div class="um-set"><span>Music</span><button class="um-tog ${s.music ? 'on' : ''}" data-t="music">${s.music ? 'ON' : 'OFF'}</button></div>` +
-        `<div class="um-set"><span>Reduce camera motion</span><button class="um-tog ${s.reduceMotion ? 'on' : ''}" data-t="reduceMotion">${s.reduceMotion ? 'ON' : 'OFF'}</button></div>` +
+        `<div class="um-set"><span>Calm camera</span><button class="um-tog ${s.calmCamera ? 'on' : ''}" data-t="calmCamera">${s.calmCamera ? 'ON' : 'OFF'}</button></div>` +
         `<div class="um-set"><span>Free unmaking (no limit per stretch)</span><button class="um-tog ${s.freeUnmaking ? 'on' : ''}" data-t="freeUnmaking">${s.freeUnmaking ? 'ON' : 'OFF'}</button></div>` +
         `<div class="um-set"><span>High-visibility targets</span><button class="um-tog ${s.highVis ? 'on' : ''}" data-t="highVis">${s.highVis ? 'ON' : 'OFF'}</button></div>`;
       H.resume.parentNode.style.display = inRun ? '' : 'none';

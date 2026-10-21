@@ -11,7 +11,7 @@
 //   free    — a falling load: lands, rests, rides whatever it rests on.
 //   pend    — a weight on a rod: driven swing, latched, or free.
 //   ball    — a released weight in flight or rolling.
-//   kin     — scripted motion (lifts, floats on water, presses).
+//   kin     — scripted movement (lifts, floats on water, presses).
 // Connections (cables, chains, pins, braces, latches) are the things the
 // player severs. Bodies marked `erase` belong to the preservation layer:
 // the traveller can unmake them outright (a wall, a section of floor, a
@@ -325,7 +325,7 @@ class Phys {
         case 'free': this.stepFree(b, dt); break;
         case 'ball': this.stepBall(b, dt); break;
         case 'pend': this.updatePend(b, dt); break;
-        case 'kin': if (b.motion) b.motion(this, b, dt); break;
+        case 'kin': if (b.drive) b.drive(this, b, dt); break;
         case 'rest': this.stepRest(b); break;
       }
       if (b.type !== 'static') this.updateAxes(b);

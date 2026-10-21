@@ -18,7 +18,7 @@ const MEMORIES = [
   'Let the water find its old line. Let the tree be untidy. Let it change.'
 ];
 const SAVE_KEY = 'unmake2_save';
-const defaultSave = () => ({ best: 0, bestDist: 0, bank: 0, restored: 0, relics: [], runs: 0, seenIntro: false, settings: { view: 'third', look: 1, steer: 1, reduceMotion: false, volume: 0.8, music: true, highVis: false, freeUnmaking: false } });
+const defaultSave = () => ({ best: 0, bestDist: 0, bank: 0, restored: 0, relics: [], runs: 0, seenIntro: false, settings: { view: 'third', look: 1, steer: 1, calmCamera: false, volume: 0.8, music: true, highVis: false, freeUnmaking: false } });
 
 // Typography: DM Serif Display for numerals and titles, Nunito Sans for labels.
 // Scale (px): 11 label · 14 body · 24 heading · 32 numeral · 60 title.
@@ -446,7 +446,7 @@ window.plethoraBit = {
       if (s === 'root' || s === 'rootBridge' || s === 'knuckle') return 'root';
       return 'stone';
     }
-    function camKick(k, p) { if (save.settings.reduceMotion) return; if (p) { const d = vLen(vSub(p, run.player.pos)); k *= clamp(1 - d / 30, 0, 1); } cam.shake = Math.max(cam.shake, k); }
+    function camKick(k, p) { if (save.settings.calmCamera) return; if (p) { const d = vLen(vSub(p, run.player.pos)); k *= clamp(1 - d / 30, 0, 1); } cam.shake = Math.max(cam.shake, k); }
     // when water returns, so does green: moss and leaves along the wet edges
     function livingReturns(w) {
       const seg = run.segs.find(s => s.idx === w.seg);
@@ -562,7 +562,7 @@ window.plethoraBit = {
       const speed = Math.hypot(pl.vel[0], pl.vel[2]);
       const air = pl.grounded ? 0 : 1;
       cam.pull = Math.max(0, cam.pull - dt * 0.55);
-      const pull = save.settings.reduceMotion ? 0 : smooth(Math.min(1, cam.pull));
+      const pull = save.settings.calmCamera ? 0 : smooth(Math.min(1, cam.pull));
       const back = (portrait ? 7.2 : 6.0) + speed * 0.12 + pull * 2.4;
       const up = (portrait ? 3.7 : 3.1) + air * 0.6 + pull * 1.6;
       const lookAhead = portrait ? 7.5 : 6.5;
@@ -587,7 +587,7 @@ window.plethoraBit = {
       const m4 = new THREE.Matrix4().lookAt(c3, camTarget, new THREE.Vector3(0, 1, 0));
       q3.setFromRotationMatrix(m4);
       // first person: eye height, look yaw/pitch, gentle bob
-      const bob = save.settings.reduceMotion || !pl.grounded ? 0 : Math.sin(time * 11 * clamp(speed / 5, 0, 1.4)) * 0.035 * clamp(speed / 5, 0, 1);
+      const bob = save.settings.calmCamera || !pl.grounded ? 0 : Math.sin(time * 11 * clamp(speed / 5, 0, 1.4)) * 0.035 * clamp(speed / 5, 0, 1);
       fpPos.set(pl.pos[0], pl.pos[1] + 1.42 + bob - (pl.justLanded > 0 ? pl.justLanded * 0.4 : 0), pl.pos[2]);
       eul.set(cam.pitch, cam.yaw, 0); qf.setFromEuler(eul);
       // blend between the two
@@ -777,7 +777,7 @@ window.plethoraBit = {
         `<div class="um-set"><span>Steering sensitivity</span><input type="range" min="0.5" max="1.5" step="0.05" value="${s.steer}" data-k="steer"></div>` +
         `<div class="um-set"><span>Volume</span><input type="range" min="0" max="1" step="0.05" value="${s.volume}" data-k="volume"></div>` +
         `<div class="um-set"><span>Music</span><button class="um-tog ${s.music ? 'on' : ''}" data-t="music">${s.music ? 'ON' : 'OFF'}</button></div>` +
-        `<div class="um-set"><span>Reduce camera motion</span><button class="um-tog ${s.reduceMotion ? 'on' : ''}" data-t="reduceMotion">${s.reduceMotion ? 'ON' : 'OFF'}</button></div>` +
+        `<div class="um-set"><span>Calm camera</span><button class="um-tog ${s.calmCamera ? 'on' : ''}" data-t="calmCamera">${s.calmCamera ? 'ON' : 'OFF'}</button></div>` +
         `<div class="um-set"><span>Free unmaking (no limit per stretch)</span><button class="um-tog ${s.freeUnmaking ? 'on' : ''}" data-t="freeUnmaking">${s.freeUnmaking ? 'ON' : 'OFF'}</button></div>` +
         `<div class="um-set"><span>High-visibility targets</span><button class="um-tog ${s.highVis ? 'on' : ''}" data-t="highVis">${s.highVis ? 'ON' : 'OFF'}</button></div>`;
       H.resume.parentNode.style.display = inRun ? '' : 'none';

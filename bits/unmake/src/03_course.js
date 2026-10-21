@@ -300,7 +300,7 @@ const FAMILIES = {
       const cx = -2.6, czz = z1 - 3.2;
       const casket = b.body({ type: 'kin', pos: [cx, -1.5, czz], size: [0.6, 0.5, 0.6], style: 'casket', passable: true }, 'casket');
       casket.solid = false;
-      casket.motion = (P, c, dt) => { if (c.rising) { c.pos[1] = Math.min(c.top, c.pos[1] + 3 * dt); if (c.pos[1] >= c.top && !c.done) { c.done = true; P.emit({ type: 'lift', body: c, tag: c.tag, pos: c.pos.slice() }); } } };
+      casket.drive = (P, c, dt) => { if (c.rising) { c.pos[1] = Math.min(c.top, c.pos[1] + 3 * dt); if (c.pos[1] >= c.top && !c.done) { c.done = true; P.emit({ type: 'lift', body: c, tag: c.tag, pos: c.pos.slice() }); } } };
       casket.top = b.o[1] + 0.2;
       const relic = b.pick('relic', cx, -1.0, czz, { ride: casket.id, sealed: true });
       const lever = b.body({ type: 'static', pos: [-1.5, 0.15, z1 - 0.9], size: [0.12, 0.08, 0.9], style: 'lever', passable: true, walk: false }, 'lever');
@@ -352,7 +352,7 @@ const FAMILIES = {
         const za = -4 - i * len, zb = za - len + 0.15;
         const t = b.body({ type: 'kin', pos: [0, -0.3, (za + zb) / 2], size: [1.6, 0.3, (za - zb) / 2], style: 'terraceSlab', crusher: false }, 't' + i);
         t.y0 = t.pos[1]; t.y1 = t.y0 - drop * (i + 1) - 0.6; t.delay = 0.35 * i;
-        t.motion = (P, s, dt) => {
+        t.drive = (P, s, dt) => {
           const start = s.start;
           if (start === undefined) return;
           const k = clamp((P.t - start - s.delay) / 1.1, 0, 1);
@@ -402,7 +402,7 @@ const FAMILIES = {
       const water = b.P.addWater({ x0: b.o[0] - 4.5, x1: b.o[0] + 2.1, z0: b.o[2] - 6, z1: b.o[2] + z1, level: b.o[1] + floorY, target: b.o[1] + floorY, rate: 2.2, center: b.w(-1.2, -1, -6 - len / 2), seg: b.seg });
       b.key('water', water);
       const barge = b.body({ type: 'kin', pos: [0, floorY + 0.35, -6 - len / 2], size: [1.3, 0.35, len / 2 - 0.25], style: 'barge' }, 'barge');
-      barge.motion = (P, s) => { s.pos[1] = Math.max(b.o[1] + floorY + 0.35, water.level - 0.05); };
+      barge.drive = (P, s) => { s.pos[1] = Math.max(b.o[1] + floorY + 0.35, water.level - 0.05); };
       // the gate sits low in a side channel, below the walkway: it can be reached by
       // intervention, never walked on
       const gate = b.body({ type: 'static', pos: [-4.6, -3.6, -6 - len / 2], size: [0.3, 1.6, 1.2], style: 'preserved', erase: true }, 'gate');
@@ -428,7 +428,7 @@ const FAMILIES = {
       b.deck(0, -6, { w: 8.4, x: -0.5 });
       const lift = b.body({ type: 'kin', pos: [-2.2, -0.2, -7.6], size: [1.3, 0.2, 1.4], style: 'liftDeck' }, 'lift');
       lift.y0 = lift.pos[1]; lift.y1 = lift.y0 + H; lift.vy = 0;
-      lift.motion = (P, s, dt) => {
+      lift.drive = (P, s, dt) => {
         if (!s.go) return;
         const prev = s.pos[1];
         s.pos[1] = Math.min(s.y1, s.pos[1] + 2.9 * dt);

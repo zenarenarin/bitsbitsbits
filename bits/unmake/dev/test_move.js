@@ -38,7 +38,7 @@ const check = (name, cond, info) => { if (cond) ok++; else bad++; console.log((c
   check('climbs a 20 degree ramp', pl.pos[1] > 2.4 && pl.grounded, log[log.length - 1]); }
 // 6. moving platform carries the player
 { const P = world(); const pf = box(P, 0, -0.5, -3, 2, 0.5, 6, { type: 'kin' });
-  pf.motion = (W, b, dt) => { b.pos = [Math.sin(W.t) * 3, -0.5, -3]; };
+  pf.drive = (W, b, dt) => { b.pos = [Math.sin(W.t) * 3, -0.5, -3]; };
   const pl = new Player(P); pl.reset([0, 0.01, 0]);
   run(P, pl, 1.0, () => ({ steer: 0, pace: -1 }));
   check('carried by moving platform', Math.abs(pl.pos[0] - Math.sin(P.t) * 3) < 0.15 && pl.grounded, `px ${pl.pos[0].toFixed(2)} plat ${(Math.sin(P.t) * 3).toFixed(2)}`); }
