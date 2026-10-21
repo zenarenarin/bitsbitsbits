@@ -5,8 +5,12 @@
 //   to every lamp's visibility polygon) · doorways · the playable
 //   architecture · lit edges · the runner · wires · grain and vignette.
 // =====================================================================
-function createRenderer(canvas, level, world, optics, watcher) {
+function createRenderer(canvas, level, world, optics, watcher, makeSurface) {
   const g = canvas.getContext('2d');
+  // Offscreen caches are hidden SDK surfaces, pooled and reused.
+  const free = [];
+  const take = (w, h) => { const c = free.pop() || makeSurface(); c.width = w; c.height = h; return c; };
+  const give = c => { if (c) { c.width = c.height = 1; free.push(c); } };
   const R = { cam: { x: level.start.x, yb: -0.6, s: 30, vx: 0 }, W: 1, H: 1, yBase: 1, q: 1, flash: 0, shake: 0, debug: false };
   const fac = new Map();
   const far = makeSkyline(11, -40, level.x1 * 0.3 + 60, 0.25), mid = makeSkyline(29, -30, level.x1 * 0.55 + 50, 0.55);
@@ -23,7 +27,8 @@ function createRenderer(canvas, level, world, optics, watcher) {
     R.yBase = bottom - 0.2 * R.cam.s;
     R.focusTop = top;
     R.viewM = (R.yBase - top) / R.cam.s;
-    fac.clear(); sky = null; vign = null;
+    for (const v of fac.values()) { give(v.dark); give(v.lit); }
+    fac.clear(); give(sky); sky = null; vign = null;
   };
   const X = wx => (wx - R.cam.x) * R.cam.s + R.W / 2;
   const Y = wy => R.yBase - (wy - R.cam.yb) * R.cam.s;
@@ -44,20 +49,23 @@ function createRenderer(canvas, level, world, optics, watcher) {
 
   function facadeCanvas(f) {
     let c = fac.get(f);
-    if (c) return c;
+    // the host may resize a surface; a cache that lost its pixels is redrawn
+    if (c && c.dark.width === c.pw && c.lit.width === c.pw) return c;
+    if (c) { give(c.dark); give(c.lit); fac.delete(f); }
     const s = R.cam.s * R.q, roof = facadeRoofH(f), w = f.x1 - f.x0, h = f.h + roof + 0.3;
     const mk = lit => {
-      const cv = document.createElement('canvas');
-      cv.width = Math.ceil(w * s); cv.height = Math.ceil(h * s);
+      const cv = take(Math.ceil(w * s), Math.ceil(h * s));
       const cg = cv.getContext('2d');
       cg.translate(0, 0.3 * s);
       drawFacade(cg, f, s, lit);
       return cv;
     };
+    // forget façades well off screen before making more
+    const halfW = R.W / 2 / R.cam.s + 4;
+    for (const [k, v] of fac) if (k.x1 < R.cam.x - halfW || k.x0 > R.cam.x + halfW) { give(v.dark); give(v.lit); fac.delete(k); }
     c = { dark: mk(false), lit: mk(true), roof, w, h };
+    c.pw = c.dark.width;
     fac.set(f, c);
-    // forget façades far off screen
-    if (fac.size > 7) for (const [k] of fac) { if (k.x1 < R.cam.x - 40 || k.x0 > R.cam.x + 40) { fac.delete(k); if (fac.size <= 7) break; } }
     return c;
   }
   function visibleFacades() {
@@ -74,8 +82,7 @@ function createRenderer(canvas, level, world, optics, watcher) {
 
   // -------------------------------------------------------------- sky
   function makeSky() {
-    const c = document.createElement('canvas'), W = R.W, H = R.H;
-    c.width = Math.ceil(W * R.q); c.height = Math.ceil(H * R.q);
+    const W = R.W, H = R.H, c = take(Math.ceil(W * R.q), Math.ceil(H * R.q));
     const sg = c.getContext('2d'); sg.scale(R.q, R.q);
     const gr = sg.createLinearGradient(0, 0, 0, H);
     gr.addColorStop(0, '#6c6963'); gr.addColorStop(0.55, '#8e8a82'); gr.addColorStop(1, '#a6a197');
@@ -91,10 +98,12 @@ function createRenderer(canvas, level, world, optics, watcher) {
       for (let k = 0; k < 9; k++) { sg.beginPath(); for (let x = -cw / 2; x < cw / 2; x += 6) { const yy = cy + k * 3 + Math.sin((x + k * 9) * 0.03) * 4 * (1 - Math.abs(x) / cw * 2); x === -cw / 2 ? sg.moveTo(cx + x, yy) : sg.lineTo(cx + x, yy); } sg.stroke(); }
     }
     // paper grain, baked in once
-    const gc = document.createElement('canvas'); gc.width = gc.height = 128; const gg = gc.getContext('2d'); const id = gg.createImageData(128, 128); const r2 = rng(5);
+    const gc = take(128, 128); const gg = gc.getContext('2d'); const id = gg.createImageData(128, 128); const r2 = rng(5);
     for (let i = 0; i < id.data.length; i += 4) { const v = r2() * 255; id.data[i] = id.data[i + 1] = id.data[i + 2] = v; id.data[i + 3] = 255; }
     gg.putImageData(id, 0, 0);
     sg.globalAlpha = 0.07; sg.fillStyle = sg.createPattern(gc, 'repeat'); sg.fillRect(0, 0, W, H); sg.globalAlpha = 1;
+    give(gc);
+    c.pw = c.width;
     return c;
   }
   function drawMoon() {
@@ -574,7 +583,7 @@ function createRenderer(canvas, level, world, optics, watcher) {
     R.shadeX = lerp(R.shadeX === undefined ? watcher.last.x * 0.55 : R.shadeX, watcher.last.x * 0.55 + 10, 1 - Math.exp(-dt * 0.4));
     updateScarf(P, dt);
     g.setTransform(R.dpr, 0, 0, R.dpr, 0, 0);
-    if (!sky) sky = makeSky();
+    if (!sky || sky.width !== sky.pw) { give(sky); sky = makeSky(); }
     g.drawImage(sky, 0, 0, W, H);
     drawMoon();
     drawSkyline(far, 0.25, 0.42, '#6b6760', '#9b968b', -2.5);

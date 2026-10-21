@@ -71,7 +71,11 @@ window.plethoraBit = {
     const canvas = ctx.createCanvas2D({ maxDpr: 1.5, layer: 'content', input: 'auto', touchAction: 'none' });
     const ui = ctx.createRoot({ className: 'll', layer: 'overlay', input: 'passthrough' });
     const style = document.createElement('style'); style.textContent = UI_CSS; ui.appendChild(style);
-    const R = createRenderer(canvas, level, world, optics, watcher);
+    const R = createRenderer(canvas, level, world, optics, watcher, () => {
+      const c = ctx.createCanvas2D({ layer: 'background', order: -100, input: 'passthrough' });
+      c.style.display = 'none';
+      return c;
+    });
     const audio = createAudio(); audio.on = save.sound;
     const g = canvas.getContext('2d');
     let dpr = 1, W = 1, H = 1;
