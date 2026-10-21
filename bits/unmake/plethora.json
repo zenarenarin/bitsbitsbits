@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "UNMAKE 2.0",
+  "description": "A 3D traversal arcade in a city that forgot how to grow. Run, steer and leap across a basin of clamped roots and rusted preservation machinery \u2014 sever cables, pull pins, break old repairs \u2014 and ride the structures as they move. Third or first person.",
+  "tags": [
+    "arcade",
+    "physics",
+    "3d",
+    "endless",
+    "platformer"
+  ],
+  "permissions": [
+    "haptics",
+    "audio",
+    "backgroundMusic",
+    "storage"
+  ],
+  "dependencies": [
+    "three@0.164.1"
+  ],
+  "onboarding": {
+    "kind": "one_line",
+    "version": 1,
+    "message": "Steer and jump. Touch anything glazed or copper to see what it holds; let go to unmake it."
+  },
+  "memory": {
+    "records": {
+      "score": {
+        "label": "High Score",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": [
+          "daily",
+          "weekly",
+          "all_time"
+        ],
+        "scopes": [
+          "following",
+          "global"
+        ],
+        "dedupe": "best_per_user"
+      }
+    }
+  }
+}

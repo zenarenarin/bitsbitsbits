@@ -1,0 +1,22 @@
+const { chromium } = require('/opt/node-tools/node_modules/playwright');
+const out = process.argv[2], W = +(process.argv[3] || 390), H = +(process.argv[4] || 844);
+(async () => {
+  const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+  const page = await browser.newPage({ viewport: { width: W, height: H } });
+  page.on('pageerror', e => console.log('PAGEERROR: ' + e.message + '\n' + (e.stack || '').split('\n').slice(0, 4).join('\n')));
+  page.on('console', m => { if (m.type() === 'error') console.log('console:', m.text()); });
+  await page.goto('http://localhost:8765/dev/index.html');
+  await page.waitForFunction(() => window.__ready || window.__initError, null, { timeout: 90000 });
+  console.log('init error:', await page.evaluate(() => window.__initError || null));
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: out + '/00_title.png' });
+  await page.evaluate(() => window.__unmake.begin());
+  const st = () => page.evaluate(() => { const r = window.__unmake.run, p = r.player; const s = r.segs.find(s => p.pos[2] <= s.z0 && p.pos[2] > s.z1); return { seg: s && s.name, x: +p.pos[0].toFixed(2), y: +p.pos[1].toFixed(2), z: +p.pos[2].toFixed(1), g: p.grounded, alive: p.alive, ch: r.charges, mode: window.__unmake.mode }; });
+  for (let i = 0; i < 4; i++) await page.evaluate(() => window.__unmake.advance(0.5, { steer: 0, pace: -1 }));
+  console.log(JSON.stringify(await st()));
+  await page.screenshot({ path: out + '/01_start.png' });
+  await page.evaluate(() => window.__unmake.advance(1.5, { steer: 0, pace: 0 }));
+  console.log(JSON.stringify(await st()));
+  await page.screenshot({ path: out + '/02_run.png' });
+  await browser.close();
+})();
