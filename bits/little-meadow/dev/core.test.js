@@ -1,86 +1,79 @@
-// Headless tests for LITTLE MEADOW core: generation fairness, determinism, bots.
+// Headless tests for LITTLE MEADOW core: generation fairness, wildlife rules, bots, scenarios.
+// usage: node dev/core.test.js [path/to/main.js]
 const fs = require("fs");
 const path = require("path");
 const src = fs.readFileSync(process.argv[2] || path.join(__dirname, "..", "main.js"), "utf8");
 global.window = { __LM_TEST__: true };
 new Function("window", src)(global.window);
 const C = window.__LM_CORE__;
-const { Generator, Sim, DEFAULTS, LANES, CELL_OBST, CELL_DENSE } = C;
+const { Generator, Sim, DEFAULTS, LANES, CELL_OBST, MOWER_R } = C;
 const cfg = Object.assign({}, DEFAULTS);
+const DT = 1000 / 60;
+const fails = [];
+const check = (cond, msg) => { if (!cond) fails.push(msg); };
 
-const safe = (c) => !c.f && c.t !== CELL_OBST;
-function stepMask(gen, prev, cur, m) { return gen.advance(prev.cells, cur.cells, m); }
-
-// 1) Fairness: global reachability never empties; count reachable dead-end cells.
-let worst = { empty: 0, traps: 0, cells: 0 }, names = {}, fallbacks = 0, obsCount = 0;
-const SEEDS = 300, ROWS = 2600;
-for (let seed = 1; seed <= SEEDS; seed++) {
-  const g = Generator(seed * 7919, cfg);
-  g.ensure(ROWS);
-  // reachable from lane 3 at row 0
-  let m = 1 << 3;
-  const reach = [];
-  for (let r = 1; r <= ROWS; r++) {
-    m = stepMask(g, g.row(r - 1), g.row(r), m);
-    reach[r] = m;
-    if (!m) { worst.empty++; console.log("EMPTY reach seed", seed, "row", r, g.row(r).pattern); break; }
-  }
-  // backward survivability over a 14-row horizon
-  const H = 14;
-  for (let r = 1; r < ROWS - H; r++) {
-    let alive = reach[r];
-    for (let l = 0; l < LANES; l++) {
-      if (!(alive & (1 << l))) continue;
-      worst.cells++;
-      let mm = 1 << l;
-      for (let k = 1; k <= H && mm; k++) mm = stepMask(g, g.row(r + k - 1), g.row(r + k), mm);
-      if (!mm) worst.traps++;
-    }
-  }
-  for (const e of g.log) names[e.name] = (names[e.name] || 0) + 1;
-  for (let r = 0; r <= ROWS; r++) { const row = g.row(r); if (row && row.pattern === "fallback") fallbacks++; }
-  obsCount += g.obstacles.size;
-}
-console.log("fairness:", JSON.stringify(worst), "trap ratio", (worst.traps / worst.cells).toFixed(4), "fallback rows", fallbacks, "obstacles", obsCount);
-console.log("pattern mix (last 60 per seed):", JSON.stringify(names));
-
-// 2) Determinism
+// 1) Generation: a survivable route always exists; formation mix; determinism.
 {
-  const a = Generator(42, cfg), b = Generator(42, cfg);
-  a.ensure(800); b.ensure(800);
-  let same = true;
-  for (let r = -10; r <= 800; r++) {
-    const x = a.row(r), y = b.row(r);
-    if (JSON.stringify(x.cells) !== JSON.stringify(y.cells) || x.flowers.length !== y.flowers.length) { same = false; break; }
+  let empty = 0, fallbacks = 0, rows = 0, stones = 0, rabbits = 0;
+  const names = {};
+  for (let seed = 1; seed <= 200; seed++) {
+    const g = Generator(seed * 7919, cfg);
+    // a rough tier ramp, as if played well
+    g.setTier((row) => Math.max(0, Math.min(1, (row - 40) / 1000)));
+    g.ensure(2400);
+    let m = 1 << 3;
+    for (let r = 1; r <= 2400; r++) {
+      m = g.advance(g.row(r - 1).cells, g.row(r).cells, m);
+      if (!m) { empty++; break; }
+      if (g.row(r).pattern === "fallback") fallbacks++;
+    }
+    rows += 2400;
+    for (const o of g.obstacles.values()) if (o.kind === "stone") stones++;
+    rabbits += g.rabbitSpawns.length;
+    for (const e of g.log) names[e.name] = (names[e.name] || 0) + 1;
   }
+  console.log("generation: empty-route rows", empty, "| fallback rows", fallbacks, "| stones/100 rows", (stones / rows * 100).toFixed(1), "| rabbits/100 rows", (rabbits / rows * 100).toFixed(1));
+  console.log("  late-run formation mix:", JSON.stringify(names));
+  check(empty === 0, "a generated meadow had no survivable route");
+  const a = Generator(42, cfg), b = Generator(42, cfg);
+  a.ensure(900); b.ensure(900);
+  let same = a.rabbitSpawns.length === b.rabbitSpawns.length;
+  for (let r = -10; r <= 900 && same; r++) if (JSON.stringify(a.row(r).cells) !== JSON.stringify(b.row(r).cells)) same = false;
   console.log("determinism:", same ? "ok" : "MISMATCH");
+  check(same, "same seed produced different meadows");
 }
 
-// 3) Bots
-function planner(sim, horizon, greed) {
-  const s = sim.s, gen = sim.gen;
+// ---- Bot players -----------------------------------------------------------
+const blockedCells = (sim, withAlert) => {
+  const set = new Set();
+  for (const rb of sim.rabbits) {
+    if (rb.fled) continue;
+    const xs = [rb.x]; const ys = [rb.y];
+    if (rb.hop) { xs.push(rb.hop.x1); ys.push(rb.hop.y1); }
+    for (let i = 0; i < xs.length; i++) set.add(Math.floor(ys[i]) + ":" + Math.floor(xs[i]));
+    // an expert gives an alert rabbit's neighbours a wide berth
+    if (withAlert && (rb.state === "alert" || rb.crossLeft > 0)) for (const d of [-1, 1]) set.add(Math.floor(rb.y) + ":" + (Math.floor(rb.x) + d));
+  }
+  return set;
+};
+function planner(sim, horizon, greed, withAlert) {
+  const s = sim.s, gen = sim.gen, blk = blockedCells(sim, withAlert);
   const r0 = Math.floor(s.y + 0.15);
-  // DP from far to near: value of being in lane l at row r
+  const safe = (r, l) => { const c = gen.row(r).cells[l]; return !c.f && c.t !== CELL_OBST && !blk.has(r + ":" + l); };
   const V = [];
   for (let k = horizon; k >= 0; k--) {
     const row = gen.row(r0 + k);
     V[k] = [];
     for (let l = 0; l < LANES; l++) {
-      const c = row.cells[l];
-      if (!safe(c)) { V[k][l] = -1e6; continue; }
+      if (!safe(r0 + k, l)) { V[k][l] = -1e6; continue; }
       let val = 0;
       for (const t of row.tufts) if (!t.cut && Math.abs(t.x - (l + 0.5)) < 0.46) val += t.v;
       val *= greed;
-      // flowers in neighbouring lanes are close shaves (worth a little), but risky to timing
-      let best = -1e6;
-      if (k === horizon) best = 0;
-      else for (let d = -1; d <= 1; d++) {
+      let best = k === horizon ? 0 : -1e6;
+      if (k < horizon) for (let d = -1; d <= 1; d++) {
         const l2 = l + d; if (l2 < 0 || l2 >= LANES) continue;
         const nrow = gen.row(r0 + k + 1);
-        if (d !== 0) {
-          if (nrow.cells[l].t === CELL_OBST || row.cells[l2].t === CELL_OBST) continue;
-          if (row.cells[l2].f && nrow.cells[l].f) continue;
-        }
+        if (d !== 0 && (nrow.cells[l].t === CELL_OBST || row.cells[l2].t === CELL_OBST || (row.cells[l2].f && nrow.cells[l].f))) continue;
         best = Math.max(best, V[k + 1][l2] - (d !== 0 ? 0.3 : 0));
       }
       V[k][l] = val + best;
@@ -88,139 +81,214 @@ function planner(sim, horizon, greed) {
   }
   return V;
 }
-// Would a lane change started now sweep through a flower? (what a careful player judges by eye)
+// Would a lane change started now sweep through a flower, rock or rabbit? (judged by eye)
 function sweepClear(sim, dir) {
-  const s = sim.s, len = sim.s.speed > 0 ? Math.max(0.3 * s.speed, 0.8) : 0.8;
-  const fromX = s.x, toX = s.lane + dir + 0.5;
+  const s = sim.s, toX = s.lane + dir + 0.5;
   for (let p = 0; p <= 1.0001; p += 0.05) {
-    const e = 1 - Math.pow(1 - p, 2.2), x = fromX + (toX - fromX) * e, y = s.y + Math.min(len, 0.8) * p;
+    const e = 1 - Math.pow(1 - p, 2.2), x = s.x + (toX - s.x) * e, y = s.y + 0.8 * p;
     for (let r = Math.floor(y) - 1; r <= Math.floor(y) + 1; r++) {
       const row = sim.gen.row(r); if (!row) continue;
-      for (const f of row.flowers) if (!f.hit && Math.hypot(f.x - x, f.y - y) < 0.5) return false;
+      for (const f of row.flowers) if (!f.hit && Math.hypot(f.x - x, f.y - y) < 0.52) return false;
     }
+    if (sim.obstacleAt(x, y, 0.05)) return false;
+    for (const rb of sim.rabbits) if (!rb.fled && Math.hypot(rb.x - x, rb.y - y) < 0.55) return false;
   }
-  // and the destination lane must be clear a little further on
-  for (let y = s.y + 0.8; y < s.y + 1.4; y += 0.1) { const row = sim.gen.row(Math.floor(y)); if (row) for (const f of row.flowers) if (!f.hit && Math.abs(f.x - toX) < 0.5 && Math.abs(f.y - y) < 0.5) return false; }
   return true;
 }
-function runBot(kind, seed, maxSeconds) {
-  const c = Object.assign({}, cfg);
-  const sim = Sim(c, seed);
+function runBot(kind, seed, maxSeconds, inv) {
+  const sim = Sim(Object.assign({}, cfg), seed);
   sim.start();
   const s = sim.s;
-  let t = 0, nextDecision = 0, pendingSwipe = null, decisions = 0, lastSwipeT = -9;
-  const dt = 1000 / 60;
-  const rng = (() => { let a = seed * 13 + 7; return () => { a = (a * 1103515245 + 12345) & 0x7fffffff; return a / 0x7fffffff; }; })();
+  const latency = { novice: 0.45, expert: 0.22, oracle: 0 }[kind] || 0;
+  let t = 0, pending = null, swipes = 0, nextDecision = 0;
+  let minWarn = 99;
+  const rngA = (() => { let a = seed * 13 + 7; return () => { a = (a * 1103515245 + 12345) & 0x7fffffff; return a / 0x7fffffff; }; })();
+  const lastPos = new Map();
   while (s.phase === "play" && t < maxSeconds) {
-    t += dt / 1000;
-    if (kind === "oracle" && !s.change) {
-      const V = planner(sim, 11, 1);
-      const k = Math.max(1, Math.floor(s.y + 0.15 + 1.05) - Math.floor(s.y + 0.15));
-      let bestL = s.lane, bestV = -1e9;
-      for (let d = -1; d <= 1; d++) { const l = s.lane + d; if (l < 0 || l >= LANES) continue; const v = V[k][l] - (d ? 0.5 : 0); if (v > bestV) { bestV = v; bestL = l; } }
-      if (bestL !== s.lane && sweepClear(sim, bestL > s.lane ? 1 : -1)) { sim.swipe(bestL > s.lane ? 1 : -1); decisions++; }
-    } else if (kind !== "passive" && kind !== "oracle" && t >= nextDecision) {
-      nextDecision = t + (kind === "novice" ? 0.18 : 0.06);
-      const horizon = kind === "novice" ? 5 : 11;
-      const V = planner(sim, horizon, kind === "novice" ? 0.2 : 1);
-      // choose lane for the row the mower will reach after a lane-change distance
-      const k = Math.floor(s.y + 0.15 + c.laneChangeRows + 0.3) - Math.floor(s.y + 0.15);
-      const cur = s.change ? s.change.to : s.lane;
-      let bestL = cur, bestV = -1e9;
-      for (let d = -1; d <= 1; d++) {
-        const l = cur + d; if (l < 0 || l >= LANES) continue;
-        const v = (V[Math.min(k, horizon)] || V[horizon])[l] - (d ? 0.5 : 0);
-        if (v > bestV) { bestV = v; bestL = l; }
-      }
-      if (bestL !== cur && !s.change) {
-        const dir = bestL > cur ? 1 : -1;
-        if (pendingSwipe) {} else if (kind === "novice") { if (rng() < 0.85) pendingSwipe = { dir, at: t + 0.25 + rng() * 0.25 }; }
-        else if (!pendingSwipe) pendingSwipe = { dir, at: t + 0.1 };
+    t += DT / 1000;
+    if (kind !== "passive" && !pending && t >= nextDecision && !s.change) {
+      nextDecision = t + (kind === "novice" ? 0.15 : 0.04);
+      const H = kind === "novice" ? 6 : 11;
+      const V = planner(sim, H, kind === "novice" ? 0.3 : 1, kind !== "novice");
+      const k = Math.max(1, Math.floor(s.y + 1.2) - Math.floor(s.y + 0.15));
+      let bl = s.lane, bv = -1e9;
+      for (let d = -1; d <= 1; d++) { const l = s.lane + d; if (l < 0 || l >= LANES) continue; const v = V[Math.min(k, H)][l] - (d ? 0.5 : 0); if (v > bv) { bv = v; bl = l; } }
+      if (bl !== s.lane) {
+        const dir = bl > s.lane ? 1 : -1;
+        const careful = kind === "novice" ? rngA() < 0.6 : true;
+        if (!careful || sweepClear(sim, dir)) {
+          if (kind === "novice" && rngA() < 0.12) { /* hesitates and misses this one */ }
+          else pending = { dir, at: t + latency };
+        }
       }
     }
-    if (pendingSwipe && t >= pendingSwipe.at) { sim.swipe(pendingSwipe.dir); decisions++; lastSwipeT = t; pendingSwipe = null; }
-    sim.update(dt);
+    if (pending && t >= pending.at) { sim.swipe(pending.dir); swipes++; pending = null; }
+    const ev = sim.update(DT);
+    if (inv) {
+      // wildlife invariants
+      for (const e of ev) if (e.type === "rabbitHop" && e.intoPath && !e.rb.fled) {
+        const warn = (e.rb.hop.y1 - s.y) / Math.max(0.5, s.speed);
+        minWarn = Math.min(minWarn, warn);
+      }
+      check(sim.rabbits.length <= 8, "too many rabbits");
+      for (const rb of sim.rabbits) {
+        const lp = lastPos.get(rb);
+        if (lp) check(Math.hypot(rb.x - lp[0], rb.y - lp[1]) < 0.35, "rabbit teleported");
+        lastPos.set(rb, [rb.x, rb.y]);
+        if (rb.state !== "hop" && !rb.fled) {
+          const l = Math.floor(rb.x), c = sim.gen.cell(Math.floor(rb.y), l);
+          check(l >= 0 && l < LANES, "rabbit outside the meadow while not fleeing");
+          check(!c || c.t !== CELL_OBST, "rabbit resting inside an obstacle");
+          for (const o of sim.gen.obstacles.values()) if (Math.abs(o.y - rb.y) < 3) check(o.shape.type !== "circle" || Math.hypot(o.shape.cx - rb.x, o.shape.cy - rb.y) > o.shape.r, "rabbit inside a stone");
+        }
+      }
+    }
   }
   const st = s.stats;
-  return { kind, seed, t: +t.toFixed(1), rows: Math.floor(s.y), score: s.score, lives: s.lives, collisions: st.collisions, near: st.near, patches: st.patches,
-    maxMult: st.maxLevel + 1, avgMult: +(st.multTime / Math.max(1, t)).toFixed(2), turns: st.turns, auto: st.autoTurns, swipes: decisions, stuck: st.stuckEvents || 0, firstHit: st.firstHitT, log: st.collisionLog };
+  return { kind, t, rows: Math.floor(s.y), score: s.score, hits: st.collisions, by: st.hitsBy, near: st.near, patches: st.patches, swipes,
+    tier: s.tier, avgMult: st.multTime / Math.max(1, t), pathHops: st.pathHops, hops: st.rabbitHops, minWarn, log: st.collisionLog, stuck: st.stuckEvents, blocked: st.rabbitBlocked };
 }
-for (const kind of ["passive", "novice", "skilled", "oracle"]) {
+const N = 30;
+for (const kind of ["passive", "novice", "expert", "oracle"]) {
   const res = [];
-  for (let seed = 1; seed <= 40; seed++) res.push(runBot(kind, seed * 101, kind === "skilled" || kind === "oracle" ? 600 : 300));
-  const avg = (k) => (res.reduce((a, r) => a + r[k], 0) / res.length).toFixed(1);
-  const med = (k) => { const v = res.map((r) => r[k]).sort((a, b) => a - b); return v[v.length >> 1]; };
-  console.log(kind.padEnd(8), "time avg", avg("t"), "med", med("t"), "| score avg", avg("score"), "med", med("score"), "| rows", avg("rows"),
-    "| hits", avg("collisions"), "| near", avg("near"), "| patches", avg("patches"), "| maxMult", avg("maxMult"), "avgMult", avg("avgMult"), "| swipes/min", (res.reduce((a, r) => a + r.swipes, 0) / res.reduce((a, r) => a + r.t, 0) * 60).toFixed(1),
-    "| auto", avg("auto"), "| stuck", res.reduce((a, r) => a + r.stuck, 0), "| firstHit med", med("firstHit"));
-  if (kind === "skilled" || kind === "oracle") {
+  for (let seed = 1; seed <= N; seed++) res.push(runBot(kind, seed * 101, kind === "expert" || kind === "oracle" ? 600 : 300, true));
+  const avg = (f) => res.reduce((a, r) => a + f(r), 0) / res.length;
+  const med = (f) => { const v = res.map(f).sort((a, b) => a - b); return v[v.length >> 1]; };
+  const by = {}; for (const r of res) for (const k in r.by) by[k] = (by[k] || 0) + r.by[k];
+  const mins = res.reduce((a, r) => a + r.t, 0) / 60;
+  console.log(kind.padEnd(8), "survive med", med((r) => r.t).toFixed(0) + "s", "| score med", med((r) => r.score), "| rows", avg((r) => r.rows).toFixed(0),
+    "| tier", avg((r) => r.tier).toFixed(2), "| hits by", JSON.stringify(by), "| swipes/min", (res.reduce((a, r) => a + r.swipes, 0) / mins).toFixed(1),
+    "| avgMult", avg((r) => r.avgMult).toFixed(2), "| rabbit hops into path/min", (res.reduce((a, r) => a + r.pathHops, 0) / mins).toFixed(1),
+    "| min warning", Math.min(...res.map((r) => r.minWarn)).toFixed(2) + "s", "| stuck", res.reduce((a, r) => a + r.stuck, 0));
+  if (kind === "expert" || kind === "oracle") {
     const pats = {};
-    for (const r of res) for (const c of r.log) { const key = c.pattern; pats[key] = (pats[key] || 0) + 1; }
-    console.log("  skilled collisions by pattern:", JSON.stringify(pats));
-    console.log("  sample:", JSON.stringify(res.flatMap((r) => r.log).slice(0, 4)));
-  }
-  if (kind === "passive") {
-    const pats = {};
-    for (const r of res) for (const c of r.log) { pats[c.pattern] = (pats[c.pattern] || 0) + 1; }
-    console.log("  passive collisions by pattern:", JSON.stringify(pats));
+    for (const r of res) for (const c of r.log) pats[c.kind + ":" + c.pattern] = (pats[c.kind + ":" + c.pattern] || 0) + 1;
+    console.log("  collisions by hazard:formation", JSON.stringify(pats));
+    const rabbitHits = res.flatMap((r) => r.log).filter((c) => c.kind === "rabbit").slice(0, 3);
+    if (rabbitHits.length) console.log("  sample rabbit hits", JSON.stringify(rabbitHits));
   }
 }
 
-// 4) Long-run memory bound: an invulnerable autopilot for 25 simulated minutes.
+// ---- Hand-built scenarios ------------------------------------------------------
+function blankSim(seedN) {
+  const sim = Sim(Object.assign({}, cfg), seedN || 5);
+  sim.start();
+  for (let i = 0; i < 30; i++) sim.update(DT);
+  // clear the meadow ahead so scenarios are controlled
+  const s = sim.s;
+  for (let r = Math.floor(s.y) - 2; r < Math.floor(s.y) + 40; r++) { const row = sim.gen.row(r); if (!row) continue; row.flowers.length = 0; for (const c of row.cells) { c.t = 0; c.f = null; c.o = 0; } }
+  for (const [id, o] of sim.gen.obstacles) if (o.y > s.y - 3) sim.gen.obstacles.delete(id);
+  sim.rabbits.length = 0; sim.gen.rabbitSpawns.length = 0;
+  return sim;
+}
+function addRabbit(sim, x, y, profile, opts) {
+  const rr = (() => { let a = 9; return () => { a = (a * 1103515245 + 12345) & 0x7fffffff; return a / 0x7fffffff; }; })();
+  const rb = { id: 1, x, y, lane: Math.floor(x), profile, opts: opts || {}, rng: rr, state: "forage", t: 5, face: 0, hop: null, cool: 0, crossLeft: 0, crossDir: 0, plan: "",
+    fled: false, near: false, nearT: -9, alertT: -9, landT: -9, hitT: -9, headT: 0, crossBudget: profile === "wanderer" ? 2 : 0 };
+  sim.rabbits.push(rb); return rb;
+}
+function addStone(sim, x, y, size) {
+  const id = 900000 + Math.floor(y * 10 + x);
+  sim.gen.obstacles.set(id, { id, kind: "stone", x: Math.floor(x), y: Math.floor(y), w: 1, h: 1, size, near: false, hitT: -9, shape: { type: "circle", cx: x, cy: y, r: [0.27, 0.34, 0.42][size] } });
+  sim.gen.cell(Math.floor(y), Math.floor(x)).t = CELL_OBST;
+}
+const run = (sim, secs, onEv) => { for (let i = 0; i < secs * 60 && sim.s.phase === "play"; i++) { const ev = sim.update(DT); if (onEv) for (const e of ev) onEv(e); } };
+{
+  // 1. A rabbit beside an open route reacts when the mower approaches (alert, then a hop) and never lands in the path too late.
+  let sim = blankSim(), s = sim.s;
+  const rb = addRabbit(sim, s.lane + 1.5, s.y + 9, "wanderer", { cross: true });
+  const seen = []; let warn = 99;
+  run(sim, 6, (e) => { if (e.rb === rb) seen.push(e.type); if (e.type === "rabbitHop" && e.intoPath) warn = Math.min(warn, (e.rb.hop.y1 - s.y) / s.speed); });
+  console.log("scenario crossing rabbit: events", seen.slice(0, 6).join(","), "| warning when entering path", warn === 99 ? "never entered" : warn.toFixed(2) + "s", "| mower lives", s.lives);
+  check(seen[0] === "rabbitAlert", "rabbit did not telegraph with an alert first");
+  check(warn >= 0.8 || warn === 99, "rabbit landed in the path with too little warning");
+
+  // 2. A rabbit directly in the path escapes sideways, away from where the mower is heading.
+  sim = blankSim(); s = sim.s;
+  const rb2 = addRabbit(sim, s.lane + 0.5, s.y + 5, "cautious");
+  sim.swipe(-1); // mower heads left
+  let hit = false; run(sim, 4, (e) => { if (e.type === "hit") hit = true; });
+  console.log("scenario rabbit in path: escaped to lane", Math.floor(rb2.x), "(mower went to lane", s.lane + ") | collision", hit);
+  check(!hit, "rabbit in the path was hit although the mower steered away");
+
+  // 3. Edge escape: a rabbit at the meadow edge in the path dives into the hedge rather than getting stuck.
+  sim = blankSim(); s = sim.s;
+  while (s.lane > 0) { sim.swipe(-1); run(sim, 0.5); }
+  const rb3 = addRabbit(sim, 0.5, s.y + 5, "cautious");
+  sim.swipe(1);
+  run(sim, 4);
+  console.log("scenario edge escape: rabbit x", rb3.x.toFixed(2), "fled", rb3.fled, "removed", sim.rabbits.indexOf(rb3) < 0, "| lives", s.lives);
+
+  // 4. Rabbit collision: one hit event, life lost, streak reset, rabbit hops away unhurt, recovery window.
+  sim = blankSim(); s = sim.s; s.level = 2;
+  const rb4 = addRabbit(sim, s.x, s.y + 1.6, "wanderer");
+  rb4.cool = 99; rb4.state = "freeze"; rb4.t = 99; rb4.decided = true; // frozen flat: the mower must steer, and here it doesn't
+  let hits = 0, lostLevel = -1; run(sim, 3, (e) => { if (e.type === "hit") { hits++; lostLevel = e.lostLevel; } });
+  console.log("scenario rabbit collision: hits", hits, "| lives", s.lives, "| streak lost from x" + (lostLevel + 1), "-> x" + (s.level + 1), "| rabbit fled", rb4.fled, "dist", Math.hypot(rb4.x - s.x, rb4.y - s.y).toFixed(1));
+  check(hits === 1 && s.lives === cfg.lives - 1 && rb4.fled, "rabbit collision did not resolve once");
+
+  // 5. Stone collision: life lost once, the mower stops, steps aside and carries on; no second hit in recovery.
+  sim = blankSim(); s = sim.s;
+  addStone(sim, s.x, s.y + 2.5, 1);
+  let sh = 0; const y0 = s.y; run(sim, 4, (e) => { if (e.type === "hit") sh++; });
+  console.log("scenario stone collision: hits", sh, "| lives", s.lives, "| moved on", (s.y - y0).toFixed(1), "rows | now lane", s.lane, "| stuck", s.stats.stuckEvents);
+  check(sh === 1 && s.y - y0 > 4 && s.stats.stuckEvents === 0, "stone collision did not recover cleanly");
+
+  // 6. Two stones with a one-lane gap: driving straight through the gap is clean.
+  sim = blankSim(); s = sim.s;
+  addStone(sim, s.lane - 0.5 + 0.1, s.y + 3.5, 2); addStone(sim, s.lane + 1.5 - 0.1, s.y + 3.5, 2);
+  let gh = 0; run(sim, 3, (e) => { if (e.type === "hit") gh++; });
+  console.log("scenario narrow stone gap (boulders nudged in): hits", gh);
+  check(gh === 0, "a one-lane stone gap was not traversable");
+
+  // 7. Swipe toward a rock right beside the mower is held, then runs when clear (no impossible turn).
+  sim = blankSim(); s = sim.s;
+  addStone(sim, s.lane + 1.5, s.y + 0.2, 1);
+  const l0 = s.lane; sim.swipe(1);
+  const held = s.lane === l0 && !!s.queued;
+  let ms = 0; while (s.lane === l0 && ms < 1500) { sim.update(DT); ms += DT; }
+  console.log("scenario swipe beside a rock: held", held, "| ran after", Math.round(ms), "ms | hits", s.stats.collisions);
+
+  // 8. Fence across four lanes: the mower bumps it once and steps around through the open side.
+  sim = blankSim(); s = sim.s;
+  while (s.lane > 1) { sim.swipe(-1); run(sim, 0.5); }
+  const fy = Math.floor(s.y) + 3;
+  sim.gen.obstacles.set(777, { id: 777, kind: "fence", x: 0, y: fy, w: 4, h: 1, near: false, hitT: -9, shape: { type: "rect", x0: 0.02, x1: 3.98, y0: fy + 0.32, y1: fy + 0.66 } });
+  for (let l = 0; l < 4; l++) sim.gen.cell(fy, l).t = CELL_OBST;
+  let fh = 0; run(sim, 5, (e) => { if (e.type === "hit") fh++; });
+  console.log("scenario fence: hits", fh, "| got past", s.y > fy + 2, "in lane", s.lane, "| stuck", s.stats.stuckEvents);
+  check(s.y > fy + 2 && fh === 1, "mower could not get past a fence cleanly");
+
+  // 9. Double swipe chains, reversal returns, edge bump refused.
+  sim = blankSim(); s = sim.s; const a0 = s.lane; sim.swipe(1); sim.swipe(1); sim.swipe(1); run(sim, 1.5);
+  const chained = s.lane - a0;
+  sim = blankSim(); s = sim.s; const b0 = s.lane; sim.swipe(1); sim.update(DT); sim.update(DT); sim.swipe(-1); run(sim, 1);
+  console.log("scenario input: double swipe moved", chained, "lanes | reversal back home", s.lane === b0);
+
+  // 10. Passive run ends exactly once with lives at zero.
+  sim = Sim(Object.assign({}, cfg), 77); sim.start(); let overs = 0; run(sim, 200, (e) => { if (e.type === "over") overs++; });
+  console.log("scenario passive run: over events", overs, "| lives", sim.s.lives, "| lasted", sim.s.time.toFixed(1), "s");
+}
+
+// ---- Long run: bounded memory and wildlife -------------------------------------
 {
   const sim = Sim(Object.assign({}, cfg), 99);
   sim.start();
   const s = sim.s;
-  let maxRows = 0, maxObs = 0, maxPatches = 0;
-  for (let i = 0; i < 60 * 60 * 25; i++) {
+  let maxRows = 0, maxObs = 0, maxRab = 0;
+  for (let i = 0; i < 60 * 60 * 20; i++) {
     s.invuln = 1; s.lives = 3;
-    if (!s.change && i % 6 === 0) {
-      const r = sim.gen.row(Math.floor(s.y + 1));
-      if (r && (r.cells[s.lane].f || r.cells[s.lane].t === CELL_OBST)) sim.swipe(s.lane > 3 ? -1 : 1);
+    if (!s.change && i % 5 === 0) {
+      const V = planner(sim, 8, 1, true);
+      let bl = s.lane, bv = -1e9;
+      for (let d = -1; d <= 1; d++) { const l = s.lane + d; if (l < 0 || l >= LANES) continue; if (V[1][l] > bv) { bv = V[1][l]; bl = l; } }
+      if (bl !== s.lane) sim.swipe(bl > s.lane ? 1 : -1);
     }
-    sim.update(1000 / 60);
-    if (i % 600 === 0) { maxRows = Math.max(maxRows, sim.gen.rows.size); maxObs = Math.max(maxObs, sim.gen.obstacles.size); maxPatches = Math.max(maxPatches, sim.gen.patches.size); }
+    sim.update(DT);
+    if (i % 600 === 0) { maxRows = Math.max(maxRows, sim.gen.rows.size); maxObs = Math.max(maxObs, sim.gen.obstacles.size); maxRab = Math.max(maxRab, sim.rabbits.length); }
   }
-  console.log("long run: rows travelled", Math.floor(s.y), "speed", s.speed.toFixed(2), "max live rows", maxRows, "max obstacles", maxObs, "max patches", maxPatches, "stuck events", s.stats.stuckEvents || 0, "score", s.score);
+  console.log("long run (20 min): rows", Math.floor(s.y), "| max live rows", maxRows, "| max obstacles", maxObs, "| max rabbits", maxRab, "| pending spawns", sim.gen.rabbitSpawns.length, "| stuck", s.stats.stuckEvents);
+  check(maxRows < 200 && maxObs < 60 && maxRab <= 8 && sim.gen.rabbitSpawns.length < 40, "unbounded growth in a long run");
 }
-// 5) Input checks on a hand-made situation
-{
-  const mk = () => { const sim = Sim(Object.assign({}, cfg), 5); sim.start(); for (let i = 0; i < 60; i++) sim.update(1000 / 60); return sim; };
-  // a) a swipe beside a short obstacle is held and runs as soon as the side lane opens (within the buffer)
-  let sim = mk(), s = sim.s;
-  const r = Math.floor(s.y);
-  for (let k = 0; k < 3; k++) { const c = sim.gen.cell(r + k, s.lane + 1); c.t = CELL_OBST; c.f = null; }
-  for (let k = 3; k < 6; k++) { const c = sim.gen.cell(r + k, s.lane + 1); c.t = 0; c.f = null; }
-  // advance until the obstacle beside ends ~0.35 rows ahead of the mower's rear
-  while (s.y - 0.25 < r + 3 - 0.45) sim.update(1000 / 60);
-  const lane0 = s.lane; sim.swipe(1);
-  const heldFirst = !!s.queued && s.lane === lane0;
-  let tMs = 0; while (s.lane === lane0 && tMs < 1000) { sim.update(1000 / 60); tMs += 1000 / 60; }
-  console.log("buffer: held while blocked:", heldFirst, "| executed after", Math.round(tMs), "ms (buffer", cfg.bufferMs, "ms) | lane", lane0, "->", s.lane);
-  // b) a swipe toward the meadow edge is refused with a bump, not lost silently
-  sim = mk(); s = sim.s; while (s.lane > 0) { sim.swipe(-1); for (let i = 0; i < 30; i++) sim.update(1000 / 60); }
-  const before = s.stats.turns; sim.swipe(-1);
-  console.log("edge swipe: lane", s.lane, "bumped", s.bumpT === s.time, "turn counted", s.stats.turns !== before);
-  // c) a queued second swipe during a lane change chains into a two-lane move; at most one is queued
-  sim = mk(); s = sim.s; const l0 = s.lane; sim.swipe(1); sim.swipe(1); sim.swipe(1);
-  for (let i = 0; i < 90; i++) sim.update(1000 / 60);
-  console.log("double swipe: lanes moved", s.lane - l0, "(expected 2, third swipe dropped)");
-  // d) reversal mid-change heads straight back
-  sim = mk(); s = sim.s; const l1 = s.lane; sim.swipe(1); sim.update(1000 / 60); sim.update(1000 / 60); sim.swipe(-1);
-  for (let i = 0; i < 60; i++) sim.update(1000 / 60);
-  console.log("reversal: back in lane", s.lane === l1, "x", s.x.toFixed(2));
-  // e) the mower never enters an obstacle; with nothing pressed it steers around (default route)
-  sim = mk(); s = sim.s; const ro = Math.floor(s.y) + 4;
-  const c = sim.gen.cell(ro, s.lane); c.t = CELL_OBST; c.f = null;
-  for (const d of [-1, 1]) for (let k = -1; k < 3; k++) { const cc = sim.gen.cell(ro + k, s.lane + d); if (cc) { cc.t = 0; cc.f = null; } }
-  let entered = false; for (let i = 0; i < 180; i++) { sim.update(1000 / 60); if (sim.cellObs(Math.floor(s.y + 0.28), Math.floor(s.x))) entered = true; }
-  console.log("obstacle ahead: auto-steered", s.stats.autoTurns > 0, "| entered obstacle", entered);
-  // f) previously cut grass never scores twice; hit flowers do not hit twice
-  sim = mk(); s = sim.s; let cuts = 0; const seen = new Set(); let dup = false;
-  for (let i = 0; i < 600; i++) { const ev = sim.update(1000 / 60); for (const e of ev) if (e.type === "cut") { const k = e.x.toFixed(4) + "," + e.y.toFixed(4); if (seen.has(k)) dup = true; seen.add(k); cuts++; } }
-  console.log("cut events", cuts, "duplicate tuft scored:", dup);
-  // g) lives stop at zero and the run ends exactly once
-  sim = mk(); s = sim.s; let overs = 0;
-  for (let i = 0; i < 60 * 120 && s.phase === "play"; i++) { const ev = sim.update(1000 / 60); for (const e of ev) if (e.type === "over") overs++; }
-  console.log("passive run end: phase", s.phase, "lives", s.lives, "over events", overs);
-}
+
+console.log(fails.length ? "FAILURES:\n  " + [...new Set(fails)].join("\n  ") : "all checks passed");

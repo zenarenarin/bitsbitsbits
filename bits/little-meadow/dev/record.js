@@ -20,6 +20,8 @@ fs.rmSync(FR, { recursive: true, force: true }); fs.mkdirSync(FR, { recursive: t
       for (let p = 0; p <= 1.0001; p += 0.05) {
         const e = 1 - Math.pow(1 - p, 2.2), x = fromX + (toX - fromX) * e, y = s.y + 0.8 * p;
         for (let r = Math.floor(y) - 1; r <= Math.floor(y) + 1; r++) { const row = sim.gen.row(r); if (row) for (const f of row.flowers) if (!f.hit && Math.hypot(f.x - x, f.y - y) < 0.52) return false; }
+        if (sim.obstacleAt(x, y, 0.05)) return false;
+        for (const rb of sim.rabbits) if (!rb.fled && Math.hypot(rb.x - x, rb.y - y) < 0.55) return false;
       }
       return true;
     }
@@ -27,10 +29,12 @@ fs.rmSync(FR, { recursive: true, force: true }); fs.mkdirSync(FR, { recursive: t
       const sim = G.sim, s = sim.s, gen = sim.gen;
       if (G.phase !== "play" || s.change) return;
       const r0 = Math.floor(s.y + 0.15), H = 10, V = [];
+      const blocked = new Set();
+      for (const rb of sim.rabbits) if (!rb.fled) { blocked.add(Math.floor(rb.y) + ":" + Math.floor(rb.x)); if (rb.hop) blocked.add(Math.floor(rb.hop.y1) + ":" + Math.floor(rb.hop.x1)); }
       for (let k = H; k >= 0; k--) {
         const row = gen.row(r0 + k); V[k] = [];
         for (let l = 0; l < 7; l++) {
-          const c = row.cells[l]; if (!safe(c)) { V[k][l] = -1e6; continue; }
+          const c = row.cells[l]; if (!safe(c) || blocked.has((r0 + k) + ":" + l)) { V[k][l] = -1e6; continue; }
           let val = 0; for (const t of row.tufts) if (!t.cut && Math.abs(t.x - (l + 0.5)) < 0.46) val += t.v;
           for (const f of row.flowers) if (Math.abs(f.x - (l + 0.5)) < 1.2) val += 1.5; // likes close shaves
           let best = k === H ? 0 : -1e6;
