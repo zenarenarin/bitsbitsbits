@@ -2,7 +2,7 @@
 // usage: node record.js [seconds=10] [speed=2] [seed=0]  -> out/little-meadow.mp4
 const path = require("path"), fs = require("fs"), { execFileSync } = require("child_process");
 const { chromium } = require(process.env.PW || "playwright");
-const [secs = 10, speed = 2, seed = 0] = process.argv.slice(2).map(Number);
+const [secs = 10, speed = 2, seed = 0, startRow = 0] = process.argv.slice(2).map(Number);
 const FPS = 30, OUT = path.join(__dirname, "out"), FR = path.join(OUT, "frames");
 fs.rmSync(FR, { recursive: true, force: true }); fs.mkdirSync(FR, { recursive: true });
 (async () => {
@@ -50,10 +50,20 @@ fs.rmSync(FR, { recursive: true, force: true }); fs.mkdirSync(FR, { recursive: t
       if (bl !== s.lane && sweepClear(sim, bl > s.lane ? 1 : -1)) G.steer(bl > s.lane ? 1 : -1);
     };
   });
+  if (startRow > 0) {
+    // play ahead with the autopilot (unrecorded) so the clip shows a later part of the run
+    await page.evaluate((row) => {
+      const G = __LM_GAME__; G.beginPlay();
+      let guard = 0;
+      while (G.sim.s.y < row && guard++ < 400) G.warp(60, (sim) => { sim.s.lives = 3; window.__pilot(); });
+      G.sim.s.lives = 3;
+      for (let k = 0; k < 90; k++) { window.__pilot(); window.__step(1000 / 60); } // let the camera and trail settle
+    }, startRow);
+  }
   const total = secs * FPS, sub = 4, stepMs = (1000 / FPS) * speed / sub;
   for (let i = 0; i < total; i++) {
     await page.evaluate(([n, ms, i]) => {
-      if (i === 12) __LM_GAME__.steer(1); // first flick, after a beat on the title
+      if (i === 12 && __LM_GAME__.phase === "ready") __LM_GAME__.steer(1); // first flick, after a beat on the title
       for (let k = 0; k < n; k++) { window.__pilot(); window.__step(ms); }
     }, [sub, stepMs, i]);
     await page.screenshot({ path: path.join(FR, String(i).padStart(4, "0") + ".jpg"), type: "jpeg", quality: 92 });
