@@ -23,7 +23,7 @@ const q = new URLSearchParams(location.search);
 const insets = q.has('frame') ? null : { top: 62, right: 0, bottom: 108, left: 0 };
 const canvases = [];
 const resizers = [];
-const dprOf = () => Math.min(2, window.devicePixelRatio || 1);
+const dprOf = () => Math.min(1.5, window.devicePixelRatio || 1);
 function sizeCanvas(c) { c.width = Math.round(host.clientWidth * dprOf()); c.height = Math.round(host.clientHeight * dprOf()); }
 const ctx = {
   get width() { return host.clientWidth; },

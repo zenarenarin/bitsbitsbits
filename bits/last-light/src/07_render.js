@@ -11,7 +11,7 @@ function createRenderer(canvas, level, world, optics, watcher) {
   const fac = new Map();
   const far = makeSkyline(11, -40, level.x1 * 0.3 + 60, 0.25), mid = makeSkyline(29, -30, level.x1 * 0.55 + 50, 0.55);
   const polys = new Map();
-  let sky = null, grain = null, vign = null;
+  let sky = null, vign = null;
   const scarf = [];
 
   R.layout = function (W, H, dpr, area, controlsH) {
@@ -90,6 +90,11 @@ function createRenderer(canvas, level, world, optics, watcher) {
       const cy = r.range(0.06, 0.4) * H, cx = r.range(0, W), cw = r.range(0.4, 0.9) * W;
       for (let k = 0; k < 9; k++) { sg.beginPath(); for (let x = -cw / 2; x < cw / 2; x += 6) { const yy = cy + k * 3 + Math.sin((x + k * 9) * 0.03) * 4 * (1 - Math.abs(x) / cw * 2); x === -cw / 2 ? sg.moveTo(cx + x, yy) : sg.lineTo(cx + x, yy); } sg.stroke(); }
     }
+    // paper grain, baked in once
+    const gc = document.createElement('canvas'); gc.width = gc.height = 128; const gg = gc.getContext('2d'); const id = gg.createImageData(128, 128); const r2 = rng(5);
+    for (let i = 0; i < id.data.length; i += 4) { const v = r2() * 255; id.data[i] = id.data[i + 1] = id.data[i + 2] = v; id.data[i + 3] = 255; }
+    gg.putImageData(id, 0, 0);
+    sg.globalAlpha = 0.07; sg.fillStyle = sg.createPattern(gc, 'repeat'); sg.fillRect(0, 0, W, H); sg.globalAlpha = 1;
     return c;
   }
   function drawMoon() {
@@ -578,7 +583,6 @@ function createRenderer(canvas, level, world, optics, watcher) {
 
     const facs = visibleFacades();
     drawFacades(facs, false);
-    for (const r of level.recesses) if (r.x1 > R.cam.x - W / 2 / s - 1 && r.x0 < R.cam.x + W / 2 / s + 1) drawRecess(r);
 
     // the Watcher's light
     const list = [];
@@ -609,6 +613,10 @@ function createRenderer(canvas, level, world, optics, watcher) {
         g.restore();
       }
     }
+    // doorways sit on top of the light: inside one, the light cannot reach you
+    for (const r of level.recesses) if (r.x1 > R.cam.x - W / 2 / s - 1 && r.x0 < R.cam.x + W / 2 / s + 1) drawRecess(r);
+    // the cellar's dark interior, under the court
+    for (const b of level.solids) if (b.kind === 'cellar') { g.fillStyle = '#070707'; g.fillRect(X(b.x0), Y(0), (b.x1 - b.x0) * s, 3 * s); }
     drawLines();
     for (const sh of level.sheets) drawSheet(sh);
     for (const p of level.plats) if (p.x1 > R.cam.x - W / 2 / s - 2 && p.x0 < R.cam.x + W / 2 / s + 2) drawPlat(p);
@@ -646,8 +654,6 @@ function createRenderer(canvas, level, world, optics, watcher) {
       g.beginPath(); g.moveTo(ox, y0); g.quadraticCurveTo(ox + span * s / 2, y0 + 2.5 * s, ox + span * s, y0 - 4); g.stroke();
     }
     // paper grain and vignette
-    if (!grain) { const c = document.createElement('canvas'); c.width = c.height = 128; const cg = c.getContext('2d'); const id = cg.createImageData(128, 128); const r = rng(5); for (let i = 0; i < id.data.length; i += 4) { const v = r() * 255; id.data[i] = id.data[i + 1] = id.data[i + 2] = v; id.data[i + 3] = 255; } cg.putImageData(id, 0, 0); grain = g.createPattern(c, 'repeat'); }
-    g.globalAlpha = 0.05; g.fillStyle = grain; g.fillRect(0, 0, W, H); g.globalAlpha = 1;
     if (!vign) { vign = g.createRadialGradient(W / 2, H * 0.45, Math.min(W, H) * 0.35, W / 2, H * 0.45, Math.max(W, H) * 0.75); vign.addColorStop(0, 'rgba(0,0,0,0)'); vign.addColorStop(1, 'rgba(0,0,0,0.55)'); }
     g.fillStyle = vign; g.fillRect(0, 0, W, H);
     if (R.flash > 0) { g.fillStyle = 'rgba(236,231,220,' + Math.min(1, R.flash).toFixed(3) + ')'; g.fillRect(0, 0, W, H); }

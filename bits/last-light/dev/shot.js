@@ -8,7 +8,7 @@ const spots = process.argv.slice(5);
   const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 2 });
   const errs = []; page.on('pageerror', e => errs.push('PAGEERROR ' + e.message + ' ' + (e.stack || '').split('\n')[1]));
   page.on('console', m => { if (m.type() === 'error') errs.push('CONSOLE ' + m.text()); });
-  await page.goto('http://localhost:8766/dev/index.html');
+  await page.goto('http://localhost:8766/dev/index.html' + (process.env.Q || ''));
   await page.waitForFunction(() => window.__ready || window.__initError, null, { timeout: 30000 });
   await page.waitForTimeout(600);
   await page.screenshot({ path: out + '/00_title.png' });

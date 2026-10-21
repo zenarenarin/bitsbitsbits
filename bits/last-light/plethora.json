@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "The Last Light on the Street",
+  "description": "A monochrome pursuit arcade game. Something unseen hunts you through an engraved city using its lamps. Run, climb, hang and swing through the architecture, pull awnings to throw new shadows, and escape the Watcher's street.",
+  "tags": [
+    "arcade",
+    "platformer",
+    "stealth",
+    "monochrome",
+    "noir"
+  ],
+  "permissions": [
+    "audio",
+    "backgroundMusic",
+    "haptics",
+    "storage"
+  ],
+  "dependencies": [],
+  "display": "fullscreen",
+  "onboarding": {
+    "kind": "one_line",
+    "version": 1,
+    "message": "Drag on the left to run and climb. Right side: jump, pull."
+  },
+  "memory": {
+    "records": {
+      "score": {
+        "label": "Score",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": [
+          "daily",
+          "weekly",
+          "all_time"
+        ],
+        "scopes": [
+          "following",
+          "global"
+        ],
+        "dedupe": "best_per_user"
+      }
+    }
+  },
+  "tuning": {
+    "schemaVersion": 1,
+    "groups": {
+      "feel": {
+        "label": "Movement"
+      },
+      "watcher": {
+        "label": "The Watcher"
+      },
+      "city": {
+        "label": "The city"
+      }
+    },
+    "knobs": {
+      "run_speed": {
+        "label": "Run speed (m/s)",
+        "type": "number",
+        "default": 6.4,
+        "min": 4.5,
+        "max": 8.5,
+        "step": 0.1,
+        "group": "feel",
+        "intent": "feel",
+        "apply": "restart"
+      },
+      "jump_height": {
+        "label": "Jump height (m)",
+        "type": "number",
+        "default": 2.15,
+        "min": 1.6,
+        "max": 2.8,
+        "step": 0.05,
+        "group": "feel",
+        "intent": "feel",
+        "apply": "restart"
+      },
+      "notice_time": {
+        "label": "Seconds in light before it tracks you",
+        "type": "number",
+        "default": 0.85,
+        "min": 0.4,
+        "max": 2.0,
+        "step": 0.05,
+        "group": "watcher",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "lock_time": {
+        "label": "Seconds tracked in light before capture",
+        "type": "number",
+        "default": 1.15,
+        "min": 0.5,
+        "max": 2.5,
+        "step": 0.05,
+        "group": "watcher",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "lamp_pace": {
+        "label": "Lamp sweep speed",
+        "type": "number",
+        "default": 1,
+        "min": 0.6,
+        "max": 1.6,
+        "step": 0.05,
+        "group": "watcher",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "awning_hold": {
+        "label": "How long an awning stays out",
+        "type": "number",
+        "default": 1,
+        "min": 0.5,
+        "max": 2,
+        "step": 0.05,
+        "group": "city",
+        "intent": "difficulty",
+        "apply": "restart"
+      }
+    }
+  }
+}

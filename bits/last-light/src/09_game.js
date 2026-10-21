@@ -17,7 +17,7 @@ const UI_CSS = `
 .ll-rule{height:1px;background:#0d0d0c;margin:16px 0}
 .ll-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;text-align:left}
 .ll-stats div{font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;opacity:.75}
-.ll-stats b{display:block;font-family:'DM Serif Display',Georgia,serif;font-weight:400;font-size:22px;letter-spacing:0;opacity:1;margin-bottom:2px;font-variant-numeric:tabular-nums}
+.ll-stats b{display:block;text-transform:none;font-family:'DM Serif Display',Georgia,serif;font-weight:400;font-size:22px;letter-spacing:0;opacity:1;margin-bottom:2px;font-variant-numeric:tabular-nums}
 .ll-score{display:flex;align-items:baseline;justify-content:space-between;margin-top:16px}
 .ll-score b{font-family:'DM Serif Display',Georgia,serif;font-weight:400;font-size:44px;line-height:1;font-variant-numeric:tabular-nums}
 .ll-score span{font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase}
@@ -68,7 +68,7 @@ window.plethoraBit = {
     world.dynamicOccluders(dynOcc, 0); optics.setDynamic(dynOcc);
 
     // ---- surfaces
-    const canvas = ctx.createCanvas2D({ maxDpr: 2, layer: 'content', input: 'auto', touchAction: 'none' });
+    const canvas = ctx.createCanvas2D({ maxDpr: 1.5, layer: 'content', input: 'auto', touchAction: 'none' });
     const ui = ctx.createRoot({ className: 'll', layer: 'overlay', input: 'passthrough' });
     const style = document.createElement('style'); style.textContent = UI_CSS; ui.appendChild(style);
     const R = createRenderer(canvas, level, world, optics, watcher);
@@ -394,7 +394,7 @@ window.plethoraBit = {
       g.strokeStyle = 'rgba(236,231,220,0.7)'; g.lineWidth = 1.5;
       g.beginPath(); g.arc(p.x, p.y, p.r, 0, TAU); g.stroke();
       g.fillStyle = PAPER; g.fillRect(p.x - 5, p.y - 7, 3, 14); g.fillRect(p.x + 2, p.y - 7, 3, 14);
-      if (controlsH || touch.stick || touch.jump !== null) drawControls();
+      drawControls();
       g.restore();
     }
     function drawEye(cx, cy) {
@@ -424,7 +424,7 @@ window.plethoraBit = {
       if (t) {
         g.strokeStyle = 'rgba(236,231,220,0.45)'; g.beginPath(); g.arc(t.ox, t.oy, 50, 0, TAU); g.stroke();
         g.fillStyle = 'rgba(236,231,220,0.35)'; g.beginPath(); g.arc(t.x, t.y, 20, 0, TAU); g.fill();
-      } else if (controlsH) {
+      } else {
         const hint = !save.stickSeen ? 0.5 + 0.3 * Math.sin(time * 3) : 0.22;
         g.strokeStyle = 'rgba(236,231,220,' + hint.toFixed(2) + ')';
         g.beginPath(); g.arc(home.x, home.y, 50, 0, TAU); g.stroke();

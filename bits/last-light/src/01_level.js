@@ -69,7 +69,7 @@ function buildLevel() {
   solid(28.0, 11.6, 29.4, 14.2, { kind: 'chimney' });
   solid(34.6, 11.6, 35.8, 13.6, { kind: 'chimney' });
   solid(40.0, 11.6, 40.9, 12.55, { kind: 'chimney', stub: true });
-  light({ x: 47.4, y: 16.4, base: 196, amp: 8, period: 6.4, half: 6.5, range: 46, kind: 'bracket', maxDev: 30 });
+  light({ x: 47.4, y: 16.4, base: 197, amp: 10, period: 6.4, half: 7, range: 46, kind: 'bracket', maxDev: 30 });
   checkpoint(14.2, 11.6);
 
   // ---------------------------------------------------------------
@@ -97,12 +97,12 @@ function buildLevel() {
   const aw1 = { ax: 56.9, ay: 3.2, len: 6.6, dir: 1, cord: { x: 56.2, y: 0 }, holdS: 5.5 };
   L.awnings.push(aw1);
   L.props.push({ kind: 'pilaster', x: 56.85, top: 3.2 });
-  light({ x: 60.4, y: 7.4, base: 270, amp: 26, period: 7.5, half: 22, range: 14, kind: 'lantern', maxDev: 55 });
+  light({ x: 60.4, y: 7.4, base: 270, amp: 18, period: 7.5, half: 30, range: 14, kind: 'lantern', maxDev: 55 });
   // the high road
   plat(51.6, 55.2, 8.4, { rail: true });
   plat(58.6, 63.4, 8.4, { rail: true, hook: 60.4 });
   plat(66.4, 70.4, 8.4, { rail: true });
-  light({ x: 74.6, y: 13.2, base: 192, amp: 6, period: 5.2, phase: 1.3, half: 6, range: 24, kind: 'bracket', maxDev: 30 });
+  light({ x: 74.6, y: 13.2, base: 190, amp: 11, period: 5.6, phase: 1.3, half: 4.5, range: 24, kind: 'bracket', maxDev: 30 });
   pipe(70.0, 0, 8.4);
   recess(64.8, 66.2, 2.4);
   checkpoint(52.6, 0);
@@ -140,6 +140,7 @@ function buildLevel() {
   for (let i = 0; i < 4; i++) L.sheets.push({ x: 100.2 + i * 2.4, y: 7.6, w: 1.1, h: 1.6 + (i % 2) * 0.4, phase: i * 1.7 });
   light({ x: 90.8, y: 15.4, base: 318, amp: 14, period: 6.2, half: 9, range: 30, kind: 'bracket', maxDev: 40 });
   light({ x: 115.6, y: 15.0, base: 224, amp: 14, period: 6.2, phase: Math.PI, half: 9, range: 30, kind: 'bracket', maxDev: 40 });
+  recess(110.9, 112.4, 2.4);
   checkpoint(90.6, 0);
 
   // ---------------------------------------------------------------
@@ -155,10 +156,10 @@ function buildLevel() {
   facade(142.6, 152, 14, 'gate');
   pipe(122.4, 0, 6.4);
   plat(121.8, 126.6, 6.4, { rail: true });
-  const aw2 = { ax: 127.2, ay: 3.0, len: 6.8, dir: 1, cord: { x: 125.8, y: 6.4 }, holdS: 5.0 };
+  const aw2 = { ax: 127.2, ay: 3.0, len: 8.2, dir: 1, cord: { x: 125.8, y: 6.4 }, holdS: 5.0 };
   L.awnings.push(aw2);
   L.props.push({ kind: 'pilaster', x: 127.15, top: 3.0 });
-  light({ x: 131.0, y: 6.6, base: 270, amp: 0, half: 46, range: 11, kind: 'post' });
+  light({ x: 131.0, y: 6.6, base: 270, amp: 0, half: 40, range: 11, kind: 'post' });
   light({ x: 118.4, y: 16.6, base: 326, amp: 10, period: 4.8, half: 7, range: 28, kind: 'tower', maxDev: 40 });
   plat(128.6, 141.6, 13, { kind: 'roof', th: 0.6 });
   pipe(127.9, 6.4, 13);

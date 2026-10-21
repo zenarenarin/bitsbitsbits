@@ -27,4 +27,9 @@
       return tr;
     };
     L.at = function (x, y, face) { L.player.reset(x, y, face || 1); L.R.follow(L.player, 1, true); };
-  })()
+  })();
+(() => {
+  const L = window.__ll;
+  // is any lamp lighting the stretch [x0,x1] at height y right now?
+  window.lit = (x0, x1, y) => { for (let x = x0; x <= x1; x += 0.25) for (const l of L.level.lights) if (l.on && L.optics.sees(l, x, y)) return true; return false; };
+})();

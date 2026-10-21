@@ -113,7 +113,7 @@ function buildLevel() {
   solid(28.0, 11.6, 29.4, 14.2, { kind: 'chimney' });
   solid(34.6, 11.6, 35.8, 13.6, { kind: 'chimney' });
   solid(40.0, 11.6, 40.9, 12.55, { kind: 'chimney', stub: true });
-  light({ x: 47.4, y: 16.4, base: 196, amp: 8, period: 6.4, half: 6.5, range: 46, kind: 'bracket', maxDev: 30 });
+  light({ x: 47.4, y: 16.4, base: 197, amp: 10, period: 6.4, half: 7, range: 46, kind: 'bracket', maxDev: 30 });
   checkpoint(14.2, 11.6);
 
   // ---------------------------------------------------------------
@@ -141,12 +141,12 @@ function buildLevel() {
   const aw1 = { ax: 56.9, ay: 3.2, len: 6.6, dir: 1, cord: { x: 56.2, y: 0 }, holdS: 5.5 };
   L.awnings.push(aw1);
   L.props.push({ kind: 'pilaster', x: 56.85, top: 3.2 });
-  light({ x: 60.4, y: 7.4, base: 270, amp: 26, period: 7.5, half: 22, range: 14, kind: 'lantern', maxDev: 55 });
+  light({ x: 60.4, y: 7.4, base: 270, amp: 18, period: 7.5, half: 30, range: 14, kind: 'lantern', maxDev: 55 });
   // the high road
   plat(51.6, 55.2, 8.4, { rail: true });
   plat(58.6, 63.4, 8.4, { rail: true, hook: 60.4 });
   plat(66.4, 70.4, 8.4, { rail: true });
-  light({ x: 74.6, y: 13.2, base: 192, amp: 6, period: 5.2, phase: 1.3, half: 6, range: 24, kind: 'bracket', maxDev: 30 });
+  light({ x: 74.6, y: 13.2, base: 190, amp: 11, period: 5.6, phase: 1.3, half: 4.5, range: 24, kind: 'bracket', maxDev: 30 });
   pipe(70.0, 0, 8.4);
   recess(64.8, 66.2, 2.4);
   checkpoint(52.6, 0);
@@ -184,6 +184,7 @@ function buildLevel() {
   for (let i = 0; i < 4; i++) L.sheets.push({ x: 100.2 + i * 2.4, y: 7.6, w: 1.1, h: 1.6 + (i % 2) * 0.4, phase: i * 1.7 });
   light({ x: 90.8, y: 15.4, base: 318, amp: 14, period: 6.2, half: 9, range: 30, kind: 'bracket', maxDev: 40 });
   light({ x: 115.6, y: 15.0, base: 224, amp: 14, period: 6.2, phase: Math.PI, half: 9, range: 30, kind: 'bracket', maxDev: 40 });
+  recess(110.9, 112.4, 2.4);
   checkpoint(90.6, 0);
 
   // ---------------------------------------------------------------
@@ -199,10 +200,10 @@ function buildLevel() {
   facade(142.6, 152, 14, 'gate');
   pipe(122.4, 0, 6.4);
   plat(121.8, 126.6, 6.4, { rail: true });
-  const aw2 = { ax: 127.2, ay: 3.0, len: 6.8, dir: 1, cord: { x: 125.8, y: 6.4 }, holdS: 5.0 };
+  const aw2 = { ax: 127.2, ay: 3.0, len: 8.2, dir: 1, cord: { x: 125.8, y: 6.4 }, holdS: 5.0 };
   L.awnings.push(aw2);
   L.props.push({ kind: 'pilaster', x: 127.15, top: 3.0 });
-  light({ x: 131.0, y: 6.6, base: 270, amp: 0, half: 46, range: 11, kind: 'post' });
+  light({ x: 131.0, y: 6.6, base: 270, amp: 0, half: 40, range: 11, kind: 'post' });
   light({ x: 118.4, y: 16.6, base: 326, amp: 10, period: 4.8, half: 7, range: 28, kind: 'tower', maxDev: 40 });
   plat(128.6, 141.6, 13, { kind: 'roof', th: 0.6 });
   pipe(127.9, 6.4, 13);
@@ -1130,7 +1131,7 @@ function createRenderer(canvas, level, world, optics, watcher) {
   const fac = new Map();
   const far = makeSkyline(11, -40, level.x1 * 0.3 + 60, 0.25), mid = makeSkyline(29, -30, level.x1 * 0.55 + 50, 0.55);
   const polys = new Map();
-  let sky = null, grain = null, vign = null;
+  let sky = null, vign = null;
   const scarf = [];
 
   R.layout = function (W, H, dpr, area, controlsH) {
@@ -1209,6 +1210,11 @@ function createRenderer(canvas, level, world, optics, watcher) {
       const cy = r.range(0.06, 0.4) * H, cx = r.range(0, W), cw = r.range(0.4, 0.9) * W;
       for (let k = 0; k < 9; k++) { sg.beginPath(); for (let x = -cw / 2; x < cw / 2; x += 6) { const yy = cy + k * 3 + Math.sin((x + k * 9) * 0.03) * 4 * (1 - Math.abs(x) / cw * 2); x === -cw / 2 ? sg.moveTo(cx + x, yy) : sg.lineTo(cx + x, yy); } sg.stroke(); }
     }
+    // paper grain, baked in once
+    const gc = document.createElement('canvas'); gc.width = gc.height = 128; const gg = gc.getContext('2d'); const id = gg.createImageData(128, 128); const r2 = rng(5);
+    for (let i = 0; i < id.data.length; i += 4) { const v = r2() * 255; id.data[i] = id.data[i + 1] = id.data[i + 2] = v; id.data[i + 3] = 255; }
+    gg.putImageData(id, 0, 0);
+    sg.globalAlpha = 0.07; sg.fillStyle = sg.createPattern(gc, 'repeat'); sg.fillRect(0, 0, W, H); sg.globalAlpha = 1;
     return c;
   }
   function drawMoon() {
@@ -1697,7 +1703,6 @@ function createRenderer(canvas, level, world, optics, watcher) {
 
     const facs = visibleFacades();
     drawFacades(facs, false);
-    for (const r of level.recesses) if (r.x1 > R.cam.x - W / 2 / s - 1 && r.x0 < R.cam.x + W / 2 / s + 1) drawRecess(r);
 
     // the Watcher's light
     const list = [];
@@ -1728,6 +1733,10 @@ function createRenderer(canvas, level, world, optics, watcher) {
         g.restore();
       }
     }
+    // doorways sit on top of the light: inside one, the light cannot reach you
+    for (const r of level.recesses) if (r.x1 > R.cam.x - W / 2 / s - 1 && r.x0 < R.cam.x + W / 2 / s + 1) drawRecess(r);
+    // the cellar's dark interior, under the court
+    for (const b of level.solids) if (b.kind === 'cellar') { g.fillStyle = '#070707'; g.fillRect(X(b.x0), Y(0), (b.x1 - b.x0) * s, 3 * s); }
     drawLines();
     for (const sh of level.sheets) drawSheet(sh);
     for (const p of level.plats) if (p.x1 > R.cam.x - W / 2 / s - 2 && p.x0 < R.cam.x + W / 2 / s + 2) drawPlat(p);
@@ -1765,8 +1774,6 @@ function createRenderer(canvas, level, world, optics, watcher) {
       g.beginPath(); g.moveTo(ox, y0); g.quadraticCurveTo(ox + span * s / 2, y0 + 2.5 * s, ox + span * s, y0 - 4); g.stroke();
     }
     // paper grain and vignette
-    if (!grain) { const c = document.createElement('canvas'); c.width = c.height = 128; const cg = c.getContext('2d'); const id = cg.createImageData(128, 128); const r = rng(5); for (let i = 0; i < id.data.length; i += 4) { const v = r() * 255; id.data[i] = id.data[i + 1] = id.data[i + 2] = v; id.data[i + 3] = 255; } cg.putImageData(id, 0, 0); grain = g.createPattern(c, 'repeat'); }
-    g.globalAlpha = 0.05; g.fillStyle = grain; g.fillRect(0, 0, W, H); g.globalAlpha = 1;
     if (!vign) { vign = g.createRadialGradient(W / 2, H * 0.45, Math.min(W, H) * 0.35, W / 2, H * 0.45, Math.max(W, H) * 0.75); vign.addColorStop(0, 'rgba(0,0,0,0)'); vign.addColorStop(1, 'rgba(0,0,0,0.55)'); }
     g.fillStyle = vign; g.fillRect(0, 0, W, H);
     if (R.flash > 0) { g.fillStyle = 'rgba(236,231,220,' + Math.min(1, R.flash).toFixed(3) + ')'; g.fillRect(0, 0, W, H); }
@@ -1939,7 +1946,7 @@ const UI_CSS = `
 .ll-rule{height:1px;background:#0d0d0c;margin:16px 0}
 .ll-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;text-align:left}
 .ll-stats div{font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;opacity:.75}
-.ll-stats b{display:block;font-family:'DM Serif Display',Georgia,serif;font-weight:400;font-size:22px;letter-spacing:0;opacity:1;margin-bottom:2px;font-variant-numeric:tabular-nums}
+.ll-stats b{display:block;text-transform:none;font-family:'DM Serif Display',Georgia,serif;font-weight:400;font-size:22px;letter-spacing:0;opacity:1;margin-bottom:2px;font-variant-numeric:tabular-nums}
 .ll-score{display:flex;align-items:baseline;justify-content:space-between;margin-top:16px}
 .ll-score b{font-family:'DM Serif Display',Georgia,serif;font-weight:400;font-size:44px;line-height:1;font-variant-numeric:tabular-nums}
 .ll-score span{font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase}
@@ -1990,7 +1997,7 @@ window.plethoraBit = {
     world.dynamicOccluders(dynOcc, 0); optics.setDynamic(dynOcc);
 
     // ---- surfaces
-    const canvas = ctx.createCanvas2D({ maxDpr: 2, layer: 'content', input: 'auto', touchAction: 'none' });
+    const canvas = ctx.createCanvas2D({ maxDpr: 1.5, layer: 'content', input: 'auto', touchAction: 'none' });
     const ui = ctx.createRoot({ className: 'll', layer: 'overlay', input: 'passthrough' });
     const style = document.createElement('style'); style.textContent = UI_CSS; ui.appendChild(style);
     const R = createRenderer(canvas, level, world, optics, watcher);
@@ -2316,7 +2323,7 @@ window.plethoraBit = {
       g.strokeStyle = 'rgba(236,231,220,0.7)'; g.lineWidth = 1.5;
       g.beginPath(); g.arc(p.x, p.y, p.r, 0, TAU); g.stroke();
       g.fillStyle = PAPER; g.fillRect(p.x - 5, p.y - 7, 3, 14); g.fillRect(p.x + 2, p.y - 7, 3, 14);
-      if (controlsH || touch.stick || touch.jump !== null) drawControls();
+      drawControls();
       g.restore();
     }
     function drawEye(cx, cy) {
@@ -2346,7 +2353,7 @@ window.plethoraBit = {
       if (t) {
         g.strokeStyle = 'rgba(236,231,220,0.45)'; g.beginPath(); g.arc(t.ox, t.oy, 50, 0, TAU); g.stroke();
         g.fillStyle = 'rgba(236,231,220,0.35)'; g.beginPath(); g.arc(t.x, t.y, 20, 0, TAU); g.fill();
-      } else if (controlsH) {
+      } else {
         const hint = !save.stickSeen ? 0.5 + 0.3 * Math.sin(time * 3) : 0.22;
         g.strokeStyle = 'rgba(236,231,220,' + hint.toFixed(2) + ')';
         g.beginPath(); g.arc(home.x, home.y, 50, 0, TAU); g.stroke();
