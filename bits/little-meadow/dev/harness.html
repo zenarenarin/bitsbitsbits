@@ -39,7 +39,7 @@ function makeCtx() {
       loop(o) {
         let last = performance.now(), paused = false, stopped = false;
         const tick = (t) => { if (stopped) return; const dt = t - last; last = t; if (!paused) o.update(Math.min(dt, o.maxDeltaMs || 80)); requestAnimationFrame(tick); };
-        requestAnimationFrame(tick);
+        if (q.get('manual')) window.__step = (ms) => o.update(ms); else requestAnimationFrame(tick);
         const loop = { pause() { paused = true; o.onPause && o.onPause(); }, resume() { paused = false; last = performance.now(); o.onResume && o.onResume(); }, destroy() { stopped = true; } };
         window.__loop = loop; return loop;
       }
