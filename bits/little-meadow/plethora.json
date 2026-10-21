@@ -1,0 +1,288 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "Little Meadow",
+  "description": "Steer a tiny vintage mower through an endless hand-painted meadow. Flick left or right to carve a mown trail through tall grass and seed heads, and spare every flower. Close shaves and whole seed patches build your rhythm multiplier; three bruised flowers and the meadow rests.",
+  "tags": [
+    "arcade",
+    "endless",
+    "painterly",
+    "swipe",
+    "nature"
+  ],
+  "permissions": [
+    "audio",
+    "backgroundMusic",
+    "haptics",
+    "storage"
+  ],
+  "dependencies": [
+    "dm-serif-display@1.0.0",
+    "cormorant-garamond@1.0.0"
+  ],
+  "display": "fullscreen",
+  "onboarding": {
+    "kind": "immersive",
+    "version": 1
+  },
+  "memory": {
+    "records": {
+      "score": {
+        "label": "Meadow mown",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": [
+          "daily",
+          "weekly",
+          "all_time"
+        ],
+        "scopes": [
+          "global",
+          "following"
+        ],
+        "dedupe": "best_per_user"
+      }
+    }
+  },
+  "tuning": {
+    "schemaVersion": 1,
+    "groups": {
+      "feel": {
+        "label": "Steering feel"
+      },
+      "difficulty": {
+        "label": "Difficulty"
+      },
+      "scoring": {
+        "label": "Scoring"
+      },
+      "audio": {
+        "label": "Sound"
+      },
+      "debug": {
+        "label": "Playtest"
+      }
+    },
+    "knobs": {
+      "start_speed": {
+        "label": "Starting speed (rows per second)",
+        "type": "number",
+        "default": 2.35,
+        "min": 1.5,
+        "max": 4,
+        "step": 0.05,
+        "group": "difficulty",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "max_speed": {
+        "label": "Top speed (rows per second)",
+        "type": "number",
+        "default": 5.1,
+        "min": 3,
+        "max": 8,
+        "step": 0.1,
+        "group": "difficulty",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "ramp_rows": {
+        "label": "Rows until top speed",
+        "type": "integer",
+        "default": 1300,
+        "min": 300,
+        "max": 4000,
+        "step": 50,
+        "group": "difficulty",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "difficulty_rate": {
+        "label": "Formation difficulty ramp",
+        "type": "number",
+        "default": 1,
+        "min": 0.4,
+        "max": 3,
+        "step": 0.05,
+        "group": "difficulty",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "flower_density": {
+        "label": "Flower density",
+        "type": "number",
+        "default": 1,
+        "min": 0.3,
+        "max": 2,
+        "step": 0.05,
+        "group": "difficulty",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "relief_every": {
+        "label": "Calm stretch after N formations",
+        "type": "integer",
+        "default": 3,
+        "min": 1,
+        "max": 6,
+        "step": 1,
+        "group": "difficulty",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "lives": {
+        "label": "Flowers you may bruise",
+        "type": "integer",
+        "default": 3,
+        "min": 1,
+        "max": 5,
+        "step": 1,
+        "group": "difficulty",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "lane_change_rows": {
+        "label": "Lane change length (rows)",
+        "type": "number",
+        "default": 0.8,
+        "min": 0.5,
+        "max": 1.4,
+        "step": 0.05,
+        "group": "feel",
+        "intent": "feel",
+        "apply": "restart"
+      },
+      "swipe_threshold_px": {
+        "label": "Swipe distance (px)",
+        "type": "integer",
+        "default": 22,
+        "min": 10,
+        "max": 60,
+        "step": 1,
+        "group": "feel",
+        "intent": "feel",
+        "apply": "restart"
+      },
+      "input_buffer_ms": {
+        "label": "Swipe buffer near obstacles",
+        "type": "duration_ms",
+        "default": 260,
+        "min": 0,
+        "max": 600,
+        "step": 10,
+        "group": "feel",
+        "intent": "feel",
+        "apply": "restart"
+      },
+      "grace_ms": {
+        "label": "Recovery time after a bruised flower",
+        "type": "duration_ms",
+        "default": 1500,
+        "min": 500,
+        "max": 3000,
+        "step": 50,
+        "group": "feel",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "grass_points": {
+        "label": "Points per grass tuft",
+        "type": "integer",
+        "default": 1,
+        "min": 1,
+        "max": 10,
+        "step": 1,
+        "group": "scoring",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "seed_grass_points": {
+        "label": "Points per seed-grass tuft",
+        "type": "integer",
+        "default": 3,
+        "min": 1,
+        "max": 20,
+        "step": 1,
+        "group": "scoring",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "patch_bonus": {
+        "label": "Bonus for a whole seed patch",
+        "type": "integer",
+        "default": 25,
+        "min": 0,
+        "max": 200,
+        "step": 5,
+        "group": "scoring",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "patch_frequency": {
+        "label": "Seed patch frequency",
+        "type": "number",
+        "default": 1,
+        "min": 0,
+        "max": 1,
+        "step": 0.05,
+        "group": "scoring",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "max_multiplier": {
+        "label": "Highest rhythm multiplier",
+        "type": "integer",
+        "default": 4,
+        "min": 1,
+        "max": 6,
+        "step": 1,
+        "group": "scoring",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "music_volume": {
+        "label": "Music volume",
+        "type": "number",
+        "default": 0.2,
+        "min": 0,
+        "max": 0.6,
+        "step": 0.01,
+        "group": "audio",
+        "intent": "audio",
+        "apply": "restart"
+      },
+      "sfx_volume": {
+        "label": "Sound effects volume",
+        "type": "number",
+        "default": 0.8,
+        "min": 0,
+        "max": 1,
+        "step": 0.05,
+        "group": "audio",
+        "intent": "audio",
+        "apply": "restart"
+      },
+      "seed": {
+        "label": "Fixed meadow seed (0 = new meadow each run)",
+        "type": "integer",
+        "default": 0,
+        "min": 0,
+        "max": 2147483647,
+        "step": 1,
+        "group": "debug",
+        "intent": "debug",
+        "apply": "restart"
+      },
+      "debug_metrics": {
+        "label": "Log run metrics to the console",
+        "type": "boolean",
+        "default": false,
+        "group": "debug",
+        "intent": "debug",
+        "apply": "restart"
+      }
+    }
+  }
+}

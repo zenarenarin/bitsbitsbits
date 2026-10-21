@@ -1,0 +1,55 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}#c{position:absolute;inset:0}</style></head><body><div id="c"></div>
+<script>
+window.__LM_TEST__ = true;
+window.__log = [];
+const container = document.getElementById('c');
+const q = new URLSearchParams(location.search);
+const SAFE = { top: +(q.get('top') || 62), right: 0, bottom: +(q.get('bottom') || 108.5), left: 0 };
+const fullscreen = q.get('frame') !== 'safe';
+function makeCtx() {
+  const destroyers = [], resizers = [];
+  const ctx = {
+    container, get width() { return container.clientWidth; }, get height() { return container.clientHeight; },
+    dpr: window.devicePixelRatio || 1, nativeDpr: window.devicePixelRatio || 1,
+    safeArea: fullscreen ? { top: SAFE.top, right: 0, bottom: 34, left: 0 } : { top: 0, right: 0, bottom: 120, left: 0 },
+    contentSafeArea: fullscreen ? SAFE : undefined,
+    capabilities: { audio: true, backgroundMusic: true, haptics: true, storage: true, camera: false, microphone: false, motion: false },
+    createCanvas2D(o) {
+      const c = document.createElement('canvas');
+      const dpr = Math.min(o.maxDpr || 1, window.devicePixelRatio || 1);
+      const size = () => { c.width = container.clientWidth * dpr; c.height = container.clientHeight * dpr; c.style.width = container.clientWidth + 'px'; c.style.height = container.clientHeight + 'px'; const g = c.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); };
+      c.style.position = 'absolute'; c.style.left = '0'; c.style.top = '0'; c.style.touchAction = 'none';
+      size(); resizers.push(size); container.appendChild(c); return c;
+    },
+    listen(t, n, h, o) { t.addEventListener(n, h, o); destroyers.push(() => t.removeEventListener(n, h, o)); return () => t.removeEventListener(n, h, o); },
+    onResize(cb, o) { const f = () => { resizers.forEach((r) => r()); cb({ width: ctx.width, height: ctx.height }); }; window.addEventListener('resize', f); if (o && o.immediate) f(); },
+    onDestroy(f) { destroyers.push(f); }, timeout(f, ms) { setTimeout(f, ms); }, interval(f, ms) { setInterval(f, ms); },
+    markVisualReady(r) { __log.push(['visualReady', r]); },
+    storage: { get(k) { try { const v = localStorage.getItem('b_' + k); return v === null ? null : JSON.parse(v); } catch (e) { return null; } }, set(k, v) { localStorage.setItem('b_' + k, JSON.stringify(v)); }, remove(k) { localStorage.removeItem('b_' + k); }, clear() {} },
+    platform: { ready(p) { __log.push(['ready', p]); }, start(p) { __log.push(['start', p]); }, interact() {}, fail(p) { __log.push(['fail', p]); }, complete() {}, haptic(k) { __log.push(['haptic', k]); }, error(p) { __log.push(['error', p]); } },
+    pulse: { complete(p) { __log.push(['pulse', p]); } },
+    music: { play(o) { __log.push(['music', o]); return {}; }, unlock() { return Promise.resolve('ready'); }, setIntensity() {}, setVolume() {}, duck() {}, sting() { return Promise.resolve(); } },
+    loadFont() { return Promise.reject(new Error('no font registry in harness')); },
+    memory: { record() { return { leaderboard: async () => ({ rows: [], viewerRank: null }) }; } },
+    game: {
+      score() { let v = 0; return { get value() { return v; }, set(x) { v = x; return this; }, add(x) { v += x; return this; }, reset() { v = 0; return this; },
+        submit: async (ch, o) => { __log.push(['submit', v, o]); await new Promise((r) => setTimeout(r, 300)); return { submitted: true }; },
+        leaderboard: async () => { await new Promise((r) => setTimeout(r, 400)); return { rows: [{ rank: 1, value: 18420, username: 'fernhollow' }, { rank: 2, value: 12960, username: 'mira.k' }, { rank: 3, value: 9310, username: 'oakley' }], viewerRank: { rank: 14 }, totalRanked: 211 }; } }; },
+      loop(o) {
+        let last = performance.now(), paused = false, stopped = false;
+        const tick = (t) => { if (stopped) return; const dt = t - last; last = t; if (!paused) o.update(Math.min(dt, o.maxDeltaMs || 80)); requestAnimationFrame(tick); };
+        requestAnimationFrame(tick);
+        const loop = { pause() { paused = true; o.onPause && o.onPause(); }, resume() { paused = false; last = performance.now(); o.onResume && o.onResume(); }, destroy() { stopped = true; } };
+        window.__loop = loop; return loop;
+      }
+    }
+  };
+  return ctx;
+}
+window.addEventListener('error', (e) => __log.push(['jserror', String(e.message), e.filename, e.lineno]));
+</script>
+<script src="../main.js"></script>
+<script>
+(async () => { try { await window.plethoraBit.init(makeCtx()); __log.push(['inited']); } catch (e) { __log.push(['initerror', String(e && e.stack || e)]); } })();
+</script></body></html>
