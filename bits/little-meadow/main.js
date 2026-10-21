@@ -54,7 +54,7 @@
   // Tunable defaults (overridden by manifest.tuning knobs through ctx.tune)
   // ---------------------------------------------------------------------------
   const DEFAULTS = {
-    startSpeed: 2.35,      // rows per second at the start
+    startSpeed: 2.55,      // rows per second at the start
     maxSpeed: 5.0,         // rows per second at full ramp
     rampRows: 1200,        // difficulty-rows to reach max speed
     laneChangeRows: 0.8,   // forward distance a lane change takes
@@ -77,6 +77,7 @@
     graceMs: 1200,
     difficultyRate: 1,
     reliefEvery: 3,
+    startTier: 0.3,        // formation difficulty the run starts at once the short opening is done
     lives: 3,
     seed: 0,
     debug: false,
@@ -189,11 +190,11 @@
     let patchSeq = 1, obSeq = 1, clusterSeq = 1;
     let tensionRun = 0;
     const recent = [];
-    let reliefTarget = cfg.reliefEvery;
+    let reliefTarget = cfg.reliefEvery + 1; // the first breather comes a little later: pressure builds first
     const log = [];
 
     // The simulation's difficulty director supplies the tier for a row (0 calm .. 1 expert).
-    let tierFn = (row) => clamp01((row - 40) / (1000 / cfg.difficultyRate));
+    let tierFn = (row) => clamp01(cfg.startTier + Math.max(0, row - 30) / (1100 / cfg.difficultyRate));
     function tierAt(row) { return tierFn(row); }
     // Formation parameters derived from the tier; each is independently tunable.
     function paramsAt(T) {
@@ -203,7 +204,7 @@
         rabbit: cfg.rabbitRate * lerp(0.3, 0.95, T),
         rabbit2: cfg.rabbitRate * clamp01((T - 0.45) * 1.4),
         narrow: cfg.narrowRate * lerp(0.15, 1, T),
-        gapRows: clamp(Math.round(lerp(2.2, 0.2, clamp01(T * cfg.decisionRate))), 0, 3),
+        gapRows: clamp(Math.round(lerp(1.4, -0.2, clamp01(T * cfg.decisionRate))), 0, 2),
         flowers: cfg.flowerDensity * lerp(0.9, 1.2, T)
       };
     }
@@ -293,7 +294,7 @@
     // Each takes (rng, P) where P = paramsAt(tier). Relief formations keep moments of control.
     const PATTERNS = {
       open(r, P) {
-        const b = newBlock(r.int(5, 8));
+        const b = newBlock(P.T > 0.5 ? r.int(4, 6) : r.int(5, 7));
         if (r.chance(0.6)) strip(b, r, 1, Math.min(b.rows.length - 2, r.int(3, 5)), r.int(0, 6));
         if (P.T > 0.3 && r.chance(0.5)) scatterSingles(b, r, 0.03 * P.flowers, 1, b.rows.length - 2);
         maybeRabbit(b, r, P.rabbit * 0.45, 2, b.rows.length - 2, "cautious");
@@ -599,6 +600,45 @@
         rabbit(b, r.int(6, 9), r.int(lo, hi), r.pick(["skittish", "wanderer"]));
         return b;
       },
+      // A stone blocks the direct line, flowers narrow the gap beside it, seed grass rewards the gap,
+      // and a rabbit may start across it; the far side is a plainer, wider way round.
+      pinch(r, P) {
+        const b = newBlock(9);
+        const c = r.int(2, 4), side = r.pick([-1, 1]);
+        stone(b, r, 4, c, r.int(1, 2));
+        const cl = clusterSeq++;
+        flower(b, 3, c - side, cl); flower(b, 4, c - side, cl); flower(b, 5, c - side, cl);
+        const gap = c + side;
+        const id = patchSeq++; for (let i = 2; i <= 7; i++) dense(b, i, gap, id);
+        const edge = side > 0 ? LANES - 1 : 0;
+        if (gap !== edge) rabbit(b, r.int(5, 6), edge, "wanderer", { cross: true });
+        if (P.T > 0.5) stone(b, r, 7, c - side * 2 < 0 || c - side * 2 >= LANES ? c : c - side * 2, 0);
+        return b;
+      },
+      // Two turns in quick succession: handle the first while reading the second.
+      chicane(r, P) {
+        const b = newBlock(10);
+        const a = r.int(1, 5), d = a <= 2 ? 1 : a >= 4 ? -1 : r.pick([-1, 1]);
+        stone(b, r, 3, a, r.int(1, 2));
+        const cl = clusterSeq++;
+        flower(b, 5, a + d, cl); flower(b, 6, a + d, cl);
+        stone(b, r, 7, clamp(a + 2 * d, 0, 6), r.int(0, 1));
+        const id = patchSeq++; for (let i = 4; i <= 8; i++) dense(b, i, a, id);
+        if (r.f() < P.rabbit * 0.6) rabbit(b, 8, clamp(a - d, 0, 6), r.pick(["skittish", "wanderer"]), { cross: true });
+        return b;
+      },
+      // The route forks round an island of flowers and rock; one branch is rich and inhabited.
+      fork(r, P) {
+        const b = newBlock(11);
+        const c = r.int(2, 4), cl = clusterSeq++;
+        for (let i = 3; i <= 8; i++) { flower(b, i, c, cl); }
+        stone(b, r, 2, c, 2);
+        const rich = r.pick([-1, 1]);
+        const id = patchSeq++; for (let i = 3; i <= 8; i++) dense(b, i, c + rich, id);
+        rabbit(b, r.int(4, 7), clamp(c + rich * 2, 0, 6), r.pick(["skittish", "wanderer"]), { cross: r.chance(0.6) });
+        if (P.T > 0.45) stone(b, r, r.int(5, 7), clamp(c - rich * 2, 0, 6), r.int(0, 1));
+        return b;
+      },
       // H: everything at once, but readable — flowers, rocks and two animals.
       crowded(r, P) {
         const b = newBlock(r.int(10, 12));
@@ -620,38 +660,41 @@
       { name: "footpath", min: 0.08, w: 0.8 }, { name: "corner", min: 0.14, w: 0.7 }, { name: "scatter", min: 0.2, w: 0.9 },
       { name: "shortcut", min: 0.2, w: 1.0 }, { name: "stoneCluster", min: 0.25, w: 0.9 }, { name: "pond", min: 0.2, w: 0.6 },
       { name: "bottleneck", min: 0.3, w: 1.2 }, { name: "fence", min: 0.3, w: 0.5 }, { name: "double", min: 0.35, w: 1.2 },
-      { name: "slalom", min: 0.4, w: 0.8 }, { name: "corridor", min: 0.5, w: 1.1 }, { name: "crowded", min: 0.65, w: 1.3 }
+      { name: "slalom", min: 0.4, w: 0.8 }, { name: "corridor", min: 0.5, w: 1.1 }, { name: "crowded", min: 0.65, w: 1.3 },
+      { name: "pinch", min: 0.25, w: 1.4 }, { name: "chicane", min: 0.28, w: 1.3 }, { name: "fork", min: 0.3, w: 1.2 }
     ];
     // The first ~30 seconds: a shaped introduction to every rule, one at a time.
+    // The opening (~18 s): every block asks for a decision, one new idea at a time.
     const opening = [
-      { name: "start", build() { const b = newBlock(12); const id = patchSeq++; for (let i = 4; i < 12; i++) dense(b, i, 4, id); return b; } },
-      { name: "firstDodge", build() {
-        const b = newBlock(9); const cl = clusterSeq++;
-        flower(b, 2, 3, cl); flower(b, 3, 3, cl); flower(b, 3, 2, cl);
-        const id = patchSeq++; for (let i = 0; i < 7; i++) dense(b, i, 4, id); return b; } },
-      { name: "firstStone", build(r) {
-        const b = newBlock(8); stone(b, r, 4, 4, 1);
-        const id = patchSeq++; for (let i = 3; i <= 7; i++) dense(b, i, 5, id); return b; } },
-      { name: "firstRabbit", build(r) {
-        const b = newBlock(10); rabbit(b, 6, 2, "cautious", { noCross: true });
-        const id = patchSeq++; for (let i = 3; i <= 8; i++) dense(b, i, 3, id); return b; } },
-      { name: "firstChoice", build() {
-        const b = newBlock(13); const cl = clusterSeq++;
-        for (let i = 3; i < 10; i++) { flower(b, i, 3, cl); if (i > 3 && i < 9) flower(b, i, 2, cl); }
-        const id = patchSeq++; for (let i = 3; i <= 9; i++) dense(b, i, 4, id);
-        for (let i = 2; i <= 10; i++) path(b, i, 1);
+      // 0–5 s: a stone sits in the mower's lane; left is a seed strip squeezed by daisies, right is plain grass
+      { name: "start", build(r) {
+        const b = newBlock(10); stone(b, r, 7, 3, 1);
+        const cl = clusterSeq++; flower(b, 6, 1, cl); flower(b, 7, 1, cl); flower(b, 8, 1, cl);
+        const id = patchSeq++; for (let i = 4; i <= 9; i++) dense(b, i, 2, id);
         return b; } },
+      // 5–10 s: a flower gate with a stone in one of its two gaps: one clean line, with seed grass in it
+      { name: "firstPinch", build(r) {
+        const b = newBlock(8); const g = r.int(1, 4), cl = clusterSeq++;
+        for (let l = 0; l < LANES; l++) if (l < g || l > g + 1) flower(b, 5, l, cl);
+        const sl = r.chance(0.5) ? g : g + 1;
+        stone(b, r, 5, sl, 0, sl === g ? -1 : 1);
+        const id = patchSeq++; for (let i = 3; i <= 7; i++) dense(b, i, sl === g ? g + 1 : g, id);
+        return b; } },
+      // 10–15 s: the meadow moves — a rabbit crosses the open route, beside a pair of stones
       { name: "firstCrossing", build(r) {
         const b = newBlock(10); const left = r.chance(0.5);
         rabbit(b, 7, left ? 0 : 6, "wanderer", { cross: true, gentle: true });
-        const id = patchSeq++; for (let i = 3; i <= 8; i++) dense(b, i, left ? 3 : 3, id); return b; } },
-      { name: "firstGate", build(r) {
-        const b = newBlock(9); const g = r.int(1, 3);
-        stone(b, r, 5, g - 1, 1, 1); stone(b, r, 5, g + 2, 1, -1);
-        const cl = clusterSeq++; for (let l = g + 3; l < LANES; l++) flower(b, 5, l, cl); for (let l = 0; l < g - 1; l++) flower(b, 5, l, cl);
-        const id = patchSeq++; dense(b, 4, g, id); dense(b, 5, g, id); dense(b, 6, g, id);
-        return b; } },
-      { name: "firstBand", build(r) { return PATTERNS.edgeBand(r, paramsAt(0.12)); } }
+        stone(b, r, 4, left ? 5 : 1, 1); stone(b, r, 6, left ? 6 : 0, 0);
+        const id = patchSeq++; for (let i = 3; i <= 8; i++) dense(b, i, 3, id); return b; } },
+      // 15–20 s: a harder choice — seed grass hugging a flower bed, or the bare path where a rabbit sits
+      { name: "firstChoice", build(r) {
+        const b = newBlock(11); const cl = clusterSeq++;
+        for (let i = 2; i < 9; i++) { flower(b, i, 3, cl); if (i > 2 && i < 8) flower(b, i, 2, cl); }
+        const id = patchSeq++; for (let i = 2; i <= 8; i++) dense(b, i, 4, id);
+        stone(b, r, 9, 4, 1);
+        for (let i = 1; i <= 9; i++) path(b, i, 1);
+        rabbit(b, 6, 1, "cautious");
+        return b; } }
     ];
     let openingIdx = 0;
 
@@ -749,7 +792,7 @@
       // Rhythm: a run of tension formations, then a moment of relief.
       if (tensionRun >= reliefTarget) {
         tensionRun = 0;
-        reliefTarget = Math.max(1, cfg.reliefEvery + (T > 0.5 ? 1 : 0) + rng.int(-1, 0));
+        reliefTarget = Math.max(1, cfg.reliefEvery + (T > 0.6 ? 1 : 0) + rng.int(-1, 1));
         if (T > 0.3 && rng.chance(0.4)) return "falseComfort";
         return rng.chance(0.55) ? "seedField" : "open";
       }
@@ -777,9 +820,13 @@
         const r = rng.sub();
         const savedP = patchSeq, savedO = obSeq;
         const b = build(r);
-        const gapRows = name === "start" ? 0 : openingIdx <= opening.length && !PATTERNS[name] ? 1 : P.gapRows + (rng.chance(0.3) ? 1 : 0);
+        const gapRows = !PATTERNS[name] ? 0 : RELIEF[name] ? 1 : P.gapRows + (rng.chance(0.2) ? 1 : 0);
         for (let g = 0; g < gapRows; g++) b.rows.push(newRow());
         if (T > 0.6 && !RELIEF[name] && rng.chance(0.35)) scatterSingles(b, r, 0.03 * P.flowers, 0, b.rows.length - 1);
+        if (PATTERNS[name] && !RELIEF[name] && !b.rabs.length && b.rows.length > 6 && r.f() < P.rabbit * 0.45) {
+          const edge = r.pick([0, 1, 5, 6]);
+          rabbit(b, r.int(3, b.rows.length - 3), edge, "wanderer", { cross: true });
+        }
         // If a formation cannot be reached from every lane, give it lead-in grass rather than discard it.
         for (const pad of [0, 2, 4, 6]) {
           const cand = pad ? { rows: newBlock(pad).rows.concat(b.rows), obs: b.obs.map((o) => Object.assign({}, o, { i: o.i + pad })), rabs: b.rabs.map((q) => Object.assign({}, q, { i: q.i + pad })) } : b;
@@ -842,8 +889,9 @@
         firstHitT: -1, bestPatch: 0, collisionLog: [], rowsCut: 0, hitsBy: { flower: 0, stone: 0, rabbit: 0, terrain: 0 },
         rabbitHops: 0, pathHops: 0, rabbitBlocked: 0, rabbitsSeen: 0, stuckEvents: 0 }
     };
-    const span = () => 1000 / cfg.difficultyRate;
-    gen.setTier((row) => clamp01((s.dd + Math.max(0, row - s.y) - 40) / span()));
+    const span = () => 1100 / cfg.difficultyRate;
+    const tierOf = (dd) => clamp01(cfg.startTier + Math.max(0, dd - 30) / span());
+    gen.setTier((row) => tierOf(s.dd + Math.max(0, row - s.y)));
     gen.ensure(40);
 
     // Difficulty director: wildlife behaviour by tier.
@@ -966,7 +1014,7 @@
         rabbits.push({ id: q.seed, x: q.x, y: q.y, lane: Math.floor(q.x), profile: q.profile, opts: q.opts || {}, rng: rr,
           state: rr() < 0.6 ? "forage" : "idle", t: 0.8 + rr() * 1.6, face: (rr() - 0.5) * 2.4, hop: null, cool: 0,
           crossLeft: 0, crossDir: 0, plan: "", fled: false, near: false, nearT: -9, alertT: -9, landT: -9, hitT: -9, headT: rr() * 6,
-          crossBudget: q.profile === "wanderer" ? (q.opts.noCross ? 0 : 1 + (rr() < 0.4 ? 1 : 0)) : 0 });
+          crossBudget: q.profile === "wanderer" ? (q.opts.noCross ? 0 : 1 + (rr() < 0.4 + 0.4 * s.tier ? 1 : 0)) : (q.opts.cross ? 1 : 0) });
         s.stats.rabbitsSeen++;
       }
       for (let i = rabbits.length - 1; i >= 0; i--) {
@@ -1000,10 +1048,13 @@
       for (let l = Math.max(0, l0); l <= Math.min(LANES - 1, l1); l++) mask |= 1 << l;
       let prev = rowWithBlocks(rm, blocks);
       if (!prev) return true;
-      for (let k = 1; k <= 11; k++) {
+      // the player needs time to react and to swing across: for the first rows the mower can only
+      // carry straight on, then it may change one lane per row
+      const committed = Math.max(1, Math.ceil(s.speed * 0.3 + cfg.laneChangeRows));
+      for (let k = 1; k <= 12; k++) {
         const cur = rowWithBlocks(rm + k, blocks);
         if (!cur) return true;
-        mask = gen.advance(prev, cur, mask);
+        mask = k <= committed ? mask & gen.safeMaskOf(cur) : gen.advance(prev, cur, mask);
         if (!mask) return false;
         prev = cur;
       }
@@ -1020,7 +1071,9 @@
       return tmpCells;
     }
     function canLand(rb, x1, y1, RP, allowOff, kind) {
-      const escaping = kind === "escape";
+      // an escape only gets special treatment when it leads away from where the mower is heading
+      const headX = s.change ? s.change.to + 0.5 : s.x;
+      const escaping = kind === "escape" && (x1 - rb.x) * (rb.x - headX) > 0;
       const lane = Math.floor(x1), row = Math.floor(y1);
       if (lane < 0 || lane >= LANES) return !!allowOff && x1 > -1.2 && x1 < LANES + 1.2;
       const c = gen.cell(row, lane);
@@ -1048,7 +1101,7 @@
         if (pathLanes().indexOf(lane) >= 0 && ahead < Math.max(1.8, s.speed * RP.react + 0.6)) return false;
         // nor right beside the mower where a swerve could meet it
         // (an escape out of the path, away from where the mower is heading, is exempt)
-        if (!escaping && Math.abs(lane - s.lane) === 1 && ahead < Math.max(1.6, s.speed * RP.react * 0.7)) return false;
+        if (!escaping && Math.abs(lane + 0.5 - headX) < 1.6 && ahead < Math.max(1.6, s.speed * RP.react * 0.7)) return false;
         // and never close off the last survivable route.
         if (ahead < 13) {
           const blocks = rabbitCellBlocks(rb).slice();
@@ -1215,7 +1268,7 @@
       if (s.phase !== "play") return ev;
       const dt = Math.min(dtMs, 80) / 1000;
       s.time += dt;
-      s.tier = clamp01((s.dd - 40) / span());
+      s.tier = tierOf(s.dd);
       s.stats.multTime = (s.stats.multTime || 0) + (s.level + 1) * dt;
       s.startRamp = Math.min(1, s.startRamp + dt / 0.6);
       s.mercy = Math.min(1, s.mercy + dt * 0.035);
@@ -1952,7 +2005,7 @@
           grassPts: +tn("grass_points", DEFAULTS.grassPts), densePts: +tn("seed_grass_points", DEFAULTS.densePts),
           patchBonus: +tn("patch_bonus", DEFAULTS.patchBonus), maxMult: Math.max(1, +tn("max_multiplier", DEFAULTS.maxMult)),
           graceMs: +tn("grace_ms", DEFAULTS.graceMs), difficultyRate: +tn("difficulty_rate", DEFAULTS.difficultyRate),
-          reliefEvery: Math.max(1, +tn("relief_every", DEFAULTS.reliefEvery)), lives: Math.max(1, +tn("lives", DEFAULTS.lives)),
+          reliefEvery: Math.max(1, +tn("relief_every", DEFAULTS.reliefEvery)), startTier: clamp01(+tn("start_tier", DEFAULTS.startTier)), lives: Math.max(1, +tn("lives", DEFAULTS.lives)),
           seed: +tn("seed", 0) || 0, debug: !!tn("debug_metrics", false),
           musicVolume: +tn("music_volume", DEFAULTS.musicVolume), sfxVolume: +tn("sfx_volume", DEFAULTS.sfxVolume)
         };
@@ -3304,7 +3357,8 @@
       function drawReady(dt) {
         readyT += dt;
         const a = Math.min(1, readyT * 1.5);
-        const cy = area.top + Math.max(110, (anchorY - area.top) * 0.36);
+        // the title sits in the open grass between the mower and its first decision, which stays in view
+        const cy = clamp(screenY(sim.s.y + 3.4), area.top + 110, anchorY - S * 2.2);
         g.save();
         const grd = g.createRadialGradient(W / 2, cy, 0, W / 2, cy, W * 0.6);
         grd.addColorStop(0, "rgba(16,28,20," + (0.42 * a).toFixed(3) + ")"); grd.addColorStop(1, "rgba(16,28,20,0)");

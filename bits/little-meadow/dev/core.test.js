@@ -50,7 +50,8 @@ const blockedCells = (sim, withAlert) => {
     if (rb.fled) continue;
     const xs = [rb.x]; const ys = [rb.y];
     if (rb.hop) { xs.push(rb.hop.x1); ys.push(rb.hop.y1); }
-    for (let i = 0; i < xs.length; i++) set.add(Math.floor(ys[i]) + ":" + Math.floor(xs[i]));
+    // a rabbit's body spans parts of two rows; treat the neighbouring row as occupied too
+    for (let i = 0; i < xs.length; i++) for (let dr = -1; dr <= 1; dr++) set.add((Math.floor(ys[i]) + dr) + ":" + Math.floor(xs[i]));
     // an expert gives an alert rabbit's neighbours a wide berth
     if (withAlert && (rb.state === "alert" || rb.crossLeft > 0)) for (const d of [-1, 1]) set.add(Math.floor(rb.y) + ":" + (Math.floor(rb.x) + d));
   }
