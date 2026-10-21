@@ -17,10 +17,7 @@
     "haptics",
     "storage"
   ],
-  "dependencies": [
-    "dm-serif-display@1.0.0",
-    "cormorant-garamond@1.0.0"
-  ],
+  "dependencies": [],
   "display": "fullscreen",
   "onboarding": {
     "kind": "immersive",

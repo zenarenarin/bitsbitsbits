@@ -1010,6 +1010,15 @@
       let best = +load("lm_best", 0) || 0;
       let soundOn = load("lm_sound", true) !== false;
 
+      if (typeof OffscreenCanvas === "undefined") {
+        // The painted meadow is cached in off-screen buffers; without them the Bit cannot draw.
+        const root = ctx.createRoot({ style: "display:flex;align-items:center;justify-content:center;background:#30472f;color:#f1e8d5;font:20px Georgia,serif;text-align:center;padding:32px;" });
+        root.textContent = "Little Meadow needs a newer version of this app's web view to paint the meadow.";
+        try { ctx.platform.error({ stage: "init", reason: "OffscreenCanvas unavailable" }); } catch (e) { /* ignore */ }
+        try { ctx.markVisualReady("fallback message"); ctx.platform.ready(); } catch (e) { /* ignore */ }
+        return;
+      }
+
       // ---- Surfaces & fonts ---------------------------------------------
       const canvas = ctx.createCanvas2D({ coordinateSpace: "css", maxDpr: 2, touchAction: "none", layer: "content" });
       canvas.style.cssText += ";touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;";
@@ -1166,7 +1175,8 @@
       // =======================================================================
       // Painting: sprites, tiles and chunks
       // =======================================================================
-      function makeCanvas(w, h) { const c = document.createElement("canvas"); c.width = Math.max(1, Math.ceil(w)); c.height = Math.max(1, Math.ceil(h)); return c; }
+      // Off-screen paint buffers (chunks, sprites, tiles). The visible surface is the SDK canvas.
+      function makeCanvas(w, h) { return new OffscreenCanvas(Math.max(1, Math.ceil(w)), Math.max(1, Math.ceil(h))); }
       // A tapered brush blade from (x,y) toward angle a.
       function blade(c2, x, y, a, len, w, bend) {
         const tx = x + Math.sin(a) * len, ty = y - Math.cos(a) * len;
