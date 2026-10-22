@@ -3434,7 +3434,7 @@
         };
         const toggle = (onState) => (by) => type(onState ? "On" : "Off", x + w - P, by, { size: UI.size.small, weight: 600, color: onState ? UI.color.accent : UI.color.inkFaint, align: "right" });
         row(0, "Sound effects", toggle(sfxOn), () => { sfxOn = !sfxOn; });
-        row(1, "Music", toggle(musicOn), () => { musicOn = !musicOn; });
+        row(1, "Melody", toggle(musicOn), () => { musicOn = !musicOn; });
         const vy = y + 60 + 2 * rowH;
         rule(x + P, x + w - P, vy, UI.color.rule);
         type("Volume", x + P, vy + 30, { size: UI.size.body, color: UI.color.ink });
