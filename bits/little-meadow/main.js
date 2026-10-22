@@ -2038,11 +2038,16 @@
       canvas.style.cssText += ";touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;";
       canvas.tabIndex = 0;
       const g = canvas.getContext("2d");
-      const FONT_NUM = { f: "Georgia, 'Times New Roman', serif" };
-      const FONT_IT = { f: "Georgia, 'Times New Roman', serif" };
+      // typefaces: approved registry fonts, with system fallbacks until (or unless) they load
+      const FONT_SANS = { f: "-apple-system, 'Helvetica Neue', 'Segoe UI', Roboto, Arial, sans-serif" };
+      const FONT_SERIF = { f: "Georgia, 'Times New Roman', serif" };
       (async () => {
-        try { await ctx.loadFont("LM Display", "dm-serif-display", "1.0.0", { weight: "400", style: "normal" }); if (!destroyed) FONT_NUM.f = "'LM Display', Georgia, serif"; } catch (e) { /* fallback */ }
-        try { await ctx.loadFont("LM Italic", "cormorant-garamond", "1.0.0", { weight: "300", style: "italic" }); if (!destroyed) FONT_IT.f = "'LM Italic', Georgia, serif"; } catch (e) { /* fallback */ }
+        const sansFallback = FONT_SANS.f;
+        try {
+          await Promise.all([ctx.loadFont("LM Sans", "inter", "1.0.0", { weight: "400", style: "normal" }), ctx.loadFont("LM Sans", "inter", "1.0.0", { weight: "600", style: "normal" })]);
+          if (!destroyed) { FONT_SANS.f = "'LM Sans', " + sansFallback; digitCache.clear(); }
+        } catch (e) { /* system sans */ }
+        try { await ctx.loadFont("LM Serif", "cormorant-garamond", "1.0.0", { weight: "300", style: "italic" }); if (!destroyed) FONT_SERIF.f = "'LM Serif', Georgia, serif"; } catch (e) { /* fallback */ }
       })();
 
       // ---- Layout ------------------------------------------------------------
@@ -3116,9 +3121,10 @@
         const grd = c2.createRadialGradient(W * 0.38, H * 0.3, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.8);
         grd.addColorStop(0, "rgba(255,244,214,0.07)"); grd.addColorStop(0.55, "rgba(255,244,214,0)"); grd.addColorStop(1, "rgba(14,26,18,0.34)");
         c2.fillStyle = grd; c2.fillRect(0, 0, W, H);
-        const top = c2.createLinearGradient(0, 0, 0, (area.top || 0) + 90);
-        top.addColorStop(0, "rgba(14,24,16,0.5)"); top.addColorStop(1, "rgba(14,24,16,0)");
-        c2.fillStyle = top; c2.fillRect(0, 0, W, (area.top || 0) + 90);
+        const band = (area.top || 0) + 112;
+        const top = c2.createLinearGradient(0, 0, 0, band);
+        top.addColorStop(0, "rgba(12,22,14,0.5)"); top.addColorStop(0.55, "rgba(12,22,14,0.22)"); top.addColorStop(1, "rgba(12,22,14,0)");
+        c2.fillStyle = top; c2.fillRect(0, 0, W, band);
         lightCache = { c, W, H };
         return c;
       }
@@ -3252,196 +3258,210 @@
       }
 
       // =======================================================================
-      // HUD
+      // HUD — a quiet editorial layer over the painting.
+      // Two typefaces: a sans for everything you read while playing (numerals on a fixed grid so
+      // the score never shifts), an italic serif for the few moments of stillness.
       // =======================================================================
+      const UI = {
+        sans: FONT_SANS, serif: FONT_SERIF,
+        size: { micro: 11, small: 13, body: 15, score: 30, lead: 21, title: 44, result: 56, button: 16 },
+        color: {
+          cream: "#f1e8d5", creamDim: "rgba(241,232,213,0.66)", creamFaint: "rgba(241,232,213,0.34)",
+          ink: "#26352a", inkSoft: "rgba(38,53,42,0.66)", inkFaint: "rgba(38,53,42,0.34)",
+          ochre: "#e2c66f", accent: "#c9573f", accentDown: "#a7432f", paper: "#efe7d4",
+          rule: "rgba(38,53,42,0.2)", shade: "rgba(12,22,14,0.55)", veil: "rgba(12,22,14,0.42)"
+        },
+        space: { edge: 20, top: 14, pad: 24 },
+        touch: 44,
+        motion: { panelIn: 0.45, lifeFlash: 0.6 }
+      };
+      let reduceMotion = false;
+      try { reduceMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (e) { /* default */ }
       const buttons = { pause: null, sound: null, again: null };
+      let uiPress = null; // the control under a finger that has not lifted yet
+      let scoreWarm = 0, panelBottom = 0;
       function fmt(n) { return Math.round(n).toLocaleString("en-US"); }
-      function text(str, x, y, size, font, color, align, alpha) {
-        g.font = size + "px " + font;
-        g.textAlign = align || "center"; g.textBaseline = "alphabetic";
-        g.globalAlpha = alpha === undefined ? 1 : alpha;
-        g.fillStyle = "rgba(14,24,16,0.45)"; g.fillText(str, x + 1, y + 1.5);
-        g.fillStyle = color; g.fillText(str, x, y);
-        g.globalAlpha = 1;
+      function setFont(o) { g.font = (o.italic ? "italic " : "") + (o.weight || 400) + " " + o.size + "px " + (o.family || UI.sans.f); }
+      function track(px) { try { if ("letterSpacing" in g) g.letterSpacing = (px || 0) + "px"; } catch (e) { /* unsupported */ } }
+      // Set type. o: size, weight, family, italic, color, align, alpha, track, shade (soft shadow over the meadow)
+      function type(str, x, y, o) {
+        setFont(o); track(o.track);
+        g.textAlign = o.align || "left"; g.textBaseline = "alphabetic";
+        g.globalAlpha = (o.alpha === undefined ? 1 : o.alpha) * hudFade;
+        if (o.shade) { g.shadowColor = UI.color.shade; g.shadowBlur = 5; g.shadowOffsetY = 1; }
+        g.fillStyle = o.color; g.fillText(str, x, y);
+        g.shadowColor = "transparent"; g.shadowBlur = 0; g.shadowOffsetY = 0;
+        track(0); g.globalAlpha = 1;
       }
-      function daisyIcon(x, y, r, alive, k) {
-        // alive: cream petals; lost: wilted, bowed
-        g.save(); g.translate(x, y);
-        if (!alive) { g.rotate(0.5 * k); g.translate(0, r * 0.25 * k); }
-        g.strokeStyle = alive ? "rgba(140,170,110,0.9)" : "rgba(120,110,80,0.7)"; g.lineWidth = 1.2;
-        g.beginPath(); g.moveTo(0, r * 0.6); g.quadraticCurveTo(r * 0.3, r * 1.3, r * 0.1, r * 1.8); g.stroke();
-        const col = alive ? "rgb(242,236,220)" : "rgba(150,140,115,0.75)";
-        for (let i = 0; i < 9; i++) {
-          const a = (i / 9) * 6.283;
-          g.save(); g.rotate(a); g.fillStyle = col;
-          g.beginPath(); g.ellipse(0, -r * 0.62, r * 0.2, alive ? r * 0.45 : r * 0.32, 0, 0, 6.283); g.fill(); g.restore();
-        }
-        g.fillStyle = alive ? "rgb(214,170,62)" : "rgba(130,110,70,0.8)";
-        g.beginPath(); g.arc(0, 0, r * 0.3, 0, 6.283); g.fill();
-        g.restore();
+      // Numerals on a fixed advance: canvas cannot ask for tabular figures, so we place them ourselves.
+      const digitCache = new Map();
+      function digitW(o) {
+        setFont(o);
+        const key = g.font;
+        let w = digitCache.get(key);
+        if (!w) { w = { d: 0, comma: g.measureText(",").width, x: g.measureText("×").width }; for (let i = 0; i < 10; i++) w.d = Math.max(w.d, g.measureText(String(i)).width); digitCache.set(key, w); }
+        return w;
       }
-      function roundBtn(cx, cy, r, draw) {
-        g.fillStyle = "rgba(20,34,24,0.42)"; g.beginPath(); g.arc(cx, cy, r, 0, 6.283); g.fill();
-        g.strokeStyle = "rgba(241,232,213,0.35)"; g.lineWidth = 1; g.beginPath(); g.arc(cx, cy, r - 0.5, 0, 6.283); g.stroke();
-        draw(cx, cy);
+      function numWidth(str, o) { const w = digitW(o); let t = 0; for (const ch of str) t += ch >= "0" && ch <= "9" ? w.d : ch === "," ? w.comma : g.measureText(ch).width; return t; }
+      function num(str, x, y, o) {
+        const w = digitW(o), total = numWidth(str, o);
+        let cx = o.align === "right" ? x - total : o.align === "center" ? x - total / 2 : x;
+        g.textAlign = "center"; g.textBaseline = "alphabetic";
+        g.globalAlpha = (o.alpha === undefined ? 1 : o.alpha) * hudFade;
+        if (o.shade) { g.shadowColor = UI.color.shade; g.shadowBlur = 5; g.shadowOffsetY = 1; }
+        g.fillStyle = o.color;
+        for (const ch of str) { const cw = ch >= "0" && ch <= "9" ? w.d : ch === "," ? w.comma : g.measureText(ch).width; g.fillText(ch, cx + cw / 2, y); cx += cw; }
+        g.shadowColor = "transparent"; g.shadowBlur = 0; g.shadowOffsetY = 0; g.globalAlpha = 1;
+        return total;
       }
+      function rule(x0, x1, y, color, alpha) { g.globalAlpha = (alpha === undefined ? 1 : alpha) * hudFade; g.fillStyle = color; g.fillRect(x0, Math.round(y) - 0.5, x1 - x0, 1); g.globalAlpha = 1; }
+      const pressed = (id) => uiPress && uiPress.id === id;
+      let hudFade = 1;
+
       function drawHUD(dt) {
         const s = sim.s;
-        const top = area.top + 8, left = area.left + 16, right = W - area.right - 16;
-        const hudAlpha = phase === "over" ? Math.max(0, 1 - overT * 2) : 1;
-        if (hudAlpha <= 0.01) { buttons.pause = null; buttons.sound = null; return; }
-        g.globalAlpha = hudAlpha;
-        // lives
-        for (let i = 0; i < cfg.lives; i++) {
-          const alive = i < s.lives;
-          if (!alive) lifeAnim[i] = Math.min(1, (lifeAnim[i] || 0) + dt * 3);
-          daisyIcon(left + 8 + i * 22, top + 18, 8, alive, alive ? 0 : lifeAnim[i]);
-        }
-        if (best > 0) text("best " + fmt(best), left, top + 56, 15, FONT_IT.f, "rgba(241,232,213,0.85)", "left");
-        // score
+        const T = area.top + UI.space.top, L = area.left + UI.space.edge, R = W - area.right - UI.space.edge;
+        hudFade = phase === "over" ? Math.max(0, 1 - overT * 2.5) : 1;
+        if (hudFade <= 0.01) { buttons.pause = null; buttons.sound = null; hudFade = 1; return; }
+        // score: a small label over a steady number
         shownScore += (s.score - shownScore) * Math.min(1, dt * 14);
         if (Math.abs(s.score - shownScore) < 0.5) shownScore = s.score;
-        hudScorePulse = Math.max(0, hudScorePulse - dt * 3);
-        const scale = 1 + hudScorePulse * 0.12;
-        g.save(); g.translate(W / 2, top + 34); g.scale(scale, scale);
-        text(fmt(shownScore), 0, 0, 32, FONT_NUM.f, "#f1e8d5", "center");
-        g.restore();
-        // rhythm multiplier with charge pips
-        const lvl = s.level;
-        if (lvl !== lastLevel) { if (lvl < lastLevel) { multDropT = s.time; multDropFrom = lastLevel + 1; } lastLevel = lvl; multAnim = 1; }
-        multAnim = Math.max(0, multAnim - dt * 2.5);
-        const drop = s.time - multDropT;
-        if (lvl > 0 || s.charge > 0 || (drop >= 0 && drop < 0.8)) {
-          const my = top + 58;
-          if (lvl > 0) {
-            g.save(); g.translate(W / 2 - 14, my); const k = 1 + multAnim * 0.3; g.scale(k, k);
-            text("×" + (lvl + 1), 0, 0, 19, FONT_NUM.f, "#e8cf77", "center");
-            g.restore();
-          } else if (drop >= 0 && drop < 0.8) {
-            text("×" + multDropFrom, W / 2 - 14, my + drop * 14, 19, FONT_NUM.f, "rgba(201,124,101," + (1 - drop / 0.8).toFixed(2) + ")", "center");
-          }
-          const maxed = lvl >= cfg.maxMult - 1;
-          const need = maxed ? 0 : chargeFor(lvl);
-          for (let i = 0; i < need; i++) {
-            const on = maxed || i < s.charge;
-            g.fillStyle = on ? "rgba(232,207,119,0.95)" : "rgba(241,232,213,0.3)";
-            g.beginPath(); g.ellipse(W / 2 + 6 + i * 8, my - 6, 2.4, 3.4, 0.5, 0, 6.283); g.fill();
-          }
+        scoreWarm = Math.max(0, scoreWarm - dt * 2.5);
+        type("score", L, T + 10, { size: UI.size.micro, color: UI.color.creamDim, track: 1.2, shade: true });
+        num(fmt(shownScore), L - 1, T + 41, { size: UI.size.score, weight: 600, color: scoreWarm > 0.05 ? mixCss(UI.color.cream, UI.color.ochre, scoreWarm) : UI.color.cream, shade: true });
+        // lives: three small marks; a lost one flashes the accent, then becomes an empty ring
+        const ly = T + 58;
+        for (let i = 0; i < cfg.lives; i++) {
+          const alive = i < s.lives, x = L + 4 + i * 13;
+          if (!alive) lifeAnim[i] = Math.min(1, (lifeAnim[i] || 0) + dt / UI.motion.lifeFlash);
+          g.globalAlpha = hudFade;
+          g.shadowColor = UI.color.shade; g.shadowBlur = 4;
+          g.beginPath(); g.arc(x, ly - 4, 3.6, 0, 6.283);
+          if (alive) { g.fillStyle = UI.color.cream; g.fill(); }
+          else if (lifeAnim[i] < 1 && !reduceMotion) { g.fillStyle = mixCss(UI.color.accent, "rgba(241,232,213,0)", lifeAnim[i]); g.fill(); }
+          g.shadowBlur = 0; g.shadowColor = "transparent";
+          if (!alive) { g.strokeStyle = UI.color.creamFaint; g.lineWidth = 1; g.beginPath(); g.arc(x, ly - 4, 3.1, 0, 6.283); g.stroke(); }
         }
-        // buttons
-        const br = 18;
-        const pcx = right - br, pcy = top + 22;
-        roundBtn(pcx, pcy, br, (x, y) => {
-          g.fillStyle = "#f1e8d5";
-          if (phase === "paused") { g.beginPath(); g.moveTo(x - 4, y - 7); g.lineTo(x + 7, y); g.lineTo(x - 4, y + 7); g.closePath(); g.fill(); }
-          else { g.fillRect(x - 5.5, y - 7, 4, 14); g.fillRect(x + 1.5, y - 7, 4, 14); }
-        });
-        buttons.pause = phase === "play" || phase === "paused" ? { x: pcx, y: pcy, r: br + 8 } : null;
-        const scx = pcx - br * 2 - 10, scy = pcy;
-        roundBtn(scx, scy, br, (x, y) => {
-          g.fillStyle = "#f1e8d5";
-          g.beginPath(); g.moveTo(x - 7, y - 3); g.lineTo(x - 3, y - 3); g.lineTo(x + 2, y - 7); g.lineTo(x + 2, y + 7); g.lineTo(x - 3, y + 3); g.lineTo(x - 7, y + 3); g.closePath(); g.fill();
-          g.strokeStyle = "#f1e8d5"; g.lineWidth = 1.4;
-          if (sfxOn || musicOn) { g.beginPath(); g.arc(x + 3, y, 5, -0.8, 0.8); g.stroke(); g.beginPath(); g.arc(x + 3, y, 8.5, -0.8, 0.8); g.stroke(); }
-          else { g.beginPath(); g.moveTo(x + 4, y - 4); g.lineTo(x + 10, y + 4); g.moveTo(x + 10, y - 4); g.lineTo(x + 4, y + 4); g.stroke(); }
-        });
-        buttons.sound = { x: scx, y: scy, r: br + 6 };
-        // patch bonus floats (restrained)
+        g.globalAlpha = 1;
+        // rhythm: "×3" and a hairline that fills toward the next step
+        const lvl = s.level;
+        if (lvl !== lastLevel) { if (lvl < lastLevel) { multDropT = s.time; multDropFrom = lastLevel + 1; } lastLevel = lvl; }
+        const drop = s.time - multDropT;
+        const rx = L + cfg.lives * 13 + 12;
+        if (lvl > 0) {
+          const w = num("×" + (lvl + 1), rx, ly, { size: UI.size.small, weight: 600, color: UI.color.ochre, shade: true });
+          const maxed = lvl >= cfg.maxMult - 1, need = chargeFor(lvl), mx = rx + w + 7;
+          rule(mx, mx + 24, ly - 4.5, UI.color.creamFaint);
+          rule(mx, mx + 24 * (maxed ? 1 : clamp01(s.charge / need)), ly - 4.5, UI.color.ochre);
+        } else if (drop >= 0 && drop < 0.6) {
+          num("×" + multDropFrom, rx, ly, { size: UI.size.small, weight: 600, color: UI.color.accent, alpha: 1 - drop / 0.6, shade: true });
+        } else if (s.charge > 0) {
+          rule(rx, rx + 24, ly - 4.5, UI.color.creamFaint);
+          rule(rx, rx + 24 * clamp01(s.charge / chargeFor(0)), ly - 4.5, UI.color.ochre);
+        }
+        // controls, top right: small glyphs, generous touch targets
+        const cy = T + 14, half = UI.touch / 2;
+        const px = R - 8, sx = px - UI.touch;
+        g.globalAlpha = hudFade * (pressed("pause") ? 0.5 : 0.92);
+        g.shadowColor = UI.color.shade; g.shadowBlur = 4;
+        g.fillStyle = UI.color.cream;
+        if (phase === "paused") { g.beginPath(); g.moveTo(px - 4, cy - 6.5); g.lineTo(px + 6, cy); g.lineTo(px - 4, cy + 6.5); g.closePath(); g.fill(); }
+        else { g.fillRect(px - 5, cy - 6.5, 3, 13); g.fillRect(px + 2, cy - 6.5, 3, 13); }
+        g.globalAlpha = hudFade * (pressed("sound") ? 0.5 : 0.92);
+        const on = sfxOn || musicOn;
+        g.beginPath(); g.moveTo(sx - 7, cy - 2.5); g.lineTo(sx - 3.5, cy - 2.5); g.lineTo(sx + 1, cy - 6.5); g.lineTo(sx + 1, cy + 6.5); g.lineTo(sx - 3.5, cy + 2.5); g.lineTo(sx - 7, cy + 2.5); g.closePath(); g.fill();
+        g.strokeStyle = UI.color.cream; g.lineWidth = 1.3; g.lineCap = "round";
+        if (on) { g.beginPath(); g.arc(sx + 2, cy, 4.5, -0.75, 0.75); g.stroke(); g.beginPath(); g.arc(sx + 2, cy, 8, -0.75, 0.75); g.stroke(); }
+        else { g.beginPath(); g.moveTo(sx + 4, cy - 3.5); g.lineTo(sx + 9.5, cy + 3.5); g.moveTo(sx + 9.5, cy - 3.5); g.lineTo(sx + 4, cy + 3.5); g.stroke(); }
+        g.shadowBlur = 0; g.shadowColor = "transparent"; g.lineCap = "butt"; g.globalAlpha = 1;
+        buttons.pause = phase === "play" || phase === "paused" ? { x: px - half, y: cy - half, w: UI.touch, h: UI.touch } : null;
+        buttons.sound = { x: sx - half, y: cy - half, w: UI.touch, h: UI.touch };
+        // personal best, right-aligned beneath the controls and subordinate to the score
+        if (best > 0) {
+          const bw = num(fmt(best), R, T + 41, { size: UI.size.small, color: UI.color.creamDim, align: "right", shade: true });
+          type("best", R - bw - 6, T + 41, { size: UI.size.micro, color: UI.color.creamFaint, align: "right", track: 1.2, shade: true });
+        }
+        // seed-patch bonus, beside the mower (never in the HUD band)
         for (const p of particles.floats) {
           if (!p.on) continue;
           const k = p.life / p.max;
-          text(p.text, screenX(p.x) + S * 0.6, screenY(p.y) - k * 26, 17, FONT_IT.f, "rgba(232,207,119," + (1 - k).toFixed(2) + ")", "left");
+          num(p.text, screenX(p.x) + S * 0.6, screenY(p.y) - (reduceMotion ? 0 : k * 22), { size: UI.size.small, weight: 600, color: UI.color.ochre, alpha: 1 - k, shade: true });
         }
-        g.globalAlpha = 1;
+        hudFade = 1;
+      }
+      function mixCss(a, b, t) {
+        const p = (c) => { if (c[0] === "#") { const n = parseInt(c.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255, 1]; } const m = c.match(/[\d.]+/g).map(Number); return [m[0], m[1], m[2], m[3] === undefined ? 1 : m[3]]; };
+        const A = p(a), B = p(b);
+        return "rgba(" + Math.round(lerp(A[0], B[0], t)) + "," + Math.round(lerp(A[1], B[1], t)) + "," + Math.round(lerp(A[2], B[2], t)) + "," + lerp(A[3], B[3], t).toFixed(3) + ")";
       }
       function drawReady(dt) {
         readyT += dt;
         const a = Math.min(1, readyT * 1.5);
         // the title sits in the open grass between the mower and its first decision, which stays in view
         const cy = clamp(screenY(sim.s.y + 3.4), area.top + 110, anchorY - S * 2.2);
-        g.save();
-        const grd = g.createRadialGradient(W / 2, cy, 0, W / 2, cy, W * 0.6);
-        grd.addColorStop(0, "rgba(16,28,20," + (0.42 * a).toFixed(3) + ")"); grd.addColorStop(1, "rgba(16,28,20,0)");
-        g.fillStyle = grd; g.fillRect(0, cy - W * 0.6, W, W * 1.2);
-        text("Little Meadow", W / 2, cy, Math.min(50, W * 0.12), FONT_IT.f, "#f1e8d5", "center", a);
-        // a small painted sprig as an ornament
-        g.globalAlpha = a; g.strokeStyle = "rgba(168,181,138,0.9)"; g.lineWidth = 1.2;
-        g.beginPath(); g.moveTo(W / 2 - 46, cy + 16); g.quadraticCurveTo(W / 2, cy + 8, W / 2 + 46, cy + 16); g.stroke();
-        g.fillStyle = "rgba(168,181,138,0.9)";
-        for (let i = -3; i <= 3; i++) { g.beginPath(); g.ellipse(W / 2 + i * 12, cy + 12 - Math.abs(i) * 0.6, 3.5, 1.6, i * 0.2 - 0.4, 0, 6.283); g.fill(); }
-        g.fillStyle = "rgb(232,207,119)"; g.beginPath(); g.arc(W / 2, cy + 10, 2.4, 0, 6.283); g.fill();
-        g.globalAlpha = 1;
-        text("swipe left or right to steer", W / 2, cy + 46, 19, FONT_IT.f, "rgba(241,232,213,0.95)", "center", a);
-        text("mow the grass · spare the flowers", W / 2, cy + 70, 17, FONT_IT.f, "rgba(241,232,213,0.8)", "center", a);
-        const pulse = 0.55 + 0.45 * Math.sin(readyT * 3);
-        text("swipe or tap to begin", W / 2, Math.min(H - area.bottom - 14, screenY(sim.s.y) + S * 1.9), 17, FONT_IT.f, "rgba(246,238,219," + (0.6 + 0.4 * pulse).toFixed(2) + ")", "center", a);
+        const grd = g.createRadialGradient(W / 2, cy, 0, W / 2, cy, W * 0.55);
+        grd.addColorStop(0, "rgba(12,22,14," + (0.34 * a).toFixed(3) + ")"); grd.addColorStop(1, "rgba(12,22,14,0)");
+        g.fillStyle = grd; g.fillRect(0, cy - W * 0.55, W, W * 1.1);
+        type("Little Meadow", W / 2, cy, { size: Math.min(UI.size.title, W * 0.11), family: UI.serif.f, italic: true, weight: 300, color: UI.color.cream, align: "center", alpha: a, shade: true });
+        rule(W / 2 - 12, W / 2 + 12, cy + 18, UI.color.creamDim, a);
+        type("Swipe left or right to steer", W / 2, cy + 46, { size: UI.size.body, color: UI.color.cream, align: "center", alpha: a, shade: true });
+        type("Mow the grass, miss everything else", W / 2, cy + 68, { size: UI.size.body, color: UI.color.creamDim, align: "center", alpha: a, shade: true });
+        const pulse = reduceMotion ? 1 : 0.7 + 0.3 * Math.sin(readyT * 2.2);
+        type("Tap or swipe to begin", W / 2, Math.min(H - area.bottom - 16, screenY(sim.s.y) + S * 1.9), { size: UI.size.small, color: UI.color.creamDim, align: "center", alpha: a * pulse, shade: true });
+      }
+      function sheet(x, y, w, h, a) {
+        // a sheet of paper laid on the meadow: square, faintly grained, one soft shadow
+        g.save(); g.globalAlpha = a;
+        g.shadowColor = "rgba(10,18,12,0.32)"; g.shadowBlur = 18; g.shadowOffsetY = 6;
+        g.fillStyle = UI.color.paper; g.fillRect(x, y, w, h);
+        g.shadowColor = "transparent"; g.shadowBlur = 0; g.shadowOffsetY = 0;
+        if (grainTile) { g.globalAlpha = a * 0.8; g.fillStyle = g.createPattern(grainTile, "repeat"); g.fillRect(x, y, w, h); }
         g.restore();
       }
       function drawSoundPanel() {
-        const w = Math.min(W - 48, 280), h = 196, x = (W - w) / 2, y = area.top + 64;
-        g.fillStyle = "rgba(10,20,14,0.35)"; g.fillRect(0, 0, W, H);
-        paperCard(x, y, w, h, 1);
-        const ink = "#2a3a2a";
-        inkText("sound", W / 2, y + 30, 18, FONT_IT.f, "rgba(52,75,49,0.9)", "center");
+        const w = Math.min(W - 40, 300), P = UI.space.pad, rowH = 48;
+        const h = 72 + rowH * 3 + 40, x = (W - w) / 2, y = area.top + 72;
+        g.fillStyle = UI.color.veil; g.fillRect(0, 0, W, H);
+        sheet(x, y, w, h, 1);
+        type("sound", x + P, y + 40, { size: UI.size.lead, family: UI.serif.f, italic: true, weight: 300, color: UI.color.ink });
         panelBoxes = [];
-        const row = (i, label, on, act) => {
-          const ry = y + 52 + i * 44;
-          inkText(label, x + 24, ry + 26, 19, FONT_IT.f, ink, "left");
-          const sx = x + w - 74, sw = 50, sh = 26;
-          g.fillStyle = on ? "#c9573f" : "rgba(80,90,70,0.35)";
-          g.beginPath(); g.arc(sx + sh / 2, ry + 18, sh / 2, Math.PI / 2, Math.PI * 1.5); g.arc(sx + sw - sh / 2, ry + 18, sh / 2, -Math.PI / 2, Math.PI / 2); g.closePath(); g.fill();
-          g.fillStyle = "#f6eedb"; g.beginPath(); g.arc(on ? sx + sw - sh / 2 : sx + sh / 2, ry + 18, sh / 2 - 3, 0, 6.283); g.fill();
-          panelBoxes.push({ x: x + 8, y: ry, w: w - 16, h: 40, act });
+        const row = (i, label, draw, act) => {
+          const ry = y + 60 + i * rowH;
+          rule(x + P, x + w - P, ry, UI.color.rule);
+          type(label, x + P, ry + 30, { size: UI.size.body, color: UI.color.ink });
+          draw(ry + 30);
+          panelBoxes.push({ x: x + 8, y: ry, w: w - 16, h: rowH, act });
         };
-        row(0, "meadow & mower", sfxOn, () => { sfxOn = !sfxOn; });
-        row(1, "music", musicOn, () => { musicOn = !musicOn; });
-        const ry = y + 52 + 2 * 44;
-        inkText("volume", x + 24, ry + 26, 19, FONT_IT.f, ink, "left");
-        for (let i = 0; i < 3; i++) {
-          const bx = x + w - 112 + i * 34, by = ry + 6;
-          g.fillStyle = i <= volLevel ? "#c9573f" : "rgba(80,90,70,0.3)";
-          g.fillRect(bx, by + 18 - (8 + i * 6), 20, 8 + i * 6);
-          panelBoxes.push({ x: bx - 6, y: ry, w: 32, h: 40, act: () => { volLevel = i; } });
+        const toggle = (onState) => (by) => type(onState ? "On" : "Off", x + w - P, by, { size: UI.size.small, weight: 600, color: onState ? UI.color.accent : UI.color.inkFaint, align: "right" });
+        row(0, "Sound effects", toggle(sfxOn), () => { sfxOn = !sfxOn; });
+        row(1, "Music", toggle(musicOn), () => { musicOn = !musicOn; });
+        const vy = y + 60 + 2 * rowH;
+        rule(x + P, x + w - P, vy, UI.color.rule);
+        type("Volume", x + P, vy + 30, { size: UI.size.body, color: UI.color.ink });
+        const opts = ["Low", "Mid", "High"];
+        let ox = x + w - P;
+        for (let i = 2; i >= 0; i--) {
+          setFont({ size: UI.size.small, weight: 600 });
+          const tw = g.measureText(opts[i]).width;
+          type(opts[i], ox, vy + 30, { size: UI.size.small, weight: 600, color: i === volLevel ? UI.color.ink : UI.color.inkFaint, align: "right" });
+          if (i === volLevel) rule(ox - tw, ox, vy + 35, UI.color.ink);
+          const vi = i;
+          panelBoxes.push({ x: ox - tw - 10, y: vy, w: tw + 20, h: rowH, act: () => { volLevel = vi; } });
+          ox -= tw + 18;
         }
-        inkText("tap outside to close", W / 2, y + h - 12, 13, FONT_IT.f, "rgba(70,80,60,0.7)", "center");
+        rule(x + P, x + w - P, vy + rowH, UI.color.rule);
+        type("Tap outside to close", x + P, y + h - 18, { size: UI.size.micro, color: UI.color.inkSoft, track: 0.4 });
       }
       function drawPaused() {
-        g.fillStyle = "rgba(16,28,20,0.4)"; g.fillRect(0, 0, W, H);
-        text("paused", W / 2, H * 0.42, 40, FONT_IT.f, "#f1e8d5", "center");
-        text("tap to continue", W / 2, H * 0.42 + 34, 17, FONT_IT.f, "rgba(241,232,213,0.85)", "center");
-      }
-      function paperCard(x, y, w, h, a) {
-        g.save(); g.globalAlpha = a;
-        g.fillStyle = "rgba(10,20,14,0.3)";
-        roughRect(x + 3, y + 5, w, h, 9);
-        g.fill();
-        g.fillStyle = "#efe6d1";
-        roughRect(x, y, w, h, 9);
-        g.fill();
-        if (grainTile) { g.fillStyle = g.createPattern(grainTile, "repeat"); roughRect(x, y, w, h, 9); g.fill(); }
-        g.restore();
-      }
-      function roughRect(x, y, w, h, r) {
-        const rn = mulberry32(Math.floor(w * 13 + h));
-        g.beginPath();
-        const pts = [];
-        const n = 10;
-        for (let i = 0; i <= n; i++) pts.push([x + r + (w - 2 * r) * i / n, y + (rn() - 0.5) * 1.6]);
-        for (let i = 0; i <= n; i++) pts.push([x + w + (rn() - 0.5) * 1.6, y + r + (h - 2 * r) * i / n]);
-        for (let i = 0; i <= n; i++) pts.push([x + w - r - (w - 2 * r) * i / n, y + h + (rn() - 0.5) * 1.6]);
-        for (let i = 0; i <= n; i++) pts.push([x + (rn() - 0.5) * 1.6, y + h - r - (h - 2 * r) * i / n]);
-        g.moveTo(pts[0][0], pts[0][1]);
-        for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
-        g.closePath();
-      }
-      function inkText(str, x, y, size, font, color, align, alpha) {
-        g.font = size + "px " + font; g.textAlign = align || "center"; g.textBaseline = "alphabetic";
-        g.globalAlpha = alpha === undefined ? 1 : alpha; g.fillStyle = color; g.fillText(str, x, y); g.globalAlpha = 1;
+        g.fillStyle = UI.color.veil; g.fillRect(0, 0, W, H);
+        const y = H * 0.44;
+        type("paused", W / 2, y, { size: 36, family: UI.serif.f, italic: true, weight: 300, color: UI.color.cream, align: "center", shade: true });
+        type("Tap anywhere to continue", W / 2, y + 32, { size: UI.size.small, color: UI.color.creamDim, align: "center", shade: true });
       }
       function observation() {
         const st = sim.s.stats;
         const opts = [];
-        if (st.maxLevel >= 2) opts.push([st.maxLevel * 3, "longest rhythm ×" + (st.maxLevel + 1)]);
+        if (st.maxLevel >= 2) opts.push([st.maxLevel * 3, "Longest rhythm ×" + (st.maxLevel + 1)]);
         if (st.patches >= 2) opts.push([st.patches * 2.2, st.patches + " seed patches mown whole"]);
         if (st.near >= 8) opts.push([st.near * 0.35, st.near + " close shaves"]);
         opts.push([1, Math.floor(sim.s.y - sim.s.startY) + " rows of meadow"]);
@@ -3450,54 +3470,68 @@
       }
       function drawOver(dt) {
         const s = sim.s;
-        const a = clamp01((overT - 1.0) / 0.5);
-        if (a <= 0) { buttons.again = null; return; }
-        const cw = Math.min(W - 40, 340), cx = (W - cw) / 2;
-        const cy = area.top + 14;
-        const ch = 218 + (board.state === "ok" ? Math.max(1, Math.min(3, board.rows.length)) * 20 + 20 : 0);
-        paperCard(cx, cy, cw, ch, a);
-        const ink = "#2a3a2a";
-        inkText("the meadow rests", W / 2, cy + 30, 17, FONT_IT.f, "rgba(52,75,49,0.85)", "center", a);
-        inkText(fmt(s.score), W / 2, cy + 84, 50, FONT_NUM.f, ink, "center", a);
-        let line, lineCol = "rgba(52,60,48,0.9)";
-        if (newBest) { line = prevBest > 0 ? "a new best — " + fmt(s.score - prevBest) + " past your old mark" : "your first mark in the meadow"; lineCol = "#a5462f"; }
-        else {
-          const diff = best - s.score;
-          line = diff <= Math.max(60, best * 0.15) ? fmt(diff) + " short of your best (" + fmt(best) + ")" : "best " + fmt(best);
-        }
-        inkText(line, W / 2, cy + 114, 17, FONT_IT.f, lineCol, "center", a);
-        inkText(observation(), W / 2, cy + 140, 16, FONT_IT.f, "rgba(70,80,60,0.85)", "center", a);
-        g.globalAlpha = a * 0.5; g.strokeStyle = "#6b7a55"; g.lineWidth = 1;
-        g.beginPath(); g.moveTo(cx + 30, cy + 158); g.lineTo(cx + cw - 30, cy + 158); g.stroke(); g.globalAlpha = 1;
-        // compact leaderboard
-        let ly = cy + 182;
-        inkText("meadow keepers", W / 2, ly, 15, FONT_IT.f, "rgba(52,75,49,0.85)", "center", a);
-        ly += 22;
-        if (board.state === "ok") {
-          if (!board.rows.length) { inkText("no marks yet — yours could be first", W / 2, ly, 14, FONT_IT.f, "rgba(70,80,60,0.85)", "center", a); ly += 20; }
-          for (const row of board.rows.slice(0, 3)) {
-            inkText(String(row.rank), cx + 40, ly, 15, FONT_NUM.f, ink, "left", a);
-            const name = (row.name || "a mower").slice(0, 16);
-            inkText(name, cx + 64, ly, 16, FONT_IT.f, ink, "left", a);
-            inkText(fmt(row.value), cx + cw - 40, ly, 15, FONT_NUM.f, ink, "right", a);
-            ly += 20;
-          }
-          const rk = board.rank ? "your place: " + board.rank + (board.total ? " of " + fmt(board.total) : "") : "your place: not ranked yet";
-          inkText(rk, W / 2, ly + 4, 14, FONT_IT.f, "rgba(70,80,60,0.85)", "center", a);
-        } else {
-          inkText(board.state === "error" ? "leaderboard unavailable right now" : "updating…", W / 2, ly, 14, FONT_IT.f, "rgba(70,80,60,0.75)", "center", a);
-        }
-        // Mow again: large, low, thumb-reachable
-        const bw = Math.min(W - 64, 260), bh = 58;
-        const bx = (W - bw) / 2, by = H - area.bottom - bh - 18;
+        const k = clamp01((overT - 1.0) / UI.motion.panelIn);
+        if (k <= 0) { buttons.again = null; return; }
+        const a = smooth(k), rise = reduceMotion ? 0 : (1 - a) * 8;
+        const P = UI.space.pad;
+        const w = Math.min(W - 2 * UI.space.edge - area.left - area.right, 340), x = (W - w) / 2;
+        const top = area.top + 16 + rise;
+        const bh = 52, by = H - area.bottom - bh - 16;
+        // fit the sheet between the top of the screen and the button: shed secondary lines if needed
+        const rows = board.state === "ok" ? Math.max(1, Math.min(3, board.rows.length)) : 1;
+        let showObs = true, showBoard = true, boardRows = rows;
+        const heightFor = () => 168 + (showObs ? 22 : 0) + (showBoard ? 46 + boardRows * 22 + (board.state === "ok" ? 22 : 0) : 0);
+        const room = by - 16 - top;
+        while (heightFor() > room && (boardRows > 1 || showBoard || showObs)) { if (boardRows > 1) boardRows--; else if (showObs) showObs = false; else showBoard = false; }
+        const h = heightFor();
+        panelBottom = top + h;
+        sheet(x, top, w, h, a);
         g.save(); g.globalAlpha = a;
-        const pill = (x, y) => { g.beginPath(); g.moveTo(x + bh / 2, y); g.lineTo(x + bw - bh / 2, y + 0.8); g.arc(x + bw - bh / 2, y + bh / 2, bh / 2, -Math.PI / 2, Math.PI / 2); g.lineTo(x + bh / 2, y + bh - 0.6); g.arc(x + bh / 2, y + bh / 2, bh / 2, Math.PI / 2, Math.PI * 1.5); g.closePath(); };
-        g.fillStyle = "rgba(10,20,14,0.35)"; pill(bx + 2, by + 4); g.fill();
-        g.fillStyle = "#c9573f"; pill(bx, by); g.fill();
-        g.fillStyle = "rgba(240,170,130,0.3)"; g.fillRect(bx + bh / 2, by + 7, bw - bh, 2);
+        let y = top + 42;
+        type("the meadow rests", x + P, y, { size: UI.size.lead, family: UI.serif.f, italic: true, weight: 300, color: UI.color.ink });
+        y += 32;
+        type("score", x + P, y, { size: UI.size.micro, color: UI.color.inkSoft, track: 1.2 });
+        y += 52;
+        num(fmt(s.score), x + P - 2, y, { size: UI.size.result, weight: 600, color: UI.color.ink });
+        y += 28;
+        if (newBest) {
+          setFont({ size: UI.size.small, weight: 600 });
+          const lab = "New best", lw = g.measureText(lab).width;
+          type(lab, x + P, y, { size: UI.size.small, weight: 600, color: UI.color.accent });
+          type(prevBest > 0 ? "  ·  " + fmt(s.score - prevBest) + " past your old mark" : "  ·  your first mark in the meadow", x + P + lw, y, { size: UI.size.small, color: UI.color.inkSoft });
+        } else {
+          const diff = best - s.score;
+          type("Best " + fmt(best) + (diff <= Math.max(60, best * 0.15) ? "  ·  " + fmt(diff) + " short" : ""), x + P, y, { size: UI.size.small, color: UI.color.inkSoft });
+        }
+        if (showObs) { y += 22; type(observation(), x + P, y, { size: UI.size.small, color: UI.color.inkSoft }); }
+        if (showBoard) {
+          y += 22; rule(x + P, x + w - P, y, UI.color.rule);
+          y += 24; type("meadow keepers", x + P, y, { size: UI.size.micro, color: UI.color.inkSoft, track: 1.2 });
+          if (board.state === "ok") {
+            if (!board.rows.length) { y += 22; type("No marks yet. Yours could be first.", x + P, y, { size: UI.size.small, color: UI.color.inkSoft }); }
+            for (const row of board.rows.slice(0, boardRows)) {
+              y += 22;
+              num(String(row.rank), x + P, y, { size: UI.size.small, color: UI.color.inkSoft });
+              type((row.name || "a mower").slice(0, 18), x + P + 22, y, { size: UI.size.small, color: UI.color.ink });
+              num(fmt(row.value), x + w - P, y, { size: UI.size.small, color: UI.color.ink, align: "right" });
+            }
+            y += 22;
+            type(board.rank ? "Your place: " + board.rank + (board.total ? " of " + fmt(board.total) : "") : "Your place: not ranked yet", x + P, y, { size: UI.size.small, color: UI.color.inkSoft });
+          } else {
+            y += 22; type(board.state === "error" ? "Leaderboard unavailable right now" : "Updating…", x + P, y, { size: UI.size.small, color: UI.color.inkSoft });
+          }
+        }
         g.restore();
-        inkText("Mow again", W / 2, by + 38, 26, FONT_IT.f, "#f6eedb", "center", a);
-        buttons.again = overT > 1.35 ? { x: bx, y: by, w: bw, h: bh } : null;
+        // the one action: a plain vermilion block the width of the sheet, low and thumb-reachable
+        const ready = overT > 1.35;
+        const down = pressed("again");
+        g.save(); g.globalAlpha = a * (ready ? 1 : 0.45);
+        g.fillStyle = down ? UI.color.accentDown : UI.color.accent;
+        const r = 3, yy = by + (down ? 1 : 0);
+        g.beginPath(); g.moveTo(x + r, yy); g.arcTo(x + w, yy, x + w, yy + bh, r); g.arcTo(x + w, yy + bh, x, yy + bh, r); g.arcTo(x, yy + bh, x, yy, r); g.arcTo(x, yy, x + w, yy, r); g.closePath(); g.fill();
+        g.restore();
+        type("Mow again", W / 2, yy + bh / 2 + 6, { size: UI.size.button, weight: 600, color: UI.color.cream, align: "center", alpha: a * (ready ? 1 : 0.7) });
+        buttons.again = ready ? { x, y: by, w, h: bh } : null;
       }
 
       // =======================================================================
@@ -3617,19 +3651,24 @@
       // =======================================================================
       const touch = { id: null, x0: 0, y0: 0, t0: 0, fired: 0, ax: 0, ui: false };
       function localPt(e) { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
-      function hitUI(p) {
-        if (phase === "over" && buttons.again && p.x >= buttons.again.x - 8 && p.x <= buttons.again.x + buttons.again.w + 8 && p.y >= buttons.again.y - 8 && p.y <= buttons.again.y + buttons.again.h + 8) { restart(); return true; }
-        if (buttons.pause && Math.hypot(p.x - buttons.pause.x, p.y - buttons.pause.y) < buttons.pause.r) { togglePause(); return true; }
+      const inBox = (p, b) => b && p.x >= b.x - 6 && p.x <= b.x + b.w + 6 && p.y >= b.y - 6 && p.y <= b.y + b.h + 6;
+      // Which control is under the finger (no action yet).
+      function controlAt(p) {
+        if (phase === "over" && inBox(p, buttons.again)) return { id: "again", act: restart };
         if (soundPanel) {
-          for (const b of panelBoxes) if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) { b.act(); applyMix(); return true; }
-          soundPanel = false; return true; // tapping outside closes the panel (the game stays paused)
+          for (const b of panelBoxes) if (inBox(p, { x: b.x + 6, y: b.y + 6, w: b.w - 12, h: b.h - 12 })) return { id: "panel", act: () => { b.act(); applyMix(); } };
+          return { id: "close", act: () => { soundPanel = false; } }; // outside the sheet closes it (the game stays paused)
         }
-        if (buttons.sound && Math.hypot(p.x - buttons.sound.x, p.y - buttons.sound.y) < buttons.sound.r) {
-          startAudio();
-          if (phase === "play") togglePause();
-          soundPanel = true; return true;
-        }
-        return false;
+        if (inBox(p, buttons.pause)) return { id: "pause", act: togglePause };
+        if (inBox(p, buttons.sound)) return { id: "sound", act: () => { startAudio(); if (phase === "play") togglePause(); soundPanel = true; } };
+        return null;
+      }
+      function hitUI(p) {
+        const c = controlAt(p);
+        if (!c) return false;
+        if (c.id === "close" || c.id === "panel") { c.act(); return true; } // sheet rows respond at once
+        uiPress = c;
+        return true;
       }
       function steer(dir) {
         if (phase === "ready") beginPlay();
@@ -3661,6 +3700,12 @@
         }
       });
       function endTouch(e) {
+        if (uiPress) {
+          const c = controlAt(localPt(e)), was = uiPress;
+          uiPress = null;
+          if (c && c.id === was.id) was.act();
+          return;
+        }
         if (touch.id !== e.pointerId) return;
         const p = localPt(e);
         const dt = performance.now() - touch.t0;
@@ -3673,7 +3718,7 @@
       }
       const th0 = () => cfg.swipePx;
       ctx.listen(canvas, "pointerup", endTouch);
-      ctx.listen(canvas, "pointercancel", (e) => { if (touch.id === e.pointerId) touch.id = null; });
+      ctx.listen(canvas, "pointercancel", (e) => { uiPress = null; if (touch.id === e.pointerId) touch.id = null; });
       ctx.listen(canvas, "contextmenu", (e) => e.preventDefault());
       const keyHandler = (e) => {
         const k = e.key;
@@ -3712,7 +3757,7 @@
         if (phase === "over") {
           const z = smooth(clamp01((overT - 0.6) / 1.6));
           zoom = lerp(1, 0.7, z);
-          const cardBottom = area.top + 14 + 260;
+          const cardBottom = panelBottom || area.top + 280;
           const restY = clamp(cardBottom + (H - area.bottom - 90 - cardBottom) * 0.22, H * 0.45, H * 0.62);
           anchorCur = lerp(anchorY, restY, z);
         } else { zoom = 1; anchorCur = anchorY; }
@@ -3755,7 +3800,7 @@
 
       if (typeof window !== "undefined" && window.__LM_TEST__) {
         window.__LM_GAME__ = { get sim() { return sim; }, get phase() { return phase; }, steer, restart, beginPlay, togglePause, get cfg() { return cfg; },
-          get overT() { return overT; }, sound, get board() { return board; }, get chunks() { return chunks.size; }, get trail() { return trail.length; },
+          get overT() { return overT; }, sound, setBest(v) { best = v; }, openSound() { soundPanel = true; }, get buttons() { return buttons; }, get area() { return area; }, get board() { return board; }, get chunks() { return chunks.size; }, get trail() { return trail.length; },
           warp(ticks, pilot) { for (let i = 0; i < ticks && sim.s.phase === "play"; i++) { pilot(sim); sim.update(1000 / 60); } trail.length = 0; chunks.clear(); jobs.length = 0; camY = sim.s.y; } };
       }
     }

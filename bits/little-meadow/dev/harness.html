@@ -30,7 +30,14 @@ function makeCtx() {
     platform: { ready(p) { __log.push(['ready', p]); }, start(p) { __log.push(['start', p]); }, interact() {}, fail(p) { __log.push(['fail', p]); }, complete() {}, haptic(k) { __log.push(['haptic', k]); }, error(p) { __log.push(['error', p]); } },
     pulse: { complete(p) { __log.push(['pulse', p]); } },
     music: { play(o) { __log.push(['music', o]); return {}; }, unlock() { return Promise.resolve('ready'); }, setIntensity() {}, setVolume() {}, duck() {}, sting() { return Promise.resolve(); } },
-    loadFont() { return Promise.reject(new Error('no font registry in harness')); },
+    // local stand-in for the font registry: dev/fonts/ (git-ignored) holds the same faces
+    async loadFont(family, name, version, o) {
+      const files = { 'inter:400': 'Inter-Regular.otf', 'inter:600': 'Inter-SemiBold.otf', 'cormorant-garamond:300': 'cormorant-garamond-300-italic.ttf' };
+      const f = files[name + ':' + (o && o.weight || '400')];
+      if (!f || q.get('nofonts')) throw new Error('font not available in harness');
+      const face = new FontFace(family, 'url(fonts/' + f + ')', { weight: o.weight, style: o.style || 'normal' });
+      await face.load(); document.fonts.add(face); return face;
+    },
     memory: { record() { return { leaderboard: async () => ({ rows: [], viewerRank: null }) }; } },
     game: {
       score() { let v = 0; return { get value() { return v; }, set(x) { v = x; return this; }, add(x) { v += x; return this; }, reset() { v = 0; return this; },
