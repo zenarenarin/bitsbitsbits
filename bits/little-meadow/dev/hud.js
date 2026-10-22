@@ -11,6 +11,7 @@ const VIEWS = [
   { name: "430x932", w: 430, h: 932, q: "&top=59&bottom=34" },
   { name: "375x812", w: 375, h: 812, q: "&top=47&bottom=34" },
   { name: "402x874-safe", w: 402, h: 874, q: "&frame=safe" },
+  { name: "402x874-zero-insets", w: 402, h: 874, q: "&top=0&bottom=0" },
   { name: "320x568-nofonts", w: 320, h: 568, q: "&top=20&bottom=0&nofonts=1" }
 ];
 const problems = [];
@@ -56,6 +57,7 @@ const problems = [];
     else {
       if (ov.b.h < 44) problems.push(v.name + ": restart height " + ov.b.h);
       if (ov.b.y + ov.b.h > ov.H - ov.a.bottom) problems.push(v.name + ": restart overlaps bottom inset");
+      if (!v.q.includes("frame=safe") && ov.b.y + ov.b.h > ov.H - 100) problems.push(v.name + ": restart within 100px of the bottom edge (logo button)");
       // pressed state, then release elsewhere (cancel), then a real tap restarts
       await page.mouse.move(ov.b.x + ov.b.w / 2, ov.b.y + ov.b.h / 2); await page.mouse.down(); await step(1); await shot("6-over-pressed");
       await page.mouse.move(ov.b.x + ov.b.w / 2, ov.b.y - 120); await page.mouse.up(); await step(1);

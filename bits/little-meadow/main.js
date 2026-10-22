@@ -2053,9 +2053,17 @@
       // ---- Layout ------------------------------------------------------------
       let W = ctx.width, H = ctx.height, S = 48, fieldX0 = 0, anchorY = 0, PS = 1.5, chunkW = 0, chunkX = 0, area = { top: 0, right: 0, bottom: 0, left: 0 };
       const CH = 16; // rows per painted chunk
+      // Insets for text and controls. Full screen: the host's content-safe area, with a floor in case a
+      // host reports zeros or late values (a notch and the logo button are always assumed). Safe frame: as given.
+      function readArea() {
+        const c = ctx.contentSafeArea, a = c || ctx.safeArea || {};
+        const r = { top: +a.top || 0, right: +a.right || 0, bottom: +a.bottom || 0, left: +a.left || 0 };
+        if (c) { r.top = Math.max(r.top, 48); r.bottom = Math.max(r.bottom, 100); }
+        return r;
+      }
       function computeLayout() {
         W = Math.max(200, ctx.width); H = Math.max(300, ctx.height);
-        area = ctx.contentSafeArea || ctx.safeArea || { top: 0, right: 0, bottom: 0, left: 0 };
+        area = readArea();
         S = clamp(Math.min(W / 8.2, H / 14.5), 30, 74);
         fieldX0 = (W - LANES * S) / 2;
         anchorY = Math.min(H * 0.73, H - area.bottom - S * 1.1);
@@ -3735,6 +3743,9 @@
       function frame(dtMs) {
         if (destroyed) return;
         const dt = Math.min(dtMs, 80) / 1000;
+        // the host replaces its inset objects when they change; follow them even without a resize event
+        const na = readArea();
+        if (na.top !== area.top || na.bottom !== area.bottom || na.left !== area.left || na.right !== area.right) { computeLayout(); lightCache = null; }
         if (phase === "play") {
           const events = sim.update(dtMs);
           lastEvents = events;
