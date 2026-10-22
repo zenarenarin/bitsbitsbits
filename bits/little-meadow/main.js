@@ -2054,11 +2054,12 @@
       let W = ctx.width, H = ctx.height, S = 48, fieldX0 = 0, anchorY = 0, PS = 1.5, chunkW = 0, chunkX = 0, area = { top: 0, right: 0, bottom: 0, left: 0 };
       const CH = 16; // rows per painted chunk
       // Insets for text and controls. Full screen: the host's content-safe area, with a floor in case a
-      // host reports zeros or late values (a notch and the logo button are always assumed). Safe frame: as given.
+      // host reports zeros or late values (the tallest notch and logo/nav bar are always assumed). Safe frame: as given.
       function readArea() {
         const c = ctx.contentSafeArea, a = c || ctx.safeArea || {};
         const r = { top: +a.top || 0, right: +a.right || 0, bottom: +a.bottom || 0, left: +a.left || 0 };
-        if (c) { r.top = Math.max(r.top, 48); r.bottom = Math.max(r.bottom, 100); }
+        // floors cover the largest real insets: Dynamic Island 62, Android 3-button nav + logo 130.5
+        if (c) { r.top = Math.max(r.top, 64); r.bottom = Math.max(r.bottom, 132); }
         return r;
       }
       function computeLayout() {

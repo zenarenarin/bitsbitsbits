@@ -5,7 +5,8 @@ const { chromium } = require(process.env.PW || "playwright");
 const OUT = process.argv[2] || path.join(__dirname, "out", "hud");
 fs.mkdirSync(OUT, { recursive: true });
 const BASE = "file://" + path.join(__dirname, "harness.html");
-const VIEWS = [
+const ONLY = process.env.ONLY;
+const VIEWS_ALL = [
   { name: "402x874", w: 402, h: 874, q: "" },
   { name: "360x640", w: 360, h: 640, q: "&top=24&bottom=48" },
   { name: "430x932", w: 430, h: 932, q: "&top=59&bottom=34" },
@@ -14,6 +15,7 @@ const VIEWS = [
   { name: "402x874-zero-insets", w: 402, h: 874, q: "&top=0&bottom=0" },
   { name: "320x568-nofonts", w: 320, h: 568, q: "&top=20&bottom=0&nofonts=1" }
 ];
+const VIEWS = ONLY ? VIEWS_ALL.filter((v) => v.name.includes(ONLY)) : VIEWS_ALL;
 const problems = [];
 (async () => {
   const browser = await chromium.launch();
@@ -44,6 +46,7 @@ const problems = [];
     });
     await step(90); await shot("2-play");
     const ui = await page.evaluate(() => ({ b: __LM_GAME__.buttons, a: __LM_GAME__.area, W: innerWidth, H: innerHeight }));
+    if (!v.q.includes("frame=safe") && ui.a.top < 62) problems.push(v.name + ": top inset " + ui.a.top + " below 62");
     for (const k of ["pause", "sound"]) { const b = ui.b[k]; if (!b) { problems.push(v.name + ": no " + k + " button"); continue; } if (b.w < 44 || b.h < 44) problems.push(v.name + ": " + k + " target " + b.w + "x" + b.h); if (b.y < ui.a.top - 1 || b.x + b.w > ui.W - ui.a.right + 1) problems.push(v.name + ": " + k + " outside safe area " + JSON.stringify(b)); }
     await page.evaluate(() => __LM_GAME__.togglePause()); await step(10); await shot("3-paused");
     await page.evaluate(() => __LM_GAME__.openSound()); await step(10); await shot("4-sound");
@@ -57,7 +60,7 @@ const problems = [];
     else {
       if (ov.b.h < 44) problems.push(v.name + ": restart height " + ov.b.h);
       if (ov.b.y + ov.b.h > ov.H - ov.a.bottom) problems.push(v.name + ": restart overlaps bottom inset");
-      if (!v.q.includes("frame=safe") && ov.b.y + ov.b.h > ov.H - 100) problems.push(v.name + ": restart within 100px of the bottom edge (logo button)");
+      if (!v.q.includes("frame=safe") && ov.b.y + ov.b.h > ov.H - 131) problems.push(v.name + ": restart within 131px of the bottom edge (logo button / nav bar)");
       // pressed state, then release elsewhere (cancel), then a real tap restarts
       await page.mouse.move(ov.b.x + ov.b.w / 2, ov.b.y + ov.b.h / 2); await page.mouse.down(); await step(1); await shot("6-over-pressed");
       await page.mouse.move(ov.b.x + ov.b.w / 2, ov.b.y - 120); await page.mouse.up(); await step(1);
