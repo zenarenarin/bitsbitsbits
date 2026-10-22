@@ -184,7 +184,7 @@ window.plethoraBit = {
     }
 
     // ---- the run
-    let mode = 'title', runT = 0, time = 0, captures = 0, cp = 0, sectionSeen = -1, caption = null, captureT = 0, attempt = 0, result = null;
+    let farX = 0, mode = 'title', runT = 0, time = 0, captures = 0, cp = 0, sectionSeen = -1, caption = null, captureT = 0, attempt = 0, result = null;
     let titleT = 0, stepAcc = 0, cityStepT = 0;
     const score = safe(() => ctx.game.score()) || { set() { }, reset() { }, value: 0 };
     function resetWorld() {
@@ -207,7 +207,7 @@ window.plethoraBit = {
       safe(() => ctx.platform.start({ attempt }));
       safe(() => ctx.platform.interact({ type: 'begin' }));
       if (caps.backgroundMusic && save.sound) safe(() => { ctx.music.unlock(); ctx.music.play({ preset: 'drone', volume: 0.22, intensity: 0.15, tempo: 60, scale: 'minor', fadeInMs: 2400 }); });
-      runT = 0; captures = 0; cp = 0; sectionSeen = -1; caption = null; result = null; R.capture = null;
+      runT = 0; farX = level.start.x; captures = 0; cp = 0; sectionSeen = -1; caption = null; result = null; R.capture = null;
       watcher.alarms = 0; watcher.hunts = 0; watcher.exposure = 0;
       score.reset && score.reset();
       hidePanels();
@@ -309,6 +309,7 @@ window.plethoraBit = {
       readInput();
       if (mode === 'play') {
         runT += dt;
+        farX = Math.max(farX, player.x);
         // act: pull the cord in reach
         if (I.actPressed) {
           updateActVis();
@@ -447,7 +448,12 @@ window.plethoraBit = {
       // time
       g.fillStyle = PAPER;
       g.font = '400 26px "DM Serif Display", Georgia, serif';
-      g.fillText(fmtTime(runT), a.left + 16, btn.pause.y + 9);
+      // distance covered: the furthest point reached along the street
+      const dist = String(Math.max(0, Math.floor(farX - level.start.x)));
+      g.fillText(dist, a.left + 16, btn.pause.y + 9);
+      const dw = g.measureText(dist).width;
+      g.font = '400 17px "DM Serif Display", Georgia, serif';
+      g.fillText('m', a.left + 16 + dw + 4, btn.pause.y + 9);
       // section caption, like a chapter heading
       if (caption) {
         caption.t += dt;
