@@ -21,7 +21,7 @@ function createRenderer(canvas, level, world, optics, watcher, makeSurface) {
   R.layout = function (W, H, dpr, area, controlsH) {
     R.W = W; R.H = H; R.dpr = dpr; R.area = area;
     R.q = Math.min(dpr || 1, 1.5);
-    const top = area.top + 60, bottom = H - area.bottom - controlsH;
+    const top = area.top + 92, bottom = H - area.bottom - controlsH;
     const s = Math.min(W / 13, (bottom - top) / 13.5);
     R.cam.s = clamp(s, 14, 64);
     R.yBase = bottom - 0.2 * R.cam.s;
@@ -661,7 +661,6 @@ function createRenderer(canvas, level, world, optics, watcher, makeSurface) {
       list.push(p);
       l.poly = p;
     }
-    R.lightList = list;
     if (list.length) {
       // the engraving, where light falls
       g.save(); beamPath(list); g.clip();
@@ -731,12 +730,6 @@ function createRenderer(canvas, level, world, optics, watcher, makeSurface) {
     if (R.debug) drawDebug(S);
   };
 
-  // Clip the context to this frame's light, so the HUD can invert where
-  // the Watcher's beam passes behind it. Returns false when nothing is lit.
-  R.clipToLight = function () {
-    const list = R.lightList; if (!list || !list.length) return false;
-    beamPath(list); g.clip(); return true;
-  };
   function drawDebug(S) {
     const s = R.cam.s;
     g.strokeStyle = 'rgba(255,0,0,0.8)'; g.lineWidth = 1;
