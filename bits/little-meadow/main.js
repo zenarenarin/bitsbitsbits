@@ -3284,7 +3284,7 @@
           ink: "#26352a", ochre: "#e2c66f", accent: "#c9573f", paper: "#efe7d4", paperDown: "#d9cfb9",
           shade: "rgba(14,22,16,0.45)", veil: "rgba(12,22,14,0.45)", dusk: "rgba(12,22,14,0.5)"
         },
-        bar: { top: 16, edge: 18, icon: 40, iconGap: 4, scoreGap: 10, glyph: 18 },
+        bar: { top: 16, minTop: 56, edge: 18, icon: 40, iconGap: 4, scoreGap: 10, glyph: 18 },
         block: { edge: 24, bottom: 40, button: { h: 43, padX: 26, r: 2, gap: 22 } },
         motion: { panelIn: 0.45, lifeFlash: 0.6 }
       };
@@ -3370,7 +3370,8 @@
       function drawHUD(dt) {
         const s = sim.s, playing = phase === "play" || phase === "paused";
         // the bar starts below the content-safe top (itself at least 64px down in full screen), never under the island
-        const safeTop = area.top, top = safeTop + UI.bar.top, L = area.left + UI.bar.edge, R = W - area.right - UI.bar.edge;
+        // ... and never in the top 56px of the picture, in the safe frame too (whose own top inset is 0)
+        const safeTop = Math.max(area.top, UI.bar.minTop), top = safeTop + UI.bar.top, L = area.left + UI.bar.edge, R = W - area.right - UI.bar.edge;
         hudFade = phase === "over" ? Math.max(0, 1 - overT * 2.5) : 1;
         if (hudFade <= 0.01) { buttons.pause = null; buttons.sound = null; hudFade = 1; return; }
         const ic = UI.bar.icon, cy = top + ic / 2;
