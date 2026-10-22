@@ -3757,6 +3757,7 @@
       // =======================================================================
       // Loop
       // =======================================================================
+      let stillSig = "";
       function frame(dtMs) {
         if (destroyed) return;
         const dt = Math.min(dtMs, 80) / 1000;
@@ -3792,6 +3793,14 @@
         } else { zoom = 1; anchorCur = anchorY; }
         ensureChunks(true);
         runJobs(phase === "play" ? 3 : 6);
+        // A settled result screen holds perfectly still: Plethora captures it for the publish poster and its
+        // review, and identical frames let a re-capture (e.g. "Publish anyway") match the review already made.
+        if (phase === "over" && overT > 3 && !jobs.length) {
+          const sig = [W, H, area.top, area.bottom, area.left, area.right, board.state, board.rows.length, board.rank, board.total,
+            uiPress ? uiPress.id : "", soundPanel, best, newBest, FONT_SANS.f, FONT_SERIF.f].join("|");
+          if (sig === stillSig) return;
+          stillSig = sig;
+        } else stillSig = "";
         drawWorld(dt);
         if (phase === "ready") drawReady(dt);
         drawHUD(dt);
