@@ -84,6 +84,23 @@ Movement:
 - A thin high hiss rises with how much of you is lit.
 - The pull button exists only beside a cord: it reads PULL, or WAIT while the awning is out, and it's hidden in mid-air.
 
+## Interface
+
+The HUD follows one small system, defined in the `HUD` tokens in `src/09_game.js`. Its placement, hierarchy and restraint follow the Pendulum Postman screenshots supplied as the reference.
+
+- **Placement:** a 20 px margin inside `ctx.contentSafeArea`.
+  - Top left: the time, and below it the chapter (`IV · The awning`).
+  - Top right: pause and sound, centred on the time's line.
+  - Bottom: the controls on one shared baseline, 16 px above both the bottom inset and the logo button.
+- **Type:** Inter only. The time is 15 px semibold at 92% opacity, with tabular digits drawn on a fixed advance so they don't shift as the time counts. The chapter is 12 px regular at 66% opacity.
+- **No containers:** no frames, dividers or circles. Glyphs share a 1.75 px stroke and an 18 px box: two bars for pause, a speaker for sound, a hairline with chevrons for movement (it becomes the drag vector while you hold the stick), a chevron for jump, and a cord and toggle for pull.
+- **Touch:** every touch target is at least 44 px, however small the glyph. Touches under either inset or on the logo button are ignored.
+- **Pull glyph:** shown only beside a cord, with a wider radius to leave than to enter so it doesn't flicker at the edge. It breathes when you can pull and dims to 30% while the awning is already out.
+- **Legibility:** a soft local shadow over dark areas. Wherever the Watcher's light passes behind the top row, the row is redrawn in ink, clipped to the light polygons, so it inverts like the engraving under it.
+- **No separate meter:** the Watcher's state is shown in the world, by the aperture around the runner, not in the HUD.
+
+`node dev/hud.js out` captures the title, a dark street, the roof and the awning (with a stick drag and jump held) on iPhone, Android 3-button, safe-frame and small screens, with and without the reserved zones overlaid.
+
 ## Run and test
 
 ```sh

@@ -98,7 +98,20 @@ window.plethoraBit = {
     const key = {};
     const I = { mx: 0, my: 0, jumpPressed: false, jumpHeld: false, actPressed: false };
     const touch = { stick: null, jump: null, act: null };
-    const btn = { jump: { x: 0, y: 0, r: 38 }, act: { x: 0, y: 0, r: 28 }, pause: { x: 0, y: 0, r: 20 } };
+    // The interface system. One sans family (Inter), two text styles, one
+    // stroke weight; hierarchy by size and opacity, never by frames.
+    // Everything sits on a 20px edge margin inside the content safe area, the
+    // top row on the first line of the time block and the controls on one
+    // shared baseline above the bottom inset and the logo.
+    const HUD = {
+      edge: 20,
+      primary: '600 15px Inter, system-ui, sans-serif', secondary: '400 12px Inter, system-ui, sans-serif',
+      line1: 15, line2: 19,           // baseline of the time, then of the chapter below it
+      opText: 0.92, opSub: 0.66, opIcon: 0.78, opIdle: 0.5,
+      stroke: 1.75, shadow: 'rgba(0,0,0,0.55)', shadowBlur: 8
+    };
+    // visible glyphs are small; r is the touch radius (each >= 22px, so >= 44px targets)
+    const btn = { jump: { x: 0, y: 0, r: 30 }, act: { x: 0, y: 0, r: 24 }, pause: { x: 0, y: 0, r: 22 }, sound: { x: 0, y: 0, r: 22 } };
     // The usable band: below the top inset and above both the bottom inset
     // and Plethora's logo button, with a 16px margin from each.
     function bottomLimit() {
@@ -114,11 +127,16 @@ window.plethoraBit = {
       return false;
     }
     function placeControls() {
-      const a = area(), b = bottomLimit();
-      btn.jump.x = W - a.right - 16 - btn.jump.r; btn.jump.y = b - btn.jump.r - 8;
-      btn.act.x = btn.jump.x - 78; btn.act.y = btn.jump.y - 30;
-      btn.pause.x = W - a.right - 16 - btn.pause.r; btn.pause.y = a.top + 16 + btn.pause.r + 8;
-      touch.home = { x: a.left + 16 + 56, y: b - 56 - 8 };
+      const a = area(), b = bottomLimit(), e = HUD.edge;
+      // top row: centred on the first text line
+      const rowY = a.top + e + HUD.line1 - 5;
+      btn.sound.x = W - a.right - e - 8; btn.sound.y = rowY;
+      btn.pause.x = btn.sound.x - 36; btn.pause.y = rowY;
+      // bottom baseline: move guide on the left, pull then jump on the right
+      const baseY = b - 22;
+      btn.jump.x = W - a.right - e - 10; btn.jump.y = baseY;
+      btn.act.x = btn.jump.x - 60; btn.act.y = baseY;
+      touch.home = { x: a.left + e, y: baseY };
     }
     const KEYMAP = { ArrowLeft: 'l', KeyA: 'l', ArrowRight: 'r', KeyD: 'r', ArrowUp: 'u', KeyW: 'u', ArrowDown: 'd', KeyS: 'd', Space: 'j', KeyK: 'j', KeyZ: 'j', KeyE: 'a', KeyJ: 'a', KeyX: 'a', Enter: 'enter', Escape: 'esc', KeyP: 'esc', KeyR: 'restart' };
     ctx.listen(window, 'keydown', e => {
@@ -143,11 +161,12 @@ window.plethoraBit = {
       const x = e.offsetX, y = e.offsetY;
       safe(() => canvas.setPointerCapture(e.pointerId));
       audio.unlock();
+      if ((mode === 'title' || mode === 'play') && hit(btn.sound, x, y, 0)) { toggleSound(); return; }
       if (mode === 'title') { beginRun(); return; }
       if (mode !== 'play') return;
       // never act on touches under the insets or on the logo button
       if (inReservedZone(x, y)) return;
-      if (hit(btn.pause, x, y, 10)) { pause(); return; }
+      if (hit(btn.pause, x, y, 0)) { pause(); return; }
       if (hit(btn.jump, x, y, 18)) { touch.jump = e.pointerId; I.jumpPressed = true; return; }
       if (actVis.on && hit(btn.act, x, y, 14)) { touch.act = e.pointerId; I.actPressed = true; return; }
       if (x < W * 0.6 && !touch.stick) { touch.stick = { id: e.pointerId, ox: x, oy: y, x, y }; save.stickSeen = true; return; }
@@ -249,6 +268,10 @@ window.plethoraBit = {
     }
     function markSection() { const c = level.checkpoints[Math.min(cp, level.checkpoints.length - 1)]; let s = 0; for (let i = 0; i < level.sections.length; i++) if (c.x >= level.sections[i].x) s = i; return s; }
 
+    function toggleSound() {
+      save.sound = !save.sound; persist(); audio.setOn(save.sound);
+      if (mode === 'play' || mode === 'title') safe(() => save.sound ? ctx.music.resume() : ctx.music.pause());
+    }
     function pause() { if (mode !== 'play') return; mode = 'paused'; showPause(); safe(() => ctx.music.pause()); }
     function resume() { if (mode !== 'paused') return; mode = 'play'; hidePanels(); safe(() => ctx.music.resume()); }
 
@@ -384,7 +407,7 @@ window.plethoraBit = {
       card.appendChild(button('Resume', '', resume));
       card.appendChild(button('Back to the last mark', 'sec', () => { resume(); respawn(false); }));
       card.appendChild(button('Restart the street', 'sec', () => { mode = 'play'; beginRun(); }));
-      card.appendChild(button('Sound: ' + (save.sound ? 'on' : 'off'), 'sec', () => { save.sound = !save.sound; persist(); audio.setOn(save.sound); safe(() => save.sound ? ctx.music.resume() : ctx.music.pause()); showPause(); }));
+      card.appendChild(button('Sound: ' + (save.sound ? 'on' : 'off'), 'sec', () => { toggleSound(); showPause(); }));
       const k = document.createElement('div'); k.className = 'll-keys';
       k.textContent = 'Drag on the left to run, climb and drop. Right side: jump (hold for height) and pull. Keys: arrows or WASD, Space to jump, E to pull, Esc to pause.';
       card.appendChild(k);
@@ -439,53 +462,54 @@ window.plethoraBit = {
         g.globalAlpha = k;
         g.textAlign = 'center';
         g.fillText('TAP TO BEGIN', W / 2, bottomLimit() - 12);
+        g.globalAlpha = HUD.opIcon; g.shadowColor = HUD.shadow; g.shadowBlur = HUD.shadowBlur; speaker(btn.sound.x, btn.sound.y, save.sound); g.shadowBlur = 0;
         g.textAlign = 'left'; g.globalAlpha = 1;
         if (g.letterSpacing !== undefined) g.letterSpacing = '0px';
         g.restore();
         return;
       }
-      // time
-      g.fillStyle = PAPER;
-      g.font = '400 26px "DM Serif Display", Georgia, serif';
-      g.fillText(fmtTime(runT), a.left + 16, btn.pause.y + 9);
-      // section caption, like a chapter heading
-      if (caption) {
-        caption.t += dt;
-        const k = caption.t < 0.5 ? caption.t / 0.5 : caption.t > 3 ? Math.max(0, 1 - (caption.t - 3) / 0.8) : 1;
-        if (k > 0) {
-          g.globalAlpha = k;
-          g.font = 'italic 300 22px "Cormorant Garamond", Georgia, serif';
-          g.fillText(caption.s.num + '.  ' + caption.s.name, a.left + 16, btn.pause.y + 37);
-          g.globalAlpha = 1;
-        }
-      }
-      drawEye(W / 2, btn.pause.y);
-      // pause
-      const p = btn.pause;
-      g.strokeStyle = 'rgba(236,231,220,0.7)'; g.lineWidth = 1.5;
-      g.beginPath(); g.arc(p.x, p.y, p.r, 0, TAU); g.stroke();
-      g.fillStyle = PAPER; g.fillRect(p.x - 5, p.y - 7, 3, 14); g.fillRect(p.x + 2, p.y - 7, 3, 14);
+      // top left: the time and the chapter beneath it; top right: pause, sound.
+      // Drawn in paper, then again in ink inside the Watcher's light.
+      if (caption) caption.t += dt;
+      g.shadowColor = HUD.shadow; g.shadowBlur = HUD.shadowBlur;
+      topRow(PAPER);
+      g.save(); g.shadowBlur = 0;
+      if (R.clipToLight()) topRow(INK);
+      g.restore();
+      g.globalAlpha = 1;
       drawControls();
       g.restore();
     }
-    function drawEye(cx, cy) {
-      const m = watcher.mode, w = 18;
-      const open = m === 'search' ? 0 : m === 'investigate' ? 0.25 : m === 'notice' ? 0.2 + watcher.S * 0.6 : 1;
-      R.eye = approach(R.eye || 0, open, 0.08);
-      const o = R.eye;
-      g.strokeStyle = PAPER; g.fillStyle = PAPER; g.lineWidth = 1.5;
-      g.beginPath(); g.moveTo(cx - w, cy); g.quadraticCurveTo(cx, cy - 13 * o - 0.5, cx + w, cy); g.quadraticCurveTo(cx, cy + 13 * o + 0.5, cx - w, cy); g.stroke();
-      if (o > 0.3) {
-        const pr = (m === 'hunt' ? 2.5 : 4.5) * Math.min(1, (o - 0.3) / 0.5);
-        const lx = clamp((watcher.last.x - player.x) * 0.4, -6, 6);
-        g.beginPath(); g.arc(cx + (m === 'investigate' ? lx : 0), cy, pr, 0, TAU); g.fill();
+    function topRow(col) {
+      const a = area(), x0 = a.left + HUD.edge, y1 = a.top + HUD.edge + HUD.line1;
+      g.fillStyle = col;
+      g.globalAlpha = HUD.opText; g.font = HUD.primary;
+      tabular(fmtTime(runT), x0, y1);
+      const sec = level.sections[Math.max(0, sectionSeen)];
+      g.globalAlpha = (col === INK ? 0.85 : HUD.opSub) * (caption ? Math.min(1, caption.t / 0.4) : 1); g.font = HUD.secondary;
+      g.fillText(sec.num + ' \u00b7 ' + sec.name, x0, y1 + HUD.line2);
+      g.globalAlpha = HUD.opIcon;
+      const p = btn.pause;
+      g.fillRect(p.x - 4, p.y - 6, 2, 12); g.fillRect(p.x + 2, p.y - 6, 2, 12);
+      speaker(btn.sound.x, btn.sound.y, save.sound, col);
+    }
+    // digits on a fixed advance, so the time does not shimmer as it counts
+    function tabular(str, x, y) {
+      const dw = g.measureText('0').width;
+      for (const ch of str) {
+        if (ch >= '0' && ch <= '9') { const w = g.measureText(ch).width; g.fillText(ch, x + (dw - w) / 2, y); x += dw; }
+        else { g.fillText(ch, x, y); x += g.measureText(ch).width; }
       }
-      if (m === 'hunt') { g.lineWidth = 1; for (let i = 0; i < 7; i++) { const a = -Math.PI + (i + 0.5) * Math.PI / 7; g.beginPath(); g.moveTo(cx + Math.cos(a) * 22, cy + Math.sin(a) * 15); g.lineTo(cx + Math.cos(a) * 27, cy + Math.sin(a) * 19); g.stroke(); } }
-      // a hairline that fills: suspicion (grey) then lock-on (paper)
-      const lw = 84, ly = cy + 22;
-      g.fillStyle = 'rgba(236,231,220,0.25)'; g.fillRect(cx - lw / 2, ly, lw, 1);
-      if (m === 'notice' || m === 'search' || m === 'investigate') { g.fillStyle = 'rgba(236,231,220,0.6)'; const v = watcher.S; g.fillRect(cx - lw / 2 * v, ly - 0.5, lw * v, 2); }
-      else { g.fillStyle = PAPER; const v = watcher.L; g.fillRect(cx - lw / 2 * v, ly - 1, lw * v, 3); }
+    }
+    function speaker(cx, cy, on, col) {
+      col = col || PAPER;
+      g.fillStyle = col;
+      g.beginPath(); g.moveTo(cx - 7, cy - 2.5); g.lineTo(cx - 4, cy - 2.5); g.lineTo(cx, cy - 6); g.lineTo(cx, cy + 6); g.lineTo(cx - 4, cy + 2.5); g.lineTo(cx - 7, cy + 2.5); g.closePath(); g.fill();
+      g.strokeStyle = col; g.lineWidth = HUD.stroke; g.lineCap = 'round';
+      g.beginPath();
+      if (on) { g.arc(cx + 1.5, cy, 4, -0.9, 0.9); g.moveTo(cx + 1.5 + 7 * Math.cos(-0.95), cy + 7 * Math.sin(-0.95)); g.arc(cx + 1.5, cy, 7, -0.95, 0.95); }
+      else { g.moveTo(cx + 3, cy - 3); g.lineTo(cx + 8, cy + 3); g.moveTo(cx + 8, cy - 3); g.lineTo(cx + 3, cy + 3); }
+      g.stroke();
     }
     // the pull button exists only while there is something to pull; a wider
     // radius to leave than to enter keeps it from flickering at the edge
@@ -500,50 +524,47 @@ window.plethoraBit = {
       }
       actVis.on = !!it; actVis.it = it;
     }
+    // Controls share one line weight and one baseline, with no containers.
+    // Move: a hairline guide with chevrons at its ends; while a finger is
+    // down, the guide becomes the actual drag vector. Jump: a chevron. Pull:
+    // a cord and toggle, present only while there is something in reach.
     function drawControls() {
       const it = actVis.it;
-      // stick
-      const t = touch.stick, home = touch.home;
-      g.lineWidth = 1.5;
+      g.strokeStyle = PAPER; g.fillStyle = PAPER; g.lineWidth = HUD.stroke; g.lineCap = 'round'; g.lineJoin = 'round';
+      g.shadowColor = HUD.shadow; g.shadowBlur = HUD.shadowBlur;
+      // move
+      const t = touch.stick, home = touch.home, gw = 64;
+      R.guide = approach(R.guide === undefined ? 1 : R.guide, t ? 0.25 : 1, 0.1);
+      const learn = !save.stickSeen ? 0.25 + 0.25 * Math.sin(time * 3) : 0;
+      g.globalAlpha = (HUD.opIdle + learn) * R.guide;
+      g.beginPath(); g.moveTo(home.x + 8, home.y); g.lineTo(home.x + gw - 8, home.y); g.stroke();
+      const nudge = !save.stickSeen ? Math.sin(time * 3) * 2 : 0;
+      g.beginPath();
+      g.moveTo(home.x + 4 - nudge, home.y - 4); g.lineTo(home.x - nudge, home.y); g.lineTo(home.x + 4 - nudge, home.y + 4);
+      g.moveTo(home.x + gw - 4 + nudge, home.y - 4); g.lineTo(home.x + gw + nudge, home.y); g.lineTo(home.x + gw - 4 + nudge, home.y + 4);
+      g.stroke();
       if (t) {
-        g.strokeStyle = 'rgba(236,231,220,0.45)'; g.beginPath(); g.arc(t.ox, t.oy, 50, 0, TAU); g.stroke();
-        g.fillStyle = 'rgba(236,231,220,0.35)'; g.beginPath(); g.arc(t.x, t.y, 20, 0, TAU); g.fill();
-      } else {
-        const hint = !save.stickSeen ? 0.5 + 0.3 * Math.sin(time * 3) : 0.22;
-        g.strokeStyle = 'rgba(236,231,220,' + hint.toFixed(2) + ')';
-        g.beginPath(); g.arc(home.x, home.y, 50, 0, TAU); g.stroke();
-        g.fillStyle = 'rgba(236,231,220,' + (hint * 0.6).toFixed(2) + ')';
-        g.beginPath(); g.arc(home.x + (!save.stickSeen ? Math.sin(time * 1.6) * 22 : 0), home.y, 18, 0, TAU); g.fill();
+        g.globalAlpha = 0.85;
+        g.beginPath(); g.arc(t.ox, t.oy, 2.5, 0, TAU); g.fill();
+        g.beginPath(); g.moveTo(t.ox, t.oy); g.lineTo(t.x, t.y); g.stroke();
+        g.beginPath(); g.arc(t.x, t.y, 6, 0, TAU); g.stroke();
       }
       // jump
       const j = btn.jump, held = touch.jump !== null;
-      g.fillStyle = held ? 'rgba(236,231,220,0.3)' : 'rgba(13,13,12,0.25)';
-      g.beginPath(); g.arc(j.x, j.y, j.r, 0, TAU); g.fill();
-      g.strokeStyle = 'rgba(236,231,220,0.7)'; g.stroke();
-      g.strokeStyle = PAPER; g.lineWidth = 2.5; g.lineCap = 'round'; g.lineJoin = 'round';
-      g.beginPath(); g.moveTo(j.x - 11, j.y + 5); g.lineTo(j.x, j.y - 7); g.lineTo(j.x + 11, j.y + 5); g.stroke();
-      // act: appears with something to pull; WAIT while the awning is out
+      g.globalAlpha = held ? 1 : HUD.opIcon;
+      const lift = held ? 3 : 0;
+      g.beginPath(); g.moveTo(j.x - 9, j.y + 4 - lift); g.lineTo(j.x, j.y - 5 - lift); g.lineTo(j.x + 9, j.y + 4 - lift); g.stroke();
+      // pull
       actVis.k = approach(actVis.k, actVis.on && mode === 'play' ? 1 : 0, 0.12);
       if (actVis.k > 0.01) {
         const ac = btn.act, live = it && it.ready;
-        g.save(); g.globalAlpha = actVis.k;
-        g.lineWidth = 1.5;
-        g.fillStyle = live ? 'rgba(236,231,220,0.94)' : 'rgba(13,13,12,0.35)';
-        g.beginPath(); g.arc(ac.x, ac.y, ac.r, 0, TAU); g.fill();
-        g.strokeStyle = live ? PAPER : 'rgba(236,231,220,0.4)'; g.stroke();
-        if (live) { const k = (time * 1.4) % 1; g.globalAlpha = actVis.k * (1 - k); g.beginPath(); g.arc(ac.x, ac.y, ac.r + k * 14, 0, TAU); g.stroke(); g.globalAlpha = actVis.k; }
-        // glyph: a cord and its toggle
-        const col = live ? INK : 'rgba(236,231,220,0.5)';
-        g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 2; g.lineCap = 'round';
-        g.beginPath(); g.moveTo(ac.x, ac.y - 15); g.lineTo(ac.x, ac.y - 3); g.stroke();
-        g.fillRect(ac.x - 3, ac.y - 4, 6, 9);
-        g.font = '600 9px Inter, system-ui, sans-serif'; g.textAlign = 'center';
-        if (g.letterSpacing !== undefined) g.letterSpacing = '1.5px';
-        g.fillText(live ? 'PULL' : 'WAIT', ac.x + 1, ac.y + 17);
-        if (g.letterSpacing !== undefined) g.letterSpacing = '0px';
-        g.textAlign = 'left';
-        g.restore();
+        const k = live ? (touch.act !== null ? 1 : 0.8 + 0.2 * Math.sin(time * 4)) : 0.3;
+        g.globalAlpha = actVis.k * k;
+        // a cord from the top, ending in its toggle: the same 18px box as the jump chevron
+        g.beginPath(); g.moveTo(ac.x, ac.y - 9); g.lineTo(ac.x, ac.y - 2); g.stroke();
+        g.beginPath(); g.moveTo(ac.x - 3, ac.y - 2); g.lineTo(ac.x + 3, ac.y - 2); g.lineTo(ac.x + 3, ac.y + 7); g.lineTo(ac.x - 3, ac.y + 7); g.closePath(); g.fill();
       }
+      g.globalAlpha = 1; g.shadowBlur = 0;
     }
 
     // ---- frame

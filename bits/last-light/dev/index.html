@@ -42,7 +42,12 @@ const ctx = {
   timeout(fn, ms) { setTimeout(fn, ms); },
   onDestroy(fn) {},
   markVisualReady(r) { window.__visualReady = r; },
-  async loadFont() { return null; },
+  // the registry fonts, served locally for the harness (dev/vendor, not shipped)
+  async loadFont(family, name, version, o) {
+    const file = { 'inter:400': 'inter-400', 'inter:600': 'inter-600', 'dm-serif-display:400': 'dm-400', 'cormorant-garamond:300': 'corm-300i' }[name + ':' + ((o && o.weight) || '400')];
+    if (!file) return null;
+    try { const f = new FontFace(family, 'url(vendor/' + file + '.ttf)', o || {}); await f.load(); document.fonts.add(f); return f; } catch (e) { return null; }
+  },
   storage: { get: k => (k in store ? JSON.parse(store[k]) : null), set: (k, v) => { store[k] = JSON.stringify(v); } },
   music: { unlock: async () => {}, play: () => ({}), pause() {}, resume() {}, stop() {}, setIntensity() {}, setTempo() {}, sting: () => Promise.resolve() },
   input: { activate(el, fn) { el.addEventListener('click', fn); } },
