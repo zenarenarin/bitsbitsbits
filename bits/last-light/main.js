@@ -1190,7 +1190,7 @@ function createRenderer(canvas, level, world, optics, watcher, makeSurface) {
   R.layout = function (W, H, dpr, area, controlsH) {
     R.W = W; R.H = H; R.dpr = dpr; R.area = area;
     R.q = Math.min(dpr || 1, 1.5);
-    const top = area.top + 44, bottom = H - area.bottom - controlsH;
+    const top = area.top + 92, bottom = H - area.bottom - controlsH;
     const s = Math.min(W / 13, (bottom - top) / 13.5);
     R.cam.s = clamp(s, 14, 64);
     R.yBase = bottom - 0.2 * R.cam.s;
@@ -2152,12 +2152,26 @@ window.plethoraBit = {
     const I = { mx: 0, my: 0, jumpPressed: false, jumpHeld: false, actPressed: false };
     const touch = { stick: null, jump: null, act: null };
     const btn = { jump: { x: 0, y: 0, r: 38 }, act: { x: 0, y: 0, r: 28 }, pause: { x: 0, y: 0, r: 20 } };
+    // The usable band: below the top inset and above both the bottom inset
+    // and Plethora's logo button, with a 16px margin from each.
+    function bottomLimit() {
+      const a = area(), logo = ctx.logoArea;
+      let b = H - a.bottom;
+      if (logo && logo.height > 0) b = Math.min(b, logo.y);
+      return b - 16;
+    }
+    function inReservedZone(x, y) {
+      const a = area(), logo = ctx.logoArea;
+      if (y > H - a.bottom || y < a.top) return true;
+      if (logo && logo.width > 0 && x > logo.x - 8 && x < logo.x + logo.width + 8 && y > logo.y - 8 && y < logo.y + logo.height + 8) return true;
+      return false;
+    }
     function placeControls() {
-      const a = area();
-      btn.jump.x = W - a.right - 16 - 40; btn.jump.y = H - a.bottom - 16 - 44;
+      const a = area(), b = bottomLimit();
+      btn.jump.x = W - a.right - 16 - btn.jump.r; btn.jump.y = b - btn.jump.r - 8;
       btn.act.x = btn.jump.x - 78; btn.act.y = btn.jump.y - 30;
-      btn.pause.x = W - a.right - 16 - 20; btn.pause.y = a.top + 16 + 20;
-      touch.home = { x: a.left + 16 + 64, y: H - a.bottom - 16 - 56 };
+      btn.pause.x = W - a.right - 16 - btn.pause.r; btn.pause.y = a.top + 16 + btn.pause.r + 8;
+      touch.home = { x: a.left + 16 + 56, y: b - 56 - 8 };
     }
     const KEYMAP = { ArrowLeft: 'l', KeyA: 'l', ArrowRight: 'r', KeyD: 'r', ArrowUp: 'u', KeyW: 'u', ArrowDown: 'd', KeyS: 'd', Space: 'j', KeyK: 'j', KeyZ: 'j', KeyE: 'a', KeyJ: 'a', KeyX: 'a', Enter: 'enter', Escape: 'esc', KeyP: 'esc', KeyR: 'restart' };
     ctx.listen(window, 'keydown', e => {
@@ -2184,6 +2198,8 @@ window.plethoraBit = {
       audio.unlock();
       if (mode === 'title') { beginRun(); return; }
       if (mode !== 'play') return;
+      // never act on touches under the insets or on the logo button
+      if (inReservedZone(x, y)) return;
       if (hit(btn.pause, x, y, 10)) { pause(); return; }
       if (hit(btn.jump, x, y, 18)) { touch.jump = e.pointerId; I.jumpPressed = true; return; }
       if (actVis.on && hit(btn.act, x, y, 14)) { touch.act = e.pointerId; I.actPressed = true; return; }
@@ -2460,7 +2476,7 @@ window.plethoraBit = {
       g.save();
       g.textBaseline = 'alphabetic';
       if (mode === 'title') {
-        const x = a.left + 24, y = a.top + 68;
+        const x = a.left + 24, y = a.top + 16 + 68;
         g.fillStyle = 'rgba(13,13,12,0.0)';
         g.fillStyle = PAPER;
         g.font = '400 46px "DM Serif Display", Georgia, serif';
@@ -2475,7 +2491,7 @@ window.plethoraBit = {
         const k = 0.55 + 0.45 * Math.sin(titleT * 2.4);
         g.globalAlpha = k;
         g.textAlign = 'center';
-        g.fillText('TAP TO BEGIN', W / 2, H - a.bottom - 28);
+        g.fillText('TAP TO BEGIN', W / 2, bottomLimit() - 12);
         g.textAlign = 'left'; g.globalAlpha = 1;
         if (g.letterSpacing !== undefined) g.letterSpacing = '0px';
         g.restore();
@@ -2484,7 +2500,7 @@ window.plethoraBit = {
       // time
       g.fillStyle = PAPER;
       g.font = '400 26px "DM Serif Display", Georgia, serif';
-      g.fillText(fmtTime(runT), a.left + 16, a.top + 40);
+      g.fillText(fmtTime(runT), a.left + 16, btn.pause.y + 9);
       // section caption, like a chapter heading
       if (caption) {
         caption.t += dt;
@@ -2492,11 +2508,11 @@ window.plethoraBit = {
         if (k > 0) {
           g.globalAlpha = k;
           g.font = 'italic 300 22px "Cormorant Garamond", Georgia, serif';
-          g.fillText(caption.s.num + '.  ' + caption.s.name, a.left + 16, a.top + 68);
+          g.fillText(caption.s.num + '.  ' + caption.s.name, a.left + 16, btn.pause.y + 37);
           g.globalAlpha = 1;
         }
       }
-      drawEye(W / 2, a.top + 30);
+      drawEye(W / 2, btn.pause.y);
       // pause
       const p = btn.pause;
       g.strokeStyle = 'rgba(236,231,220,0.7)'; g.lineWidth = 1.5;

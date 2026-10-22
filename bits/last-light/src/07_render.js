@@ -21,7 +21,7 @@ function createRenderer(canvas, level, world, optics, watcher, makeSurface) {
   R.layout = function (W, H, dpr, area, controlsH) {
     R.W = W; R.H = H; R.dpr = dpr; R.area = area;
     R.q = Math.min(dpr || 1, 1.5);
-    const top = area.top + 44, bottom = H - area.bottom - controlsH;
+    const top = area.top + 92, bottom = H - area.bottom - controlsH;
     const s = Math.min(W / 13, (bottom - top) / 13.5);
     R.cam.s = clamp(s, 14, 64);
     R.yBase = bottom - 0.2 * R.cam.s;
