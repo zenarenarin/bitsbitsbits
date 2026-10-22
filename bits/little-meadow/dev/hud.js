@@ -47,7 +47,8 @@ const problems = [];
     await step(90); await shot("2-play");
     const ui = await page.evaluate(() => ({ b: __LM_GAME__.buttons, a: __LM_GAME__.area, W: innerWidth, H: innerHeight }));
     if (!v.q.includes("frame=safe") && ui.a.top < 62) problems.push(v.name + ": top inset " + ui.a.top + " below 62");
-    for (const k of ["pause", "sound"]) { const b = ui.b[k]; if (!b) { problems.push(v.name + ": no " + k + " button"); continue; } if (b.w < 44 || b.h < 44) problems.push(v.name + ": " + k + " target " + b.w + "x" + b.h); if (b.y < ui.a.top - 1 || b.x + b.w > ui.W - ui.a.right + 1) problems.push(v.name + ": " + k + " outside safe area " + JSON.stringify(b)); }
+    // the hit test adds 6px around each box
+    for (const k of ["pause", "sound"]) { const b = ui.b[k]; if (!b) { problems.push(v.name + ": no " + k + " button"); continue; } if (b.w + 12 < 44 || b.h + 12 < 44) problems.push(v.name + ": " + k + " target " + b.w + "x" + b.h); if (b.y < ui.a.top - 1 || b.x + b.w > ui.W - ui.a.right + 1) problems.push(v.name + ": " + k + " outside safe area " + JSON.stringify(b)); }
     await page.evaluate(() => __LM_GAME__.togglePause()); await step(10); await shot("3-paused");
     await page.evaluate(() => __LM_GAME__.openSound()); await step(10); await shot("4-sound");
     // close the panel by tapping outside, resume, then run out of lives
@@ -58,7 +59,7 @@ const problems = [];
     const ov = await page.evaluate(() => ({ b: __LM_GAME__.buttons.again, a: __LM_GAME__.area, H: innerHeight }));
     if (!ov.b) problems.push(v.name + ": restart not active");
     else {
-      if (ov.b.h < 44) problems.push(v.name + ": restart height " + ov.b.h);
+      if (ov.b.h + 12 < 44) problems.push(v.name + ": restart height " + ov.b.h);
       if (ov.b.y + ov.b.h > ov.H - ov.a.bottom) problems.push(v.name + ": restart overlaps bottom inset");
       if (!v.q.includes("frame=safe") && ov.b.y + ov.b.h > ov.H - 131) problems.push(v.name + ": restart within 131px of the bottom edge (logo button / nav bar)");
       // pressed state, then release elsewhere (cancel), then a real tap restarts

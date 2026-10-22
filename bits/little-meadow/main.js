@@ -3271,130 +3271,158 @@
       // Two typefaces: a sans for everything you read while playing (numerals on a fixed grid so
       // the score never shifts), an italic serif for the few moments of stillness.
       // =======================================================================
+      // Placement follows Pendulum Postman's HUD (bits/pendulum-postman, createHud): a top bar 12px under the
+      // safe area with 18px margins — a two-line block on the left; score, pause and sound on the right — and
+      // every full-screen state as a left-aligned block anchored 40px above the bottom safe area on a flat shade.
+      // The look is Little Meadow's own: Inter for reading, Cormorant italic for the literary lines, meadow colours.
       const UI = {
         sans: FONT_SANS, serif: FONT_SERIF,
-        size: { micro: 11, small: 13, body: 15, score: 30, lead: 21, title: 44, result: 56, button: 16 },
+        size: { detail: 12.5, bar: 15, fact: 13.5, label: 15, serifLabel: 21, serifTitle: 34, result: 64, button: 15 },
         color: {
-          cream: "#f1e8d5", creamDim: "rgba(241,232,213,0.66)", creamFaint: "rgba(241,232,213,0.34)",
-          ink: "#26352a", inkSoft: "rgba(38,53,42,0.66)", inkFaint: "rgba(38,53,42,0.34)",
-          ochre: "#e2c66f", accent: "#c9573f", accentDown: "#a7432f", paper: "#efe7d4",
-          rule: "rgba(38,53,42,0.2)", shade: "rgba(12,22,14,0.55)", veil: "rgba(12,22,14,0.42)"
+          cream: "#f1e8d5", creamDim: "rgba(241,232,213,0.74)", creamSoft: "rgba(241,232,213,0.72)", creamFaint: "rgba(241,232,213,0.34)",
+          ink: "#26352a", ochre: "#e2c66f", accent: "#c9573f", paper: "#efe7d4", paperDown: "#d9cfb9",
+          shade: "rgba(14,22,16,0.45)", veil: "rgba(12,22,14,0.45)", dusk: "rgba(12,22,14,0.5)"
         },
-        space: { edge: 20, top: 14, pad: 24 },
-        touch: 44,
+        bar: { top: 12, edge: 18, icon: 40, iconGap: 4, scoreGap: 10, glyph: 18 },
+        block: { edge: 24, bottom: 40, button: { h: 43, padX: 26, r: 2, gap: 22 } },
         motion: { panelIn: 0.45, lifeFlash: 0.6 }
       };
       let reduceMotion = false;
       try { reduceMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (e) { /* default */ }
-      const buttons = { pause: null, sound: null, again: null };
+      const buttons = { pause: null, sound: null, again: null, resume: null };
       let uiPress = null; // the control under a finger that has not lifted yet
-      let scoreWarm = 0, panelBottom = 0;
+      let scoreWarm = 0, panelTop = 0;
       function fmt(n) { return Math.round(n).toLocaleString("en-US"); }
       function setFont(o) { g.font = (o.italic ? "italic " : "") + (o.weight || 400) + " " + o.size + "px " + (o.family || UI.sans.f); }
       function track(px) { try { if ("letterSpacing" in g) g.letterSpacing = (px || 0) + "px"; } catch (e) { /* unsupported */ } }
+      function shadeOn(o) { if (o.shade) { g.shadowColor = UI.color.shade; g.shadowBlur = 10; g.shadowOffsetY = 1; } }
+      function shadeOff() { g.shadowColor = "transparent"; g.shadowBlur = 0; g.shadowOffsetY = 0; }
       // Set type. o: size, weight, family, italic, color, align, alpha, track, shade (soft shadow over the meadow)
       function type(str, x, y, o) {
         setFont(o); track(o.track);
         g.textAlign = o.align || "left"; g.textBaseline = "alphabetic";
         g.globalAlpha = (o.alpha === undefined ? 1 : o.alpha) * hudFade;
-        if (o.shade) { g.shadowColor = UI.color.shade; g.shadowBlur = 5; g.shadowOffsetY = 1; }
-        g.fillStyle = o.color; g.fillText(str, x, y);
-        g.shadowColor = "transparent"; g.shadowBlur = 0; g.shadowOffsetY = 0;
+        shadeOn(o); g.fillStyle = o.color; g.fillText(str, x, y); shadeOff();
+        const w = g.measureText(str).width;
         track(0); g.globalAlpha = 1;
+        return w;
       }
+      function textW(str, o) { setFont(o); track(o.track); const w = g.measureText(str).width; track(0); return w; }
       // Numerals on a fixed advance: canvas cannot ask for tabular figures, so we place them ourselves.
       const digitCache = new Map();
       function digitW(o) {
         setFont(o);
         const key = g.font;
         let w = digitCache.get(key);
-        if (!w) { w = { d: 0, comma: g.measureText(",").width, x: g.measureText("×").width }; for (let i = 0; i < 10; i++) w.d = Math.max(w.d, g.measureText(String(i)).width); digitCache.set(key, w); }
+        if (!w) { w = { d: 0 }; for (let i = 0; i < 10; i++) w.d = Math.max(w.d, g.measureText(String(i)).width); digitCache.set(key, w); }
         return w;
       }
-      function numWidth(str, o) { const w = digitW(o); let t = 0; for (const ch of str) t += ch >= "0" && ch <= "9" ? w.d : ch === "," ? w.comma : g.measureText(ch).width; return t; }
+      const isDigit = (ch) => ch >= "0" && ch <= "9";
+      function numWidth(str, o) { const w = digitW(o); let t = 0; for (const ch of str) t += isDigit(ch) ? w.d : g.measureText(ch).width; return t; }
       function num(str, x, y, o) {
         const w = digitW(o), total = numWidth(str, o);
         let cx = o.align === "right" ? x - total : o.align === "center" ? x - total / 2 : x;
         g.textAlign = "center"; g.textBaseline = "alphabetic";
         g.globalAlpha = (o.alpha === undefined ? 1 : o.alpha) * hudFade;
-        if (o.shade) { g.shadowColor = UI.color.shade; g.shadowBlur = 5; g.shadowOffsetY = 1; }
-        g.fillStyle = o.color;
-        for (const ch of str) { const cw = ch >= "0" && ch <= "9" ? w.d : ch === "," ? w.comma : g.measureText(ch).width; g.fillText(ch, cx + cw / 2, y); cx += cw; }
-        g.shadowColor = "transparent"; g.shadowBlur = 0; g.shadowOffsetY = 0; g.globalAlpha = 1;
+        shadeOn(o); g.fillStyle = o.color;
+        for (const ch of str) { const cw = isDigit(ch) ? w.d : g.measureText(ch).width; g.fillText(ch, cx + cw / 2, y); cx += cw; }
+        shadeOff(); g.globalAlpha = 1;
         return total;
       }
       function rule(x0, x1, y, color, alpha) { g.globalAlpha = (alpha === undefined ? 1 : alpha) * hudFade; g.fillStyle = color; g.fillRect(x0, Math.round(y) - 0.5, x1 - x0, 1); g.globalAlpha = 1; }
       const pressed = (id) => uiPress && uiPress.id === id;
       let hudFade = 1;
+      // the reference's 18px glyphs, drawn from the same paths
+      const GLYPH = {
+        pause: new Path2D("M4 3h3v12H4zM11 3h3v12h-3z"),
+        play: new Path2D("M5 3l10 6-10 6z"),
+        speaker: new Path2D("M3 7h3l4-3v10l-4-3H3z"),
+        wave: new Path2D("M12.5 6.2a4 4 0 0 1 0 5.6"),
+        mute: new Path2D("M12 6.5l4 5M16 6.5l-4 5")
+      };
+      function glyph(name, cx, cy, alpha) {
+        const k = UI.bar.glyph;
+        g.save(); g.translate(cx - k / 2, cy - k / 2); g.globalAlpha = alpha * hudFade;
+        shadeOn({ shade: true });
+        g.fillStyle = UI.color.cream; g.strokeStyle = UI.color.cream; g.lineWidth = 1.6;
+        if (name === "sound" || name === "muted") { g.fill(GLYPH.speaker); g.stroke(name === "sound" ? GLYPH.wave : GLYPH.mute); }
+        else g.fill(GLYPH[name]);
+        shadeOff(); g.restore();
+      }
+      // A plain paper button, sized to its label (the reference's .cta). Returns its box.
+      function paperButton(label, x, y, id, a, ready) {
+        const B = UI.block.button, o = { size: UI.size.button, weight: 600, track: 0.3 };
+        const w = Math.round(textW(label, o) + B.padX * 2), down = pressed(id) && ready;
+        g.save(); g.globalAlpha = a * (ready ? 1 : 0.45) * hudFade;
+        g.fillStyle = down ? UI.color.paperDown : UI.color.paper;
+        g.beginPath(); g.moveTo(x + B.r, y); g.arcTo(x + w, y, x + w, y + B.h, B.r); g.arcTo(x + w, y + B.h, x, y + B.h, B.r); g.arcTo(x, y + B.h, x, y, B.r); g.arcTo(x, y, x + w, y, B.r); g.closePath(); g.fill();
+        g.restore();
+        type(label, x + B.padX, y + B.h / 2 + 5.5, Object.assign({ color: UI.color.ink, alpha: a * (ready ? 1 : 0.7) }, o));
+        return { x, y, w, h: B.h };
+      }
+      // the frame every full-screen state sits in: the left and right block edges and its bottom line
+      function blockFrame() {
+        const x = area.left + UI.block.edge, r = W - area.right - UI.block.edge;
+        return { x, r, w: r - x, bottom: H - area.bottom - UI.block.bottom };
+      }
 
       function drawHUD(dt) {
-        const s = sim.s;
-        const T = area.top + UI.space.top, L = area.left + UI.space.edge, R = W - area.right - UI.space.edge;
+        const s = sim.s, playing = phase === "play" || phase === "paused";
+        const top = area.top + UI.bar.top, L = area.left + UI.bar.edge, R = W - area.right - UI.bar.edge;
         hudFade = phase === "over" ? Math.max(0, 1 - overT * 2.5) : 1;
         if (hudFade <= 0.01) { buttons.pause = null; buttons.sound = null; hudFade = 1; return; }
-        // score: a small label over a steady number
+        const ic = UI.bar.icon, cy = top + ic / 2;
+        // right: [score] [pause] [sound], the sound box flush with the right margin
+        const sx = R - ic, px = sx - UI.bar.iconGap - ic;
+        glyph(sfxOn || musicOn ? "sound" : "muted", sx + ic / 2, cy, pressed("sound") ? 0.45 : 0.82);
+        buttons.sound = { x: sx, y: top, w: ic, h: ic };
+        if (phase === "play") { glyph("pause", px + ic / 2, cy, pressed("pause") ? 0.45 : 0.82); buttons.pause = { x: px, y: top, w: ic, h: ic }; }
+        else buttons.pause = null;
         shownScore += (s.score - shownScore) * Math.min(1, dt * 14);
         if (Math.abs(s.score - shownScore) < 0.5) shownScore = s.score;
         scoreWarm = Math.max(0, scoreWarm - dt * 2.5);
-        type("score", L, T + 10, { size: UI.size.micro, color: UI.color.creamDim, track: 1.2, shade: true });
-        num(fmt(shownScore), L - 1, T + 41, { size: UI.size.score, weight: 600, color: scoreWarm > 0.05 ? mixCss(UI.color.cream, UI.color.ochre, scoreWarm) : UI.color.cream, shade: true });
-        // lives: three small marks; a lost one flashes the accent, then becomes an empty ring
-        const ly = T + 58;
-        for (let i = 0; i < cfg.lives; i++) {
-          const alive = i < s.lives, x = L + 4 + i * 13;
-          if (!alive) lifeAnim[i] = Math.min(1, (lifeAnim[i] || 0) + dt / UI.motion.lifeFlash);
-          g.globalAlpha = hudFade;
-          g.shadowColor = UI.color.shade; g.shadowBlur = 4;
-          g.beginPath(); g.arc(x, ly - 4, 3.6, 0, 6.283);
-          if (alive) { g.fillStyle = UI.color.cream; g.fill(); }
-          else if (lifeAnim[i] < 1 && !reduceMotion) { g.fillStyle = mixCss(UI.color.accent, "rgba(241,232,213,0)", lifeAnim[i]); g.fill(); }
-          g.shadowBlur = 0; g.shadowColor = "transparent";
-          if (!alive) { g.strokeStyle = UI.color.creamFaint; g.lineWidth = 1; g.beginPath(); g.arc(x, ly - 4, 3.1, 0, 6.283); g.stroke(); }
+        if (playing || phase === "over") {
+          num(fmt(shownScore), px - UI.bar.scoreGap, cy + 5.5, { size: UI.size.bar, weight: 600, align: "right", alpha: 0.92, color: scoreWarm > 0.05 ? mixCss(UI.color.cream, UI.color.ochre, scoreWarm) : UI.color.cream, shade: true });
         }
-        g.globalAlpha = 1;
-        // rhythm: "×3" and a hairline that fills toward the next step
-        const lvl = s.level;
-        if (lvl !== lastLevel) { if (lvl < lastLevel) { multDropT = s.time; multDropFrom = lastLevel + 1; } lastLevel = lvl; }
-        const drop = s.time - multDropT;
-        const rx = L + cfg.lives * 13 + 12;
-        if (lvl > 0) {
-          const w = num("×" + (lvl + 1), rx, ly, { size: UI.size.small, weight: 600, color: UI.color.ochre, shade: true });
-          const maxed = lvl >= cfg.maxMult - 1, need = chargeFor(lvl), mx = rx + w + 7;
-          rule(mx, mx + 24, ly - 4.5, UI.color.creamFaint);
-          rule(mx, mx + 24 * (maxed ? 1 : clamp01(s.charge / need)), ly - 4.5, UI.color.ochre);
-        } else if (drop >= 0 && drop < 0.6) {
-          num("×" + multDropFrom, rx, ly, { size: UI.size.small, weight: 600, color: UI.color.accent, alpha: 1 - drop / 0.6, shade: true });
-        } else if (s.charge > 0) {
-          rule(rx, rx + 24, ly - 4.5, UI.color.creamFaint);
-          rule(rx, rx + 24 * clamp01(s.charge / chargeFor(0)), ly - 4.5, UI.color.ochre);
+        if (playing || phase === "over") {
+          // left: line one is the run's state (lives, then the rhythm); line two the personal best
+          const base1 = top + 2 + 14, base2 = base1 + 18;
+          let x = L + 3.5;
+          for (let i = 0; i < cfg.lives; i++) {
+            const alive = i < s.lives, mx = x + i * 12, my = base1 - 5.5;
+            if (!alive) lifeAnim[i] = Math.min(1, (lifeAnim[i] || 0) + dt / UI.motion.lifeFlash);
+            g.globalAlpha = hudFade; shadeOn({ shade: true });
+            g.beginPath(); g.arc(mx, my, 3.5, 0, 6.283);
+            if (alive) { g.fillStyle = UI.color.cream; g.fill(); }
+            else if (lifeAnim[i] < 1 && !reduceMotion) { g.fillStyle = mixCss(UI.color.accent, "rgba(241,232,213,0)", lifeAnim[i]); g.fill(); }
+            shadeOff();
+            if (!alive) { g.strokeStyle = UI.color.creamFaint; g.lineWidth = 1; g.beginPath(); g.arc(mx, my, 3, 0, 6.283); g.stroke(); }
+          }
+          g.globalAlpha = 1;
+          const lvl = s.level;
+          if (lvl !== lastLevel) { if (lvl < lastLevel) { multDropT = s.time; multDropFrom = lastLevel + 1; } lastLevel = lvl; }
+          const drop = s.time - multDropT, rx = L + cfg.lives * 12 + 10;
+          if (lvl > 0) {
+            const w = num("×" + (lvl + 1), rx, base1, { size: UI.size.bar, weight: 600, color: UI.color.ochre, shade: true });
+            const maxed = lvl >= cfg.maxMult - 1, mx = rx + w + 7;
+            rule(mx, mx + 24, base1 - 5, UI.color.creamFaint);
+            rule(mx, mx + 24 * (maxed ? 1 : clamp01(s.charge / chargeFor(lvl))), base1 - 5, UI.color.ochre);
+          } else if (drop >= 0 && drop < 0.6) {
+            num("×" + multDropFrom, rx, base1, { size: UI.size.bar, weight: 600, color: UI.color.accent, alpha: 1 - drop / 0.6, shade: true });
+          } else if (s.charge > 0) {
+            rule(rx, rx + 24, base1 - 5, UI.color.creamFaint);
+            rule(rx, rx + 24 * clamp01(s.charge / chargeFor(0)), base1 - 5, UI.color.ochre);
+          }
+          if (best > 0) {
+            const w = type("best ", L, base2, { size: UI.size.detail, color: UI.color.creamDim, shade: true });
+            num(fmt(best), L + w, base2, { size: UI.size.detail, color: UI.color.creamDim, shade: true });
+          }
         }
-        // controls, top right: small glyphs, generous touch targets
-        const cy = T + 14, half = UI.touch / 2;
-        const px = R - 8, sx = px - UI.touch;
-        g.globalAlpha = hudFade * (pressed("pause") ? 0.5 : 0.92);
-        g.shadowColor = UI.color.shade; g.shadowBlur = 4;
-        g.fillStyle = UI.color.cream;
-        if (phase === "paused") { g.beginPath(); g.moveTo(px - 4, cy - 6.5); g.lineTo(px + 6, cy); g.lineTo(px - 4, cy + 6.5); g.closePath(); g.fill(); }
-        else { g.fillRect(px - 5, cy - 6.5, 3, 13); g.fillRect(px + 2, cy - 6.5, 3, 13); }
-        g.globalAlpha = hudFade * (pressed("sound") ? 0.5 : 0.92);
-        const on = sfxOn || musicOn;
-        g.beginPath(); g.moveTo(sx - 7, cy - 2.5); g.lineTo(sx - 3.5, cy - 2.5); g.lineTo(sx + 1, cy - 6.5); g.lineTo(sx + 1, cy + 6.5); g.lineTo(sx - 3.5, cy + 2.5); g.lineTo(sx - 7, cy + 2.5); g.closePath(); g.fill();
-        g.strokeStyle = UI.color.cream; g.lineWidth = 1.3; g.lineCap = "round";
-        if (on) { g.beginPath(); g.arc(sx + 2, cy, 4.5, -0.75, 0.75); g.stroke(); g.beginPath(); g.arc(sx + 2, cy, 8, -0.75, 0.75); g.stroke(); }
-        else { g.beginPath(); g.moveTo(sx + 4, cy - 3.5); g.lineTo(sx + 9.5, cy + 3.5); g.moveTo(sx + 9.5, cy - 3.5); g.lineTo(sx + 4, cy + 3.5); g.stroke(); }
-        g.shadowBlur = 0; g.shadowColor = "transparent"; g.lineCap = "butt"; g.globalAlpha = 1;
-        buttons.pause = phase === "play" || phase === "paused" ? { x: px - half, y: cy - half, w: UI.touch, h: UI.touch } : null;
-        buttons.sound = { x: sx - half, y: cy - half, w: UI.touch, h: UI.touch };
-        // personal best, right-aligned beneath the controls and subordinate to the score
-        if (best > 0) {
-          const bw = num(fmt(best), R, T + 41, { size: UI.size.small, color: UI.color.creamDim, align: "right", shade: true });
-          type("best", R - bw - 6, T + 41, { size: UI.size.micro, color: UI.color.creamFaint, align: "right", track: 1.2, shade: true });
-        }
-        // seed-patch bonus, beside the mower (never in the HUD band)
+        // seed-patch bonus, beside the mower (never in the bar)
         for (const p of particles.floats) {
           if (!p.on) continue;
           const k = p.life / p.max;
-          num(p.text, screenX(p.x) + S * 0.6, screenY(p.y) - (reduceMotion ? 0 : k * 22), { size: UI.size.small, weight: 600, color: UI.color.ochre, alpha: 1 - k, shade: true });
+          num(p.text, screenX(p.x) + S * 0.6, screenY(p.y) - (reduceMotion ? 0 : k * 22), { size: UI.size.fact, weight: 600, color: UI.color.ochre, alpha: 1 - k, shade: true });
         }
         hudFade = 1;
       }
@@ -3411,61 +3439,52 @@
         const grd = g.createRadialGradient(W / 2, cy, 0, W / 2, cy, W * 0.55);
         grd.addColorStop(0, "rgba(12,22,14," + (0.34 * a).toFixed(3) + ")"); grd.addColorStop(1, "rgba(12,22,14,0)");
         g.fillStyle = grd; g.fillRect(0, cy - W * 0.55, W, W * 1.1);
-        type("Little Meadow", W / 2, cy, { size: Math.min(UI.size.title, W * 0.11), family: UI.serif.f, italic: true, weight: 300, color: UI.color.cream, align: "center", alpha: a, shade: true });
+        type("Little Meadow", W / 2, cy, { size: Math.min(44, W * 0.11), family: UI.serif.f, italic: true, weight: 300, color: UI.color.cream, align: "center", alpha: a, shade: true });
         rule(W / 2 - 12, W / 2 + 12, cy + 18, UI.color.creamDim, a);
-        type("Swipe left or right to steer", W / 2, cy + 46, { size: UI.size.body, color: UI.color.cream, align: "center", alpha: a, shade: true });
-        type("Mow the grass, miss everything else", W / 2, cy + 68, { size: UI.size.body, color: UI.color.creamDim, align: "center", alpha: a, shade: true });
+        type("Swipe left or right to steer", W / 2, cy + 46, { size: UI.size.label, color: UI.color.cream, align: "center", alpha: a, shade: true });
+        type("Mow the grass, miss everything else", W / 2, cy + 68, { size: UI.size.label, color: UI.color.creamDim, align: "center", alpha: a, shade: true });
         const pulse = reduceMotion ? 1 : 0.7 + 0.3 * Math.sin(readyT * 2.2);
-        type("Tap or swipe to begin", W / 2, Math.min(H - area.bottom - 16, screenY(sim.s.y) + S * 1.9), { size: UI.size.small, color: UI.color.creamDim, align: "center", alpha: a * pulse, shade: true });
-      }
-      function sheet(x, y, w, h, a) {
-        // a sheet of paper laid on the meadow: square, faintly grained, one soft shadow
-        g.save(); g.globalAlpha = a;
-        g.shadowColor = "rgba(10,18,12,0.32)"; g.shadowBlur = 18; g.shadowOffsetY = 6;
-        g.fillStyle = UI.color.paper; g.fillRect(x, y, w, h);
-        g.shadowColor = "transparent"; g.shadowBlur = 0; g.shadowOffsetY = 0;
-        if (grainTile) { g.globalAlpha = a * 0.8; g.fillStyle = g.createPattern(grainTile, "repeat"); g.fillRect(x, y, w, h); }
-        g.restore();
+        type("Tap or swipe to begin", W / 2, Math.min(H - area.bottom - 16, screenY(sim.s.y) + S * 1.9), { size: UI.size.fact, color: UI.color.creamDim, align: "center", alpha: a * pulse, shade: true });
       }
       function drawSoundPanel() {
-        const w = Math.min(W - 40, 300), P = UI.space.pad, rowH = 48;
-        const h = 72 + rowH * 3 + 40, x = (W - w) / 2, y = area.top + 72;
+        // the same bottom-anchored block as pause and game over: a serif line, three rows, one button
+        const F = blockFrame(), rowH = 46, B = UI.block.button;
         g.fillStyle = UI.color.veil; g.fillRect(0, 0, W, H);
-        sheet(x, y, w, h, 1);
-        type("sound", x + P, y + 40, { size: UI.size.lead, family: UI.serif.f, italic: true, weight: 300, color: UI.color.ink });
+        const by = F.bottom - B.h, rows0 = by - B.gap - rowH * 3;
+        type("sound", F.x, rows0 - 18, { size: UI.size.serifTitle, family: UI.serif.f, italic: true, weight: 300, color: UI.color.cream, shade: true });
         panelBoxes = [];
-        const row = (i, label, draw, act) => {
-          const ry = y + 60 + i * rowH;
-          rule(x + P, x + w - P, ry, UI.color.rule);
-          type(label, x + P, ry + 30, { size: UI.size.body, color: UI.color.ink });
-          draw(ry + 30);
-          panelBoxes.push({ x: x + 8, y: ry, w: w - 16, h: rowH, act });
+        const row = (i, label, value, act) => {
+          const ry = rows0 + i * rowH;
+          rule(F.x, F.r, ry, UI.color.creamFaint);
+          type(label, F.x, ry + 29, { size: UI.size.label, color: UI.color.cream, shade: true });
+          if (value) value(ry + 29);
+          if (act) panelBoxes.push({ x: F.x - 8, y: ry, w: F.w + 16, h: rowH, act });
         };
-        const toggle = (onState) => (by) => type(onState ? "On" : "Off", x + w - P, by, { size: UI.size.small, weight: 600, color: onState ? UI.color.accent : UI.color.inkFaint, align: "right" });
+        const toggle = (on) => (by2) => type(on ? "On" : "Off", F.r, by2, { size: UI.size.fact, weight: 600, color: on ? UI.color.ochre : UI.color.creamFaint, align: "right", shade: true });
         row(0, "Sound effects", toggle(sfxOn), () => { sfxOn = !sfxOn; });
         row(1, "Melody", toggle(musicOn), () => { musicOn = !musicOn; });
-        const vy = y + 60 + 2 * rowH;
-        rule(x + P, x + w - P, vy, UI.color.rule);
-        type("Volume", x + P, vy + 30, { size: UI.size.body, color: UI.color.ink });
-        const opts = ["Low", "Mid", "High"];
-        let ox = x + w - P;
-        for (let i = 2; i >= 0; i--) {
-          setFont({ size: UI.size.small, weight: 600 });
-          const tw = g.measureText(opts[i]).width;
-          type(opts[i], ox, vy + 30, { size: UI.size.small, weight: 600, color: i === volLevel ? UI.color.ink : UI.color.inkFaint, align: "right" });
-          if (i === volLevel) rule(ox - tw, ox, vy + 35, UI.color.ink);
-          const vi = i;
-          panelBoxes.push({ x: ox - tw - 10, y: vy, w: tw + 20, h: rowH, act: () => { volLevel = vi; } });
-          ox -= tw + 18;
-        }
-        rule(x + P, x + w - P, vy + rowH, UI.color.rule);
-        type("Tap outside to close", x + P, y + h - 18, { size: UI.size.micro, color: UI.color.inkSoft, track: 0.4 });
+        row(2, "Volume", (by2) => {
+          let ox = F.r;
+          for (let i = 2; i >= 0; i--) {
+            const lab = ["Low", "Mid", "High"][i], o = { size: UI.size.fact, weight: 600 };
+            const tw = textW(lab, o);
+            type(lab, ox, by2, Object.assign({ color: i === volLevel ? UI.color.cream : UI.color.creamFaint, align: "right", shade: true }, o));
+            if (i === volLevel) rule(ox - tw, ox, by2 + 5, UI.color.cream);
+            const vi = i;
+            panelBoxes.push({ x: ox - tw - 10, y: rows0 + 2 * rowH, w: tw + 20, h: rowH, act: () => { volLevel = vi; } });
+            ox -= tw + 18;
+          }
+        }, null);
+        rule(F.x, F.r, rows0 + 3 * rowH, UI.color.creamFaint);
+        const done = paperButton("Done", F.x, by, "done", 1, true);
+        panelBoxes.push({ x: done.x, y: done.y, w: done.w, h: done.h, act: () => { soundPanel = false; } });
       }
       function drawPaused() {
+        const F = blockFrame(), B = UI.block.button;
         g.fillStyle = UI.color.veil; g.fillRect(0, 0, W, H);
-        const y = H * 0.44;
-        type("paused", W / 2, y, { size: 36, family: UI.serif.f, italic: true, weight: 300, color: UI.color.cream, align: "center", shade: true });
-        type("Tap anywhere to continue", W / 2, y + 32, { size: UI.size.small, color: UI.color.creamDim, align: "center", shade: true });
+        const by = F.bottom - B.h;
+        type("paused", F.x, by - B.gap - 4, { size: UI.size.serifTitle, family: UI.serif.f, italic: true, weight: 300, color: UI.color.cream, shade: true });
+        buttons.resume = paperButton("Resume", F.x, by, "resume", 1, true);
       }
       function observation() {
         const st = sim.s.stats;
@@ -3482,65 +3501,59 @@
         const k = clamp01((overT - 1.0) / UI.motion.panelIn);
         if (k <= 0) { buttons.again = null; return; }
         const a = smooth(k), rise = reduceMotion ? 0 : (1 - a) * 8;
-        const P = UI.space.pad;
-        const w = Math.min(W - 2 * UI.space.edge - area.left - area.right, 340), x = (W - w) / 2;
-        const top = area.top + 16 + rise;
-        const bh = 52, by = H - area.bottom - bh - 16;
-        // fit the sheet between the top of the screen and the button: shed secondary lines if needed
-        const rows = board.state === "ok" ? Math.max(1, Math.min(3, board.rows.length)) : 1;
-        let showObs = true, showBoard = true, boardRows = rows;
-        const heightFor = () => 168 + (showObs ? 22 : 0) + (showBoard ? 46 + boardRows * 22 + (board.state === "ok" ? 22 : 0) : 0);
-        const room = by - 16 - top;
-        while (heightFor() > room && (boardRows > 1 || showBoard || showObs)) { if (boardRows > 1) boardRows--; else if (showObs) showObs = false; else showBoard = false; }
-        const h = heightFor();
-        panelBottom = top + h;
-        sheet(x, top, w, h, a);
-        g.save(); g.globalAlpha = a;
-        let y = top + 42;
-        type("the meadow rests", x + P, y, { size: UI.size.lead, family: UI.serif.f, italic: true, weight: 300, color: UI.color.ink });
-        y += 32;
-        type("score", x + P, y, { size: UI.size.micro, color: UI.color.inkSoft, track: 1.2 });
-        y += 52;
-        num(fmt(s.score), x + P - 2, y, { size: UI.size.result, weight: 600, color: UI.color.ink });
-        y += 28;
-        if (newBest) {
-          setFont({ size: UI.size.small, weight: 600 });
-          const lab = "New best", lw = g.measureText(lab).width;
-          type(lab, x + P, y, { size: UI.size.small, weight: 600, color: UI.color.accent });
-          type(prevBest > 0 ? "  ·  " + fmt(s.score - prevBest) + " past your old mark" : "  ·  your first mark in the meadow", x + P + lw, y, { size: UI.size.small, color: UI.color.inkSoft });
-        } else {
-          const diff = best - s.score;
-          type("Best " + fmt(best) + (diff <= Math.max(60, best * 0.15) ? "  ·  " + fmt(diff) + " short" : ""), x + P, y, { size: UI.size.small, color: UI.color.inkSoft });
+        const F = blockFrame(), B = UI.block.button, LH = 21.6; // the reference's 13.5px facts at 1.6 line height
+        g.globalAlpha = a; g.fillStyle = UI.color.dusk; g.fillRect(0, 0, W, H); g.globalAlpha = 1;
+        // facts under the score; shed the least important lines until the block clears the top safe area
+        const facts = [];
+        if (newBest) facts.push({ kind: "best" }); else facts.push({ kind: "bestline" });
+        facts.push({ kind: "obs" });
+        const lb = [];
+        if (board.state === "ok") {
+          for (const row of board.rows.slice(0, 3)) lb.push({ kind: "row", row });
+          if (!board.rows.length) lb.push({ kind: "text", text: "No marks yet. Yours could be first." });
+          lb.push({ kind: "place" });
+        } else lb.push({ kind: "text", text: board.state === "error" ? "Leaderboard unavailable right now" : "Updating the meadow keepers…" });
+        const by = F.bottom - B.h + rise;
+        const heightFor = (nf, nl) => UI.size.result + 6 + 22 + 14 + (nf + nl) * LH + (nl ? 10 : 0) + B.gap + B.h;
+        let nl = lb.length, nf = facts.length;
+        const room = F.bottom - (area.top + 16);
+        while (heightFor(nf, nl) > room && (nl > 0 || nf > 1)) { if (nl > 2) nl = 2; else if (nl > 0) nl = 0; else nf--; }
+        const top = F.bottom - heightFor(nf, nl) + rise;
+        panelTop = top;
+        let y = top + UI.size.result * 0.74; // cap height of the large figure
+        num(fmt(s.score), F.x - 2, y, { size: UI.size.result, weight: 400, color: UI.color.cream, alpha: a, shade: true });
+        y += UI.size.result * 0.26 + 6 + 17;
+        type("the meadow rests", F.x, y, { size: UI.size.serifLabel, family: UI.serif.f, italic: true, weight: 300, color: UI.color.cream, alpha: a * 0.9, shade: true });
+        y += 14;
+        const fo = { size: UI.size.fact, color: UI.color.creamSoft, alpha: a, shade: true };
+        const strong = Object.assign({}, fo, { weight: 600, color: UI.color.cream });
+        for (const f of facts.slice(0, nf)) {
+          y += LH;
+          if (f.kind === "best") {
+            const w = type("New best", F.x, y, Object.assign({}, strong, { color: UI.color.ochre }));
+            type(prevBest > 0 ? "  ·  " + fmt(s.score - prevBest) + " past your old mark" : "  ·  your first mark in the meadow", F.x + w, y, fo);
+          } else if (f.kind === "bestline") {
+            const diff = best - s.score;
+            const w = type("Best ", F.x, y, fo), w2 = num(fmt(best), F.x + w, y, strong);
+            if (diff <= Math.max(60, best * 0.15)) type("  ·  " + fmt(diff) + " short", F.x + w + w2, y, fo);
+          } else type(observation(), F.x, y, fo);
         }
-        if (showObs) { y += 22; type(observation(), x + P, y, { size: UI.size.small, color: UI.color.inkSoft }); }
-        if (showBoard) {
-          y += 22; rule(x + P, x + w - P, y, UI.color.rule);
-          y += 24; type("meadow keepers", x + P, y, { size: UI.size.micro, color: UI.color.inkSoft, track: 1.2 });
-          if (board.state === "ok") {
-            if (!board.rows.length) { y += 22; type("No marks yet. Yours could be first.", x + P, y, { size: UI.size.small, color: UI.color.inkSoft }); }
-            for (const row of board.rows.slice(0, boardRows)) {
-              y += 22;
-              num(String(row.rank), x + P, y, { size: UI.size.small, color: UI.color.inkSoft });
-              type((row.name || "a mower").slice(0, 18), x + P + 22, y, { size: UI.size.small, color: UI.color.ink });
-              num(fmt(row.value), x + w - P, y, { size: UI.size.small, color: UI.color.ink, align: "right" });
-            }
-            y += 22;
-            type(board.rank ? "Your place: " + board.rank + (board.total ? " of " + fmt(board.total) : "") : "Your place: not ranked yet", x + P, y, { size: UI.size.small, color: UI.color.inkSoft });
-          } else {
-            y += 22; type(board.state === "error" ? "Leaderboard unavailable right now" : "Updating…", x + P, y, { size: UI.size.small, color: UI.color.inkSoft });
+        if (nl) {
+          y += 10;
+          for (const f of lb.slice(0, nl)) {
+            y += LH;
+            if (f.kind === "row") {
+              num(String(f.row.rank), F.x, y, fo);
+              type((f.row.name || "a mower").slice(0, 18), F.x + 20, y, fo);
+              num(fmt(f.row.value), F.r, y, Object.assign({}, fo, { align: "right" }));
+            } else if (f.kind === "place") {
+              type(board.rank ? "Your place " + board.rank + (board.total ? " of " + fmt(board.total) : "") : "Not ranked yet", F.x, y, fo);
+            } else type(f.text, F.x, y, fo);
           }
         }
-        g.restore();
-        // the one action: a plain vermilion block the width of the sheet, low and thumb-reachable
         const ready = overT > 1.35;
-        const down = pressed("again");
-        g.save(); g.globalAlpha = a * (ready ? 1 : 0.45);
-        g.fillStyle = down ? UI.color.accentDown : UI.color.accent;
-        const r = 3, yy = by + (down ? 1 : 0);
-        g.beginPath(); g.moveTo(x + r, yy); g.arcTo(x + w, yy, x + w, yy + bh, r); g.arcTo(x + w, yy + bh, x, yy + bh, r); g.arcTo(x, yy + bh, x, yy, r); g.arcTo(x, yy, x + w, yy, r); g.closePath(); g.fill();
-        g.restore();
-        type("Mow again", W / 2, yy + bh / 2 + 6, { size: UI.size.button, weight: 600, color: UI.color.cream, align: "center", alpha: a * (ready ? 1 : 0.7) });
-        buttons.again = ready ? { x, y: by, w, h: bh } : null;
+        const box = paperButton("Mow again", F.x, by, "again", a, ready);
+        buttons.again = ready ? box : null;
       }
 
       // =======================================================================
@@ -3668,6 +3681,7 @@
           for (const b of panelBoxes) if (inBox(p, { x: b.x + 6, y: b.y + 6, w: b.w - 12, h: b.h - 12 })) return { id: "panel", act: () => { b.act(); applyMix(); } };
           return { id: "close", act: () => { soundPanel = false; } }; // outside the sheet closes it (the game stays paused)
         }
+        if (phase === "paused" && inBox(p, buttons.resume)) return { id: "resume", act: togglePause };
         if (inBox(p, buttons.pause)) return { id: "pause", act: togglePause };
         if (inBox(p, buttons.sound)) return { id: "sound", act: () => { startAudio(); if (phase === "play") togglePause(); soundPanel = true; } };
         return null;
@@ -3769,8 +3783,9 @@
         if (phase === "over") {
           const z = smooth(clamp01((overT - 0.6) / 1.6));
           zoom = lerp(1, 0.7, z);
-          const cardBottom = panelBottom || area.top + 280;
-          const restY = clamp(cardBottom + (H - area.bottom - 90 - cardBottom) * 0.22, H * 0.45, H * 0.62);
+          // the result block sits low; rest the mower in the open meadow above it
+          const blockTop = panelTop || H * 0.55;
+          const restY = Math.max(area.top + S * 2, Math.min(blockTop - S * 1.4, area.top + (blockTop - area.top) * 0.62));
           anchorCur = lerp(anchorY, restY, z);
         } else { zoom = 1; anchorCur = anchorY; }
         ensureChunks(true);
@@ -3778,7 +3793,8 @@
         drawWorld(dt);
         if (phase === "ready") drawReady(dt);
         drawHUD(dt);
-        if (phase === "paused") drawPaused();
+        buttons.resume = null;
+        if (phase === "paused" && !soundPanel) drawPaused();
         if (soundPanel) drawSoundPanel();
         if (phase === "over") drawOver(dt);
       }

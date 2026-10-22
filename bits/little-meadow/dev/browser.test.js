@@ -88,7 +88,9 @@ const AUTOPILOT = `
   console.log("platform log:", JSON.stringify(log).slice(0, 900));
   // restart via the real button
   const btn = await page.evaluate(() => { const c = document.querySelector("canvas"); return null; });
-  await page.mouse.click(201, 874 - 108.5 - 18 - 29);
+  const again = await page.evaluate(() => __LM_GAME__.buttons.again);
+  if (again) await page.mouse.click(again.x + again.w / 2, again.y + again.h / 2);
+  else await page.evaluate(() => __LM_GAME__.restart());
   await page.waitForTimeout(500);
   const after = await page.evaluate(() => ({ phase: __LM_GAME__.phase, score: __LM_GAME__.sim.s.score, lives: __LM_GAME__.sim.s.lives, trail: __LM_GAME__.trail }));
   console.log("after restart click:", JSON.stringify(after));
