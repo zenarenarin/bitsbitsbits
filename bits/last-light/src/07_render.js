@@ -310,6 +310,20 @@ function createRenderer(canvas, level, world, optics, watcher, makeSurface) {
     g.beginPath(); g.moveTo(X(a.ax + a.dir * 0.1), Y(a.ay - 0.2)); g.lineTo(X(a.cord.x), Y(cy + 0.25)); g.stroke();
     g.fillStyle = a.cool > 0 || a.target ? '#7d786e' : PAPER;
     g.fillRect(X(a.cord.x - 0.07), Y(cy + 0.25), 0.14 * s, 0.28 * s);
+    // within sight of a ready cord, a small chevron above its toggle says
+    // "this can be pulled"; stand under it and the pull control appears
+    const P = R.P;
+    if (P && a.cool <= 0 && !a.target) {
+      const d = Math.abs(P.x - a.cord.x), dy = Math.abs(P.y - a.cord.y);
+      const k = clamp(1 - (d - 2) / 7, 0, 1) * (dy < 3 ? 1 : 0) * (d < 0.95 && dy < 0.5 ? 0.35 : 1);
+      if (k > 0.02) {
+        const bob = Math.sin(R.t * 3) * 0.08 * s, cx = X(a.cord.x), top = Y(cy + 0.25) - 0.45 * s + bob;
+        g.save(); g.globalAlpha = 0.85 * k; g.strokeStyle = PAPER; g.lineWidth = 1.75; g.lineCap = 'round'; g.lineJoin = 'round';
+        g.shadowColor = 'rgba(0,0,0,0.55)'; g.shadowBlur = 6;
+        g.beginPath(); g.moveTo(cx - 5, top - 5); g.lineTo(cx, top); g.lineTo(cx + 5, top - 5); g.stroke();
+        g.restore();
+      }
+    }
   }
   function drawShutter(sh) {
     const s = R.cam.s;
