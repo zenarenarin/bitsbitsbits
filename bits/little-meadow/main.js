@@ -2056,10 +2056,11 @@
       // Insets for text and controls. Full screen: the host's content-safe area, with a floor in case a
       // host reports zeros or late values (the tallest notch and logo/nav bar are always assumed). Safe frame: as given.
       function readArea() {
-        const c = ctx.contentSafeArea, a = c || ctx.safeArea || {};
-        const r = { top: +a.top || 0, right: +a.right || 0, bottom: +a.bottom || 0, left: +a.left || 0 };
-        // floors cover the largest real insets: Dynamic Island 62, Android 3-button nav + logo 130.5
-        if (c) { r.top = Math.max(r.top, 64); r.bottom = Math.max(r.bottom, 132); }
+        // Plethora's content-safe area: clear of the camera cutout / Dynamic Island, the home indicator and the logo button.
+        const safe = ctx.contentSafeArea ?? ctx.safeArea ?? {};
+        const r = { top: +safe.top || 0, right: +safe.right || 0, bottom: +safe.bottom || 0, left: +safe.left || 0 };
+        // Full screen only: never closer than the largest real insets (Dynamic Island 62, Android 3-button nav + logo 130.5).
+        if (ctx.contentSafeArea) { r.top = Math.max(r.top, 64); r.bottom = Math.max(r.bottom, 132); }
         return r;
       }
       function computeLayout() {
@@ -3283,7 +3284,7 @@
           ink: "#26352a", ochre: "#e2c66f", accent: "#c9573f", paper: "#efe7d4", paperDown: "#d9cfb9",
           shade: "rgba(14,22,16,0.45)", veil: "rgba(12,22,14,0.45)", dusk: "rgba(12,22,14,0.5)"
         },
-        bar: { top: 12, edge: 18, icon: 40, iconGap: 4, scoreGap: 10, glyph: 18 },
+        bar: { top: 16, edge: 18, icon: 40, iconGap: 4, scoreGap: 10, glyph: 18 },
         block: { edge: 24, bottom: 40, button: { h: 43, padX: 26, r: 2, gap: 22 } },
         motion: { panelIn: 0.45, lifeFlash: 0.6 }
       };
@@ -3368,7 +3369,8 @@
 
       function drawHUD(dt) {
         const s = sim.s, playing = phase === "play" || phase === "paused";
-        const top = area.top + UI.bar.top, L = area.left + UI.bar.edge, R = W - area.right - UI.bar.edge;
+        // the bar starts below the content-safe top (itself at least 64px down in full screen), never under the island
+        const safeTop = area.top, top = safeTop + UI.bar.top, L = area.left + UI.bar.edge, R = W - area.right - UI.bar.edge;
         hudFade = phase === "over" ? Math.max(0, 1 - overT * 2.5) : 1;
         if (hudFade <= 0.01) { buttons.pause = null; buttons.sound = null; hudFade = 1; return; }
         const ic = UI.bar.icon, cy = top + ic / 2;
