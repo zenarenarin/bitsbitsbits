@@ -117,7 +117,8 @@ window.plethoraBit = {
       const a = area(), b = bottomLimit();
       btn.jump.x = W - a.right - 16 - btn.jump.r; btn.jump.y = b - btn.jump.r - 8;
       btn.act.x = btn.jump.x - 78; btn.act.y = btn.jump.y - 30;
-      btn.pause.x = W - a.right - 16 - btn.pause.r; btn.pause.y = a.top + 16 + btn.pause.r + 8;
+      // clear of the top inset: centre at a.top + 16 + 20 + 16, so its top edge sits a.top + 32
+      btn.pause.x = W - a.right - 16 - btn.pause.r; btn.pause.y = a.top + 16 + 20 + 16;
       touch.home = { x: a.left + 16 + 56, y: b - 56 - 8 };
     }
     const KEYMAP = { ArrowLeft: 'l', KeyA: 'l', ArrowRight: 'r', KeyD: 'r', ArrowUp: 'u', KeyW: 'u', ArrowDown: 'd', KeyS: 'd', Space: 'j', KeyK: 'j', KeyZ: 'j', KeyE: 'a', KeyJ: 'a', KeyX: 'a', Enter: 'enter', Escape: 'esc', KeyP: 'esc', KeyR: 'restart' };
@@ -450,10 +451,11 @@ window.plethoraBit = {
       g.font = '400 26px "DM Serif Display", Georgia, serif';
       // distance covered: the furthest point reached along the street
       const dist = String(Math.max(0, Math.floor(farX - level.start.x)));
-      g.fillText(dist, a.left + 16, btn.pause.y + 9);
+      const hudY = a.top + 40 + 16; // readout baseline, well below the top inset
+      g.fillText(dist, a.left + 16, hudY);
       const dw = g.measureText(dist).width;
       g.font = '400 17px "DM Serif Display", Georgia, serif';
-      g.fillText('m', a.left + 16 + dw + 4, btn.pause.y + 9);
+      g.fillText('m', a.left + 16 + dw + 4, hudY);
       // section caption, like a chapter heading
       if (caption) {
         caption.t += dt;
@@ -461,7 +463,7 @@ window.plethoraBit = {
         if (k > 0) {
           g.globalAlpha = k;
           g.font = 'italic 300 22px "Cormorant Garamond", Georgia, serif';
-          g.fillText(caption.s.num + '.  ' + caption.s.name, a.left + 16, btn.pause.y + 37);
+          g.fillText(caption.s.num + '.  ' + caption.s.name, a.left + 16, hudY + 28);
           g.globalAlpha = 1;
         }
       }
