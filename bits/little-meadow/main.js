@@ -3445,8 +3445,8 @@
         rule(W / 2 - 12, W / 2 + 12, cy + 18, UI.color.creamDim, a);
         type("Swipe left or right to steer", W / 2, cy + 46, { size: UI.size.label, color: UI.color.cream, align: "center", alpha: a, shade: true });
         type("Mow the grass, miss everything else", W / 2, cy + 68, { size: UI.size.label, color: UI.color.creamDim, align: "center", alpha: a, shade: true });
-        const pulse = reduceMotion ? 1 : 0.7 + 0.3 * Math.sin(readyT * 2.2);
-        type("Tap or swipe to begin", W / 2, Math.min(H - area.bottom - 16, screenY(sim.s.y) + S * 1.9), { size: UI.size.fact, color: UI.color.creamDim, align: "center", alpha: a * pulse, shade: true });
+        // the prompt sits with the instructions, well clear of the bottom inset and the logo button
+        type("Tap or swipe to begin", W / 2, cy + 102, { size: UI.size.fact, weight: 600, color: UI.color.cream, align: "center", alpha: a, shade: true });
       }
       function drawSoundPanel() {
         // the same bottom-anchored block as pause and game over: a serif line, three rows, one button
@@ -3795,14 +3795,16 @@
         runJobs(phase === "play" ? 3 : 6);
         // A settled result screen holds perfectly still: Plethora captures it for the publish poster and its
         // review, and identical frames let a re-capture (e.g. "Publish anyway") match the review already made.
-        if (phase === "over" && overT > 3 && !jobs.length) {
-          const sig = [W, H, area.top, area.bottom, area.left, area.right, board.state, board.rows.length, board.rank, board.total,
-            uiPress ? uiPress.id : "", soundPanel, best, newBest, FONT_SANS.f, FONT_SERIF.f].join("|");
+        // Every still screen (start, pause, sound settings, result) is held the same way once it has settled.
+        const settled = phase === "over" ? overT > 3 : phase === "ready" ? readyT > 1 : phase === "paused";
+        if (settled && !jobs.length) {
+          const sig = [phase, W, H, area.top, area.bottom, area.left, area.right, board.state, board.rows.length, board.rank, board.total,
+            uiPress ? uiPress.id : "", soundPanel, sfxOn, musicOn, volLevel, best, newBest, FONT_SANS.f, FONT_SERIF.f].join("|");
           if (sig === stillSig) return;
           stillSig = sig;
         } else stillSig = "";
         drawWorld(dt);
-        if (phase === "ready") drawReady(dt);
+        if (phase === "ready") drawReady(Math.min(dt, 0.05));
         drawHUD(dt);
         buttons.resume = null;
         if (phase === "paused" && !soundPanel) drawPaused();

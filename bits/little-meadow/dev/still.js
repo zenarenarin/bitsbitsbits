@@ -10,7 +10,16 @@ const path = require("path"), crypto = require("crypto"), { chromium } = require
   await p.waitForTimeout(400);
   const step = (n) => p.evaluate((n) => { for (let i = 0; i < n; i++) __step(1000 / 60); }, n);
   const hash = () => p.evaluate(() => document.querySelector("canvas").toDataURL("image/png")).then((d) => crypto.createHash("sha256").update(d).digest("hex").slice(0, 16));
-  await p.evaluate(() => { __LM_GAME__.beginPlay(); __LM_GAME__.sim.s.lives = 1; });
+  // start screen
+  await step(120); const r1 = await hash(); await step(240); const r2 = await hash();
+  // pause screen
+  await p.evaluate(() => __LM_GAME__.beginPlay()); await step(120);
+  await p.evaluate(() => __LM_GAME__.togglePause()); await step(30); const q1 = await hash(); await step(240); const q2 = await hash();
+  await p.evaluate(() => __LM_GAME__.togglePause()); await step(10);
+  const p1 = await hash(); await step(10); const p2 = await hash(); // play keeps moving
+  console.log({ ready: [r1, r2], paused: [q1, q2], play: [p1, p2] });
+  if (r1 !== r2 || q1 !== q2 || p1 === p2) { console.log("FAIL"); process.exit(1); }
+  await p.evaluate(() => { __LM_GAME__.sim.s.lives = 1; });
   for (let i = 0; i < 80 && (await p.evaluate(() => __LM_GAME__.phase)) !== "over"; i++) await step(30);
   for (let i = 0; i < 40 && (await p.evaluate(() => __LM_GAME__.overT)) < 3.5; i++) await step(15);
   await p.waitForTimeout(800); await step(5); // leaderboard settles
