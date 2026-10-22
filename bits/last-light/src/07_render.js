@@ -360,20 +360,79 @@ function createRenderer(canvas, level, world, optics, watcher, makeSurface) {
     }
   }
   function drawRecess(r) {
-    const s = R.cam.s;
+    const s = R.cam.s, b = r.y0, h = r.y1 - b;
     g.fillStyle = '#050505';
-    g.beginPath(); g.moveTo(X(r.x0), Y(0)); g.lineTo(X(r.x0), Y(r.y1 - 0.5)); g.quadraticCurveTo(X((r.x0 + r.x1) / 2), Y(r.y1 + 0.3), X(r.x1), Y(r.y1 - 0.5)); g.lineTo(X(r.x1), Y(0)); g.fill();
+    g.beginPath(); g.moveTo(X(r.x0), Y(b)); g.lineTo(X(r.x0), Y(r.y1 - 0.5)); g.quadraticCurveTo(X((r.x0 + r.x1) / 2), Y(r.y1 + 0.3), X(r.x1), Y(r.y1 - 0.5)); g.lineTo(X(r.x1), Y(b)); g.fill();
     if (r.open > 0.01) {
       // a door swings open and the room behind it is lit: the doorway is no longer a hiding place
       const w = (r.x1 - r.x0 - 0.3) * r.open;
       g.fillStyle = PAPER;
-      g.fillRect(X(r.x0 + 0.15), Y(r.y1 - 0.6), w * s, (r.y1 - 0.6) * s);
-      g.globalAlpha = 0.18 * r.open; g.beginPath(); g.moveTo(X(r.x0 + 0.15), Y(0)); g.lineTo(X(r.x0 + 0.15 + w), Y(0)); g.lineTo(X(r.x0 + 0.15 + w * 2.4), Y(-0.1)); g.lineTo(X(r.x0 - 0.6), Y(-0.1)); g.fill(); g.globalAlpha = 1;
+      g.fillRect(X(r.x0 + 0.15), Y(r.y1 - 0.6), w * s, (h - 0.6) * s);
+      g.globalAlpha = 0.18 * r.open; g.beginPath(); g.moveTo(X(r.x0 + 0.15), Y(b)); g.lineTo(X(r.x0 + 0.15 + w), Y(b)); g.lineTo(X(r.x0 + 0.15 + w * 2.4), Y(b - 0.1)); g.lineTo(X(r.x0 - 0.6), Y(b - 0.1)); g.fill(); g.globalAlpha = 1;
     }
     g.strokeStyle = INK; g.lineWidth = Math.max(1.5, 0.08 * s);
-    g.beginPath(); g.moveTo(X(r.x0 - 0.05), Y(0)); g.lineTo(X(r.x0 - 0.05), Y(r.y1 - 0.5)); g.quadraticCurveTo(X((r.x0 + r.x1) / 2), Y(r.y1 + 0.35), X(r.x1 + 0.05), Y(r.y1 - 0.5)); g.lineTo(X(r.x1 + 0.05), Y(0)); g.stroke();
-    g.fillStyle = 'rgba(236,231,220,0.5)'; g.fillRect(X(r.x0 - 0.2), Y(0.04), (r.x1 - r.x0 + 0.4) * s, Math.max(1, 0.03 * s));
+    g.beginPath(); g.moveTo(X(r.x0 - 0.05), Y(b)); g.lineTo(X(r.x0 - 0.05), Y(r.y1 - 0.5)); g.quadraticCurveTo(X((r.x0 + r.x1) / 2), Y(r.y1 + 0.35), X(r.x1 + 0.05), Y(r.y1 - 0.5)); g.lineTo(X(r.x1 + 0.05), Y(b)); g.stroke();
+    g.fillStyle = 'rgba(236,231,220,0.5)'; g.fillRect(X(r.x0 - 0.2), Y(b + 0.04), (r.x1 - r.x0 + 0.4) * s, Math.max(1, 0.03 * s));
   }
+
+  // The Watcher's attention, drawn where it matters. Around the runner an
+  // aperture closes while any lamp has them: dashed while exposed, solid
+  // with lock-on marks once detected. Where it searches after losing them,
+  // a faint dashed ring marks its last known position.
+  function drawAttention(P) {
+    const s = R.cam.s, m = watcher.mode, st = watcher.exposureState();
+    const cx = X(P.x), cy = Y(P.y + P.h * 0.55);
+    const tracked = m === 'track' || m === 'hunt';
+    const k = tracked ? 0.45 + 0.55 * watcher.L : m === 'notice' ? watcher.S * 0.45 : 0;
+    R.ap = approach(R.ap || 0, k, 0.06);
+    const lit = watcher.seenFrac > 0, lostYou = tracked && watcher.lost > 0.6;
+    R.apA = approach(R.apA || 0, lit ? 0.9 : lostYou ? 0.12 : 0.45, 0.05);
+    if (R.ap > 0.02 && (lit || tracked || m === 'notice')) {
+      const r = lerp(2.6, 0.75, R.ap) * s;
+      g.save();
+      g.strokeStyle = PAPER; g.globalAlpha = R.apA; g.lineWidth = tracked ? 2 : 1.3;
+      if (!tracked) g.setLineDash([4, 5]);
+      g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.stroke();
+      g.setLineDash([]);
+      if (tracked) {
+        const n = m === 'hunt' ? 6 : 4, tick = (m === 'hunt' ? 0.5 : 0.35) * s, rot = m === 'hunt' ? R.t * 1.4 : 0;
+        g.beginPath();
+        for (let i = 0; i < n; i++) { const a = rot + i * TAU / n; g.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); g.lineTo(cx + Math.cos(a) * (r - tick), cy + Math.sin(a) * (r - tick)); }
+        g.stroke();
+      }
+      g.restore();
+    }
+    // it is searching somewhere else
+    if (tracked && watcher.lost > 0.6) {
+      const lx = X(watcher.last.x), ly = Y(watcher.last.y + 0.8), r = (1.5 + 0.15 * Math.sin(R.t * 3)) * s;
+      g.save(); g.strokeStyle = PAPER; g.globalAlpha = 0.55 + 0.2 * Math.sin(R.t * 5); g.lineWidth = 1.6; g.setLineDash([3, 6]);
+      g.beginPath(); g.arc(lx, ly, r, 0, TAU); g.stroke();
+      g.setLineDash([]); g.beginPath(); g.moveTo(lx - 0.2 * s, ly); g.lineTo(lx + 0.2 * s, ly); g.moveTo(lx, ly - 0.2 * s); g.lineTo(lx, ly + 0.2 * s); g.stroke();
+      g.restore();
+    }
+    // being lit: the edges of the page whiten a little
+    R.litGlow = approach(R.litGlow || 0, lit ? watcher.seenFrac : 0, 0.08);
+    if (R.litGlow > 0.01) {
+      const W = R.W, H = R.H;
+      const gr = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.42, W / 2, H / 2, Math.max(W, H) * 0.72);
+      gr.addColorStop(0, 'rgba(236,231,220,0)'); gr.addColorStop(1, 'rgba(236,231,220,' + (0.22 * R.litGlow).toFixed(3) + ')');
+      g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    }
+  }
+  // Capture: the light closes on the runner like an iris.
+  function drawCaptureIris() {
+    const c = R.capture; if (!c) return;
+    const k = clamp(c.t / 0.75, 0, 1), W = R.W, H = R.H;
+    const cx = X(c.x), cy = Y(c.y + 0.9);
+    const rMax = Math.hypot(W, H);
+    const r = lerp(rMax, 0.9 * R.cam.s, smooth(Math.min(1, k * 1.15)));
+    g.save();
+    g.fillStyle = 'rgba(236,231,220,' + (0.55 + 0.4 * k).toFixed(3) + ')';
+    g.beginPath(); g.rect(0, 0, W, H); g.arc(cx, cy, r, 0, TAU, true); g.fill('evenodd');
+    g.strokeStyle = INK; g.lineWidth = 2; g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.stroke();
+    g.restore();
+  }
+
   function drawLamp(l) {
     const s = R.cam.s;
     g.strokeStyle = INK; g.fillStyle = INK; g.lineWidth = Math.max(1.5, 0.08 * s);
@@ -653,6 +712,8 @@ function createRenderer(canvas, level, world, optics, watcher, makeSurface) {
       g.restore();
     }
     drawForeground();
+    if (P.state !== 'gone' && !R.capture) drawAttention(P);
+    drawCaptureIris();
     // wires in the foreground
     g.strokeStyle = INK; g.lineWidth = Math.max(1, 0.04 * s);
     for (let i = 0; i < 3; i++) {

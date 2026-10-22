@@ -110,7 +110,7 @@ function createWorld(level) {
 
   W.inRecess = function (player) {
     if (player.state !== 'ground' && player.state !== 'pull') return null;
-    for (const r of level.recesses) if (player.x > r.x0 + 0.2 && player.x < r.x1 - 0.2 && player.y < r.y0 + 0.1) return r;
+    for (const r of level.recesses) if (player.x > r.x0 + 0.2 && player.x < r.x1 - 0.2 && Math.abs(player.y - r.y0) < 0.1) return r;
     return null;
   };
   W.reset();

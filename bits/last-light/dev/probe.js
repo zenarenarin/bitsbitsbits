@@ -6,12 +6,13 @@ const { open } = require('./sim');
   const r = await page.evaluate(() => {
     const L = window.__ll, lv = L.level, O = L.optics;
     const rows = [
-      ['roof y11.6 (head)', 13, 44, 13.0], ['roof lip hang (body)', 13, 44, 10.8],
+      ['balcony 9 (chest)', 0, 14, 10.0], ['street I-III (chest)', 0, 46, 0.9], ['roof y11.6 (head)', 13, 44, 13.0], ['roof lip hang (body)', 13, 44, 10.8],
       ['street (chest)', 44, 99, 0.9], ['high road 8.4 (chest)', 51, 71, 9.3], ['gate roof 11.8', 79, 89, 12.7],
       ['court street', 88, 143, 0.9], ['balcony 6.4', 121, 127, 7.3], ['roof 13', 128, 142, 13.9]
     ];
     const out = [];
     for (const [name, x0, x1, y] of rows) {
+      const recs = lv.recesses;
       let line = '';
       for (let x = x0; x <= x1; x += 1) {
         let lit = 0, n = 0;

@@ -3,7 +3,8 @@
 // marks, the HUD, title, pause, result and the Plethora lifecycle.
 // =====================================================================
 const SAVE_KEY = 'lastlight_v1';
-const SCORE = { base: 10000, perSecond: 45, perSeen: 300, perAlarm: 400, perCapture: 1200, floor: 100 };
+const SCORE = { base: 10000, perSecond: 40, perSeen: 250, perAlarm: 500, perCapture: 1500, floor: 100 };
+const LAMP_NAME = { tower: 'the tower searchlight', bracket: 'the wall lamp', lantern: 'the lantern', post: 'the lamppost', door: 'the open doorway' };
 
 const UI_CSS = `
 .ll{position:absolute;inset:0;font-family:Inter,system-ui,sans-serif;color:#ece7dc;user-select:none;-webkit-user-select:none;pointer-events:none;
@@ -30,6 +31,9 @@ const UI_CSS = `
 .ll-b.sec{background:transparent;color:#0d0d0c;box-shadow:inset 0 0 0 1px #0d0d0c}
 .ll-b:active{opacity:.8}
 .ll-keys{font-size:12px;line-height:1.6;margin-top:12px;opacity:.75}
+.ll-why{font-size:15px;line-height:1.45;margin:0}
+.ll-tip{font-family:'Cormorant Garamond',Georgia,serif;font-style:italic;font-size:18px;line-height:1.3;margin:10px 0 0}
+.ll-break{font-size:11px;line-height:1.5;opacity:.7;margin-top:6px;font-variant-numeric:tabular-nums}
 `;
 
 window.plethoraBit = {
@@ -114,6 +118,8 @@ window.plethoraBit = {
       else if (k === 'esc') { if (mode === 'play') pause(); else if (mode === 'paused') resume(); }
       else if (k === 'restart' && (mode === 'play' || mode === 'paused')) { resume(); respawn(false); }
       else if (mode === 'result' && (k === 'enter' || k === 'j')) beginRun();
+      else if (mode === 'caughtCard' && (k === 'enter' || k === 'j')) retryFromMark();
+      else if (mode === 'caughtCard' && k === 'restart') beginRun();
     });
     ctx.listen(window, 'keyup', e => { const k = KEYMAP[e.code]; if (k) key[k] = false; });
     ctx.listen(window, 'blur', () => { for (const k in key) key[k] = false; });
@@ -127,7 +133,7 @@ window.plethoraBit = {
       if (mode !== 'play') return;
       if (hit(btn.pause, x, y, 10)) { pause(); return; }
       if (hit(btn.jump, x, y, 18)) { touch.jump = e.pointerId; I.jumpPressed = true; return; }
-      if (hit(btn.act, x, y, 14)) { touch.act = e.pointerId; I.actPressed = true; return; }
+      if (actVis.on && hit(btn.act, x, y, 14)) { touch.act = e.pointerId; I.actPressed = true; return; }
       if (x < W * 0.6 && !touch.stick) { touch.stick = { id: e.pointerId, ox: x, oy: y, x, y }; save.stickSeen = true; return; }
       // a tap elsewhere on the right side also jumps
       if (x >= W * 0.6) { touch.jump = e.pointerId; I.jumpPressed = true; }
@@ -176,6 +182,7 @@ window.plethoraBit = {
       R.follow(player, 1, true);
       I.jumpPressed = false; I.actPressed = false;
       if (capturedNow) captures++;
+      R.capture = null; actVis.k = 0; actVis.on = false;
       mode = 'play';
     }
     function beginRun() {
@@ -184,13 +191,47 @@ window.plethoraBit = {
       safe(() => ctx.platform.start({ attempt }));
       safe(() => ctx.platform.interact({ type: 'begin' }));
       if (caps.backgroundMusic && save.sound) safe(() => { ctx.music.unlock(); ctx.music.play({ preset: 'drone', volume: 0.22, intensity: 0.15, tempo: 60, scale: 'minor', fadeInMs: 2400 }); });
-      runT = 0; captures = 0; cp = 0; sectionSeen = -1; caption = null; result = null;
-      watcher.alarms = 0; watcher.exposure = 0;
+      runT = 0; captures = 0; cp = 0; sectionSeen = -1; caption = null; result = null; R.capture = null;
+      watcher.alarms = 0; watcher.hunts = 0; watcher.exposure = 0;
       score.reset && score.reset();
       hidePanels();
       save.runs++; persist();
       respawn(false);
     }
+
+    function retryFromMark() { if (mode !== 'caughtCard') return; hidePanels(); respawn(false); safe(() => ctx.platform.start({ attempt, retry: true })); }
+
+    // why it caught you, from the state at the moment of capture
+    function captureReason() {
+      const c = watcher.captureCtx || {};
+      const lamp = LAMP_NAME[c.lamp && c.lamp.kind] || 'the light';
+      const secs = (c.litRun || 0).toFixed(1);
+      if (c.door) return ['You hid in a doorway near where it lost you.', 'During a hunt, doorways near its last sighting open. Move on instead.'];
+      if (c.onAwning) return ['You were on top of the awning, under ' + lamp + '.', 'The shadow falls beneath the awning, not on it.'];
+      if (c.state === 'hang' || c.state === 'pipe' || c.state === 'climbup' || c.state === 'rope') return ['It locked on while you were climbing in ' + lamp + '’s light.', 'Climb while the beam is away, or climb out of its reach.'];
+      if (c.reacquired) return ['It had lost you, and you went back into ' + lamp + '\u2019s light while it was still searching.', 'After it loses you, it hunts that spot. Leave by another way.'];
+      if (c.sinceNoise < 3.5) return ['The noise told it where to look, and you were still in ' + lamp + '’s reach.', 'Pull when the lamp is turned away, then move at once.'];
+      if (c.speed < 1) return ['You stood still in ' + lamp + '’s light for ' + secs + ' s.', 'Once it has found you, get something solid between you and the lamp.'];
+      if (c.hunt) return ['It was already hunting you, and you stayed in ' + lamp + '’s light for ' + secs + ' s.', 'In a hunt it locks on faster. Break its line of sight, then change route.'];
+      return ['It found you in ' + lamp + '’s light and you stayed in it for ' + secs + ' s.', 'A quick crossing is survivable. Lingering is not.'];
+    }
+    function showCaught() {
+      const [why, tip] = captureReason();
+      const sec = level.sections[currentSection()];
+      const mark = level.sections[markSection()];
+      panel.innerHTML = '';
+      const card = document.createElement('div'); card.className = 'll-card';
+      card.innerHTML = `<p class="ll-h">Caught.</p><p class="ll-it">${esc(sec.num + '. ' + sec.name)}, at ${fmtTime(runT)}</p><div class="ll-rule"></div>
+        <p class="ll-why">${esc(why)}</p><p class="ll-tip">${esc(tip)}</p>`;
+      card.appendChild(button('Run the street again', '', () => beginRun()));
+      card.appendChild(button('From the last mark (' + mark.num + ')', 'sec', () => retryFromMark()));
+      const k = document.createElement('div'); k.className = 'll-break';
+      k.textContent = 'From the mark, the clock keeps running and this capture costs ' + SCORE.perCapture.toLocaleString() + ' points.';
+      card.appendChild(k);
+      panel.appendChild(card); panel.className = 'll-panel on';
+      safe(() => ctx.platform.fail({ section: currentSection() + 1, timeMs: Math.round(runT * 1000) }));
+    }
+    function markSection() { const c = level.checkpoints[Math.min(cp, level.checkpoints.length - 1)]; let s = 0; for (let i = 0; i < level.sections.length; i++) if (c.x >= level.sections[i].x) s = i; return s; }
 
     function pause() { if (mode !== 'play') return; mode = 'paused'; showPause(); safe(() => ctx.music.pause()); }
     function resume() { if (mode !== 'paused') return; mode = 'play'; hidePanels(); safe(() => ctx.music.resume()); }
@@ -219,6 +260,8 @@ window.plethoraBit = {
         else if (e.type === 'track') { audio.track(); safe(() => caps.haptics && ctx.platform.haptic('warning')); setMusic(0.6, 78); }
         else if (e.type === 'hunt') { audio.hunt(); setMusic(0.9, 96); }
         else if (e.type === 'search') { if (e.from === 'track' || e.from === 'hunt') { audio.lost(); setMusic(0.15, 60); } else if (e.settled || e.from === 'notice') audio.settle(); }
+        else if (e.type === 'lost') audio.settle();
+        else if (e.type === 'reacquire') audio.track();
         else if (e.type === 'capture') capture();
       }
       watcher.events.length = 0;
@@ -233,7 +276,10 @@ window.plethoraBit = {
     function setMusic(intensity, tempo) { if (caps.backgroundMusic && save.sound) safe(() => { ctx.music.setIntensity(intensity, { fadeMs: 1200 }); ctx.music.setTempo(tempo); }); }
     function capture() {
       mode = 'caught'; captureT = 0;
-      player.state = 'caught';
+      player.state = 'caught'; player.vx = 0; player.vy = 0;
+      R.capture = { x: player.x, y: player.y, t: 0 };
+      // every lamp that can reach turns on the runner
+      for (const l of level.lights) if (watcher.reaches(l, player)) l.engaged = true;
       audio.capture();
       safe(() => caps.haptics && ctx.platform.haptic('error'));
       safe(() => ctx.platform.milestone('captured', { section: currentSection() }));
@@ -249,7 +295,8 @@ window.plethoraBit = {
         runT += dt;
         // act: pull the cord in reach
         if (I.actPressed) {
-          const it = world.interactable(player);
+          updateActVis();
+          const it = actVis.it;
           if (it && it.kind === 'cord' && it.ready) {
             player.startPull();
             world.pullAwning(it.a);
@@ -269,13 +316,15 @@ window.plethoraBit = {
         if (sec > sectionSeen) { sectionSeen = sec; caption = { s: level.sections[sec], t: 0 }; if (sec > 0) safe(() => ctx.platform.milestone('section', { n: sec + 1 })); safe(() => ctx.platform.setProgress(sec / (level.sections.length))); }
         if (player.y < -8) respawn(false);
         if (player.x >= level.exitX && player.y < 1.5 && (player.state === 'ground' || player.state === 'air')) finish();
+        updateActVis();
         // doors that open during a hunt creak
         level.recesses.forEach((r, i) => { const o = r.open > 0.05; if (o && !lastDoor[i]) audio.door(Math.abs(r.x0 - player.x), clamp((r.x0 - R.cam.x) / 12, -1, 1)); lastDoor[i] = o; });
       } else if (mode === 'caught') {
         captureT += dt;
         watcher.update(dt, player, time);
         watcher.events.length = 0;
-        if (captureT > 1.25) respawn(true);
+        R.capture.t = captureT;
+        if (captureT > 0.95) { captures++; mode = 'caughtCard'; showCaught(); }
       }
       I.jumpPressed = false; I.actPressed = false;
     }
@@ -330,9 +379,11 @@ window.plethoraBit = {
       panel.innerHTML = '';
       const card = document.createElement('div'); card.className = 'll-card';
       const verdict = r.captures === 0 && r.alarms === 0 ? 'Unseen.' : r.captures === 0 ? 'Escaped.' : 'Escaped, at last.';
-      card.innerHTML = `<p class="ll-h">${verdict}</p><p class="ll-it">The Watcher is still searching the street behind you.</p><div class="ll-rule"></div>
-        <div class="ll-stats"><div><b>${fmtTime(r.t)}</b>Time</div><div><b>${r.seen.toFixed(1)}s</b>Seen</div><div><b>${r.alarms}</b>Alarms</div><div><b>${r.captures}</b>Caught</div></div>
+      const sub = r.captures === 0 && r.alarms === 0 ? 'It never knew you were there.' : r.captures === 0 ? 'It found you ' + (r.alarms === 1 ? 'once' : r.alarms + ' times') + ', and you shook it off.' : 'It caught you ' + (r.captures === 1 ? 'once' : r.captures + ' times') + ' on the way.';
+      card.innerHTML = `<p class="ll-h">${verdict}</p><p class="ll-it">${sub}</p><div class="ll-rule"></div>
+        <div class="ll-stats"><div><b>${fmtTime(r.t)}</b>Time</div><div><b>${r.seen.toFixed(1)}s</b>In light</div><div><b>${r.alarms}</b>Detected</div><div><b>${r.captures}</b>Caught</div></div>
         <div class="ll-score"><b>${r.value.toLocaleString()}</b><span>Score</span></div>
+        <div class="ll-break">${SCORE.base.toLocaleString()} − ${Math.round(SCORE.perSecond * r.t)} time − ${Math.round(SCORE.perSeen * r.seen)} light − ${SCORE.perAlarm * r.alarms} detected − ${SCORE.perCapture * r.captures} caught</div>
         <div class="ll-note">${r.pb && r.prevBest ? 'A new best: ' + r.prevBest.toLocaleString() + ' before.' : r.pb ? '' : 'Best ' + save.best.toLocaleString() + '.'}</div>
         <div class="ll-board"></div>`;
       card.appendChild(button('Run again', '', () => beginRun()));
@@ -420,8 +471,21 @@ window.plethoraBit = {
       if (m === 'notice' || m === 'search' || m === 'investigate') { g.fillStyle = 'rgba(236,231,220,0.6)'; const v = watcher.S; g.fillRect(cx - lw / 2 * v, ly - 0.5, lw * v, 2); }
       else { g.fillStyle = PAPER; const v = watcher.L; g.fillRect(cx - lw / 2 * v, ly - 1, lw * v, 3); }
     }
+    // the pull button exists only while there is something to pull; a wider
+    // radius to leave than to enter keeps it from flickering at the edge
+    const actVis = { k: 0, on: false, it: null };
+    function updateActVis() {
+      let it = null;
+      if (mode === 'play' && (player.state === 'ground' || player.state === 'pull')) {
+        for (const a of level.awnings) {
+          const d = Math.abs(player.x - a.cord.x), dy = Math.abs(player.y - a.cord.y);
+          if (dy < 0.5 && d < (actVis.on ? 1.35 : 0.95)) it = { kind: 'cord', a, ready: a.cool <= 0 && a.target === 0 && player.state !== 'pull' };
+        }
+      }
+      actVis.on = !!it; actVis.it = it;
+    }
     function drawControls() {
-      const it = mode === 'play' ? world.interactable(player) : null;
+      const it = actVis.it;
       // stick
       const t = touch.stick, home = touch.home;
       g.lineWidth = 1.5;
@@ -442,18 +506,28 @@ window.plethoraBit = {
       g.strokeStyle = 'rgba(236,231,220,0.7)'; g.stroke();
       g.strokeStyle = PAPER; g.lineWidth = 2.5; g.lineCap = 'round'; g.lineJoin = 'round';
       g.beginPath(); g.moveTo(j.x - 11, j.y + 5); g.lineTo(j.x, j.y - 7); g.lineTo(j.x + 11, j.y + 5); g.stroke();
-      // act: a hand, bright when something is in reach
-      const ac = btn.act, live = it && it.ready;
-      g.lineWidth = 1.5;
-      g.fillStyle = live ? 'rgba(236,231,220,0.92)' : 'rgba(13,13,12,0.2)';
-      g.beginPath(); g.arc(ac.x, ac.y, ac.r, 0, TAU); g.fill();
-      g.strokeStyle = live ? PAPER : 'rgba(236,231,220,0.35)'; g.stroke();
-      if (live) { const k = (time * 1.4) % 1; g.globalAlpha = 1 - k; g.beginPath(); g.arc(ac.x, ac.y, ac.r + k * 14, 0, TAU); g.stroke(); g.globalAlpha = 1; }
-      // glyph: a downward pull on a cord
-      g.strokeStyle = live ? INK : 'rgba(236,231,220,0.45)'; g.lineWidth = 2;
-      g.beginPath(); g.moveTo(ac.x, ac.y - 12); g.lineTo(ac.x, ac.y + 4); g.stroke();
-      g.beginPath(); g.moveTo(ac.x - 6, ac.y - 1); g.lineTo(ac.x, ac.y + 6); g.lineTo(ac.x + 6, ac.y - 1); g.stroke();
-      g.fillStyle = live ? INK : 'rgba(236,231,220,0.45)'; g.fillRect(ac.x - 2.5, ac.y + 7, 5, 6);
+      // act: appears with something to pull; WAIT while the awning is out
+      actVis.k = approach(actVis.k, actVis.on && mode === 'play' ? 1 : 0, 0.12);
+      if (actVis.k > 0.01) {
+        const ac = btn.act, live = it && it.ready;
+        g.save(); g.globalAlpha = actVis.k;
+        g.lineWidth = 1.5;
+        g.fillStyle = live ? 'rgba(236,231,220,0.94)' : 'rgba(13,13,12,0.35)';
+        g.beginPath(); g.arc(ac.x, ac.y, ac.r, 0, TAU); g.fill();
+        g.strokeStyle = live ? PAPER : 'rgba(236,231,220,0.4)'; g.stroke();
+        if (live) { const k = (time * 1.4) % 1; g.globalAlpha = actVis.k * (1 - k); g.beginPath(); g.arc(ac.x, ac.y, ac.r + k * 14, 0, TAU); g.stroke(); g.globalAlpha = actVis.k; }
+        // glyph: a cord and its toggle
+        const col = live ? INK : 'rgba(236,231,220,0.5)';
+        g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 2; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(ac.x, ac.y - 15); g.lineTo(ac.x, ac.y - 3); g.stroke();
+        g.fillRect(ac.x - 3, ac.y - 4, 6, 9);
+        g.font = '600 9px Inter, system-ui, sans-serif'; g.textAlign = 'center';
+        if (g.letterSpacing !== undefined) g.letterSpacing = '1.5px';
+        g.fillText(live ? 'PULL' : 'WAIT', ac.x + 1, ac.y + 17);
+        if (g.letterSpacing !== undefined) g.letterSpacing = '0px';
+        g.textAlign = 'left';
+        g.restore();
+      }
     }
 
     // ---- frame
@@ -466,15 +540,15 @@ window.plethoraBit = {
         player.update(0, I);
         watcher.update(dt, player, time);
         watcher.events.length = 0;
-      } else if (mode === 'play' || mode === 'caught') R.follow(player, dt);
-      R.flash = mode === 'caught' ? Math.min(0.92, captureT * 3) * (captureT > 0.9 ? Math.max(0, 1 - (captureT - 0.9) / 0.35) : 1) : Math.max(0, R.flash - dt * 2.5);
+      } else if (mode === 'play' || mode === 'caught' || mode === 'caughtCard') R.follow(player, dt);
+      R.flash = 0;
       R.dpr = canvas.width / Math.max(1, ctx.width) || 1;
       R.draw({ player, time }, dt);
       drawHUD(dt);
       // audio scene
       let hum = 0, turn = 0;
       for (const l of level.lights) { if (!l.on) continue; const d = Math.hypot(l.x - player.x, l.y - player.y); const k = clamp(1 - d / 24, 0, 1); if (k > hum) { hum = k; turn = Math.abs(angNorm(l.ang - (l.prevAng === undefined ? l.ang : l.prevAng))) / Math.max(dt, 1e-3); } l.prevAng = l.ang; }
-      audio.frame(dt, { hum: mode === 'title' ? hum * 0.5 : hum, humTurn: clamp(turn / 0.8, 0, 1), tension: watcher.tension(), height: player.y, playing: mode === 'play', lock: watcher.L, tracking: watcher.mode === 'track' || watcher.mode === 'hunt' });
+      audio.frame(dt, { lit: mode === 'play' ? watcher.seenFrac : 0, hum: mode === 'title' ? hum * 0.5 : hum, humTurn: clamp(turn / 0.8, 0, 1), tension: watcher.tension(), height: player.y, playing: mode === 'play', lock: watcher.L, tracking: watcher.mode === 'track' || watcher.mode === 'hunt' });
       // footsteps
       if (mode === 'play' && player.state === 'ground' && Math.abs(player.vx) > 0.8 && player.slideT <= 0) {
         stepAcc += Math.abs(player.vx) * dt;
@@ -498,7 +572,7 @@ window.plethoraBit = {
       onError: (err, phase) => { safe(() => ctx.platform.error({ stage: 'loop_' + phase, message: String((err && err.message) || err) })); }
     });
     ctx.onDestroy(() => audio.close());
-    if (window.__LL_DEV) window.__ll = { level, world, player, watcher, optics, R, I, key, touch, btn, get mode() { return mode; }, set mode(v) { mode = v; }, beginRun, respawn, step, frame, finish, setCp: i => { cp = i; }, get cp() { return cp; }, get runT() { return runT; }, get captures() { return captures; }, get result() { return result; } };
+    if (window.__LL_DEV) window.__ll = { act: actVis, level, world, player, watcher, optics, R, I, key, touch, btn, get mode() { return mode; }, set mode(v) { mode = v; }, beginRun, retryFromMark, respawn, step, frame, finish, setCp: i => { cp = i; }, get cp() { return cp; }, get runT() { return runT; }, get captures() { return captures; }, get result() { return result; } };
     ctx.markVisualReady('title');
     ctx.platform.ready();
   }

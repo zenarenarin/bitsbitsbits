@@ -69,7 +69,7 @@ function buildLevel() {
   const L = {
     solids: [], plats: [], pipes: [], ropes: [], awnings: [], shutters: [], recesses: [],
     sheets: [], lights: [], checkpoints: [], sections: [], facades: [], props: [], windows: [],
-    x0: 0, x1: 150, exitX: 143.5, start: { x: 2.6, y: 9 }
+    x0: 0, x1: 150, exitX: 143.5, start: { x: 1.4, y: 9 }
   };
   const solid = (x0, y0, x1, y1, o) => { const s = Object.assign({ x0, y0, x1, y1, kind: 'block', grab: true, occ: true }, o); L.solids.push(s); return s; };
   const plat = (x0, x1, y, o) => { const p = Object.assign({ x0, x1, y, th: 0.32, kind: 'balcony', grab: true, occ: true }, o); L.plats.push(p); return p; };
@@ -78,7 +78,7 @@ function buildLevel() {
   const light = o => { const l = Object.assign({ half: deg(8), amp: 0, period: 6, phase: 0, range: 44, maxDev: deg(40), kind: 'tower', huntOnly: false, hold: 0 }, o); l.base = deg(o.base); l.amp = deg(o.amp || 0); if (o.half) l.half = deg(o.half); if (o.maxDev) l.maxDev = deg(o.maxDev); L.lights.push(l); return l; };
   const section = (x, name, num) => L.sections.push({ x, name, num });
   const checkpoint = (x, y, face) => L.checkpoints.push({ x, y, face: face || 1 });
-  const recess = (x0, x1, h) => { const r = { x0, x1, y0: 0, y1: h || 2.3, open: 0 }; L.recesses.push(r); return r; };
+  const recess = (x0, x1, h, y0) => { y0 = y0 || 0; const r = { x0, x1, y0, y1: y0 + (h || 2.3), open: 0 }; L.recesses.push(r); return r; };
 
   // the street, and the city's left edge
   solid(-12, -4, 160, 0, { kind: 'street', grab: false });
@@ -86,24 +86,28 @@ function buildLevel() {
   solid(150, 0, 162, 40, { kind: 'edge', grab: false, occ: false });
 
   // ---------------------------------------------------------------
-  // I. THE BALCONY. No light reaches here. Run, jump a gap, grab the
-  // cornice above and pull yourself up. Fall into the gap and the
-  // drainpipe brings you back.
+  // I. THE BALCONY. You begin in a balcony doorway. A searchlight on the
+  // tower across the street sweeps the balcony and the street below; the
+  // far balcony, under the overhanging roof, is in its shadow. Watch the
+  // sweep, then run and jump while it is away. The cornice above is the
+  // way on. Dropping to the street is loud, and the street is lit too.
   // ---------------------------------------------------------------
   section(0, 'The balcony', 'I');
   facade(-6, 12.4, 16.5, 'gable');
-  plat(0.6, 7.2, 9, { rail: true });
+  plat(0.2, 7.2, 9, { rail: true });
   plat(8.8, 13.8, 9, { rail: true });
+  recess(0.6, 2.2, 2.3, 9);
   pipe(8.0, 0, 9);
   plat(1.2, 5.2, 4.6, { rail: true });
-  L.windows.push({ x: 3.2, y: 10.4, lit: true });
-  checkpoint(2.6, 9);
+  light({ x: 19.2, y: 21.5, base: 222, amp: 14, period: 5.2, phase: -1.2, half: 7.5, range: 34, kind: 'tower', maxDev: 30 });
+  checkpoint(1.4, 9);
 
   // ---------------------------------------------------------------
-  // II. FIRST CONTACT. A long roof with chimneys. A lamp on the tall
-  // house ahead rakes the roof. Chimneys throw long shadows: cross in
-  // rhythm, crouch behind the low stub, or hang from the roof's edge and
-  // shimmy along beneath it, where the roof itself hides you.
+  // II. FIRST CONTACT. Three ways along the terrace:
+  //  - the roof: a lamp on the tall house ahead rakes it; chimneys throw
+  //    long shadows. Fast, but you cross in rhythm.
+  //  - under the roof's edge: hang and shimmy. Safe, but slow.
+  //  - the street: two lanterns sweep it; dart between doorways.
   // ---------------------------------------------------------------
   section(13, 'First contact', 'II');
   facade(12.4, 20.2, 11.6, 'terrace');
@@ -114,7 +118,12 @@ function buildLevel() {
   solid(34.6, 11.6, 35.8, 13.6, { kind: 'chimney' });
   solid(40.0, 11.6, 40.9, 12.55, { kind: 'chimney', stub: true });
   light({ x: 47.4, y: 16.4, base: 197, amp: 10, period: 6.4, half: 7, range: 46, kind: 'bracket', maxDev: 30 });
-  checkpoint(14.2, 11.6);
+  // the street beneath the terrace
+  light({ x: 25.0, y: 6.9, base: 270, amp: 30, period: 4.6, half: 20, range: 9.5, kind: 'lantern', maxDev: 50 });
+  light({ x: 36.0, y: 6.9, base: 270, amp: 30, period: 4.6, phase: Math.PI * 0.8, half: 20, range: 9.5, kind: 'lantern', maxDev: 50 });
+  recess(19.4, 20.8);
+  recess(29.8, 31.2);
+  recess(41.0, 42.4);
 
   // ---------------------------------------------------------------
   // III. DESCENT. Under the lamp is the one place it cannot look. A
@@ -130,26 +139,27 @@ function buildLevel() {
 
   // ---------------------------------------------------------------
   // IV. THE AWNING. A lantern hangs over the street and swings its gaze
-  // across it. Pull the cord in the doorway: the awning folds out under
-  // the lantern and its shadow covers the crossing for a few seconds.
-  // The pull is loud; the lantern looks at the doorway.
+  // across it. The cord hangs in the open at the edge of its sweep: pull
+  // while the lantern looks away. The awning unrolls under the lantern and
+  // its shadow covers the cord and the crossing for a few seconds. The
+  // pull is loud: the lantern turns to where you pulled it.
   // The high road (balconies) is exposed to a raking lamp instead.
   // ---------------------------------------------------------------
   section(50, 'The awning', 'IV');
   facade(60, 70, 14, 'shop');
-  recess(54.9, 56.5, 2.4);
-  const aw1 = { ax: 56.9, ay: 3.2, len: 6.6, dir: 1, cord: { x: 56.2, y: 0 }, holdS: 5.5 };
+  recess(52.6, 54.0, 2.4);
+  const aw1 = { ax: 56.9, ay: 3.2, len: 6.6, dir: 1, cord: { x: 56.2, y: 0 }, holdS: 4.5 };
   L.awnings.push(aw1);
   L.props.push({ kind: 'pilaster', x: 56.85, top: 3.2 });
   light({ x: 60.4, y: 7.4, base: 270, amp: 18, period: 7.5, half: 30, range: 14, kind: 'lantern', maxDev: 55 });
   // the high road
   plat(51.6, 55.2, 8.4, { rail: true });
+  recess(51.8, 53.2, 2.3, 8.4);
   plat(58.6, 63.4, 8.4, { rail: true, hook: 60.4 });
   plat(66.4, 70.4, 8.4, { rail: true });
-  light({ x: 74.6, y: 13.2, base: 190, amp: 11, period: 5.6, phase: 1.3, half: 4.5, range: 24, kind: 'bracket', maxDev: 30 });
+  light({ x: 74.6, y: 13.2, base: 189, amp: 13, period: 5.6, phase: 1.3, half: 4, range: 24, kind: 'bracket', maxDev: 30 });
   pipe(70.0, 0, 8.4);
   recess(64.8, 66.2, 2.4);
-  checkpoint(52.6, 0);
 
   // ---------------------------------------------------------------
   // V. THE WATCHER RESPONDS. A gate passage with an iron shutter. When
@@ -163,7 +173,7 @@ function buildLevel() {
   solid(80, 2.7, 88, 11.8, { kind: 'gate', grabTop: true });
   L.shutters.push({ x0: 80.0, x1: 80.35, top: 2.7, y: 2.7, open: 2.7, reach: 36, delay: 0.5, speed: 0.48, lift: 1.1, wait: 0 });
   pipe(79.4, 0, 11.8);
-  light({ x: 92.2, y: 17.6, base: 200, amp: 9, period: 5.6, phase: 2.0, half: 7, range: 30, kind: 'tower', maxDev: 34 });
+  light({ x: 92.2, y: 17.6, base: 200, amp: 9, period: 5.6, phase: 2.0, half: 7, range: 21, kind: 'tower', maxDev: 34 });
   checkpoint(72.6, 0);
 
   // ---------------------------------------------------------------
@@ -185,7 +195,6 @@ function buildLevel() {
   light({ x: 90.8, y: 15.4, base: 318, amp: 14, period: 6.2, half: 9, range: 30, kind: 'bracket', maxDev: 40 });
   light({ x: 115.6, y: 15.0, base: 224, amp: 14, period: 6.2, phase: Math.PI, half: 9, range: 30, kind: 'bracket', maxDev: 40 });
   recess(110.9, 112.4, 2.4);
-  checkpoint(90.6, 0);
 
   // ---------------------------------------------------------------
   // VII. THE LAST LIGHT. The street's last lamp stands on a post over the
@@ -204,10 +213,10 @@ function buildLevel() {
   L.awnings.push(aw2);
   L.props.push({ kind: 'pilaster', x: 127.15, top: 3.0 });
   light({ x: 131.0, y: 6.6, base: 270, amp: 0, half: 40, range: 11, kind: 'post' });
-  light({ x: 118.4, y: 16.6, base: 326, amp: 10, period: 4.8, half: 7, range: 28, kind: 'tower', maxDev: 40 });
+  light({ x: 118.4, y: 16.6, base: 302, amp: 9, period: 4.8, half: 5, range: 28, kind: 'tower', maxDev: 40 });
   plat(128.6, 141.6, 13, { kind: 'roof', th: 0.6 });
   pipe(127.9, 6.4, 13);
-  light({ x: 146.4, y: 18.4, base: 194, amp: 6, period: 4.4, phase: 0.5, half: 6, range: 26, kind: 'tower', maxDev: 30 });
+  light({ x: 146.4, y: 18.4, base: 190, amp: 5, period: 4.4, phase: 0.5, half: 5, range: 26, kind: 'tower', maxDev: 30 });
   recess(136.2, 137.6, 2.4);
   checkpoint(119.6, 0);
   L.props.push({ kind: 'lamppost', x: 131.0, y: 0, top: 6.6 });
@@ -244,14 +253,14 @@ function createPlayer(world, M) {
     ground: null, coyote: 0, buf: 0, jumping: false, dropT: 0, dropPlat: null, downT: 0,
     ledge: null, pipe: null, rope: null, rAng: 0, rW: 0, rLen: 0,
     climb: null, slideT: 0, crouch: false, coolLedge: 0, coolPipe: 0, coolRope: 0,
-    run: 0, airT: 0, landK: 0, pullT: 0, vaultT: 0, fallFrom: 0, events: []
+    run: 0, airT: 0, landK: 0, pullT: 0, vaultT: 0, stunT: 0, fallFrom: 0, events: []
   };
   const ev = (type, o) => P.events.push(Object.assign({ type }, o));
 
   P.reset = function (x, y, face) {
     Object.assign(P, { x, y, vx: 0, vy: 0, h: M.h, state: 'ground', face: face || 1, ground: null, coyote: 0, buf: 0, jumping: false,
       dropT: 0, dropPlat: null, downT: 0, ledge: null, pipe: null, rope: null, climb: null, slideT: 0, crouch: false,
-      coolLedge: 0, coolPipe: 0, coolRope: 0, airT: 0, landK: 0, pullT: 0, vaultT: 0, fallFrom: y });
+      coolLedge: 0, coolPipe: 0, coolRope: 0, airT: 0, landK: 0, pullT: 0, vaultT: 0, stunT: 0, holdDown: false, fallFrom: y });
     P.events.length = 0;
     support();
     if (!P.ground) P.state = 'air';
@@ -322,6 +331,8 @@ function createPlayer(world, M) {
     const impact = -P.vy;
     P.state = 'ground'; P.ground = s; P.vy = 0; P.jumping = false; P.vaultT = 0;
     P.landK = clamp(impact / 18, 0, 1);
+    // a long drop costs a stumble
+    if (P.fallFrom - P.y > 5.5) { P.stunT = 0.4; P.vx *= 0.3; }
     ev('land', { v: impact, kind: s.kind, drop: P.fallFrom - P.y, x: P.x, y: P.y });
   }
 
@@ -346,6 +357,8 @@ function createPlayer(world, M) {
     P.crouch = false; P.slideT = 0; P.h = M.h;
     grabLedge({ y: p.y, x0: p.x0, x1: p.x1, plat: p, lip: true, side: 0, shimmy: true });
     P.dropPlat = p; P.dropT = 0.2;
+    // the stick is still held down: let it come back before down means "let go"
+    P.holdDown = true;
   }
 
   // ---------- grabbing ----------
@@ -436,6 +449,7 @@ function createPlayer(world, M) {
 
   function stepBody(dt, I) {
     const onG = P.state === 'ground';
+    if (P.stunT > 0) { P.stunT -= dt; I = { mx: I.mx * 0.15, my: 0, jumpHeld: false }; P.buf = 0; }
     // crouch and slide
     const wantDown = I.my < -0.5;
     if (onG) {
@@ -514,8 +528,9 @@ function createPlayer(world, M) {
       // a pull-up jump: up and over the lip
       return startClimb(true);
     }
+    if (I.my > -0.3) P.holdDown = false;
     if (I.my > 0.5) return startClimb(false);
-    if (I.my < -0.6) release();
+    if (I.my < -0.6 && !P.holdDown) release();
   }
   function release() { P.state = 'air'; P.ledge = null; P.vy = 0; P.coolLedge = 0.35; P.fallFrom = P.y; P.airT = 0; ev('release', {}); }
   function startClimb(quick) {
@@ -802,7 +817,7 @@ function createWorld(level) {
 
   W.inRecess = function (player) {
     if (player.state !== 'ground' && player.state !== 'pull') return null;
-    for (const r of level.recesses) if (player.x > r.x0 + 0.2 && player.x < r.x1 - 0.2 && player.y < r.y0 + 0.1) return r;
+    for (const r of level.recesses) if (player.x > r.x0 + 0.2 && player.x < r.x1 - 0.2 && Math.abs(player.y - r.y0) < 0.1) return r;
     return null;
   };
   W.reset();
@@ -813,38 +828,54 @@ function createWorld(level) {
 // =====================================================================
 // The Watcher. It is never shown; it is the city's lamps acting together.
 //
-//   search      lamps follow their patterns
-//   notice      a lamp has your silhouette; it hesitates and suspicion
-//               rises. Break line of sight and it settles.
-//   investigate a noise (an awning cord, a hard landing) gives it a place
-//               to look. It looks there, not at you.
-//   track       suspicion is full. Lamps that can reach your last known
-//               position turn to it and lock-on rises while you are lit.
-//               It knows where you were, not where you are.
-//   hunt        you stayed lit too long, or it found you again soon after
-//               losing you. Lamps move faster, shutters come down near
-//               your last known position and nearby doorways open.
-//   capture     lock-on reached full.
+// What it knows comes only from the lamps' light: a lamp sees you when a
+// sample point on your silhouette (feet, knees, chest, head) is inside its
+// visibility polygon, which is exactly the light drawn on screen.
+//
+// Exposure (what you feel)       Watcher mode (what it does)
+//   HIDDEN    no lamp sees you      search       lamps follow their patterns
+//   EXPOSED   suspicion rising      notice       the lamp hesitates, iris tightens
+//                                   investigate  a noise gave it a place to look
+//   DETECTED  suspicion full        track        lamps that can reach your last known
+//                                                position turn to it; lock-on rises
+//                                                while you are lit
+//   HUNTING   it found you twice    hunt         faster lamps, shutters drop near your
+//             or held you long                   last known position, doorways open
+//   LOST      you broke its sight   (track/hunt) lamps sweep the last known area, not
+//                                                where you are; it gives up in time
+//   CAPTURED  lock-on full          capture
+//
+// Suspicion and lock-on both rise with how much of you is lit and fall only
+// after a short grace period out of the light, so darting in and out of a
+// beam does not reset them.
 // =====================================================================
 const WATCH = {
-  notice: 0.85, lock: 1.15, lockHunt: 0.8, decayS: 0.55, decayL: 0.45,
-  lostTrack: 5.0, lostHunt: 7.0, investigate: 4.2, huntHeat: 2.0, rehunt: 10,
-  searchSpeed: deg(80), trackSpeed: deg(44), huntSpeed: deg(70), wobble: deg(9), focusNarrow: 0.22
+  notice: 0.9,        // seconds fully lit before it is sure (EXPOSED -> DETECTED)
+  lock: 1.3,          // seconds fully lit while tracked before capture
+  lockHunt: 0.95,     // the same during a hunt
+  grace: 0.45,        // seconds out of the light before suspicion/lock begin to fall
+  decayS: 0.5, decayL: 0.35,
+  reacquire: 1.6,     // suspicion rises this much faster while it is already looking for you
+  lostTrack: 5.0, lostHunt: 7.5, investigate: 4.2, huntHeat: 1.8, rehunt: 12,
+  searchSpeed: deg(80), trackSpeed: deg(46), huntSpeed: deg(72),
+  wobble: deg(7), lostWobble: deg(16), focusNarrow: 0.22
 };
 
 function createWatcher(level, optics, world, C) {
   C = C || WATCH;
-  const W = { mode: 'search', S: 0, L: 0, heat: 0, lost: 0, inv: 0, last: { x: 0, y: 0 }, seenFrac: 0, seers: [], modeT: 0,
-    alarms: 0, exposure: 0, calmMode: 'search', lastTrackEnd: -99, time: 0, events: [], hidden: false };
+  const W = { mode: 'search', S: 0, L: 0, heat: 0, lost: 0, inv: 0, unseen: 99, last: { x: 0, y: 0 }, seenFrac: 0, seers: [], modeT: 0,
+    alarms: 0, hunts: 0, exposure: 0, calmMode: 'search', lastTrackEnd: -99, time: 0, events: [], hidden: false, litRun: 0, lastSeer: null, noiseT: -99, captureCtx: null };
   const ev = (type, o) => W.events.push(Object.assign({ type }, o));
   const tensionOf = { search: 0, investigate: 0.3, notice: 0.4, track: 0.7, hunt: 1, capture: 1 };
 
   W.reset = function () {
-    Object.assign(W, { mode: 'search', S: 0, L: 0, heat: 0, lost: 0, inv: 0, seenFrac: 0, modeT: 0, calmMode: 'search', lastTrackEnd: -99 });
-    W.seers.length = 0;
+    Object.assign(W, { reacquired: false, mode: 'search', S: 0, L: 0, heat: 0, lost: 0, inv: 0, unseen: 99, seenFrac: 0, modeT: 0, calmMode: 'search', lastTrackEnd: -99, litRun: 0, lastSeer: null, noiseT: -99, captureCtx: null, last: { x: 0, y: 0 } });
+    W.seers.length = 0; W.events.length = 0;
     for (const l of level.lights) { l.clock = l.phase * l.period / TAU; l.ang = patternAngle(l); l.focus = 0; l.halfNow = l.half; l.on = !l.huntOnly; l.seeing = false; l.engaged = false; }
   };
   W.tension = () => tensionOf[W.mode] || 0;
+  // the player-facing exposure state
+  W.exposureState = () => W.mode === 'capture' ? 'captured' : W.mode === 'hunt' ? (W.lost > 0.6 ? 'lost' : 'hunting') : W.mode === 'track' ? (W.lost > 0.6 ? 'lost' : 'detected') : W.mode === 'notice' ? 'exposed' : 'hidden';
   function setMode(m, o) { if (W.mode === m) return; const from = W.mode; W.mode = m; W.modeT = 0; ev(m, Object.assign({ from }, o)); }
 
   function patternAngle(l) { return l.base + (l.amp ? l.amp * Math.sin(TAU * l.clock / l.period) : 0); }
@@ -855,17 +886,22 @@ function createWatcher(level, optics, world, C) {
     return Math.abs(angNorm(Math.atan2(dy, dx) - l.base)) <= l.maxDev + l.half * 0.5;
   };
 
-  // A noise: somewhere to look. It does not reveal you.
+  // A noise: somewhere to look. It does not reveal you, but it tells the
+  // Watcher where to point its lamps.
   W.hear = function (x, y, what) {
     if (W.mode === 'capture') return;
-    if (W.mode === 'track' || W.mode === 'hunt') { if (W.seenFrac <= 0) W.last = { x, y }; return; }
+    W.noiseT = W.time;
+    if (W.mode === 'track' || W.mode === 'hunt') { if (W.seenFrac <= 0) { W.last = { x, y }; W.lost = Math.min(W.lost, 0.5); } return; }
     W.last = { x, y }; W.inv = C.investigate; W.calmMode = 'investigate';
     if (W.mode === 'search') setMode('investigate', { what });
     else if (W.mode === 'investigate') ev('investigate', { what, again: true });
   };
 
   W.closeShutter = s => (W.mode === 'track' || W.mode === 'hunt' || W.mode === 'investigate' || (W.mode === 'notice' && W.calmMode === 'investigate')) && Math.abs(W.last.x - s.x0) < s.reach;
-  W.doorOpen = r => W.mode === 'hunt' && W.modeT > 0.8 && W.last.x > r.x0 - 2.6 && W.last.x < r.x1 + 2.6 && W.last.y < 3;
+  W.doorOpen = r => W.mode === 'hunt' && W.modeT > 0.8 && W.last.x > r.x0 - 2.6 && W.last.x < r.x1 + 2.6 && Math.abs(W.last.y - r.y0) < 3;
+
+  // silhouette sample heights, relative to the feet: feet, knees, chest, head
+  const SAMPLE = [0.12, 0.4, 0.62, 0.92];
 
   W.update = function (dt, P, time) {
     W.time = time; W.modeT += dt;
@@ -879,7 +915,9 @@ function createWatcher(level, optics, world, C) {
       if (l.engaged) {
         const to = Math.atan2(W.last.y + 0.8 - l.y, W.last.x - l.x);
         const rel = clamp(angNorm(to - l.base), -l.maxDev, l.maxDev);
-        target = l.base + rel + (l.seeing ? 0 : C.wobble * Math.sin(time * 2.2 + l.id * 1.7));
+        // seeing you: hold you; lost you: sweep the place it last saw you
+        const wob = l.seeing ? 0 : (W.lost > 0.6 ? C.lostWobble : C.wobble) * Math.sin(time * (W.lost > 0.6 ? 1.7 : 2.2) + l.id * 1.7);
+        target = l.base + rel + wob;
       }
       const d = angNorm(target - l.ang);
       l.ang += clamp(d, -speed * dt, speed * dt);
@@ -887,24 +925,25 @@ function createWatcher(level, optics, world, C) {
     }
     // 2. what do they see?
     W.seers.length = 0;
-    let frac = 0;
+    let frac = 0, best = null;
     const rec = world.inRecess(P);
     W.hidden = !!rec && rec.open < 0.6;
-    const pts = [P.y + 0.16, P.y + P.h * 0.55, P.y + P.h - 0.14];
     if (P.state !== 'caught' && P.state !== 'gone') {
       for (const l of level.lights) {
         l.seeing = false;
         if (!l.on) continue;
         let n = 0;
-        for (const py of pts) if (optics.sees(l, P.x, py)) n++;
-        const f = W.hidden ? 0 : n / 3;
-        if (f > 0) { l.seeing = true; W.seers.push(l); frac = Math.max(frac, f); }
+        for (const k of SAMPLE) if (optics.sees(l, P.x, P.y + P.h * k)) n++;
+        const f = W.hidden ? 0 : n / SAMPLE.length;
+        if (f > 0) { l.seeing = true; W.seers.push(l); if (f > frac) { frac = f; best = l; } }
       }
-      if (rec && rec.open >= 0.6) frac = Math.max(frac, 1);
+      if (rec && rec.open >= 0.6) { frac = Math.max(frac, 1); best = best || { kind: 'door' }; }
     } else for (const l of level.lights) l.seeing = false;
     for (const l of level.lights) l.focus = approach(l.focus, l.seeing ? 1 : 0, dt * 3);
     W.seenFrac = frac;
-    if (frac > 0) W.exposure += frac * dt;
+    if (frac > 0) { W.exposure += frac * dt; W.unseen = 0; W.litRun += dt; W.lastSeer = best; }
+    else { W.unseen += dt; W.litRun = 0; }
+    const decaying = W.unseen > C.grace;
 
     // 3. the state of the hunt
     const seen = frac > 0;
@@ -912,26 +951,36 @@ function createWatcher(level, optics, world, C) {
       case 'search':
       case 'investigate':
         if (W.mode === 'investigate') { W.inv -= dt; if (W.inv <= 0 && !seen) { W.calmMode = 'search'; setMode('search', { lost: true }); } }
-        if (seen) { W.S += dt * frac / C.notice * (W.mode === 'investigate' ? 1.5 : 1); W.calmMode = W.mode; setMode('notice'); }
-        else W.S = Math.max(0, W.S - dt * C.decayS);
+        if (seen) { W.S += dt * frac / C.notice * (W.mode === 'investigate' ? C.reacquire : 1); W.calmMode = W.mode; setMode('notice'); }
+        else if (decaying) W.S = Math.max(0, W.S - dt * C.decayS);
         break;
-      case 'notice':
-        if (seen) W.S += dt * frac / C.notice * (W.calmMode === 'investigate' ? 1.5 : 1);
-        else W.S -= dt * C.decayS;
+      case 'notice': {
+        const fast = W.calmMode === 'investigate' || W.time - W.lastTrackEnd < C.rehunt;
+        if (seen) W.S += dt * frac / C.notice * (fast ? C.reacquire : 1);
+        else if (decaying) W.S -= dt * C.decayS;
         if (W.S >= 1) {
           W.S = 1; W.last = { x: P.x, y: P.y }; W.alarms++; W.heat = 0; W.lost = 0;
-          if (W.time - W.lastTrackEnd < C.rehunt) setMode('hunt', { again: true }); else setMode('track');
+          if (W.time - W.lastTrackEnd < C.rehunt) { W.hunts++; setMode('hunt', { again: true }); } else setMode('track');
         } else if (W.S <= 0) { W.S = 0; setMode(W.calmMode === 'investigate' && W.inv > 0 ? 'investigate' : 'search', { settled: true }); }
         break;
+      }
       case 'track':
       case 'hunt': {
         const hunt = W.mode === 'hunt';
-        if (seen) { W.last = { x: P.x, y: P.y }; W.L += dt * frac / (hunt ? C.lockHunt : C.lock); W.heat += dt * frac; W.lost = 0; }
-        else { W.L = Math.max(0, W.L - dt * C.decayL); W.lost += dt; }
-        if (W.L >= 1) { W.L = 1; setMode('capture', { x: P.x, y: P.y }); break; }
-        if (!hunt && W.heat >= C.huntHeat) setMode('hunt');
+        if (seen) {
+          // found again after losing you: it hunts, and locks on faster
+          if (W.lost > 0.6) { W.reacquired = true; ev('reacquire', {}); if (!hunt) { W.hunts++; setMode('hunt', { again: true }); } }
+          W.last = { x: P.x, y: P.y }; W.L += dt * frac / (hunt ? C.lockHunt : C.lock); W.heat += dt * frac; W.lost = 0;
+        } else { if (decaying) W.L = Math.max(0, W.L - dt * C.decayL); W.lost += dt; if (W.lost > 0.6 && W.lost - dt <= 0.6) ev('lost', {}); }
+        if (W.L >= 1) {
+          W.L = 1;
+          W.captureCtx = { lamp: W.lastSeer, litRun: W.litRun, x: P.x, y: P.y, state: P.state, speed: Math.hypot(P.vx, P.vy), onAwning: !!(P.ground && P.ground.kind === 'awning'), door: !!(rec && rec.open >= 0.6), hunt: W.mode === 'hunt', reacquired: !!W.reacquired, sinceNoise: W.time - W.noiseT, heat: W.heat };
+          setMode('capture', { x: P.x, y: P.y });
+          break;
+        }
+        if (!hunt && W.heat >= C.huntHeat) { W.hunts++; setMode('hunt'); }
         if (W.lost >= (hunt ? C.lostHunt : C.lostTrack)) {
-          W.S = 0; W.L = 0; W.heat = 0; W.lastTrackEnd = W.time; W.calmMode = 'search';
+          W.S = 0; W.L = 0; W.heat = 0; W.reacquired = false; W.lastTrackEnd = W.time; W.calmMode = 'search';
           setMode('search', { lost: true });
         }
         break;
@@ -1480,20 +1529,79 @@ function createRenderer(canvas, level, world, optics, watcher, makeSurface) {
     }
   }
   function drawRecess(r) {
-    const s = R.cam.s;
+    const s = R.cam.s, b = r.y0, h = r.y1 - b;
     g.fillStyle = '#050505';
-    g.beginPath(); g.moveTo(X(r.x0), Y(0)); g.lineTo(X(r.x0), Y(r.y1 - 0.5)); g.quadraticCurveTo(X((r.x0 + r.x1) / 2), Y(r.y1 + 0.3), X(r.x1), Y(r.y1 - 0.5)); g.lineTo(X(r.x1), Y(0)); g.fill();
+    g.beginPath(); g.moveTo(X(r.x0), Y(b)); g.lineTo(X(r.x0), Y(r.y1 - 0.5)); g.quadraticCurveTo(X((r.x0 + r.x1) / 2), Y(r.y1 + 0.3), X(r.x1), Y(r.y1 - 0.5)); g.lineTo(X(r.x1), Y(b)); g.fill();
     if (r.open > 0.01) {
       // a door swings open and the room behind it is lit: the doorway is no longer a hiding place
       const w = (r.x1 - r.x0 - 0.3) * r.open;
       g.fillStyle = PAPER;
-      g.fillRect(X(r.x0 + 0.15), Y(r.y1 - 0.6), w * s, (r.y1 - 0.6) * s);
-      g.globalAlpha = 0.18 * r.open; g.beginPath(); g.moveTo(X(r.x0 + 0.15), Y(0)); g.lineTo(X(r.x0 + 0.15 + w), Y(0)); g.lineTo(X(r.x0 + 0.15 + w * 2.4), Y(-0.1)); g.lineTo(X(r.x0 - 0.6), Y(-0.1)); g.fill(); g.globalAlpha = 1;
+      g.fillRect(X(r.x0 + 0.15), Y(r.y1 - 0.6), w * s, (h - 0.6) * s);
+      g.globalAlpha = 0.18 * r.open; g.beginPath(); g.moveTo(X(r.x0 + 0.15), Y(b)); g.lineTo(X(r.x0 + 0.15 + w), Y(b)); g.lineTo(X(r.x0 + 0.15 + w * 2.4), Y(b - 0.1)); g.lineTo(X(r.x0 - 0.6), Y(b - 0.1)); g.fill(); g.globalAlpha = 1;
     }
     g.strokeStyle = INK; g.lineWidth = Math.max(1.5, 0.08 * s);
-    g.beginPath(); g.moveTo(X(r.x0 - 0.05), Y(0)); g.lineTo(X(r.x0 - 0.05), Y(r.y1 - 0.5)); g.quadraticCurveTo(X((r.x0 + r.x1) / 2), Y(r.y1 + 0.35), X(r.x1 + 0.05), Y(r.y1 - 0.5)); g.lineTo(X(r.x1 + 0.05), Y(0)); g.stroke();
-    g.fillStyle = 'rgba(236,231,220,0.5)'; g.fillRect(X(r.x0 - 0.2), Y(0.04), (r.x1 - r.x0 + 0.4) * s, Math.max(1, 0.03 * s));
+    g.beginPath(); g.moveTo(X(r.x0 - 0.05), Y(b)); g.lineTo(X(r.x0 - 0.05), Y(r.y1 - 0.5)); g.quadraticCurveTo(X((r.x0 + r.x1) / 2), Y(r.y1 + 0.35), X(r.x1 + 0.05), Y(r.y1 - 0.5)); g.lineTo(X(r.x1 + 0.05), Y(b)); g.stroke();
+    g.fillStyle = 'rgba(236,231,220,0.5)'; g.fillRect(X(r.x0 - 0.2), Y(b + 0.04), (r.x1 - r.x0 + 0.4) * s, Math.max(1, 0.03 * s));
   }
+
+  // The Watcher's attention, drawn where it matters. Around the runner an
+  // aperture closes while any lamp has them: dashed while exposed, solid
+  // with lock-on marks once detected. Where it searches after losing them,
+  // a faint dashed ring marks its last known position.
+  function drawAttention(P) {
+    const s = R.cam.s, m = watcher.mode, st = watcher.exposureState();
+    const cx = X(P.x), cy = Y(P.y + P.h * 0.55);
+    const tracked = m === 'track' || m === 'hunt';
+    const k = tracked ? 0.45 + 0.55 * watcher.L : m === 'notice' ? watcher.S * 0.45 : 0;
+    R.ap = approach(R.ap || 0, k, 0.06);
+    const lit = watcher.seenFrac > 0, lostYou = tracked && watcher.lost > 0.6;
+    R.apA = approach(R.apA || 0, lit ? 0.9 : lostYou ? 0.12 : 0.45, 0.05);
+    if (R.ap > 0.02 && (lit || tracked || m === 'notice')) {
+      const r = lerp(2.6, 0.75, R.ap) * s;
+      g.save();
+      g.strokeStyle = PAPER; g.globalAlpha = R.apA; g.lineWidth = tracked ? 2 : 1.3;
+      if (!tracked) g.setLineDash([4, 5]);
+      g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.stroke();
+      g.setLineDash([]);
+      if (tracked) {
+        const n = m === 'hunt' ? 6 : 4, tick = (m === 'hunt' ? 0.5 : 0.35) * s, rot = m === 'hunt' ? R.t * 1.4 : 0;
+        g.beginPath();
+        for (let i = 0; i < n; i++) { const a = rot + i * TAU / n; g.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); g.lineTo(cx + Math.cos(a) * (r - tick), cy + Math.sin(a) * (r - tick)); }
+        g.stroke();
+      }
+      g.restore();
+    }
+    // it is searching somewhere else
+    if (tracked && watcher.lost > 0.6) {
+      const lx = X(watcher.last.x), ly = Y(watcher.last.y + 0.8), r = (1.5 + 0.15 * Math.sin(R.t * 3)) * s;
+      g.save(); g.strokeStyle = PAPER; g.globalAlpha = 0.55 + 0.2 * Math.sin(R.t * 5); g.lineWidth = 1.6; g.setLineDash([3, 6]);
+      g.beginPath(); g.arc(lx, ly, r, 0, TAU); g.stroke();
+      g.setLineDash([]); g.beginPath(); g.moveTo(lx - 0.2 * s, ly); g.lineTo(lx + 0.2 * s, ly); g.moveTo(lx, ly - 0.2 * s); g.lineTo(lx, ly + 0.2 * s); g.stroke();
+      g.restore();
+    }
+    // being lit: the edges of the page whiten a little
+    R.litGlow = approach(R.litGlow || 0, lit ? watcher.seenFrac : 0, 0.08);
+    if (R.litGlow > 0.01) {
+      const W = R.W, H = R.H;
+      const gr = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.42, W / 2, H / 2, Math.max(W, H) * 0.72);
+      gr.addColorStop(0, 'rgba(236,231,220,0)'); gr.addColorStop(1, 'rgba(236,231,220,' + (0.22 * R.litGlow).toFixed(3) + ')');
+      g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    }
+  }
+  // Capture: the light closes on the runner like an iris.
+  function drawCaptureIris() {
+    const c = R.capture; if (!c) return;
+    const k = clamp(c.t / 0.75, 0, 1), W = R.W, H = R.H;
+    const cx = X(c.x), cy = Y(c.y + 0.9);
+    const rMax = Math.hypot(W, H);
+    const r = lerp(rMax, 0.9 * R.cam.s, smooth(Math.min(1, k * 1.15)));
+    g.save();
+    g.fillStyle = 'rgba(236,231,220,' + (0.55 + 0.4 * k).toFixed(3) + ')';
+    g.beginPath(); g.rect(0, 0, W, H); g.arc(cx, cy, r, 0, TAU, true); g.fill('evenodd');
+    g.strokeStyle = INK; g.lineWidth = 2; g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.stroke();
+    g.restore();
+  }
+
   function drawLamp(l) {
     const s = R.cam.s;
     g.strokeStyle = INK; g.fillStyle = INK; g.lineWidth = Math.max(1.5, 0.08 * s);
@@ -1773,6 +1881,8 @@ function createRenderer(canvas, level, world, optics, watcher, makeSurface) {
       g.restore();
     }
     drawForeground();
+    if (P.state !== 'gone' && !R.capture) drawAttention(P);
+    drawCaptureIris();
     // wires in the foreground
     g.strokeStyle = INK; g.lineWidth = Math.max(1, 0.04 * s);
     for (let i = 0; i < 3; i++) {
@@ -1836,6 +1946,10 @@ function createAudio() {
         const hf = ac.createBiquadFilter(); hf.type = 'lowpass'; hf.frequency.value = 240; hf.Q.value = 3;
         humGain = ac.createGain(); humGain.gain.value = 0; hum.connect(hf); hf.connect(humGain); humGain.connect(sfx); hum.start();
         A.humF = hf;
+        // being lit: a thin, high hiss that grows with how much of you is in the light
+        const es = ac.createBufferSource(); es.buffer = nb; es.loop = true;
+        const ef = ac.createBiquadFilter(); ef.type = 'bandpass'; ef.frequency.value = 5200; ef.Q.value = 4;
+        A.litGain = ac.createGain(); A.litGain.gain.value = 0; es.connect(ef); ef.connect(A.litGain); A.litGain.connect(sfx); es.start();
         A.ok = true;
       }
       if (ac.state === 'suspended') ac.resume();
@@ -1919,6 +2033,7 @@ function createAudio() {
     const t = ac.currentTime;
     // the lamps hum when they are near and turning
     humGain.gain.setTargetAtTime(S.hum * 0.06, t, 0.15);
+    A.litGain.gain.setTargetAtTime((S.lit || 0) * 0.05, t, 0.05);
     hum.frequency.setTargetAtTime(48 + S.humTurn * 40, t, 0.2);
     A.humF.frequency.setTargetAtTime(200 + S.tension * 600, t, 0.3);
     wind.gain.setTargetAtTime(0.03 + S.height * 0.003, t, 0.6);
@@ -1941,7 +2056,8 @@ function createAudio() {
 // marks, the HUD, title, pause, result and the Plethora lifecycle.
 // =====================================================================
 const SAVE_KEY = 'lastlight_v1';
-const SCORE = { base: 10000, perSecond: 45, perSeen: 300, perAlarm: 400, perCapture: 1200, floor: 100 };
+const SCORE = { base: 10000, perSecond: 40, perSeen: 250, perAlarm: 500, perCapture: 1500, floor: 100 };
+const LAMP_NAME = { tower: 'the tower searchlight', bracket: 'the wall lamp', lantern: 'the lantern', post: 'the lamppost', door: 'the open doorway' };
 
 const UI_CSS = `
 .ll{position:absolute;inset:0;font-family:Inter,system-ui,sans-serif;color:#ece7dc;user-select:none;-webkit-user-select:none;pointer-events:none;
@@ -1968,6 +2084,9 @@ const UI_CSS = `
 .ll-b.sec{background:transparent;color:#0d0d0c;box-shadow:inset 0 0 0 1px #0d0d0c}
 .ll-b:active{opacity:.8}
 .ll-keys{font-size:12px;line-height:1.6;margin-top:12px;opacity:.75}
+.ll-why{font-size:15px;line-height:1.45;margin:0}
+.ll-tip{font-family:'Cormorant Garamond',Georgia,serif;font-style:italic;font-size:18px;line-height:1.3;margin:10px 0 0}
+.ll-break{font-size:11px;line-height:1.5;opacity:.7;margin-top:6px;font-variant-numeric:tabular-nums}
 `;
 
 window.plethoraBit = {
@@ -2052,6 +2171,8 @@ window.plethoraBit = {
       else if (k === 'esc') { if (mode === 'play') pause(); else if (mode === 'paused') resume(); }
       else if (k === 'restart' && (mode === 'play' || mode === 'paused')) { resume(); respawn(false); }
       else if (mode === 'result' && (k === 'enter' || k === 'j')) beginRun();
+      else if (mode === 'caughtCard' && (k === 'enter' || k === 'j')) retryFromMark();
+      else if (mode === 'caughtCard' && k === 'restart') beginRun();
     });
     ctx.listen(window, 'keyup', e => { const k = KEYMAP[e.code]; if (k) key[k] = false; });
     ctx.listen(window, 'blur', () => { for (const k in key) key[k] = false; });
@@ -2065,7 +2186,7 @@ window.plethoraBit = {
       if (mode !== 'play') return;
       if (hit(btn.pause, x, y, 10)) { pause(); return; }
       if (hit(btn.jump, x, y, 18)) { touch.jump = e.pointerId; I.jumpPressed = true; return; }
-      if (hit(btn.act, x, y, 14)) { touch.act = e.pointerId; I.actPressed = true; return; }
+      if (actVis.on && hit(btn.act, x, y, 14)) { touch.act = e.pointerId; I.actPressed = true; return; }
       if (x < W * 0.6 && !touch.stick) { touch.stick = { id: e.pointerId, ox: x, oy: y, x, y }; save.stickSeen = true; return; }
       // a tap elsewhere on the right side also jumps
       if (x >= W * 0.6) { touch.jump = e.pointerId; I.jumpPressed = true; }
@@ -2114,6 +2235,7 @@ window.plethoraBit = {
       R.follow(player, 1, true);
       I.jumpPressed = false; I.actPressed = false;
       if (capturedNow) captures++;
+      R.capture = null; actVis.k = 0; actVis.on = false;
       mode = 'play';
     }
     function beginRun() {
@@ -2122,13 +2244,47 @@ window.plethoraBit = {
       safe(() => ctx.platform.start({ attempt }));
       safe(() => ctx.platform.interact({ type: 'begin' }));
       if (caps.backgroundMusic && save.sound) safe(() => { ctx.music.unlock(); ctx.music.play({ preset: 'drone', volume: 0.22, intensity: 0.15, tempo: 60, scale: 'minor', fadeInMs: 2400 }); });
-      runT = 0; captures = 0; cp = 0; sectionSeen = -1; caption = null; result = null;
-      watcher.alarms = 0; watcher.exposure = 0;
+      runT = 0; captures = 0; cp = 0; sectionSeen = -1; caption = null; result = null; R.capture = null;
+      watcher.alarms = 0; watcher.hunts = 0; watcher.exposure = 0;
       score.reset && score.reset();
       hidePanels();
       save.runs++; persist();
       respawn(false);
     }
+
+    function retryFromMark() { if (mode !== 'caughtCard') return; hidePanels(); respawn(false); safe(() => ctx.platform.start({ attempt, retry: true })); }
+
+    // why it caught you, from the state at the moment of capture
+    function captureReason() {
+      const c = watcher.captureCtx || {};
+      const lamp = LAMP_NAME[c.lamp && c.lamp.kind] || 'the light';
+      const secs = (c.litRun || 0).toFixed(1);
+      if (c.door) return ['You hid in a doorway near where it lost you.', 'During a hunt, doorways near its last sighting open. Move on instead.'];
+      if (c.onAwning) return ['You were on top of the awning, under ' + lamp + '.', 'The shadow falls beneath the awning, not on it.'];
+      if (c.state === 'hang' || c.state === 'pipe' || c.state === 'climbup' || c.state === 'rope') return ['It locked on while you were climbing in ' + lamp + '’s light.', 'Climb while the beam is away, or climb out of its reach.'];
+      if (c.reacquired) return ['It had lost you, and you went back into ' + lamp + '\u2019s light while it was still searching.', 'After it loses you, it hunts that spot. Leave by another way.'];
+      if (c.sinceNoise < 3.5) return ['The noise told it where to look, and you were still in ' + lamp + '’s reach.', 'Pull when the lamp is turned away, then move at once.'];
+      if (c.speed < 1) return ['You stood still in ' + lamp + '’s light for ' + secs + ' s.', 'Once it has found you, get something solid between you and the lamp.'];
+      if (c.hunt) return ['It was already hunting you, and you stayed in ' + lamp + '’s light for ' + secs + ' s.', 'In a hunt it locks on faster. Break its line of sight, then change route.'];
+      return ['It found you in ' + lamp + '’s light and you stayed in it for ' + secs + ' s.', 'A quick crossing is survivable. Lingering is not.'];
+    }
+    function showCaught() {
+      const [why, tip] = captureReason();
+      const sec = level.sections[currentSection()];
+      const mark = level.sections[markSection()];
+      panel.innerHTML = '';
+      const card = document.createElement('div'); card.className = 'll-card';
+      card.innerHTML = `<p class="ll-h">Caught.</p><p class="ll-it">${esc(sec.num + '. ' + sec.name)}, at ${fmtTime(runT)}</p><div class="ll-rule"></div>
+        <p class="ll-why">${esc(why)}</p><p class="ll-tip">${esc(tip)}</p>`;
+      card.appendChild(button('Run the street again', '', () => beginRun()));
+      card.appendChild(button('From the last mark (' + mark.num + ')', 'sec', () => retryFromMark()));
+      const k = document.createElement('div'); k.className = 'll-break';
+      k.textContent = 'From the mark, the clock keeps running and this capture costs ' + SCORE.perCapture.toLocaleString() + ' points.';
+      card.appendChild(k);
+      panel.appendChild(card); panel.className = 'll-panel on';
+      safe(() => ctx.platform.fail({ section: currentSection() + 1, timeMs: Math.round(runT * 1000) }));
+    }
+    function markSection() { const c = level.checkpoints[Math.min(cp, level.checkpoints.length - 1)]; let s = 0; for (let i = 0; i < level.sections.length; i++) if (c.x >= level.sections[i].x) s = i; return s; }
 
     function pause() { if (mode !== 'play') return; mode = 'paused'; showPause(); safe(() => ctx.music.pause()); }
     function resume() { if (mode !== 'paused') return; mode = 'play'; hidePanels(); safe(() => ctx.music.resume()); }
@@ -2157,6 +2313,8 @@ window.plethoraBit = {
         else if (e.type === 'track') { audio.track(); safe(() => caps.haptics && ctx.platform.haptic('warning')); setMusic(0.6, 78); }
         else if (e.type === 'hunt') { audio.hunt(); setMusic(0.9, 96); }
         else if (e.type === 'search') { if (e.from === 'track' || e.from === 'hunt') { audio.lost(); setMusic(0.15, 60); } else if (e.settled || e.from === 'notice') audio.settle(); }
+        else if (e.type === 'lost') audio.settle();
+        else if (e.type === 'reacquire') audio.track();
         else if (e.type === 'capture') capture();
       }
       watcher.events.length = 0;
@@ -2171,7 +2329,10 @@ window.plethoraBit = {
     function setMusic(intensity, tempo) { if (caps.backgroundMusic && save.sound) safe(() => { ctx.music.setIntensity(intensity, { fadeMs: 1200 }); ctx.music.setTempo(tempo); }); }
     function capture() {
       mode = 'caught'; captureT = 0;
-      player.state = 'caught';
+      player.state = 'caught'; player.vx = 0; player.vy = 0;
+      R.capture = { x: player.x, y: player.y, t: 0 };
+      // every lamp that can reach turns on the runner
+      for (const l of level.lights) if (watcher.reaches(l, player)) l.engaged = true;
       audio.capture();
       safe(() => caps.haptics && ctx.platform.haptic('error'));
       safe(() => ctx.platform.milestone('captured', { section: currentSection() }));
@@ -2187,7 +2348,8 @@ window.plethoraBit = {
         runT += dt;
         // act: pull the cord in reach
         if (I.actPressed) {
-          const it = world.interactable(player);
+          updateActVis();
+          const it = actVis.it;
           if (it && it.kind === 'cord' && it.ready) {
             player.startPull();
             world.pullAwning(it.a);
@@ -2207,13 +2369,15 @@ window.plethoraBit = {
         if (sec > sectionSeen) { sectionSeen = sec; caption = { s: level.sections[sec], t: 0 }; if (sec > 0) safe(() => ctx.platform.milestone('section', { n: sec + 1 })); safe(() => ctx.platform.setProgress(sec / (level.sections.length))); }
         if (player.y < -8) respawn(false);
         if (player.x >= level.exitX && player.y < 1.5 && (player.state === 'ground' || player.state === 'air')) finish();
+        updateActVis();
         // doors that open during a hunt creak
         level.recesses.forEach((r, i) => { const o = r.open > 0.05; if (o && !lastDoor[i]) audio.door(Math.abs(r.x0 - player.x), clamp((r.x0 - R.cam.x) / 12, -1, 1)); lastDoor[i] = o; });
       } else if (mode === 'caught') {
         captureT += dt;
         watcher.update(dt, player, time);
         watcher.events.length = 0;
-        if (captureT > 1.25) respawn(true);
+        R.capture.t = captureT;
+        if (captureT > 0.95) { captures++; mode = 'caughtCard'; showCaught(); }
       }
       I.jumpPressed = false; I.actPressed = false;
     }
@@ -2268,9 +2432,11 @@ window.plethoraBit = {
       panel.innerHTML = '';
       const card = document.createElement('div'); card.className = 'll-card';
       const verdict = r.captures === 0 && r.alarms === 0 ? 'Unseen.' : r.captures === 0 ? 'Escaped.' : 'Escaped, at last.';
-      card.innerHTML = `<p class="ll-h">${verdict}</p><p class="ll-it">The Watcher is still searching the street behind you.</p><div class="ll-rule"></div>
-        <div class="ll-stats"><div><b>${fmtTime(r.t)}</b>Time</div><div><b>${r.seen.toFixed(1)}s</b>Seen</div><div><b>${r.alarms}</b>Alarms</div><div><b>${r.captures}</b>Caught</div></div>
+      const sub = r.captures === 0 && r.alarms === 0 ? 'It never knew you were there.' : r.captures === 0 ? 'It found you ' + (r.alarms === 1 ? 'once' : r.alarms + ' times') + ', and you shook it off.' : 'It caught you ' + (r.captures === 1 ? 'once' : r.captures + ' times') + ' on the way.';
+      card.innerHTML = `<p class="ll-h">${verdict}</p><p class="ll-it">${sub}</p><div class="ll-rule"></div>
+        <div class="ll-stats"><div><b>${fmtTime(r.t)}</b>Time</div><div><b>${r.seen.toFixed(1)}s</b>In light</div><div><b>${r.alarms}</b>Detected</div><div><b>${r.captures}</b>Caught</div></div>
         <div class="ll-score"><b>${r.value.toLocaleString()}</b><span>Score</span></div>
+        <div class="ll-break">${SCORE.base.toLocaleString()} − ${Math.round(SCORE.perSecond * r.t)} time − ${Math.round(SCORE.perSeen * r.seen)} light − ${SCORE.perAlarm * r.alarms} detected − ${SCORE.perCapture * r.captures} caught</div>
         <div class="ll-note">${r.pb && r.prevBest ? 'A new best: ' + r.prevBest.toLocaleString() + ' before.' : r.pb ? '' : 'Best ' + save.best.toLocaleString() + '.'}</div>
         <div class="ll-board"></div>`;
       card.appendChild(button('Run again', '', () => beginRun()));
@@ -2358,8 +2524,21 @@ window.plethoraBit = {
       if (m === 'notice' || m === 'search' || m === 'investigate') { g.fillStyle = 'rgba(236,231,220,0.6)'; const v = watcher.S; g.fillRect(cx - lw / 2 * v, ly - 0.5, lw * v, 2); }
       else { g.fillStyle = PAPER; const v = watcher.L; g.fillRect(cx - lw / 2 * v, ly - 1, lw * v, 3); }
     }
+    // the pull button exists only while there is something to pull; a wider
+    // radius to leave than to enter keeps it from flickering at the edge
+    const actVis = { k: 0, on: false, it: null };
+    function updateActVis() {
+      let it = null;
+      if (mode === 'play' && (player.state === 'ground' || player.state === 'pull')) {
+        for (const a of level.awnings) {
+          const d = Math.abs(player.x - a.cord.x), dy = Math.abs(player.y - a.cord.y);
+          if (dy < 0.5 && d < (actVis.on ? 1.35 : 0.95)) it = { kind: 'cord', a, ready: a.cool <= 0 && a.target === 0 && player.state !== 'pull' };
+        }
+      }
+      actVis.on = !!it; actVis.it = it;
+    }
     function drawControls() {
-      const it = mode === 'play' ? world.interactable(player) : null;
+      const it = actVis.it;
       // stick
       const t = touch.stick, home = touch.home;
       g.lineWidth = 1.5;
@@ -2380,18 +2559,28 @@ window.plethoraBit = {
       g.strokeStyle = 'rgba(236,231,220,0.7)'; g.stroke();
       g.strokeStyle = PAPER; g.lineWidth = 2.5; g.lineCap = 'round'; g.lineJoin = 'round';
       g.beginPath(); g.moveTo(j.x - 11, j.y + 5); g.lineTo(j.x, j.y - 7); g.lineTo(j.x + 11, j.y + 5); g.stroke();
-      // act: a hand, bright when something is in reach
-      const ac = btn.act, live = it && it.ready;
-      g.lineWidth = 1.5;
-      g.fillStyle = live ? 'rgba(236,231,220,0.92)' : 'rgba(13,13,12,0.2)';
-      g.beginPath(); g.arc(ac.x, ac.y, ac.r, 0, TAU); g.fill();
-      g.strokeStyle = live ? PAPER : 'rgba(236,231,220,0.35)'; g.stroke();
-      if (live) { const k = (time * 1.4) % 1; g.globalAlpha = 1 - k; g.beginPath(); g.arc(ac.x, ac.y, ac.r + k * 14, 0, TAU); g.stroke(); g.globalAlpha = 1; }
-      // glyph: a downward pull on a cord
-      g.strokeStyle = live ? INK : 'rgba(236,231,220,0.45)'; g.lineWidth = 2;
-      g.beginPath(); g.moveTo(ac.x, ac.y - 12); g.lineTo(ac.x, ac.y + 4); g.stroke();
-      g.beginPath(); g.moveTo(ac.x - 6, ac.y - 1); g.lineTo(ac.x, ac.y + 6); g.lineTo(ac.x + 6, ac.y - 1); g.stroke();
-      g.fillStyle = live ? INK : 'rgba(236,231,220,0.45)'; g.fillRect(ac.x - 2.5, ac.y + 7, 5, 6);
+      // act: appears with something to pull; WAIT while the awning is out
+      actVis.k = approach(actVis.k, actVis.on && mode === 'play' ? 1 : 0, 0.12);
+      if (actVis.k > 0.01) {
+        const ac = btn.act, live = it && it.ready;
+        g.save(); g.globalAlpha = actVis.k;
+        g.lineWidth = 1.5;
+        g.fillStyle = live ? 'rgba(236,231,220,0.94)' : 'rgba(13,13,12,0.35)';
+        g.beginPath(); g.arc(ac.x, ac.y, ac.r, 0, TAU); g.fill();
+        g.strokeStyle = live ? PAPER : 'rgba(236,231,220,0.4)'; g.stroke();
+        if (live) { const k = (time * 1.4) % 1; g.globalAlpha = actVis.k * (1 - k); g.beginPath(); g.arc(ac.x, ac.y, ac.r + k * 14, 0, TAU); g.stroke(); g.globalAlpha = actVis.k; }
+        // glyph: a cord and its toggle
+        const col = live ? INK : 'rgba(236,231,220,0.5)';
+        g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 2; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(ac.x, ac.y - 15); g.lineTo(ac.x, ac.y - 3); g.stroke();
+        g.fillRect(ac.x - 3, ac.y - 4, 6, 9);
+        g.font = '600 9px Inter, system-ui, sans-serif'; g.textAlign = 'center';
+        if (g.letterSpacing !== undefined) g.letterSpacing = '1.5px';
+        g.fillText(live ? 'PULL' : 'WAIT', ac.x + 1, ac.y + 17);
+        if (g.letterSpacing !== undefined) g.letterSpacing = '0px';
+        g.textAlign = 'left';
+        g.restore();
+      }
     }
 
     // ---- frame
@@ -2404,15 +2593,15 @@ window.plethoraBit = {
         player.update(0, I);
         watcher.update(dt, player, time);
         watcher.events.length = 0;
-      } else if (mode === 'play' || mode === 'caught') R.follow(player, dt);
-      R.flash = mode === 'caught' ? Math.min(0.92, captureT * 3) * (captureT > 0.9 ? Math.max(0, 1 - (captureT - 0.9) / 0.35) : 1) : Math.max(0, R.flash - dt * 2.5);
+      } else if (mode === 'play' || mode === 'caught' || mode === 'caughtCard') R.follow(player, dt);
+      R.flash = 0;
       R.dpr = canvas.width / Math.max(1, ctx.width) || 1;
       R.draw({ player, time }, dt);
       drawHUD(dt);
       // audio scene
       let hum = 0, turn = 0;
       for (const l of level.lights) { if (!l.on) continue; const d = Math.hypot(l.x - player.x, l.y - player.y); const k = clamp(1 - d / 24, 0, 1); if (k > hum) { hum = k; turn = Math.abs(angNorm(l.ang - (l.prevAng === undefined ? l.ang : l.prevAng))) / Math.max(dt, 1e-3); } l.prevAng = l.ang; }
-      audio.frame(dt, { hum: mode === 'title' ? hum * 0.5 : hum, humTurn: clamp(turn / 0.8, 0, 1), tension: watcher.tension(), height: player.y, playing: mode === 'play', lock: watcher.L, tracking: watcher.mode === 'track' || watcher.mode === 'hunt' });
+      audio.frame(dt, { lit: mode === 'play' ? watcher.seenFrac : 0, hum: mode === 'title' ? hum * 0.5 : hum, humTurn: clamp(turn / 0.8, 0, 1), tension: watcher.tension(), height: player.y, playing: mode === 'play', lock: watcher.L, tracking: watcher.mode === 'track' || watcher.mode === 'hunt' });
       // footsteps
       if (mode === 'play' && player.state === 'ground' && Math.abs(player.vx) > 0.8 && player.slideT <= 0) {
         stepAcc += Math.abs(player.vx) * dt;
@@ -2436,7 +2625,7 @@ window.plethoraBit = {
       onError: (err, phase) => { safe(() => ctx.platform.error({ stage: 'loop_' + phase, message: String((err && err.message) || err) })); }
     });
     ctx.onDestroy(() => audio.close());
-    if (window.__LL_DEV) window.__ll = { level, world, player, watcher, optics, R, I, key, touch, btn, get mode() { return mode; }, set mode(v) { mode = v; }, beginRun, respawn, step, frame, finish, setCp: i => { cp = i; }, get cp() { return cp; }, get runT() { return runT; }, get captures() { return captures; }, get result() { return result; } };
+    if (window.__LL_DEV) window.__ll = { act: actVis, level, world, player, watcher, optics, R, I, key, touch, btn, get mode() { return mode; }, set mode(v) { mode = v; }, beginRun, retryFromMark, respawn, step, frame, finish, setCp: i => { cp = i; }, get cp() { return cp; }, get runT() { return runT; }, get captures() { return captures; }, get result() { return result; } };
     ctx.markVisualReady('title');
     ctx.platform.ready();
   }

@@ -25,7 +25,7 @@ function buildLevel() {
   const L = {
     solids: [], plats: [], pipes: [], ropes: [], awnings: [], shutters: [], recesses: [],
     sheets: [], lights: [], checkpoints: [], sections: [], facades: [], props: [], windows: [],
-    x0: 0, x1: 150, exitX: 143.5, start: { x: 2.6, y: 9 }
+    x0: 0, x1: 150, exitX: 143.5, start: { x: 1.4, y: 9 }
   };
   const solid = (x0, y0, x1, y1, o) => { const s = Object.assign({ x0, y0, x1, y1, kind: 'block', grab: true, occ: true }, o); L.solids.push(s); return s; };
   const plat = (x0, x1, y, o) => { const p = Object.assign({ x0, x1, y, th: 0.32, kind: 'balcony', grab: true, occ: true }, o); L.plats.push(p); return p; };
@@ -34,7 +34,7 @@ function buildLevel() {
   const light = o => { const l = Object.assign({ half: deg(8), amp: 0, period: 6, phase: 0, range: 44, maxDev: deg(40), kind: 'tower', huntOnly: false, hold: 0 }, o); l.base = deg(o.base); l.amp = deg(o.amp || 0); if (o.half) l.half = deg(o.half); if (o.maxDev) l.maxDev = deg(o.maxDev); L.lights.push(l); return l; };
   const section = (x, name, num) => L.sections.push({ x, name, num });
   const checkpoint = (x, y, face) => L.checkpoints.push({ x, y, face: face || 1 });
-  const recess = (x0, x1, h) => { const r = { x0, x1, y0: 0, y1: h || 2.3, open: 0 }; L.recesses.push(r); return r; };
+  const recess = (x0, x1, h, y0) => { y0 = y0 || 0; const r = { x0, x1, y0, y1: y0 + (h || 2.3), open: 0 }; L.recesses.push(r); return r; };
 
   // the street, and the city's left edge
   solid(-12, -4, 160, 0, { kind: 'street', grab: false });
@@ -42,24 +42,28 @@ function buildLevel() {
   solid(150, 0, 162, 40, { kind: 'edge', grab: false, occ: false });
 
   // ---------------------------------------------------------------
-  // I. THE BALCONY. No light reaches here. Run, jump a gap, grab the
-  // cornice above and pull yourself up. Fall into the gap and the
-  // drainpipe brings you back.
+  // I. THE BALCONY. You begin in a balcony doorway. A searchlight on the
+  // tower across the street sweeps the balcony and the street below; the
+  // far balcony, under the overhanging roof, is in its shadow. Watch the
+  // sweep, then run and jump while it is away. The cornice above is the
+  // way on. Dropping to the street is loud, and the street is lit too.
   // ---------------------------------------------------------------
   section(0, 'The balcony', 'I');
   facade(-6, 12.4, 16.5, 'gable');
-  plat(0.6, 7.2, 9, { rail: true });
+  plat(0.2, 7.2, 9, { rail: true });
   plat(8.8, 13.8, 9, { rail: true });
+  recess(0.6, 2.2, 2.3, 9);
   pipe(8.0, 0, 9);
   plat(1.2, 5.2, 4.6, { rail: true });
-  L.windows.push({ x: 3.2, y: 10.4, lit: true });
-  checkpoint(2.6, 9);
+  light({ x: 19.2, y: 21.5, base: 222, amp: 14, period: 5.2, phase: -1.2, half: 7.5, range: 34, kind: 'tower', maxDev: 30 });
+  checkpoint(1.4, 9);
 
   // ---------------------------------------------------------------
-  // II. FIRST CONTACT. A long roof with chimneys. A lamp on the tall
-  // house ahead rakes the roof. Chimneys throw long shadows: cross in
-  // rhythm, crouch behind the low stub, or hang from the roof's edge and
-  // shimmy along beneath it, where the roof itself hides you.
+  // II. FIRST CONTACT. Three ways along the terrace:
+  //  - the roof: a lamp on the tall house ahead rakes it; chimneys throw
+  //    long shadows. Fast, but you cross in rhythm.
+  //  - under the roof's edge: hang and shimmy. Safe, but slow.
+  //  - the street: two lanterns sweep it; dart between doorways.
   // ---------------------------------------------------------------
   section(13, 'First contact', 'II');
   facade(12.4, 20.2, 11.6, 'terrace');
@@ -70,7 +74,12 @@ function buildLevel() {
   solid(34.6, 11.6, 35.8, 13.6, { kind: 'chimney' });
   solid(40.0, 11.6, 40.9, 12.55, { kind: 'chimney', stub: true });
   light({ x: 47.4, y: 16.4, base: 197, amp: 10, period: 6.4, half: 7, range: 46, kind: 'bracket', maxDev: 30 });
-  checkpoint(14.2, 11.6);
+  // the street beneath the terrace
+  light({ x: 25.0, y: 6.9, base: 270, amp: 30, period: 4.6, half: 20, range: 9.5, kind: 'lantern', maxDev: 50 });
+  light({ x: 36.0, y: 6.9, base: 270, amp: 30, period: 4.6, phase: Math.PI * 0.8, half: 20, range: 9.5, kind: 'lantern', maxDev: 50 });
+  recess(19.4, 20.8);
+  recess(29.8, 31.2);
+  recess(41.0, 42.4);
 
   // ---------------------------------------------------------------
   // III. DESCENT. Under the lamp is the one place it cannot look. A
@@ -86,26 +95,27 @@ function buildLevel() {
 
   // ---------------------------------------------------------------
   // IV. THE AWNING. A lantern hangs over the street and swings its gaze
-  // across it. Pull the cord in the doorway: the awning folds out under
-  // the lantern and its shadow covers the crossing for a few seconds.
-  // The pull is loud; the lantern looks at the doorway.
+  // across it. The cord hangs in the open at the edge of its sweep: pull
+  // while the lantern looks away. The awning unrolls under the lantern and
+  // its shadow covers the cord and the crossing for a few seconds. The
+  // pull is loud: the lantern turns to where you pulled it.
   // The high road (balconies) is exposed to a raking lamp instead.
   // ---------------------------------------------------------------
   section(50, 'The awning', 'IV');
   facade(60, 70, 14, 'shop');
-  recess(54.9, 56.5, 2.4);
-  const aw1 = { ax: 56.9, ay: 3.2, len: 6.6, dir: 1, cord: { x: 56.2, y: 0 }, holdS: 5.5 };
+  recess(52.6, 54.0, 2.4);
+  const aw1 = { ax: 56.9, ay: 3.2, len: 6.6, dir: 1, cord: { x: 56.2, y: 0 }, holdS: 4.5 };
   L.awnings.push(aw1);
   L.props.push({ kind: 'pilaster', x: 56.85, top: 3.2 });
   light({ x: 60.4, y: 7.4, base: 270, amp: 18, period: 7.5, half: 30, range: 14, kind: 'lantern', maxDev: 55 });
   // the high road
   plat(51.6, 55.2, 8.4, { rail: true });
+  recess(51.8, 53.2, 2.3, 8.4);
   plat(58.6, 63.4, 8.4, { rail: true, hook: 60.4 });
   plat(66.4, 70.4, 8.4, { rail: true });
-  light({ x: 74.6, y: 13.2, base: 190, amp: 11, period: 5.6, phase: 1.3, half: 4.5, range: 24, kind: 'bracket', maxDev: 30 });
+  light({ x: 74.6, y: 13.2, base: 189, amp: 13, period: 5.6, phase: 1.3, half: 4, range: 24, kind: 'bracket', maxDev: 30 });
   pipe(70.0, 0, 8.4);
   recess(64.8, 66.2, 2.4);
-  checkpoint(52.6, 0);
 
   // ---------------------------------------------------------------
   // V. THE WATCHER RESPONDS. A gate passage with an iron shutter. When
@@ -119,7 +129,7 @@ function buildLevel() {
   solid(80, 2.7, 88, 11.8, { kind: 'gate', grabTop: true });
   L.shutters.push({ x0: 80.0, x1: 80.35, top: 2.7, y: 2.7, open: 2.7, reach: 36, delay: 0.5, speed: 0.48, lift: 1.1, wait: 0 });
   pipe(79.4, 0, 11.8);
-  light({ x: 92.2, y: 17.6, base: 200, amp: 9, period: 5.6, phase: 2.0, half: 7, range: 30, kind: 'tower', maxDev: 34 });
+  light({ x: 92.2, y: 17.6, base: 200, amp: 9, period: 5.6, phase: 2.0, half: 7, range: 21, kind: 'tower', maxDev: 34 });
   checkpoint(72.6, 0);
 
   // ---------------------------------------------------------------
@@ -141,7 +151,6 @@ function buildLevel() {
   light({ x: 90.8, y: 15.4, base: 318, amp: 14, period: 6.2, half: 9, range: 30, kind: 'bracket', maxDev: 40 });
   light({ x: 115.6, y: 15.0, base: 224, amp: 14, period: 6.2, phase: Math.PI, half: 9, range: 30, kind: 'bracket', maxDev: 40 });
   recess(110.9, 112.4, 2.4);
-  checkpoint(90.6, 0);
 
   // ---------------------------------------------------------------
   // VII. THE LAST LIGHT. The street's last lamp stands on a post over the
@@ -160,10 +169,10 @@ function buildLevel() {
   L.awnings.push(aw2);
   L.props.push({ kind: 'pilaster', x: 127.15, top: 3.0 });
   light({ x: 131.0, y: 6.6, base: 270, amp: 0, half: 40, range: 11, kind: 'post' });
-  light({ x: 118.4, y: 16.6, base: 326, amp: 10, period: 4.8, half: 7, range: 28, kind: 'tower', maxDev: 40 });
+  light({ x: 118.4, y: 16.6, base: 302, amp: 9, period: 4.8, half: 5, range: 28, kind: 'tower', maxDev: 40 });
   plat(128.6, 141.6, 13, { kind: 'roof', th: 0.6 });
   pipe(127.9, 6.4, 13);
-  light({ x: 146.4, y: 18.4, base: 194, amp: 6, period: 4.4, phase: 0.5, half: 6, range: 26, kind: 'tower', maxDev: 30 });
+  light({ x: 146.4, y: 18.4, base: 190, amp: 5, period: 4.4, phase: 0.5, half: 5, range: 26, kind: 'tower', maxDev: 30 });
   recess(136.2, 137.6, 2.4);
   checkpoint(119.6, 0);
   L.props.push({ kind: 'lamppost', x: 131.0, y: 0, top: 6.6 });

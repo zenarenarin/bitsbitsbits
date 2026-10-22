@@ -32,6 +32,10 @@ function createAudio() {
         const hf = ac.createBiquadFilter(); hf.type = 'lowpass'; hf.frequency.value = 240; hf.Q.value = 3;
         humGain = ac.createGain(); humGain.gain.value = 0; hum.connect(hf); hf.connect(humGain); humGain.connect(sfx); hum.start();
         A.humF = hf;
+        // being lit: a thin, high hiss that grows with how much of you is in the light
+        const es = ac.createBufferSource(); es.buffer = nb; es.loop = true;
+        const ef = ac.createBiquadFilter(); ef.type = 'bandpass'; ef.frequency.value = 5200; ef.Q.value = 4;
+        A.litGain = ac.createGain(); A.litGain.gain.value = 0; es.connect(ef); ef.connect(A.litGain); A.litGain.connect(sfx); es.start();
         A.ok = true;
       }
       if (ac.state === 'suspended') ac.resume();
@@ -115,6 +119,7 @@ function createAudio() {
     const t = ac.currentTime;
     // the lamps hum when they are near and turning
     humGain.gain.setTargetAtTime(S.hum * 0.06, t, 0.15);
+    A.litGain.gain.setTargetAtTime((S.lit || 0) * 0.05, t, 0.05);
     hum.frequency.setTargetAtTime(48 + S.humTurn * 40, t, 0.2);
     A.humF.frequency.setTargetAtTime(200 + S.tension * 600, t, 0.3);
     wind.gain.setTargetAtTime(0.03 + S.height * 0.003, t, 0.6);

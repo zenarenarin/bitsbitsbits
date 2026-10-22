@@ -21,14 +21,14 @@ function createPlayer(world, M) {
     ground: null, coyote: 0, buf: 0, jumping: false, dropT: 0, dropPlat: null, downT: 0,
     ledge: null, pipe: null, rope: null, rAng: 0, rW: 0, rLen: 0,
     climb: null, slideT: 0, crouch: false, coolLedge: 0, coolPipe: 0, coolRope: 0,
-    run: 0, airT: 0, landK: 0, pullT: 0, vaultT: 0, fallFrom: 0, events: []
+    run: 0, airT: 0, landK: 0, pullT: 0, vaultT: 0, stunT: 0, fallFrom: 0, events: []
   };
   const ev = (type, o) => P.events.push(Object.assign({ type }, o));
 
   P.reset = function (x, y, face) {
     Object.assign(P, { x, y, vx: 0, vy: 0, h: M.h, state: 'ground', face: face || 1, ground: null, coyote: 0, buf: 0, jumping: false,
       dropT: 0, dropPlat: null, downT: 0, ledge: null, pipe: null, rope: null, climb: null, slideT: 0, crouch: false,
-      coolLedge: 0, coolPipe: 0, coolRope: 0, airT: 0, landK: 0, pullT: 0, vaultT: 0, fallFrom: y });
+      coolLedge: 0, coolPipe: 0, coolRope: 0, airT: 0, landK: 0, pullT: 0, vaultT: 0, stunT: 0, holdDown: false, fallFrom: y });
     P.events.length = 0;
     support();
     if (!P.ground) P.state = 'air';
@@ -99,6 +99,8 @@ function createPlayer(world, M) {
     const impact = -P.vy;
     P.state = 'ground'; P.ground = s; P.vy = 0; P.jumping = false; P.vaultT = 0;
     P.landK = clamp(impact / 18, 0, 1);
+    // a long drop costs a stumble
+    if (P.fallFrom - P.y > 5.5) { P.stunT = 0.4; P.vx *= 0.3; }
     ev('land', { v: impact, kind: s.kind, drop: P.fallFrom - P.y, x: P.x, y: P.y });
   }
 
@@ -123,6 +125,8 @@ function createPlayer(world, M) {
     P.crouch = false; P.slideT = 0; P.h = M.h;
     grabLedge({ y: p.y, x0: p.x0, x1: p.x1, plat: p, lip: true, side: 0, shimmy: true });
     P.dropPlat = p; P.dropT = 0.2;
+    // the stick is still held down: let it come back before down means "let go"
+    P.holdDown = true;
   }
 
   // ---------- grabbing ----------
@@ -213,6 +217,7 @@ function createPlayer(world, M) {
 
   function stepBody(dt, I) {
     const onG = P.state === 'ground';
+    if (P.stunT > 0) { P.stunT -= dt; I = { mx: I.mx * 0.15, my: 0, jumpHeld: false }; P.buf = 0; }
     // crouch and slide
     const wantDown = I.my < -0.5;
     if (onG) {
@@ -291,8 +296,9 @@ function createPlayer(world, M) {
       // a pull-up jump: up and over the lip
       return startClimb(true);
     }
+    if (I.my > -0.3) P.holdDown = false;
     if (I.my > 0.5) return startClimb(false);
-    if (I.my < -0.6) release();
+    if (I.my < -0.6 && !P.holdDown) release();
   }
   function release() { P.state = 'air'; P.ledge = null; P.vy = 0; P.coolLedge = 0.35; P.fallFrom = P.y; P.airT = 0; ev('release', {}); }
   function startClimb(quick) {
