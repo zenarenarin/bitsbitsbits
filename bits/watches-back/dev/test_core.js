@@ -79,6 +79,16 @@ const deg = a => +(wrap(a) / DEG).toFixed(1);
   run(S, 10, {});
   check('capture: an unwatched watcher reaches the traveller', S.over && S.over.kind === 'contact', S.over);
 }
+// --- the first touch strikes and throws you clear; a second while marked is fatal ---
+{
+  const S = createSim({ n: 2, doors: [[0], [0]], player: { k: 0, a: -90 }, eyes: [{ type: 'watcher', k: 0, a: -70, name: 'w' }] });
+  let struck = null; run(S, 6, s => { if (!struck && s.events.some(e => e.type === 'strike')) struck = { t: s.t, a: s.P.a, marked: s.P.marked }; return {}; });
+  check('strike: first contact is not fatal; it marks and shoves', struck && struck.marked > 5, struck);
+  check('strike: the eye recoils, then a second touch while marked captures', S.over && S.over.kind === 'contact', S.over);
+  const S2 = createSim({ n: 2, doors: [[0], [0]], player: { k: 0, a: -90 }, eyes: [{ type: 'unblinking', k: 0, a: -70, name: 'u' }] });
+  run(S2, 6, {});
+  check('strike: the unblinking takes you on the first touch', S2.over && S2.stats.strikes === undefined, S2.over);
+}
 // --- rotation: clutch and gears ---
 {
   const S = createSim({ n: 3, rotation: true, doors: [[0], [0], [0]], player: { k: 1, a: -90 } });

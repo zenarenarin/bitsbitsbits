@@ -6,9 +6,15 @@
 function createView(THREE, renderer, opts) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(PAL.void);
-  const camera = new THREE.OrthographicCamera(-10, 10, 10, -10, -10, 10);
-  camera.position.z = 5;
-  const V = { scene, camera, zoom: 1, cx: 0, cy: 0, scale: 20, w: 1, h: 1, fade: 1, dread: 0, wobble: 1 };
+  // two cameras: a flat overview (title, ending) and, in play, a tilted camera that stays with
+  // the traveller while the spiral turns around them; its "up" always points toward the centre
+  const ortho = new THREE.OrthographicCamera(-10, 10, 10, -10, -10, 10);
+  ortho.position.z = 5;
+  const pcam = new THREE.PerspectiveCamera(46, 1, 0.1, 400);
+  const V = { scene, camera: ortho, ortho, pcam, follow: false, zoom: 1, cx: 0, cy: 0, scale: 20, w: 1, h: 1, fade: 1, dread: 0, wobble: 1, bandPx: 0,
+    rig: { yaw: Math.PI / 2, x: 0, y: 0, r: 8, init: false } };
+  const ray = new THREE.Raycaster(), _nd = new THREE.Vector2(), _v3 = new THREE.Vector3(), _camUp = new THREE.Vector3();
+  const TILT = 34 * Math.PI / 180;
   const canvasMaker = opts.canvas;
   const small = !!opts.small;
   const eyeMat = makeEyeMaterial(THREE);
@@ -35,15 +41,54 @@ function createView(THREE, renderer, opts) {
   const FIG_SCALE = 1.25;
   figure.scale.setScalar(FIG_SCALE);
   scene.add(figure);
+  // its long olive shadow, thrown outward across the floor
+  const shadowMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, uniforms: { alpha: { value: 0.5 } },
+    vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: GLSL_NOISE + `uniform float alpha; varying vec2 vP; void main(){
+      float t = clamp(vP.y / 2.2, 0.0, 1.0);
+      float w = mix(0.2, 0.42, t) * (1.0 - smoothstep(0.75, 1.0, t));
+      float edge = abs(vP.x) - w + (vnoise(vP * 9.0) - 0.5) * 0.06;
+      float a = (1.0 - smoothstep(-0.02, 0.03, edge)) * alpha * (1.0 - t * 0.6);
+      if (a < 0.01) discard; gl_FragColor = vec4(0.43, 0.42, 0.18, a); }`,
+  });
+  const shadowGeo = new THREE.PlaneGeometry(1.2, 2.4); shadowGeo.translate(0, 1.1, 0);
+  const shadow = new THREE.Mesh(shadowGeo, shadowMat);
+  shadow.renderOrder = 2; shadow.frustumCulled = false;
+  scene.add(shadow);
+  // the way in: a pale breath over the opening that leads inward, so the goal is never a mystery
+  const beaconMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, uniforms: { time: { value: 0 }, alpha: { value: 0 } },
+    vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform float time, alpha; varying vec2 vP; void main(){
+      float r = length(vP);
+      float pulse = 0.5 + 0.5 * sin(time * 2.4);
+      float halo = (1.0 - smoothstep(0.35, 1.0, r)) * (0.35 + 0.25 * pulse);
+      // three small chevrons pointing inward (+y), drifting toward the centre
+      float ch = 0.0;
+      for (int i = 0; i < 3; i++) {
+        float y0 = -0.55 + float(i) * 0.38 + fract(time * 0.35) * 0.38;
+        float d = abs(vP.y - y0 - (0.18 - abs(vP.x) * 0.55));
+        ch = max(ch, (1.0 - smoothstep(0.025, 0.06, d)) * step(abs(vP.x), 0.3) * (1.0 - smoothstep(0.4, 0.85, abs(vP.y))));
+      }
+      float a = max(halo, ch * 0.85) * alpha;
+      if (a < 0.01) discard;
+      gl_FragColor = vec4(mix(vec3(0.93, 0.89, 0.8), vec3(0.06), ch), a); }`,
+  });
+  const beacon = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.2), beaconMat);
+  beacon.renderOrder = 3; beacon.frustumCulled = false;
+  scene.add(beacon);
+  V.beacon = { x: 0, y: 0, on: false };
 
   // ---------- gaze thread ----------
   const TN = 24;
   const threadGeo = new THREE.BufferGeometry();
-  const tPos = new Float32Array((TN + 1) * 2 * 3), tT = new Float32Array((TN + 1) * 2);
+  const tPos = new Float32Array((TN + 1) * 2 * 3), tT = new Float32Array((TN + 1) * 2), tSide = new Float32Array((TN + 1) * 2);
+  for (let i = 0; i <= TN; i++) { tSide[i * 2] = 1; tSide[i * 2 + 1] = -1; }
   const tIdx = [];
   for (let i = 0; i < TN; i++) { const a = i * 2; tIdx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
   for (let i = 0; i <= TN; i++) { tT[i * 2] = tT[i * 2 + 1] = i / TN; }
-  threadGeo.setIndex(tIdx); threadGeo.setAttribute('position', new THREE.BufferAttribute(tPos, 3)); threadGeo.setAttribute('t', new THREE.BufferAttribute(tT, 1));
+  threadGeo.setIndex(tIdx); threadGeo.setAttribute('position', new THREE.BufferAttribute(tPos, 3)); threadGeo.setAttribute('t', new THREE.BufferAttribute(tT, 1)); threadGeo.setAttribute('side', new THREE.BufferAttribute(tSide, 1));
   const thread = new THREE.Mesh(threadGeo, threadMat);
   thread.frustumCulled = false; thread.renderOrder = 6;
   scene.add(thread);
@@ -170,12 +215,65 @@ function createView(THREE, renderer, opts) {
   };
   V.applyCamera = function () {
     const s = V.scale * V.zoom;
-    camera.left = -V.cx / s; camera.right = (V.w - V.cx) / s;
-    camera.top = V.cy / s; camera.bottom = -(V.h - V.cy) / s;
-    camera.updateProjectionMatrix();
+    ortho.left = -V.cx / s; ortho.right = (V.w - V.cx) / s;
+    ortho.top = V.cy / s; ortho.bottom = -(V.h - V.cy) / s;
+    ortho.updateProjectionMatrix();
+    if (V.follow) placeFollow();
   };
-  V.toWorld = (sx, sy) => { const s = V.scale * V.zoom; return [(sx - V.cx) / s, -(sy - V.cy) / s]; };
-  V.toScreen = (x, y) => { const s = V.scale * V.zoom; return [V.cx + x * s, V.cy - y * s]; };
+  V.setFollow = on => { V.follow = !!on; V.camera = on ? pcam : ortho; V.rig.init = false; V.applyCamera(); };
+  // how wide a stretch of the world the follow camera shows at the traveller's feet, in units
+  const viewWidth = r => clamp(4.2 + r * 0.72, 6.2, 10.5);
+  function placeFollow() {
+    const R = V.rig;
+    const ux = Math.cos(R.yaw), uy = Math.sin(R.yaw);
+    const Wu = viewWidth(R.r) / V.zoom;
+    const aspect = V.w / Math.max(1, V.h - V.bandPx);
+    pcam.aspect = V.w / V.h;
+    const D = Wu / (2 * Math.tan(pcam.fov * Math.PI / 360) * (V.w / V.h));
+    // look a little ahead of the traveller, toward the centre, so they stand low in the frame
+    const ahead = Wu * 0.42;
+    const tx = R.x + ux * ahead, ty = R.y + uy * ahead;
+    pcam.position.set(tx - ux * D * Math.sin(TILT), ty - uy * D * Math.sin(TILT), D * Math.cos(TILT));
+    pcam.up.set(ux, uy, 0);
+    pcam.lookAt(tx, ty, 0);
+    // keep the scene centred in the space above the control band
+    pcam.setViewOffset(V.w, V.h, 0, V.bandPx * 0.5, V.w, V.h);
+    pcam.updateProjectionMatrix();
+    pcam.updateMatrixWorld();
+  }
+  V.updateRig = function (S, dt, snap) {
+    const P = S.P;
+    let pr = S.playerR();
+    if (P.crossT > 0) pr = lerp(P.crossFrom, pr, smooth(1 - P.crossT / RULES.crossTime));
+    const th = S.playerTheta();
+    const R = V.rig, yaw = th + Math.PI;
+    const x = pr * Math.cos(th), y = pr * Math.sin(th);
+    if (!R.init || snap) { R.yaw = yaw; R.x = x; R.y = y; R.r = pr; R.init = true; }
+    else {
+      R.yaw += wrap(yaw - R.yaw) * (1 - Math.exp(-9 * dt));
+      R.x = damp(R.x, x, 12, dt); R.y = damp(R.y, y, 12, dt); R.r = damp(R.r, pr, 3, dt);
+    }
+    if (V.follow) placeFollow();
+  };
+  V.toWorld = (sx, sy) => {
+    if (!V.follow) { const s = V.scale * V.zoom; return [(sx - V.cx) / s, -(sy - V.cy) / s]; }
+    _nd.set(sx / V.w * 2 - 1, -(sy / V.h) * 2 + 1);
+    ray.setFromCamera(_nd, pcam);
+    const o = ray.ray.origin, d = ray.ray.direction;
+    if (Math.abs(d.z) < 1e-6) return [o.x, o.y];
+    const t = -o.z / d.z;
+    return [o.x + d.x * t, o.y + d.y * t];
+  };
+  V.toScreen = (x, y, z) => {
+    if (!V.follow) { const s = V.scale * V.zoom; return [V.cx + x * s, V.cy - y * s]; }
+    _v3.set(x, y, z || 0).project(pcam);
+    return [(_v3.x * 0.5 + 0.5) * V.w, (-_v3.y * 0.5 + 0.5) * V.h];
+  };
+  // screen directions in the world, for groove-relative controls: [right, up]
+  V.screenAxes = () => {
+    const R = V.rig, ux = Math.cos(R.yaw), uy = Math.sin(R.yaw);
+    return V.follow ? { up: [ux, uy], right: [uy, -ux] } : { up: [0, 1], right: [1, 0] };
+  };
 
   // ---------- per frame ----------
   const _p = [0, 0], _q = [0, 0];
@@ -270,22 +368,32 @@ function createView(THREE, renderer, opts) {
     if (Pl.crossT > 0) pr = lerp(Pl.crossFrom, pr, smooth(1 - Pl.crossT / RULES.crossTime));
     const pth = S.playerTheta();
     const fx0 = pr * Math.cos(pth), fy0 = pr * Math.sin(pth);
-    figure.position.set(fx0, fy0 - 0.08, 0);
+    figure.position.set(fx0, fy0, 0);
+    figure.quaternion.copy(V.camera.quaternion);
     figure.visible = !o.hidePlayer;
+    shadow.visible = figure.visible && V.follow;
+    shadow.position.set(fx0, fy0, 0.001);
+    shadow.rotation.set(0, 0, pth - Math.PI / 2);   // local +y points outward from the centre
+    shadowMat.uniforms.alpha.value = 0.42 * V.fade;
     const g = S.gaze.dir;
     const hasGaze = !!S.gaze.point;
-    const lookX = hasGaze ? g[0] : (Pl.w ? sign(-Math.sin(pth) * Pl.w) : figMat.uniforms.face.value);
-    figMat.uniforms.face.value = damp(figMat.uniforms.face.value, lookX >= 0 ? 1 : -1, 10, dt) >= 0 ? 1 : -1;
-    figMat.uniforms.look.value.set(hasGaze ? g[0] : lookX, hasGaze ? g[1] : 0);
+    const ax = V.screenAxes();
+    const gx = hasGaze ? g[0] * ax.right[0] + g[1] * ax.right[1] : 0, gy = hasGaze ? g[0] * ax.up[0] + g[1] * ax.up[1] : 0;
+    const walkScreen = Pl.w ? sign((-Math.sin(pth) * ax.right[0] + Math.cos(pth) * ax.right[1]) * Pl.w) : 0;
+    const lookX = hasGaze ? gx : (walkScreen || figMat.uniforms.face.value);
+    figMat.uniforms.face.value = lookX >= 0 ? 1 : -1;
+    figMat.uniforms.look.value.set(hasGaze ? gx : lookX, hasGaze ? gy : 0);
     figMat.uniforms.walk.value += Pl.moved * 7.5;
     figMat.uniforms.speed.value = damp(figMat.uniforms.speed.value, Math.min(1, Math.abs(Pl.v) / RULES.walk), 10, dt);
-    figMat.uniforms.lean.value = damp(figMat.uniforms.lean.value, clamp(Pl.v / RULES.walk, -1, 1) * (-Math.sin(pth)) , 8, dt);
+    figMat.uniforms.lean.value = damp(figMat.uniforms.lean.value, walkScreen * Math.min(1, Math.abs(Pl.v) / RULES.walk), 8, dt);
     figMat.uniforms.fear.value = damp(figMat.uniforms.fear.value, clamp((o.threat || 0), 0, 1), 4, dt);
     figMat.uniforms.exposure.value = Pl.exposure;
     figMat.uniforms.ink.value = o.capture || 0;
 
     // --- gaze thread from the traveller's eye ---
-    const hx = fx0 + 0.05 * FIG_SCALE * (figMat.uniforms.face.value), hy = fy0 + 0.98 * FIG_SCALE - 0.08;
+    _camUp.set(0, 1, 0).applyQuaternion(V.camera.quaternion);
+    const headH = 0.98 * FIG_SCALE;
+    const hx = fx0 + _camUp.x * headH, hy = fy0 + _camUp.y * headH, hz = _camUp.z * headH;
     let tx, ty, held = 0, show = 0;
     if (S.gaze.target !== null) {
       const te = S.eyes[S.gaze.target]; S.eyePos(te, _p); tx = _p[0]; ty = _p[1];
@@ -307,12 +415,25 @@ function createView(THREE, renderer, opts) {
         const t = i / TN;
         // a held thread is taut and trembles; a looking line sags slightly
         const sag = (1 - threadMat.uniforms.held.value) * Math.sin(t * Math.PI) * 0.15 + threadMat.uniforms.held.value * Math.sin(t * 40 + tmr * 30) * 0.008;
-        const x = hx + dx * t + nx * sag, y = hy + dy * t + ny * sag, ww = wdt * (1 - t * 0.5);
-        tPos[i * 6] = x + nx * ww; tPos[i * 6 + 1] = y + ny * ww; tPos[i * 6 + 2] = 1;
-        tPos[i * 6 + 3] = x - nx * ww; tPos[i * 6 + 4] = y - ny * ww; tPos[i * 6 + 5] = -1;
+        const x = hx + dx * t + nx * sag, y = hy + dy * t + ny * sag, z = hz * (1 - t), ww = wdt * (1 - t * 0.5);
+        tPos[i * 6] = x + nx * ww; tPos[i * 6 + 1] = y + ny * ww; tPos[i * 6 + 2] = z;
+        tPos[i * 6 + 3] = x - nx * ww; tPos[i * 6 + 4] = y - ny * ww; tPos[i * 6 + 5] = z;
       }
       threadGeo.attributes.position.needsUpdate = true;
     }
+
+    // --- the way in ---
+    const nd = o.beacon && S.P.k < S.N ? S.nearestDoor(S.P.k, pth, true) : null;
+    V.beacon.on = !!nd;
+    beaconMat.uniforms.time.value = tmr;
+    beaconMat.uniforms.alpha.value = damp(beaconMat.uniforms.alpha.value, nd ? 1 : 0, 5, dt);
+    if (nd) {
+      const bt = S.doorTheta(nd.w, nd.d);
+      V.beacon.x = nd.w.r * Math.cos(bt); V.beacon.y = nd.w.r * Math.sin(bt);
+      beacon.position.set(V.beacon.x, V.beacon.y, 0.002);
+      beacon.rotation.set(0, 0, bt + Math.PI / 2);   // local +y points toward the centre
+    }
+    beacon.visible = beaconMat.uniforms.alpha.value > 0.02;
 
     // --- sentinel sight, cut short by whatever blocks it ---
     for (const c of B.cones) {
@@ -389,7 +510,7 @@ function createView(THREE, renderer, opts) {
     }
   };
 
-  V.render = () => renderer.render(scene, camera);
+  V.render = () => renderer.render(scene, V.camera);
   return V;
 }
 

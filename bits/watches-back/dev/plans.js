@@ -10,7 +10,9 @@ module.exports[6] = {
   lure: [{ walk: -32 }, { until: S => S.knots.length > 0, max: 25 }, { walk: -90 }, { in: 1 }, { walk: -170 }, { in: 1 }, { door: 'in' }],
 };
 module.exports[7] = { watch: [{ walk: -40 }, { gaze: 'shy' }, { wait: 0.3 }, { walk: -10 }, { in: 1 }, { gaze: null }, { walk: 95 }, { until: S => S.eyeTheta(S.eye('shy2')) > 80 * Math.PI / 180, max: 8 }, { gaze: 'shy2' }, { wait: 0.3 }, { walk: 30 }, { in: 1 }, { door: 'in' }] };
-module.exports[8] = { feed: [{ walk: -28 }, { until: S => S.knots.length > 0, max: 30 }, { walk: -90 }, { in: 1 }, { walk: -110 }, { until: S => Math.abs(S.eyeTheta(S.eye('low')) - S.playerTheta()) < 0.1, max: 6 }, { gaze: 'low' }, { wait: 0.3 }, { walk: -55 }, { in: 1 }, { rotDoor: [2, 0, -10] }, { walk: -10 }, { in: 1 }] };
+module.exports[8] = { conductor: [{ until: S => { const c = S.eye('c1'), th = S.eyeTheta(c); const p = S.playerPos(), q = S.eyePos(c); return !S.occluded(p[0], p[1], q[0], q[1], c) && th > -1.2 && th < -0.9 && S.groups[0].dir > 0; }, max: 30 }, { gaze: 'c1' }, { wait: 0.3 }, { gaze: null }, { in: 1 }, { walk: -150 }, { in: 1 }] };
+// waiting for the formation to pass, without breaking it, gets you struck
+module.exports.familiar8 = [{ until: S => { const th = S.eyeTheta(S.eye('c1')); return th > -1.2 && th < -0.9 && S.groups[0].dir > 0; }, max: 30 }, { in: 1 }, { walk: -150 }, { in: 1 }];
 const aligned = n => S => Math.abs(require('./load')().wrap(S.eyeTheta(S.eye(n)) - S.playerTheta())) < 0.06 && S.selectTarget && true;
 module.exports[9] = { narrow: [{ in: 1 }, { rotDoor: [1, 0, -60] }, { walk: -60 }, { until: aligned('v1'), max: 10 }, { gaze: 'v1' }, { wait: 0.35 }, { rotDoor: [1, 0, -72] }, { walk: -72 }, { in: 1 },
   { rotDoor: [2, 0, -130] }, { walk: -130 }, { in: 1 }, { rotDoor: [3, 0, -100] }, { walk: -100 }, { until: aligned('v2'), max: 10 }, { gaze: 'v2' }, { wait: 0.35 }, { rotDoor: [3, 0, -118] }, { walk: -118 }, { in: 1 }, { rotDoor: [4, 0, -150] }, { walk: -150 }, { in: 1 }] };
@@ -23,7 +25,7 @@ module.exports[13] = { tell: [{ in: 1 }, { gaze: 'f3' }, { wait: 0.6 }, { gaze: 
 module.exports[14] = { conductor: [{ until: S => { const c = S.eye('c3'); const p = S.playerPos(), q = S.eyePos(c); const th = S.eyeTheta(c); return !S.occluded(p[0], p[1], q[0], q[1], c) && th > -0.6 && th < 0 && S.eyeTheta(S.eye('c0')) > -1.3; }, max: 40 }, { gaze: 'c3' }, { wait: 0.3 }, { gaze: null }, { in: 1 }, { walk: -150 }, { until: S => Math.abs(S.eyeTheta(S.eye('low')) - S.playerTheta()) < 0.06, max: 8 }, { gaze: 'low' }, { wait: 0.3 }, { rotDoor: [1, 0, -125] }, { walk: -125 }, { in: 1 }, { rotDoor: [2, 0, -90] }, { walk: -90 }, { in: 1 }] };
 // E4's solution, replayed on E15: it must fail (the keeper is a liar now; held, it still rides its ring)
 module.exports.familiar15 = [{ in: 1 }, { gaze: 'keeper' }, { wait: 0.4 }, { rotDoor: [1, 0, -60] }, { walk: -60 }, { in: 1 }, { rotDoor: [2, 0, 0] }, { door: 'in' }];
-module.exports[15] = { wedge: [{ in: 1 }, { gaze: 'wedge' }, { wait: 0.35 }, { rotDoor: [1, 0, -15] }, { walk: -15 }, { in: 1 }, { rotDoor: [2, 0, 40] }, { walk: 40 }, { in: 1 }] };
+module.exports[15] = { wedge: [{ in: 1 }, { gaze: 'wedge' }, { wait: 0.35 }, { rotDoor: [1, 0, -15] }, { gaze: 'echoer' }, { walk: -15 }, { in: 1 }, { rotDoor: [2, 0, 40] }, { walk: 40 }, { in: 1 }] };
 const near = (n, tol) => S => Math.abs(require('./load')().wrap(S.eyeTheta(S.eye(n)) - S.playerTheta())) < (tol || 0.06);
 module.exports[16] = { sequence: [{ in: 1 }, { rotDoor: [1, 0, -100] }, { until: near('low'), max: 6 }, { gaze: 'low' }, { wait: 0.3 }, { rotDoor: [1, 0, -118] }, { walk: -118 }, { in: 1 },
   { rotDoor: [2, 0, -125] }, { walk: -143 }, { until: near('shy'), max: 10 }, { gaze: 'shy' }, { wait: 0.3 }, { walk: -125 }, { in: 1 }, { rotDoor: [3, 0, -95] }, { walk: -95 }, { in: 1 }] };

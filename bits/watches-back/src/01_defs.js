@@ -26,7 +26,9 @@ const RULES = {
   contactSlack: 0.85,   // lethal contact uses this fraction of the eye's radius
   exposureRate: 1.15,   // a sentinel's gaze fills exposure at this rate (1 = caught)
   exposureDecay: 1.4,
-  graceStart: 1.0,      // nothing moves for this long when an encounter opens
+  graceStart: 1.0,
+  markTime: 6,          // after being struck, the next touch within this time is fatal
+  knockback: 1.4,       // units the traveller is thrown clear by a strike      // nothing moves for this long when an encounter opens
 };
 
 // type: rad (units), spd (units/s), lethal on contact, solid to walking,

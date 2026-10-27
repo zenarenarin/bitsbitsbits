@@ -55,7 +55,7 @@ function createSim(def, opt) {
 
   // ---------- player ----------
   const pk = (def.player && def.player.k) || 0;
-  S.P = { k: pk, a: (def.player && def.player.a !== undefined ? def.player.a : -90) * DEG, v: 0, rad: RULES.playerRad, crossT: 0, crossFrom: G.rings[pk].r, exposure: 0, w: 0, moved: 0, bump: 0, alive: true };
+  S.P = { k: pk, a: (def.player && def.player.a !== undefined ? def.player.a : -90) * DEG, v: 0, rad: RULES.playerRad, crossT: 0, crossFrom: G.rings[pk].r, exposure: 0, marked: 0, stagger: 0, w: 0, moved: 0, bump: 0, alive: true };
 
   // ---------- eyes ----------
   const byName = {};
@@ -320,7 +320,8 @@ function createSim(def, opt) {
     const tx = -Math.sin(th), ty = Math.cos(th), ux = Math.cos(th), uy = Math.sin(th);
     const vt = m[0] * tx + m[1] * ty, vr = m[0] * ux + m[1] * uy;
     let target = vt * RULES.walk;
-    if (P.crossT > 0) { P.crossT -= dt; target = 0; }
+    if (P.stagger > 0) { P.stagger -= dt; target = 0; }
+    else if (P.crossT > 0) { P.crossT -= dt; target = 0; }
     else if (Math.abs(vr) > 0.45 && Math.abs(vr) >= Math.abs(vt) * 0.85) {
       const inward = vr < 0;
       if (tryCross(inward)) return;
@@ -725,14 +726,40 @@ function createSim(def, opt) {
     ev('capture', S.over);
   }
   S.capture = capture;
+  function strike(e) {
+    const P = S.P, r = S.rings[P.k].r;
+    P.marked = RULES.markTime;
+    S.stats.strikes = (S.stats.strikes || 0) + 1;
+    // thrown away from the eye along the groove, as far as the groove allows
+    const away = sign(wrap(P.a - e.a)) || 1;
+    const want = away * RULES.knockback / r;
+    let max = Math.abs(want);
+    for (const b of S.rings[P.k].barriers) { const dd = wrap(b - P.a) * away; if (dd > 0) max = Math.min(max, Math.max(0, dd - (P.rad + 0.12) / r)); }
+    for (const o of S.eyes) {
+      if (o === e || o.k !== P.k || !groove(o) || !alive(o) || !o.solid || o.state === ST.REVEALED) continue;
+      const dd = wrap(o.a - P.a) * away;
+      if (dd > 0) max = Math.min(max, Math.max(0, dd - (P.rad + o.rad + 0.05) / r));
+    }
+    P.a = wrap(P.a + away * max); P.v = 0; P.stagger = 0.35;
+    // the eye recoils: it stops, and a lunging liar spends its lunge
+    e.pause = Math.max(e.pause, 1.2); e.lunge = 0;
+    if (e.group !== null) S.groups[e.group].pause = Math.max(S.groups[e.group].pause, 1.2);
+    ev('strike', { eye: e.id });
+  }
+  S.strike = strike;
   function stepContact() {
     const P = S.P;
+    if (P.marked > 0) P.marked -= SIM_DT;
     let nearest = 1e9;
     for (const e of S.eyes) {
       if (e.k !== P.k || !groove(e) || !e.lethal) continue;
       if (e.state !== ST.ACTIVE && e.state !== ST.FEIGN) continue;
       const d = arc(P.k, e.a, P.a);
-      if (d < e.rad * RULES.contactSlack + P.rad) { capture('contact', e); return; }
+      if (d < e.rad * RULES.contactSlack + P.rad) {
+        // a first touch strikes and throws you clear; a second while marked, or anything that cannot be held, takes you
+        if (P.marked > 0 || e.immune || e.type === 'crown' || def.noStrike) { capture('contact', e); return; }
+        strike(e); return;
+      }
       nearest = Math.min(nearest, d - e.rad - P.rad);
     }
     if (nearest < 0.35 && !S._close) { S._close = true; S.stats.closeCalls++; ev('close'); }

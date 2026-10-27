@@ -9,16 +9,16 @@ const defaultSave = () => ({ best: 0, bestEndless: 0, deepest: 0, completed: fal
 
 // why a capture happened, and what it teaches; keyed by what caught you
 const CAUGHT = {
-  watcher: ['It reached you', 'It moves only while you are not looking at it.'],
-  drifter: ['Crushed in the groove', 'The drifter is blind. It only goes until something stops it.'],
-  collector: ['Gathered', 'Hold the collector, or never let three of them meet.'],
-  liar: ['It was never held', 'The shy one looks away when watched. It is waiting for you to look away too.'],
-  liarFeign: ['It was never held', 'Watched, the shy one only pretends. It does not stop for you; walk into it and it takes you.'],
-  mimic: ['It moved the way you moved', 'It copies your steps a moment late. Stop, and it keeps coming for that moment.'],
-  sentinel: ['Seen', 'Held in your gaze, a sentinel sees nothing. Another eye between you hides you too.'],
-  choir: ['The choir sang over you', 'One of them blinks first. Hold that one and the song breaks.'],
-  crown: ['The crown closed', 'Only the eye that conducts it can break it, and only when it is whole.'],
-  unblinking: ['It has no lids', 'Your gaze is nothing to it. Held eyes in its way are walls; turn its ring away from you.'],
+  watcher: ['It reached you', 'It only moves while you are not watching it.'],
+  drifter: ['Crushed in the groove', 'The drifter is blind. It goes until something stops it.'],
+  collector: ['Gathered', 'Watch the collector, or keep the others apart.'],
+  liar: ['It was never held', 'This one looks away when watched. It was waiting for you to look away too.'],
+  liarFeign: ['It was never held', 'Watching it only makes it pretend. Walking into it is still fatal.'],
+  mimic: ['It moved the way you moved', 'It copies your steps a moment late. When you stop, it keeps coming for that moment.'],
+  sentinel: ['Seen', 'A watched sentinel sees nothing. An eye between you hides you too.'],
+  choir: ['The choir closed over you', 'One of them blinks first. Watch that one and the formation breaks.'],
+  crown: ['The crown closed', 'Only the eye leading it can break it, and only when the crown is whole.'],
+  unblinking: ['It has no lids', 'Your gaze does nothing to it. Watched eyes in its way are walls. Turn its ring away.'],
   echo: ['You met yourself', 'These move the way you once moved.'],
 };
 
@@ -37,13 +37,11 @@ window.plethoraBit = {
     canvas.style.cssText += ';width:100%;height:100%;display:block;background:#100e0c';
     const H = createUI(ctx);
     H.showOnly(H.title);
-    H.tstats.innerHTML = '<div><b>…</b>OPENING</div>';
+    H.tstats.innerHTML = '<div><b>…</b>Opening</div>';
     for (const b of [H.begin, H.cont, H.endless, H.toSet]) b.style.visibility = 'hidden';
     H.top.style.display = 'none';
     if (ctx.markVisualReady) ctx.markVisualReady('title');
-    try { ctx.loadFont('DM Serif Display', 'dm-serif-display', '1.0.0', { weight: '400', style: 'normal' }).catch(() => { }); } catch (e) { }
-    try { ctx.loadFont('DM Serif Display', 'dm-serif-display', '1.0.0', { weight: '400', style: 'italic' }).catch(() => { }); } catch (e) { }
-    try { ctx.loadFont('Nunito Sans', 'nunito-sans', '1.0.0', { weight: '700', style: 'normal' }).catch(() => { }); } catch (e) { }
+    for (const wgt of ['400', '600', '700']) { try { ctx.loadFont('Inter', 'inter', '1.0.0', { weight: wgt, style: 'normal' }).catch(() => { }); } catch (e) { } }
 
     function bootFail(stage, err) {
       try { ctx.platform.error({ stage, message: String((err && err.message) || err) }); } catch (e) { }
@@ -94,15 +92,16 @@ window.plethoraBit = {
     function showTitle() {
       mode = 'title'; mt = 0; run = null;
       def = TITLE_DEF; S = createSim(def); S.forcedRot = 0.05;
+      V.setFollow(false);
       V.build(S, def); V.dread = 0.2; V.fade = 0.6;
       layout(ctx.width, ctx.height, area());
       H.showOnly(H.title); setPlayHud(false);
-      H.tstats.innerHTML = `<div><b>${save.best.toLocaleString()}</b>BEST</div><div><b>${save.deepest ? roman(save.deepest) : '—'}</b>DEEPEST</div><div><b>${save.bestEndless ? save.bestEndless.toLocaleString() : '—'}</b>ENDLESS</div>`;
+      H.tstats.innerHTML = `<div><b>${save.deepest ? save.deepest + ' / 20' : '—'}</b>Furthest</div><div><b>${save.best ? save.best.toLocaleString() : '—'}</b>Best run</div><div><b>${save.bestEndless ? save.bestEndless.toLocaleString() : '—'}</b>Endless</div>`;
       for (const b of [H.begin, H.cont, H.endless, H.toSet]) b.style.visibility = '';
       const act = continueAct();
-      H.cont.hidden = act <= 1; H.cont.textContent = act > 1 ? `CONTINUE FROM ACT ${roman(act)}` : 'CONTINUE';
+      H.cont.hidden = act <= 1; H.cont.textContent = act > 1 ? `Continue from act ${act}` : 'Continue';
       H.endless.disabled = !save.completed; H.endless.style.opacity = save.completed ? '' : '0.35';
-      H.endless.textContent = save.completed ? 'ENDLESS' : 'ENDLESS · LOCKED';
+      H.endless.textContent = save.completed ? 'Endless' : 'Endless (locked)';
       V.ink(0); V.zoom = 1; V.applyCamera();
     }
     // frame the spiral itself, with a margin of the dark field around it
@@ -114,9 +113,9 @@ window.plethoraBit = {
       H.top.style.display = on ? '' : 'none';
       H.band.style.display = on ? '' : 'none';
       H.dial.style.display = on && S && !S.rotLocked ? 'block' : 'none';
-      H.dialLab.style.display = H.dial.style.display;
-      H.stickLab.style.display = on && usedTouch ? '' : 'none';
-      if (!on) { H.stick.style.display = 'none'; H.stick.classList.remove('ghost'); H.hint.style.opacity = 0; H.vig.style.opacity = 0; }
+      H.stick.style.display = on && usedTouch ? 'block' : 'none';
+      if (on && !input.stick) homeStick();
+      if (!on) { H.stick.classList.remove('teach'); H.hint.style.opacity = 0; H.vig.style.opacity = 0; H.edge.style.display = 'none'; H.mark.style.opacity = 0; H.name.style.opacity = 0; }
     }
     let hint = { key: null, until: 0 };
     function showHint(key, text, dur) {
@@ -124,7 +123,9 @@ window.plethoraBit = {
       hint = { key, until: dur ? mt + dur : 1e9 };
       H.hint.textContent = text; H.hint.style.opacity = 1;
     }
-    function clearHint(key) { if (!key || hint.key === key) { hint.key = null; H.hint.style.opacity = 0; H.stick.classList.remove('ghost'); H.dial.classList.remove('ghost'); } }
+    function clearHint(key) { if (!key || hint.key === key) { hint.key = null; H.hint.style.opacity = 0; H.stick.classList.remove('teach'); H.dial.classList.remove('teach'); } }
+    // the stick rests in the lower left so the player always knows where walking lives
+    function homeStick() { H.stick.classList.remove('live'); H.stick.style.left = (save.settings.swap ? ctx.width - 88 : 88) + 'px'; H.stick.style.top = (bandBottom() - bandPx() * 0.5) + 'px'; H.knob.style.transform = ''; }
 
     // ---------- runs and encounters ----------
     function newRun(kind, startId) {
@@ -146,29 +147,44 @@ window.plethoraBit = {
       V.build(S, def); V.ink(0);
       layout(ctx.width, ctx.height, area());
       input.gazeSet = null; input.stick = null; input.dial = null;
-      H.stick.style.display = 'none';
-      H.num.innerHTML = run.kind === 'endless' ? `${roman(Math.min(20, run.depth))}${run.depth > 20 ? '+' + (run.depth - 20) : ''}<small>DEPTH</small>` : `${roman(E.id)}<small>OF XX</small>`;
-      H.name.textContent = E.name; H.whisper.textContent = E.whisper || '';
-      H.name.style.opacity = 0; H.whisper.style.opacity = 0;
-      updateScore();
+      H.num.textContent = run.kind === 'endless' ? `Depth ${run.depth}` : `${E.id} / 20`;
+      H.name.textContent = E.name;
+      H.name.style.opacity = 0;
       const firstOfAct = run.kind === 'campaign' && (E.id === run.startId || ENCOUNTERS.find(q => q.act === E.act).id === E.id);
+      if (V.follow || run) { V.setFollow(true); V.updateRig(S, 0, true); }
       if (showCard && firstOfAct && ACTS[E.act]) { mode = 'card'; mt = 0; H.actS.textContent = ACTS[E.act].sub; H.actT.textContent = ACTS[E.act].title; H.act.classList.add('on'); ctx.timeout(() => H.act.classList.add('show'), 30); setPlayHud(false); }
       else enterPlay();
     }
     function enterPlay() {
       mode = 'play'; mt = 0; V.fade = 1;
+      if (!V.follow) V.setFollow(true);
+      V.updateRig(S, 0, true);
       H.act.classList.remove('on', 'show');
       H.showOnly(null); setPlayHud(true);
       const enc = run.E;
-      ctx.timeout(() => { if (mode === 'play' && run && run.E === enc) { H.name.style.opacity = 0.8; H.whisper.style.opacity = 0.9; } }, 250);
-      ctx.timeout(() => { if (run && run.E === enc) { H.name.style.opacity = 0; H.whisper.style.opacity = 0; } }, 5200);
-      if (run.E.id === 1 && run.kind === 'campaign') showHint('walk', usedTouch ? 'Drag in the lower left to walk.' : 'Walk with W A S D or the arrow keys.');
-      if (!S.rotLocked && !run.learned.turn) { H.dial.classList.add('ghost'); }
-      if (!run.learned.walk && usedTouch) { H.stick.classList.add('ghost'); H.stick.style.left = (ctx.width * 0.22) + 'px'; H.stick.style.top = (bandBottom() - bandPx() * 0.5) + 'px'; }
+      // the encounter's name, briefly; then the drawing has the screen to itself
+      ctx.timeout(() => { if (mode === 'play' && run && run.E === enc) H.name.style.opacity = 0.9; }, 200);
+      ctx.timeout(() => { if (run && run.E === enc) H.name.style.opacity = 0; }, 2600);
+      if (run.E.id === 1 && run.kind === 'campaign') showHint('walk', usedTouch ? 'Drag the circle to walk.' : 'Walk with W A S D or the arrow keys.');
+      else if (enc.intro && run.kind === 'campaign' && !run.learned['intro' + enc.id]) { run.learned['intro' + enc.id] = true; showHint('intro', enc.intro, 4.5); }
+      if (!S.rotLocked && !run.learned.turn) H.dial.classList.add('teach');
+      if (!run.learned.walk && usedTouch) H.stick.classList.add('teach');
       audio.arrive();
     }
     function restartEncounter() { if (!run) return; startEncounter(run.E, false); }
-    function updateScore() { H.score.textContent = run ? Math.floor(run.score).toLocaleString() : ''; }
+    function updateScore() { }
+    // when the way deeper is off-screen, a small arrow on the edge points to it
+    function updateEdge() {
+      if (mode !== 'play' || !V.beacon.on) { H.edge.style.display = 'none'; return; }
+      const [sx, sy] = V.toScreen(V.beacon.x, V.beacon.y, 0), a = area();
+      const x0 = a.left + 24, x1 = ctx.width - a.right - 24, y0 = a.top + 72, y1 = bandBottom() - bandPx() - 12;
+      if (sx > x0 && sx < x1 && sy > y0 && sy < y1) { H.edge.style.display = 'none'; return; }
+      const cx = ctx.width / 2, cy = (y0 + y1) / 2, dx = sx - cx, dy = sy - cy;
+      const k = Math.min(Math.abs((dx > 0 ? x1 - cx : x0 - cx) / (dx || 1e-6)), Math.abs((dy > 0 ? y1 - cy : y0 - cy) / (dy || 1e-6)));
+      H.edge.style.display = 'block';
+      H.edge.style.left = (cx + dx * k) + 'px'; H.edge.style.top = (cy + dy * k) + 'px';
+      H.edge.style.transform = `rotate(${Math.atan2(dx, -dy)}rad)`;
+    }
 
     // ---------- the frame ----------
     let acc = 0;
@@ -184,7 +200,9 @@ window.plethoraBit = {
       if (K.has('KeyA') || K.has('ArrowLeft')) mx -= 1; if (K.has('KeyD') || K.has('ArrowRight')) mx += 1;
       if (K.has('KeyW') || K.has('ArrowUp')) my += 1; if (K.has('KeyS') || K.has('ArrowDown')) my -= 1;
       const l = Math.hypot(mx, my); if (l > 1) { mx /= l; my /= l; }
-      inp.move = [mx, my];
+      // screen right walks one way along the groove, screen up steps toward the centre
+      const ax = V.screenAxes();
+      inp.move = [ax.right[0] * mx + ax.up[0] * my, ax.right[1] * mx + ax.up[1] * my];
       // turning: the dial (a jog: how far you hold it is how fast it turns) or Q / E
       let rot = 0;
       if (input.dial) rot = clamp((input.dial.x - input.dial.ox) / (64 / save.settings.dial), -1, 1) * (Math.abs(input.dial.x - input.dial.ox) < 5 ? 0 : 1);
@@ -204,8 +222,8 @@ window.plethoraBit = {
     function step() {
       const inp = readInput();
       if (!inp.move) inp.move = [0, 0];
-      if (Math.hypot(inp.move[0], inp.move[1]) > 0.1) { run.learned.walk = true; if (hint.key === 'walk') clearHint('walk'); H.stick.classList.remove('ghost'); }
-      if (inp.rot) { if (!run.learned.turn && Math.abs(S.stats.rotated) > 0.6) { run.learned.turn = true; H.dial.classList.remove('ghost'); if (hint.key === 'turn') clearHint('turn'); } }
+      if (Math.hypot(inp.move[0], inp.move[1]) > 0.1 && !run.learned.walk) { run.learned.walk = true; if (hint.key === 'walk') clearHint('walk'); H.stick.classList.remove('teach'); }
+      if (inp.rot) { if (!run.learned.turn && Math.abs(S.stats.rotated) > 0.6) { run.learned.turn = true; H.dial.classList.remove('teach'); if (hint.key === 'turn') clearHint('turn'); } }
       const ring0 = S.P.k;
       S.step(inp);
       run.encT += DT; run.time += DT;
@@ -224,8 +242,8 @@ window.plethoraBit = {
         const e = ev.eye !== undefined && ev.eye >= 0 ? S.eyes[ev.eye] : null;
         const pan = e ? panOf(S.eyePos(e, _pp)) : 0;
         switch (ev.type) {
-          case 'pin': audio.pin(pan, e && e.type === 'drifter'); haptic('light'); run.pins++; if (!run.learned.pin) { run.learned.pin = true; if (hint.key === 'look') clearHint('look'); if (run.E.id <= 2) showHint('held', 'Held in your gaze, it cannot move.', 2.6); } break;
-          case 'release': audio.release(pan); if (!run.learned.release && run.learned.pin && run.E.id <= 2) { run.learned.release = true; showHint('released', 'Look away, and it moves again.', 2.6); } break;
+          case 'pin': audio.pin(pan, e && e.type === 'drifter'); haptic('light'); run.pins++; if (!run.learned.pin) { run.learned.pin = true; if (hint.key === 'look') clearHint('look'); if (run.E.id <= 2) showHint('held', 'While you watch it, it cannot move.', 2.6); } break;
+          case 'release': audio.release(pan); if (!run.learned.release && run.learned.pin && run.E.id <= 2) { run.learned.release = true; showHint('released', 'Look away and it moves again.', 2.6); } break;
           case 'target': if (e && e.state === ST.ACTIVE && e.pinnable) audio.acquire(pan); break;
           case 'feign': audio.feign(pan); break;
           case 'lunge': audio.lunge(pan); break;
@@ -245,6 +263,7 @@ window.plethoraBit = {
           case 'unseal': audio.unseal(); break;
           case 'cross': audio.cross(); if (hint.key === 'door') clearHint('door'); run.learned.cross = true; break;
           case 'bump': audio.bump(); break;
+          case 'strike': audio.bump(); audio.lunge(pan); haptic('heavy'); run.strikes = (run.strikes || 0) + 1; if (!run.learned.strike) { run.learned.strike = true; showHint('strike', 'Struck. One more touch and it has you.', 3.2); } break;
           case 'close': audio.close(); break;
           case 'eyeCross': audio.wake(pan); break;
           case 'pressure': audio.wake(0); haptic('light'); break;
@@ -257,10 +276,10 @@ window.plethoraBit = {
       const id = run.E.id;
       if (hint.key && mt > hint.until) clearHint();
       if (hint.key) return;
-      if (id === 1 && !run.learned.pin && S.eyes[0].state !== ST.DORMANT) showHint('look', usedTouch ? 'Touch the eye to look at it.' : 'Look at the eye: point at it.');
-      else if (id <= 2 && run.learned.pin && !run.learned.cross) { const nd = S.nearestDoor(S.P.k, S.playerTheta(), true); if (nd && nd.arc < 2.2) showHint('door', usedTouch ? 'At an opening, push toward the centre.' : 'At an opening, walk toward the centre.'); }
-      else if (id === 4 && !run.learned.turn) showHint('turn', usedTouch ? 'Hold in the lower right and drag to turn the spiral.' : 'Q and E turn the spiral.');
-      else if (id === 4 && run.learned.turn && !run.learned.holdturn && S.P.k >= 1) { run.learned.holdturn = true; showHint('holdturn', 'The ring under you keeps still. What you hold stays where you hold it.', 6); }
+      if (id === 1 && !run.learned.pin && S.eyes[0].state !== ST.DORMANT) showHint('look', usedTouch ? 'Tap the eye to watch it.' : 'Point at the eye to watch it.');
+      else if (id <= 2 && run.learned.pin && !run.learned.cross) { const nd = S.nearestDoor(S.P.k, S.playerTheta(), true); if (nd && nd.arc < 2.2) showHint('door', usedTouch ? 'At the opening, push up to go deeper.' : 'At the opening, press W to go deeper.'); }
+      else if (id === 4 && !run.learned.turn) showHint('turn', usedTouch ? 'Drag the lower-right bar to turn the rings.' : 'Q and E turn the rings.');
+      else if (id === 4 && run.learned.turn && !run.learned.holdturn && S.P.k >= 1) { run.learned.holdturn = true; showHint('holdturn', 'A watched eye stays put while its ring turns.', 5); }
     }
     function capture() {
       mode = 'captured'; mt = 0;
@@ -318,9 +337,9 @@ window.plethoraBit = {
       if (scoreTrack && (run.kind === 'endless' || run.full)) { try { scoreTrack.set(final); scoreTrack.submit(run.kind === 'endless' ? 'endless' : 'score', { label: final + ' pts' }).catch(() => { }); } catch (e) { } }
       mode = 'results'; mt = 0;
       const mins = Math.floor(run.time / 60), secs = Math.floor(run.time % 60);
-      H.resH.textContent = completed ? 'You reached the centre' : run.kind === 'endless' ? `Depth ${run.depth}` : 'The spiral kept you';
-      H.resSub.innerHTML = (best ? '<span class="wb-new">A new best.</span> ' : '') + (completed ? (run.captures === 0 ? 'Never once caught.' : 'It let you go. This time.') : run.kind === 'endless' ? 'It has learned more than you have.' : `You reached ${roman(run.E.id)}: ${run.E.name}.`) + (!run.full && run.kind === 'campaign' ? ' <span style="opacity:.6">(Continued runs are not ranked.)</span>' : '');
-      H.resStats.innerHTML = `<div><b>${final.toLocaleString()}</b>SCORE</div><div><b>${mins}:${String(secs).padStart(2, '0')}</b>TIME</div><div><b>${run.cleared}</b>${run.kind === 'endless' ? 'SPIRALS' : 'REACHED'}</div>`;
+      H.resH.textContent = completed ? 'You reached the centre' : run.kind === 'endless' ? `Lost at depth ${run.depth}` : 'The spiral kept you';
+      H.resSub.innerHTML = (best ? '<span class="wb-new">New best.</span> ' : '') + (completed ? (run.captures === 0 ? 'Never caught.' : 'It let you go.') : run.kind === 'endless' ? 'It learned faster than you.' : `Encounter ${run.E.id}: ${run.E.name}.`) + (!run.full && run.kind === 'campaign' ? ' Continued runs are not ranked.' : '');
+      H.resStats.innerHTML = `<div><b>${final.toLocaleString()}</b>Score</div><div><b>${mins}:${String(secs).padStart(2, '0')}</b>Time</div><div><b>${run.cleared}</b>${run.kind === 'endless' ? 'Spirals' : 'Encounters'}</div>`;
       const rows = [['Caught', run.captures], ['Chain reactions', run.chains], ['Longest chain', run.bestChain ? run.bestChain + ' eyes' : '—'], ['Eyes held', run.pins]];
       H.resList.innerHTML = rows.map(r => `<div class="wb-li"><span>${r[0]}</span><b>${r[1]}</b></div>`).join('');
       H.resEndless.disabled = !save.completed; H.resEndless.style.opacity = save.completed ? '' : '0.35';
@@ -336,6 +355,7 @@ window.plethoraBit = {
       // the traveller is gone; in their place on the outer ring an eye opens, and a newcomer walks in
       const E = { id: 21, n: 4, rotation: true, seed: 2121, doors: [[-90], [150], [-30], [90]], barriers: [[], [], [], []], player: { k: 0, a: -90 }, eyes: [{ type: 'watcher', name: 'you', k: 0, a: -60, beh: 'still', wake: 3.2, wakeNear: 0 }] };
       def = E; S = createSim(E); S.forcedRot = 0.04;
+      V.setFollow(false);
       V.build(S, def); V.dread = 1; V.fade = 1; V.ink(0);
       layout(ctx.width, ctx.height, area());
       ending = { line: -1 };
@@ -385,9 +405,12 @@ window.plethoraBit = {
         H.vig.style.opacity = mode === 'play' ? clamp(S.P.exposure * 1.1 + threat * 0.25, 0, 1).toFixed(2) : 0;
         let unb = 0; for (const e of S.eyes) if (e.type === 'unblinking' && e.state === ST.ACTIVE) { const d = Math.hypot(...S.eyePos(e).map((v, i) => v - S.playerPos()[i])); unb = Math.max(unb, clamp(1 - d / 10, 0.15, 1)); }
         audio.ambient({ quiet: def && def.quiet, dread: V.dread, rot: mode === 'play' ? S.rotDone : 0, exposure: mode === 'play' ? S.P.exposure : 0, unblinking: mode === 'play' ? unb : 0 }, dt);
-        V.update(S, dt, { threat, capture: mode === 'captured' ? clamp(mt / 1.1, 0, 1) : mode === 'capcard' ? 1 : 0, hidePlayer: mode === 'title' || mode === 'ending' && false, hideThread: mode !== 'play', calm: save.settings.calm });
+        if (V.follow) V.updateRig(S, dt);
+        V.update(S, dt, { beacon: mode === 'play' || mode === 'card', threat, capture: mode === 'captured' ? clamp(mt / 1.1, 0, 1) : mode === 'capcard' ? 1 : 0, hidePlayer: mode === 'title' || mode === 'ending' && false, hideThread: mode !== 'play', calm: save.settings.calm });
         if (mode === 'ending' || mode === 'title') V.update.hide = true;
         updateDial(dt);
+        H.mark.style.opacity = mode === 'play' && S.P.marked > 0 ? (0.55 + 0.45 * Math.min(1, S.P.marked / 2)).toFixed(2) : 0;
+        updateEdge();
       }
       V.render();
     }
@@ -434,7 +457,7 @@ window.plethoraBit = {
       if (inBand && (leftSide || S.rotLocked)) {
         roles.set(e.pointerId, 'stick');
         input.stick = { ox: x, oy: y, x, y };
-        H.stick.classList.remove('ghost'); H.stick.style.display = 'block'; H.stick.style.left = x + 'px'; H.stick.style.top = y + 'px'; H.knob.style.transform = '';
+        H.stick.classList.remove('teach'); H.stick.classList.add('live'); H.stick.style.display = 'block'; H.stick.style.left = x + 'px'; H.stick.style.top = y + 'px'; H.knob.style.transform = '';
       } else if (inBand) {
         roles.set(e.pointerId, 'dial');
         input.dial = { ox: x, x };
@@ -459,7 +482,7 @@ window.plethoraBit = {
     }
     function onUp(e) {
       const role = roles.get(e.pointerId); roles.delete(e.pointerId);
-      if (role === 'stick') { input.stick = null; H.stick.style.display = 'none'; }
+      if (role === 'stick') { input.stick = null; homeStick(); }
       if (role === 'dial') input.dial = null;
       // the gaze stays where it was left
     }
@@ -486,12 +509,12 @@ window.plethoraBit = {
       if (/^(Key[WASD]|Arrow)/.test(e.code)) usedTouch = false;
     });
     ctx.listen(window, 'keyup', e => input.keys.delete(e.code));
-    const dropInputs = () => { input.keys.clear(); input.stick = null; input.dial = null; roles.clear(); H.stick.style.display = 'none'; };
+    const dropInputs = () => { input.keys.clear(); input.stick = null; input.dial = null; roles.clear(); homeStick(); };
     ctx.listen(window, 'blur', () => { dropInputs(); if (mode === 'play') pauseGame(); });
     ctx.listen(document, 'visibilitychange', () => { if (document.hidden) { dropInputs(); if (mode === 'play') pauseGame(); audio.suspend(); } else audio.resume(); });
 
     // ---------- panels ----------
-    function pauseGame() { if (mode !== 'play') return; mode = 'paused'; dropInputs(); H.pauseSub.textContent = run.E ? `${roman(run.E.id)} · ${run.E.name}` : ''; H.showOnly(H.pausePanel); }
+    function pauseGame() { if (mode !== 'play') return; mode = 'paused'; dropInputs(); H.pauseSub.textContent = run.E ? (run.kind === 'endless' ? `Depth ${run.depth}` : `Encounter ${run.E.id} of 20: ${run.E.name}`) : ''; H.showOnly(H.pausePanel); }
     function resumeGame() { if (mode !== 'paused') return; mode = 'play'; H.showOnly(null); }
     const click = (b, fn) => ctx.listen(b, 'click', ev => { ev.stopPropagation(); audio.unlock(); fn(ev); });
     click(H.begin, () => begin('campaign', 1));
@@ -534,14 +557,13 @@ window.plethoraBit = {
       const dw = Math.min(200, w * 0.42);
       Object.assign(H.dial.style, save.settings.swap ? { left: '16px', right: 'auto' } : { right: '16px', left: 'auto' });
       Object.assign(H.dial.style, { width: dw + 'px', bottom: (bot + band * 0.5 - 28) + 'px' });
-      Object.assign(H.dialLab.style, save.settings.swap ? { left: '16px', right: 'auto' } : { right: '16px', left: 'auto' });
-      Object.assign(H.dialLab.style, { width: dw + 'px', bottom: (bot + band * 0.5 - 52) + 'px' });
-      Object.assign(H.stickLab.style, save.settings.swap ? { right: '16px', left: 'auto' } : { left: '16px', right: 'auto' });
-      Object.assign(H.stickLab.style, { width: dw + 'px', bottom: (bot + band * 0.5 - 52) + 'px' });
+      H.name.style.top = (16 + top + 52) + 'px';
+      if (!input.stick) homeStick();
       H.titleText.style.top = (top + h * 0.06) + 'px';
       H.end.style.top = (top + h * 0.12) + 'px';
       for (const p of H.panels) p.style.paddingBottom = (bot + 16) + 'px';
       renderer.setSize(w, h, false);
+      V.bandPx = band + bot;
       V.layout(w, h, safe, mode === 'title' ? 0.32 : layoutBand + bot / h, frameR());
     }
     ctx.onResize(({ width, height, contentSafeArea, safeArea }) => layout(width, height, contentSafeArea || ctx.contentSafeArea || ctx.safeArea || safeArea), { immediate: true });

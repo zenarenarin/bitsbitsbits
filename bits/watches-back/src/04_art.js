@@ -546,7 +546,7 @@ function makeThreadMaterial(THREE) {
   return new THREE.ShaderMaterial({
     transparent: true, depthWrite: false,
     uniforms: { time: { value: 0 }, held: { value: 0 }, len: { value: 1 }, alpha: { value: 1 } },
-    vertexShader: `attribute float t; varying float vT; varying float vS; void main(){ vT = t; vS = position.z; gl_Position = projectionMatrix * modelViewMatrix * vec4(position.xy, 0.0, 1.0); }`,
+    vertexShader: `attribute float t; attribute float side; varying float vT; varying float vS; void main(){ vT = t; vS = side; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: GLSL_NOISE + `
       uniform float time, held, len, alpha; varying float vT; varying float vS;
       void main(){

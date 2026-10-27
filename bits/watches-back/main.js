@@ -97,7 +97,9 @@ const RULES = {
   contactSlack: 0.85,   // lethal contact uses this fraction of the eye's radius
   exposureRate: 1.15,   // a sentinel's gaze fills exposure at this rate (1 = caught)
   exposureDecay: 1.4,
-  graceStart: 1.0,      // nothing moves for this long when an encounter opens
+  graceStart: 1.0,
+  markTime: 6,          // after being struck, the next touch within this time is fatal
+  knockback: 1.4,       // units the traveller is thrown clear by a strike      // nothing moves for this long when an encounter opens
 };
 
 // type: rad (units), spd (units/s), lethal on contact, solid to walking,
@@ -190,7 +192,7 @@ function createSim(def, opt) {
 
   // ---------- player ----------
   const pk = (def.player && def.player.k) || 0;
-  S.P = { k: pk, a: (def.player && def.player.a !== undefined ? def.player.a : -90) * DEG, v: 0, rad: RULES.playerRad, crossT: 0, crossFrom: G.rings[pk].r, exposure: 0, w: 0, moved: 0, bump: 0, alive: true };
+  S.P = { k: pk, a: (def.player && def.player.a !== undefined ? def.player.a : -90) * DEG, v: 0, rad: RULES.playerRad, crossT: 0, crossFrom: G.rings[pk].r, exposure: 0, marked: 0, stagger: 0, w: 0, moved: 0, bump: 0, alive: true };
 
   // ---------- eyes ----------
   const byName = {};
@@ -455,7 +457,8 @@ function createSim(def, opt) {
     const tx = -Math.sin(th), ty = Math.cos(th), ux = Math.cos(th), uy = Math.sin(th);
     const vt = m[0] * tx + m[1] * ty, vr = m[0] * ux + m[1] * uy;
     let target = vt * RULES.walk;
-    if (P.crossT > 0) { P.crossT -= dt; target = 0; }
+    if (P.stagger > 0) { P.stagger -= dt; target = 0; }
+    else if (P.crossT > 0) { P.crossT -= dt; target = 0; }
     else if (Math.abs(vr) > 0.45 && Math.abs(vr) >= Math.abs(vt) * 0.85) {
       const inward = vr < 0;
       if (tryCross(inward)) return;
@@ -860,14 +863,40 @@ function createSim(def, opt) {
     ev('capture', S.over);
   }
   S.capture = capture;
+  function strike(e) {
+    const P = S.P, r = S.rings[P.k].r;
+    P.marked = RULES.markTime;
+    S.stats.strikes = (S.stats.strikes || 0) + 1;
+    // thrown away from the eye along the groove, as far as the groove allows
+    const away = sign(wrap(P.a - e.a)) || 1;
+    const want = away * RULES.knockback / r;
+    let max = Math.abs(want);
+    for (const b of S.rings[P.k].barriers) { const dd = wrap(b - P.a) * away; if (dd > 0) max = Math.min(max, Math.max(0, dd - (P.rad + 0.12) / r)); }
+    for (const o of S.eyes) {
+      if (o === e || o.k !== P.k || !groove(o) || !alive(o) || !o.solid || o.state === ST.REVEALED) continue;
+      const dd = wrap(o.a - P.a) * away;
+      if (dd > 0) max = Math.min(max, Math.max(0, dd - (P.rad + o.rad + 0.05) / r));
+    }
+    P.a = wrap(P.a + away * max); P.v = 0; P.stagger = 0.35;
+    // the eye recoils: it stops, and a lunging liar spends its lunge
+    e.pause = Math.max(e.pause, 1.2); e.lunge = 0;
+    if (e.group !== null) S.groups[e.group].pause = Math.max(S.groups[e.group].pause, 1.2);
+    ev('strike', { eye: e.id });
+  }
+  S.strike = strike;
   function stepContact() {
     const P = S.P;
+    if (P.marked > 0) P.marked -= SIM_DT;
     let nearest = 1e9;
     for (const e of S.eyes) {
       if (e.k !== P.k || !groove(e) || !e.lethal) continue;
       if (e.state !== ST.ACTIVE && e.state !== ST.FEIGN) continue;
       const d = arc(P.k, e.a, P.a);
-      if (d < e.rad * RULES.contactSlack + P.rad) { capture('contact', e); return; }
+      if (d < e.rad * RULES.contactSlack + P.rad) {
+        // a first touch strikes and throws you clear; a second while marked, or anything that cannot be held, takes you
+        if (P.marked > 0 || e.immune || e.type === 'crown' || def.noStrike) { capture('contact', e); return; }
+        strike(e); return;
+      }
       nearest = Math.min(nearest, d - e.rad - P.rad);
     }
     if (nearest < 0.35 && !S._close) { S._close = true; S.stats.closeCalls++; ev('close'); }
@@ -957,16 +986,16 @@ function createSim(def, opt) {
 
 const ACTS = [
   null,
-  { n: 1, title: 'Something Is Looking', sub: 'Act I' },
-  { n: 2, title: 'The System Moves', sub: 'Act II' },
-  { n: 3, title: 'It Learned Your Habits', sub: 'Act III' },
-  { n: 4, title: 'The Thing That Watches Back', sub: 'Act IV' },
+  { n: 1, title: 'Learning to look', sub: 'Act 1' },
+  { n: 2, title: 'Control is conditional', sub: 'Act 2' },
+  { n: 3, title: 'The world learns', sub: 'Act 3' },
+  { n: 4, title: 'The system converges', sub: 'Act 4' },
 ];
 
 const ENCOUNTERS = [
   // ------------------------------------------------------------ ACT I
   {
-    id: 1, act: 1, name: 'The First Eye', whisper: 'Something here has noticed you.', par: 25,
+    id: 1, act: 1, name: 'The First Eye', par: 25,
     n: 2, rotation: false,
     doors: [[25], [200]], barriers: [[-122], []],
     player: { k: 0, a: -90 },
@@ -974,7 +1003,7 @@ const ENCOUNTERS = [
     hints: ['walk', 'look'],
   },
   {
-    id: 2, act: 1, name: 'The Unwatched', whisper: 'It keeps pace with you, wherever you go.', par: 30,
+    id: 2, act: 1, name: 'The Unwatched', intro: 'It follows you while you are not watching it.', par: 30,
     n: 2, rotation: false,
     doors: [[-30], [70]], barriers: [[40], []],
     player: { k: 0, a: -110 },
@@ -984,7 +1013,7 @@ const ENCOUNTERS = [
     ],
   },
   {
-    id: 3, act: 1, name: 'The First Obstruction', whisper: 'Held still, an eye is only a thing in the way.', par: 35,
+    id: 3, act: 1, name: 'The First Obstruction', intro: 'A watched eye blocks whatever is behind it.', par: 35,
     n: 2, rotation: false,
     doors: [[-30], [15]], barriers: [[], [30, 170]],
     player: { k: 0, a: -100 },
@@ -995,7 +1024,7 @@ const ENCOUNTERS = [
     ],
   },
   {
-    id: 4, act: 1, name: 'The Spiral Turns', whisper: 'The ground you stand on is the only thing that keeps still.', par: 45,
+    id: 4, act: 1, name: 'The Spiral Turns', par: 45,
     n: 3, rotation: true,
     doors: [[90], [150], [0]], barriers: [[-124, -56], [], []],
     player: { k: 0, a: -90 },
@@ -1004,7 +1033,7 @@ const ENCOUNTERS = [
   },
   // ------------------------------------------------------------ ACT II
   {
-    id: 5, act: 2, name: 'The Drifter', whisper: 'This one does not follow you. It simply goes.', par: 50,
+    id: 5, act: 2, name: 'The Drifter', intro: 'The drifter is blind. It goes until something stops it.', par: 50,
     n: 3, rotation: true,
     doors: [[-90], [40], [70]], barriers: [[-132, -48], [-172, 62], []],
     player: { k: 0, a: -90 },
@@ -1016,7 +1045,7 @@ const ENCOUNTERS = [
     ],
   },
   {
-    id: 6, act: 2, name: 'A Gathering', whisper: 'Some of them prefer company.', par: 55,
+    id: 6, act: 2, name: 'A Gathering', intro: 'Three eyes together become something worse.', par: 55,
     n: 3, rotation: true,
     doors: [[-90], [-170], [150]], barriers: [[-152, -28], [], [60]],
     player: { k: 0, a: -90 },
@@ -1028,7 +1057,7 @@ const ENCOUNTERS = [
     ],
   },
   {
-    id: 7, act: 2, name: 'The Wrong Direction', whisper: 'It is shy. It cannot bear to be looked at.', par: 50,
+    id: 7, act: 2, name: 'The Wrong Direction', intro: 'This one only pretends to stop when watched.', par: 50,
     n: 3, rotation: true,
     doors: [[-10], [30], [200]], barriers: [[-140], [], [120]],
     player: { k: 0, a: -90 },
@@ -1038,20 +1067,15 @@ const ENCOUNTERS = [
     ],
   },
   {
-    id: 8, act: 2, name: 'Broken Formation', whisper: 'They are learning to need one another.', par: 60,
-    n: 3, rotation: true,
-    doors: [[-90], [-55], [170]], barriers: [[-160, -20], [175], [80]],
+    id: 8, act: 2, name: 'Broken Formation', intro: 'They move together. One of them leads.', par: 40,
+    n: 2, rotation: true,
+    doors: [[-90], [-150]], barriers: [[-130, -50], [-178, -20]],
     player: { k: 0, a: -90 },
-    eyes: [
-      { type: 'liar', name: 'shy', k: 1, a: -90 },
-      { type: 'watcher', name: 'pace', k: 1, a: 20, beh: 'patrol', dir: -1, speed: 0.8 },
-      { type: 'collector', name: 'gatherer', k: 1, a: -10 },
-      { type: 'drifter', name: 'drift', k: 1, a: 120, dir: -1 },
-      { type: 'watcher', name: 'low', k: 2, a: -60 },
-    ],
+    eyes: [0, 1, 2].map(i => ({ type: 'choir', name: 'c' + i, k: 1, a: -112 + i * 13 })),
+    choirs: [{ members: ['c0', 'c1', 'c2'], conductor: 'c1', dir: 1, spd: 1.7 }],
   },
   {
-    id: 9, act: 2, name: 'The Narrowing', whisper: 'The way in is getting smaller. So is the way out.', par: 70,
+    id: 9, act: 2, name: 'The Narrowing', intro: 'The openings close as you go deeper.', par: 70,
     n: 5, rotation: true,
     doors: [[-90], [90], [-150], [30], [-90]],
     barriers: [[-140, -40], [-170, 10], [], [-60, 120], []],
@@ -1064,7 +1088,7 @@ const ENCOUNTERS = [
     ],
   },
   {
-    id: 10, act: 2, name: 'The First Hunt', whisper: 'It has been watching how you walk.', par: 70,
+    id: 10, act: 2, name: 'The First Hunt', intro: 'These learned the way you walk.', par: 70,
     n: 4, rotation: true,
     doors: [[0], [90], [-90], [90]], barriers: [[-130, -50], [], [], []],
     player: { k: 0, a: -90 },
@@ -1080,7 +1104,7 @@ const ENCOUNTERS = [
   },
   // ------------------------------------------------------------ ACT III
   {
-    id: 11, act: 3, name: 'The Mimic', whisper: 'It moves like you. A little late.', par: 55,
+    id: 11, act: 3, name: 'The Mimic', intro: 'It copies your steps, a moment late.', par: 55,
     n: 3, rotation: true,
     doors: [[-30], [-120], [-175]], barriers: [[-150], [], [30]],
     player: { k: 0, a: -110 },
@@ -1090,7 +1114,7 @@ const ENCOUNTERS = [
     ],
   },
   {
-    id: 12, act: 3, name: 'The Sentinel', whisper: 'Not everything that watches moves.', par: 60,
+    id: 12, act: 3, name: 'The Sentinel', intro: 'The sentinel stays put. Its sight does not.', par: 60,
     n: 3, rotation: true,
     doors: [[-110], [60], [-60]], barriers: [[-135, -45], [], []],
     player: { k: 0, a: -90 },
@@ -1101,7 +1125,7 @@ const ENCOUNTERS = [
     ],
   },
   {
-    id: 13, act: 3, name: 'The False Pattern', whisper: 'Most of them are only drawings.', par: 50,
+    id: 13, act: 3, name: 'The False Pattern', intro: 'Most of these are only drawings.', par: 50,
     n: 3, rotation: true,
     doors: [[-90], [0, 180], [100]], barriers: [[-130, -50], [], [-120]],
     player: { k: 0, a: -90 },
@@ -1118,7 +1142,7 @@ const ENCOUNTERS = [
     ],
   },
   {
-    id: 14, act: 3, name: 'The Choir', whisper: 'One of them is singing. The rest are listening.', par: 55,
+    id: 14, act: 3, name: 'The Choir', intro: 'Watch the one that blinks first.', par: 55,
     n: 3, rotation: true,
     doors: [[-90], [-150], [-120]], barriers: [[-130, -50], [-178, 100], []],
     player: { k: 0, a: -90 },
@@ -1127,17 +1151,18 @@ const ENCOUNTERS = [
     choirs: [{ members: ['c0', 'c1', 'c2', 'c3', 'c4'], conductor: 'c3', dir: 1, spd: 1.0 }],
   },
   {
-    id: 15, act: 3, name: 'The Repetition', whisper: 'You have been here before.', par: 50,
+    id: 15, act: 3, name: 'The Repetition', intro: 'You have solved this before. It remembers.', par: 50,
     n: 3, rotation: true,
     doors: [[-90], [-90], [0]], barriers: [[-124, -56], [], []],
     player: { k: 0, a: -90 },
     eyes: [
       { type: 'liar', name: 'keeper', k: 2, a: -90, speed: 0.7 },
       { type: 'drifter', name: 'wedge', k: 2, a: -45, speed: 0.35, dir: 1 },
+      { type: 'mimic', name: 'echoer', k: 1, a: 20, delay: 0.9, mirror: -1 },
     ],
   },
   {
-    id: 16, act: 3, name: 'No Safe Direction', whisper: 'Everything is in front of you.', par: 75,
+    id: 16, act: 3, name: 'No Safe Direction', par: 75,
     n: 4, rotation: true,
     doors: [[-90], [90], [-30], [150]], barriers: [[-150, -30], [], [-100], []],
     player: { k: 0, a: -90 },
@@ -1151,7 +1176,7 @@ const ENCOUNTERS = [
   },
   // ------------------------------------------------------------ ACT IV
   {
-    id: 17, act: 4, name: 'The Convergence', whisper: 'They no longer take turns.', par: 80, dread: 0.4,
+    id: 17, act: 4, name: 'The Convergence', par: 80, dread: 0.4,
     n: 4, rotation: true,
     doors: [[-90], [30], [-150], [60]], barriers: [[-150, -30], [150], [], [-20]],
     player: { k: 0, a: -90 },
@@ -1166,7 +1191,7 @@ const ENCOUNTERS = [
     choirs: [{ members: ['c0', 'c1', 'c2', 'c3'], conductor: 'c1', dir: 1, spd: 0.9 }],
   },
   {
-    id: 18, act: 4, name: 'The Unblinking', whisper: 'This one has no lids. Your gaze is nothing to it.', par: 90, dread: 0.55,
+    id: 18, act: 4, name: 'The Unblinking', intro: 'Your gaze does nothing to this one.', par: 90, dread: 0.55,
     n: 4, rotation: true,
     doors: [[90], [-90], [90], [-90]], barriers: [[-140, -40], [], [], []],
     player: { k: 0, a: -90 },
@@ -1178,7 +1203,7 @@ const ENCOUNTERS = [
     ],
   },
   {
-    id: 19, act: 4, name: 'The Crown', whisper: 'It has gathered itself into one thing.', par: 110, dread: 0.75,
+    id: 19, act: 4, name: 'The Crown', intro: 'Break the eye that leads it.', par: 110, dread: 0.75,
     n: 4, rotation: true,
     doors: [[-90], [90], [-90], [{ a: 90, sealed: true }, { a: -90, sealed: true }]], barriers: [[-150, -30], [], [], []],
     player: { k: 0, a: -90 },
@@ -1200,7 +1225,7 @@ const ENCOUNTERS = [
     },
   },
   {
-    id: 20, act: 4, name: 'The Centre', whisper: '', par: 90, dread: 1, quiet: true,
+    id: 20, act: 4, name: 'The Centre', par: 90, dread: 1, quiet: true,
     n: 4, rotation: true, rotMax: 0.32,
     doors: [[-90], [150], [68], [{ a: 88, lid: 'first' }]], barriers: [[-150, -30], [], [], [56, 124]],
     player: { k: 0, a: -90 },
@@ -1966,7 +1991,7 @@ function makeThreadMaterial(THREE) {
   return new THREE.ShaderMaterial({
     transparent: true, depthWrite: false,
     uniforms: { time: { value: 0 }, held: { value: 0 }, len: { value: 1 }, alpha: { value: 1 } },
-    vertexShader: `attribute float t; varying float vT; varying float vS; void main(){ vT = t; vS = position.z; gl_Position = projectionMatrix * modelViewMatrix * vec4(position.xy, 0.0, 1.0); }`,
+    vertexShader: `attribute float t; attribute float side; varying float vT; varying float vS; void main(){ vT = t; vS = side; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: GLSL_NOISE + `
       uniform float time, held, len, alpha; varying float vT; varying float vS;
       void main(){
@@ -2007,9 +2032,15 @@ function makeConeMaterial(THREE) {
 function createView(THREE, renderer, opts) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(PAL.void);
-  const camera = new THREE.OrthographicCamera(-10, 10, 10, -10, -10, 10);
-  camera.position.z = 5;
-  const V = { scene, camera, zoom: 1, cx: 0, cy: 0, scale: 20, w: 1, h: 1, fade: 1, dread: 0, wobble: 1 };
+  // two cameras: a flat overview (title, ending) and, in play, a tilted camera that stays with
+  // the traveller while the spiral turns around them; its "up" always points toward the centre
+  const ortho = new THREE.OrthographicCamera(-10, 10, 10, -10, -10, 10);
+  ortho.position.z = 5;
+  const pcam = new THREE.PerspectiveCamera(46, 1, 0.1, 400);
+  const V = { scene, camera: ortho, ortho, pcam, follow: false, zoom: 1, cx: 0, cy: 0, scale: 20, w: 1, h: 1, fade: 1, dread: 0, wobble: 1, bandPx: 0,
+    rig: { yaw: Math.PI / 2, x: 0, y: 0, r: 8, init: false } };
+  const ray = new THREE.Raycaster(), _nd = new THREE.Vector2(), _v3 = new THREE.Vector3(), _camUp = new THREE.Vector3();
+  const TILT = 34 * Math.PI / 180;
   const canvasMaker = opts.canvas;
   const small = !!opts.small;
   const eyeMat = makeEyeMaterial(THREE);
@@ -2036,15 +2067,54 @@ function createView(THREE, renderer, opts) {
   const FIG_SCALE = 1.25;
   figure.scale.setScalar(FIG_SCALE);
   scene.add(figure);
+  // its long olive shadow, thrown outward across the floor
+  const shadowMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, uniforms: { alpha: { value: 0.5 } },
+    vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: GLSL_NOISE + `uniform float alpha; varying vec2 vP; void main(){
+      float t = clamp(vP.y / 2.2, 0.0, 1.0);
+      float w = mix(0.2, 0.42, t) * (1.0 - smoothstep(0.75, 1.0, t));
+      float edge = abs(vP.x) - w + (vnoise(vP * 9.0) - 0.5) * 0.06;
+      float a = (1.0 - smoothstep(-0.02, 0.03, edge)) * alpha * (1.0 - t * 0.6);
+      if (a < 0.01) discard; gl_FragColor = vec4(0.43, 0.42, 0.18, a); }`,
+  });
+  const shadowGeo = new THREE.PlaneGeometry(1.2, 2.4); shadowGeo.translate(0, 1.1, 0);
+  const shadow = new THREE.Mesh(shadowGeo, shadowMat);
+  shadow.renderOrder = 2; shadow.frustumCulled = false;
+  scene.add(shadow);
+  // the way in: a pale breath over the opening that leads inward, so the goal is never a mystery
+  const beaconMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, uniforms: { time: { value: 0 }, alpha: { value: 0 } },
+    vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform float time, alpha; varying vec2 vP; void main(){
+      float r = length(vP);
+      float pulse = 0.5 + 0.5 * sin(time * 2.4);
+      float halo = (1.0 - smoothstep(0.35, 1.0, r)) * (0.35 + 0.25 * pulse);
+      // three small chevrons pointing inward (+y), drifting toward the centre
+      float ch = 0.0;
+      for (int i = 0; i < 3; i++) {
+        float y0 = -0.55 + float(i) * 0.38 + fract(time * 0.35) * 0.38;
+        float d = abs(vP.y - y0 - (0.18 - abs(vP.x) * 0.55));
+        ch = max(ch, (1.0 - smoothstep(0.025, 0.06, d)) * step(abs(vP.x), 0.3) * (1.0 - smoothstep(0.4, 0.85, abs(vP.y))));
+      }
+      float a = max(halo, ch * 0.85) * alpha;
+      if (a < 0.01) discard;
+      gl_FragColor = vec4(mix(vec3(0.93, 0.89, 0.8), vec3(0.06), ch), a); }`,
+  });
+  const beacon = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.2), beaconMat);
+  beacon.renderOrder = 3; beacon.frustumCulled = false;
+  scene.add(beacon);
+  V.beacon = { x: 0, y: 0, on: false };
 
   // ---------- gaze thread ----------
   const TN = 24;
   const threadGeo = new THREE.BufferGeometry();
-  const tPos = new Float32Array((TN + 1) * 2 * 3), tT = new Float32Array((TN + 1) * 2);
+  const tPos = new Float32Array((TN + 1) * 2 * 3), tT = new Float32Array((TN + 1) * 2), tSide = new Float32Array((TN + 1) * 2);
+  for (let i = 0; i <= TN; i++) { tSide[i * 2] = 1; tSide[i * 2 + 1] = -1; }
   const tIdx = [];
   for (let i = 0; i < TN; i++) { const a = i * 2; tIdx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
   for (let i = 0; i <= TN; i++) { tT[i * 2] = tT[i * 2 + 1] = i / TN; }
-  threadGeo.setIndex(tIdx); threadGeo.setAttribute('position', new THREE.BufferAttribute(tPos, 3)); threadGeo.setAttribute('t', new THREE.BufferAttribute(tT, 1));
+  threadGeo.setIndex(tIdx); threadGeo.setAttribute('position', new THREE.BufferAttribute(tPos, 3)); threadGeo.setAttribute('t', new THREE.BufferAttribute(tT, 1)); threadGeo.setAttribute('side', new THREE.BufferAttribute(tSide, 1));
   const thread = new THREE.Mesh(threadGeo, threadMat);
   thread.frustumCulled = false; thread.renderOrder = 6;
   scene.add(thread);
@@ -2171,12 +2241,65 @@ function createView(THREE, renderer, opts) {
   };
   V.applyCamera = function () {
     const s = V.scale * V.zoom;
-    camera.left = -V.cx / s; camera.right = (V.w - V.cx) / s;
-    camera.top = V.cy / s; camera.bottom = -(V.h - V.cy) / s;
-    camera.updateProjectionMatrix();
+    ortho.left = -V.cx / s; ortho.right = (V.w - V.cx) / s;
+    ortho.top = V.cy / s; ortho.bottom = -(V.h - V.cy) / s;
+    ortho.updateProjectionMatrix();
+    if (V.follow) placeFollow();
   };
-  V.toWorld = (sx, sy) => { const s = V.scale * V.zoom; return [(sx - V.cx) / s, -(sy - V.cy) / s]; };
-  V.toScreen = (x, y) => { const s = V.scale * V.zoom; return [V.cx + x * s, V.cy - y * s]; };
+  V.setFollow = on => { V.follow = !!on; V.camera = on ? pcam : ortho; V.rig.init = false; V.applyCamera(); };
+  // how wide a stretch of the world the follow camera shows at the traveller's feet, in units
+  const viewWidth = r => clamp(4.2 + r * 0.72, 6.2, 10.5);
+  function placeFollow() {
+    const R = V.rig;
+    const ux = Math.cos(R.yaw), uy = Math.sin(R.yaw);
+    const Wu = viewWidth(R.r) / V.zoom;
+    const aspect = V.w / Math.max(1, V.h - V.bandPx);
+    pcam.aspect = V.w / V.h;
+    const D = Wu / (2 * Math.tan(pcam.fov * Math.PI / 360) * (V.w / V.h));
+    // look a little ahead of the traveller, toward the centre, so they stand low in the frame
+    const ahead = Wu * 0.42;
+    const tx = R.x + ux * ahead, ty = R.y + uy * ahead;
+    pcam.position.set(tx - ux * D * Math.sin(TILT), ty - uy * D * Math.sin(TILT), D * Math.cos(TILT));
+    pcam.up.set(ux, uy, 0);
+    pcam.lookAt(tx, ty, 0);
+    // keep the scene centred in the space above the control band
+    pcam.setViewOffset(V.w, V.h, 0, V.bandPx * 0.5, V.w, V.h);
+    pcam.updateProjectionMatrix();
+    pcam.updateMatrixWorld();
+  }
+  V.updateRig = function (S, dt, snap) {
+    const P = S.P;
+    let pr = S.playerR();
+    if (P.crossT > 0) pr = lerp(P.crossFrom, pr, smooth(1 - P.crossT / RULES.crossTime));
+    const th = S.playerTheta();
+    const R = V.rig, yaw = th + Math.PI;
+    const x = pr * Math.cos(th), y = pr * Math.sin(th);
+    if (!R.init || snap) { R.yaw = yaw; R.x = x; R.y = y; R.r = pr; R.init = true; }
+    else {
+      R.yaw += wrap(yaw - R.yaw) * (1 - Math.exp(-9 * dt));
+      R.x = damp(R.x, x, 12, dt); R.y = damp(R.y, y, 12, dt); R.r = damp(R.r, pr, 3, dt);
+    }
+    if (V.follow) placeFollow();
+  };
+  V.toWorld = (sx, sy) => {
+    if (!V.follow) { const s = V.scale * V.zoom; return [(sx - V.cx) / s, -(sy - V.cy) / s]; }
+    _nd.set(sx / V.w * 2 - 1, -(sy / V.h) * 2 + 1);
+    ray.setFromCamera(_nd, pcam);
+    const o = ray.ray.origin, d = ray.ray.direction;
+    if (Math.abs(d.z) < 1e-6) return [o.x, o.y];
+    const t = -o.z / d.z;
+    return [o.x + d.x * t, o.y + d.y * t];
+  };
+  V.toScreen = (x, y, z) => {
+    if (!V.follow) { const s = V.scale * V.zoom; return [V.cx + x * s, V.cy - y * s]; }
+    _v3.set(x, y, z || 0).project(pcam);
+    return [(_v3.x * 0.5 + 0.5) * V.w, (-_v3.y * 0.5 + 0.5) * V.h];
+  };
+  // screen directions in the world, for groove-relative controls: [right, up]
+  V.screenAxes = () => {
+    const R = V.rig, ux = Math.cos(R.yaw), uy = Math.sin(R.yaw);
+    return V.follow ? { up: [ux, uy], right: [uy, -ux] } : { up: [0, 1], right: [1, 0] };
+  };
 
   // ---------- per frame ----------
   const _p = [0, 0], _q = [0, 0];
@@ -2271,22 +2394,32 @@ function createView(THREE, renderer, opts) {
     if (Pl.crossT > 0) pr = lerp(Pl.crossFrom, pr, smooth(1 - Pl.crossT / RULES.crossTime));
     const pth = S.playerTheta();
     const fx0 = pr * Math.cos(pth), fy0 = pr * Math.sin(pth);
-    figure.position.set(fx0, fy0 - 0.08, 0);
+    figure.position.set(fx0, fy0, 0);
+    figure.quaternion.copy(V.camera.quaternion);
     figure.visible = !o.hidePlayer;
+    shadow.visible = figure.visible && V.follow;
+    shadow.position.set(fx0, fy0, 0.001);
+    shadow.rotation.set(0, 0, pth - Math.PI / 2);   // local +y points outward from the centre
+    shadowMat.uniforms.alpha.value = 0.42 * V.fade;
     const g = S.gaze.dir;
     const hasGaze = !!S.gaze.point;
-    const lookX = hasGaze ? g[0] : (Pl.w ? sign(-Math.sin(pth) * Pl.w) : figMat.uniforms.face.value);
-    figMat.uniforms.face.value = damp(figMat.uniforms.face.value, lookX >= 0 ? 1 : -1, 10, dt) >= 0 ? 1 : -1;
-    figMat.uniforms.look.value.set(hasGaze ? g[0] : lookX, hasGaze ? g[1] : 0);
+    const ax = V.screenAxes();
+    const gx = hasGaze ? g[0] * ax.right[0] + g[1] * ax.right[1] : 0, gy = hasGaze ? g[0] * ax.up[0] + g[1] * ax.up[1] : 0;
+    const walkScreen = Pl.w ? sign((-Math.sin(pth) * ax.right[0] + Math.cos(pth) * ax.right[1]) * Pl.w) : 0;
+    const lookX = hasGaze ? gx : (walkScreen || figMat.uniforms.face.value);
+    figMat.uniforms.face.value = lookX >= 0 ? 1 : -1;
+    figMat.uniforms.look.value.set(hasGaze ? gx : lookX, hasGaze ? gy : 0);
     figMat.uniforms.walk.value += Pl.moved * 7.5;
     figMat.uniforms.speed.value = damp(figMat.uniforms.speed.value, Math.min(1, Math.abs(Pl.v) / RULES.walk), 10, dt);
-    figMat.uniforms.lean.value = damp(figMat.uniforms.lean.value, clamp(Pl.v / RULES.walk, -1, 1) * (-Math.sin(pth)) , 8, dt);
+    figMat.uniforms.lean.value = damp(figMat.uniforms.lean.value, walkScreen * Math.min(1, Math.abs(Pl.v) / RULES.walk), 8, dt);
     figMat.uniforms.fear.value = damp(figMat.uniforms.fear.value, clamp((o.threat || 0), 0, 1), 4, dt);
     figMat.uniforms.exposure.value = Pl.exposure;
     figMat.uniforms.ink.value = o.capture || 0;
 
     // --- gaze thread from the traveller's eye ---
-    const hx = fx0 + 0.05 * FIG_SCALE * (figMat.uniforms.face.value), hy = fy0 + 0.98 * FIG_SCALE - 0.08;
+    _camUp.set(0, 1, 0).applyQuaternion(V.camera.quaternion);
+    const headH = 0.98 * FIG_SCALE;
+    const hx = fx0 + _camUp.x * headH, hy = fy0 + _camUp.y * headH, hz = _camUp.z * headH;
     let tx, ty, held = 0, show = 0;
     if (S.gaze.target !== null) {
       const te = S.eyes[S.gaze.target]; S.eyePos(te, _p); tx = _p[0]; ty = _p[1];
@@ -2308,12 +2441,25 @@ function createView(THREE, renderer, opts) {
         const t = i / TN;
         // a held thread is taut and trembles; a looking line sags slightly
         const sag = (1 - threadMat.uniforms.held.value) * Math.sin(t * Math.PI) * 0.15 + threadMat.uniforms.held.value * Math.sin(t * 40 + tmr * 30) * 0.008;
-        const x = hx + dx * t + nx * sag, y = hy + dy * t + ny * sag, ww = wdt * (1 - t * 0.5);
-        tPos[i * 6] = x + nx * ww; tPos[i * 6 + 1] = y + ny * ww; tPos[i * 6 + 2] = 1;
-        tPos[i * 6 + 3] = x - nx * ww; tPos[i * 6 + 4] = y - ny * ww; tPos[i * 6 + 5] = -1;
+        const x = hx + dx * t + nx * sag, y = hy + dy * t + ny * sag, z = hz * (1 - t), ww = wdt * (1 - t * 0.5);
+        tPos[i * 6] = x + nx * ww; tPos[i * 6 + 1] = y + ny * ww; tPos[i * 6 + 2] = z;
+        tPos[i * 6 + 3] = x - nx * ww; tPos[i * 6 + 4] = y - ny * ww; tPos[i * 6 + 5] = z;
       }
       threadGeo.attributes.position.needsUpdate = true;
     }
+
+    // --- the way in ---
+    const nd = o.beacon && S.P.k < S.N ? S.nearestDoor(S.P.k, pth, true) : null;
+    V.beacon.on = !!nd;
+    beaconMat.uniforms.time.value = tmr;
+    beaconMat.uniforms.alpha.value = damp(beaconMat.uniforms.alpha.value, nd ? 1 : 0, 5, dt);
+    if (nd) {
+      const bt = S.doorTheta(nd.w, nd.d);
+      V.beacon.x = nd.w.r * Math.cos(bt); V.beacon.y = nd.w.r * Math.sin(bt);
+      beacon.position.set(V.beacon.x, V.beacon.y, 0.002);
+      beacon.rotation.set(0, 0, bt + Math.PI / 2);   // local +y points toward the centre
+    }
+    beacon.visible = beaconMat.uniforms.alpha.value > 0.02;
 
     // --- sentinel sight, cut short by whatever blocks it ---
     for (const c of B.cones) {
@@ -2390,7 +2536,7 @@ function createView(THREE, renderer, opts) {
     }
   };
 
-  V.render = () => renderer.render(scene, camera);
+  V.render = () => renderer.render(scene, V.camera);
   return V;
 }
 
@@ -2545,75 +2691,71 @@ function createAudio(enabled) {
 
 // ---- 07_ui.js ----
 // =====================================================================
-// Interface: ink and bone, editorial type, as little as possible.
-// DM Serif Display for numerals and titles, Nunito Sans for labels.
-// Scale (px): 11 label · 14 body · 16 whisper · 28 numeral · 40 title.
-// 16px gutter (plus safe areas), 8px rhythm.
+// Interface: quiet, sans-serif, out of the drawing's way.
+// Inter throughout. Scale (px): 13 small · 15 body · 24 heading · 34 title.
+// 16px gutter inside the content-safe area, 8px rhythm.
 // =====================================================================
 const UI_CSS = `
-.wb{position:absolute;inset:0;font-family:'Nunito Sans',system-ui,sans-serif;color:#ece4d2;user-select:none;-webkit-user-select:none;overflow:hidden;pointer-events:none;--g:16px;--bone:#ece4d2;--ink:#0f0d0b;--olive:#8a8650}
+.wb{position:absolute;inset:0;font-family:Inter,system-ui,-apple-system,sans-serif;font-weight:400;color:#ece4d2;user-select:none;-webkit-user-select:none;overflow:hidden;pointer-events:none;--bone:#ece4d2;--ink:#0f0d0b;--muted:rgba(236,228,210,.62)}
 .wb *{box-sizing:border-box}
-.wb-lab{font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase}
-.wb-top{position:absolute;left:var(--g);right:var(--g);top:0;display:flex;justify-content:space-between;align-items:flex-start;transition:opacity .4s}
-.wb-num{font-family:'DM Serif Display',Georgia,serif;font-size:28px;line-height:1;letter-spacing:.04em}
-.wb-num small{font-family:'Nunito Sans',sans-serif;font-size:11px;font-weight:700;letter-spacing:.2em;margin-left:8px;opacity:.55}
-.wb-name{margin-top:8px;opacity:0;transition:opacity 1.2s}
-.wb-whisper{margin-top:8px;font-family:'DM Serif Display',Georgia,serif;font-style:italic;font-size:16px;line-height:1.35;max-width:260px;opacity:0;transition:opacity 1.6s;color:#d9d0bd}
-.wb-score{margin-top:8px;opacity:.6;font-variant-numeric:tabular-nums}
-.wb-btn{pointer-events:auto;width:44px;height:44px;border-radius:50%;border:1.5px solid rgba(236,228,210,.55);background:rgba(15,13,11,.35);color:var(--bone);display:flex;align-items:center;justify-content:center;touch-action:none;cursor:pointer}
-.wb-btn svg{width:40%;height:40%;overflow:visible}
-.wb-btn:active{background:rgba(236,228,210,.2)}
+.wb-top{position:absolute;left:16px;right:16px;top:0;display:flex;justify-content:space-between;align-items:center;transition:opacity .4s}
+.wb-num{font-size:13px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums;letter-spacing:.01em}
+.wb-name{position:absolute;left:16px;right:16px;font-size:15px;font-weight:600;opacity:0;transition:opacity .8s;text-shadow:0 1px 12px rgba(0,0,0,.9)}
+.wb-btn{pointer-events:auto;width:44px;height:44px;border-radius:50%;border:1px solid rgba(236,228,210,.35);background:rgba(15,13,11,.45);color:var(--bone);display:flex;align-items:center;justify-content:center;touch-action:none;cursor:pointer}
+.wb-btn svg{width:38%;height:38%;overflow:visible}
+.wb-btn:active{background:rgba(236,228,210,.18)}
 .wb-band{position:absolute;left:0;right:0;bottom:0;pointer-events:none}
-.wb-hint{position:absolute;left:var(--g);right:var(--g);text-align:center;font-family:'DM Serif Display',Georgia,serif;font-style:italic;font-size:16px;line-height:1.35;opacity:0;transition:opacity .6s;text-shadow:0 1px 10px rgba(0,0,0,.8)}
-.wb-stick{position:absolute;width:104px;height:104px;margin:-52px 0 0 -52px;border-radius:50%;border:1.5px solid rgba(236,228,210,.35);display:none}
-.wb-stick b{position:absolute;left:50%;top:50%;width:40px;height:40px;margin:-20px;border-radius:50%;background:rgba(236,228,210,.28)}
-.wb-stick.ghost{display:block;animation:wbg 2.4s ease-in-out infinite}
-.wb-stick.ghost b{animation:wbk 1.2s ease-in-out infinite alternate}
-@keyframes wbg{0%,100%{opacity:.25}50%{opacity:.8}}
-@keyframes wbk{from{transform:translate(-22px,-10px)}to{transform:translate(22px,10px)}}
-.wb-dial{position:absolute;height:56px;display:none;overflow:hidden;border-top:1px solid rgba(236,228,210,.25);border-bottom:1px solid rgba(236,228,210,.25);-webkit-mask-image:linear-gradient(90deg,transparent,#000 20%,#000 80%,transparent);mask-image:linear-gradient(90deg,transparent,#000 20%,#000 80%,transparent)}
-.wb-dial i{position:absolute;top:12px;bottom:12px;width:1.5px;background:rgba(236,228,210,.5)}
-.wb-dial i.l{top:6px;bottom:6px;background:rgba(236,228,210,.85)}
-.wb-dial em{position:absolute;top:50%;left:50%;width:10px;height:10px;margin:-5px;border-radius:50%;background:var(--bone);transition:opacity .2s}
-.wb-dial.ghost{animation:wbg 2.4s ease-in-out infinite}
-.wb-dial-lab{position:absolute;opacity:.45;text-align:center}
-.wb-vig{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 40%,rgba(0,0,0,0) 45%,rgba(8,7,6,.95) 100%);opacity:0;transition:opacity .2s}
-.wb-panel{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:flex-end;padding:0 var(--g)}
+.wb-hint{position:absolute;left:24px;right:24px;text-align:center;font-size:15px;font-weight:500;line-height:1.4;opacity:0;transition:opacity .5s;text-shadow:0 1px 14px rgba(0,0,0,.95),0 0 2px rgba(0,0,0,.9)}
+.wb-stick{position:absolute;width:112px;height:112px;margin:-56px 0 0 -56px;border-radius:50%;border:1.5px solid rgba(236,228,210,.22);transition:border-color .2s}
+.wb-stick b{position:absolute;left:50%;top:50%;width:44px;height:44px;margin:-22px;border-radius:50%;background:rgba(236,228,210,.16);transition:background .2s}
+.wb-stick.live{border-color:rgba(236,228,210,.45)}
+.wb-stick.live b{background:rgba(236,228,210,.38)}
+.wb-stick.teach b{animation:wbk 1.3s ease-in-out infinite alternate}
+@keyframes wbk{from{transform:translateX(-24px)}to{transform:translateX(24px)}}
+.wb-dial{position:absolute;height:56px;display:none;overflow:hidden;border-radius:28px;border:1.5px solid rgba(236,228,210,.22);-webkit-mask-image:linear-gradient(90deg,transparent,#000 18%,#000 82%,transparent);mask-image:linear-gradient(90deg,transparent,#000 18%,#000 82%,transparent)}
+.wb-dial i{position:absolute;top:16px;bottom:16px;width:1.5px;background:rgba(236,228,210,.38)}
+.wb-dial i.l{top:10px;bottom:10px;background:rgba(236,228,210,.7)}
+.wb-dial em{position:absolute;top:50%;left:50%;width:12px;height:12px;margin:-6px;border-radius:50%;background:var(--bone)}
+.wb-dial.teach em{animation:wbk 1.3s ease-in-out infinite alternate}
+.wb-edge{position:absolute;width:28px;height:28px;margin:-14px;display:none}
+.wb-edge svg{width:100%;height:100%;overflow:visible}
+.wb-vig{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 45%,rgba(0,0,0,0) 50%,rgba(8,7,6,.92) 100%);opacity:0;transition:opacity .25s}
+.wb-mark{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 55%,rgba(0,0,0,0) 55%,rgba(30,28,12,.55) 100%);opacity:0;transition:opacity .3s}
+.wb-panel{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:flex-end;padding:0 16px}
 .wb-panel.on{display:flex}
 .wb-panel.mid{justify-content:center}
-.wb-card{width:100%;max-width:400px;border-radius:12px;padding:16px;background:rgba(15,13,11,.86);border:1px solid rgba(236,228,210,.18);pointer-events:auto}
-.wb-title{position:absolute;left:var(--g);right:var(--g);text-align:center;font-family:'DM Serif Display',Georgia,serif;font-size:40px;line-height:1.02;letter-spacing:.02em;text-shadow:0 2px 24px rgba(0,0,0,.9)}
-.wb-title small{display:block;font-family:'Nunito Sans',sans-serif;font-size:11px;font-weight:700;letter-spacing:.24em;margin-bottom:12px;opacity:.7}
-.wb-tag{font-family:'DM Serif Display',Georgia,serif;font-style:italic;font-size:16px;line-height:1.4;text-align:center;opacity:.85;margin-top:16px;letter-spacing:0}
-.wb-rule{width:48px;height:1px;background:rgba(236,228,210,.6);margin:16px auto 0}
-.wb-b{display:block;width:100%;border:0;border-radius:10px;padding:14px 16px;margin-top:8px;font:700 13px 'Nunito Sans',system-ui,sans-serif;letter-spacing:.2em;color:var(--ink);background:var(--bone);pointer-events:auto;cursor:pointer;min-height:48px}
+.wb-card{width:100%;max-width:380px;border-radius:16px;padding:20px;background:rgba(15,13,11,.88);border:1px solid rgba(236,228,210,.12);pointer-events:auto}
+.wb-title{position:absolute;left:24px;right:24px;font-size:34px;font-weight:700;line-height:1.08;letter-spacing:-.02em;text-shadow:0 2px 24px rgba(0,0,0,.95)}
+.wb-tag{font-size:15px;font-weight:400;line-height:1.45;color:var(--muted);margin-top:12px;letter-spacing:0;max-width:300px}
+.wb-b{display:block;width:100%;border:0;border-radius:12px;padding:0 16px;height:50px;margin-top:8px;font:600 15px Inter,system-ui,sans-serif;color:var(--ink);background:var(--bone);pointer-events:auto;cursor:pointer}
 .wb-b:active{opacity:.85}
-.wb-b.sec{background:transparent;color:var(--bone);border:1px solid rgba(236,228,210,.4)}
+.wb-b.sec{background:transparent;color:var(--bone);border:1px solid rgba(236,228,210,.28)}
 .wb-b[hidden]{display:none}
 .wb-row{display:flex;gap:8px}.wb-row .wb-b{flex:1}
-.wb-h{font-family:'DM Serif Display',Georgia,serif;font-size:28px;line-height:1.15;text-align:center;margin-bottom:8px}
-.wb-sub{font-family:'DM Serif Display',Georgia,serif;font-style:italic;font-size:16px;line-height:1.45;text-align:center;opacity:.85;margin-bottom:16px}
-.wb-stats{display:flex;justify-content:space-between;padding:0 4px 8px;border-bottom:1px solid rgba(236,228,210,.14);margin-bottom:8px}
-.wb-stats>div{font-size:11px;font-weight:700;letter-spacing:.18em;opacity:.85;text-align:center;flex:1}
-.wb-stats b{display:block;font-family:'DM Serif Display',Georgia,serif;font-size:24px;letter-spacing:0;font-weight:400;margin-bottom:2px}
-.wb-li{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(236,228,210,.1);font-size:14px}
-.wb-li b{font-family:'DM Serif Display',Georgia,serif;font-weight:400;font-size:16px;font-variant-numeric:tabular-nums}
+.wb-h{font-size:24px;font-weight:600;line-height:1.2;letter-spacing:-.01em;margin-bottom:8px}
+.wb-sub{font-size:15px;line-height:1.45;color:var(--muted);margin-bottom:16px}
+.wb-stats{display:flex;gap:8px;margin-bottom:12px}
+.wb-stats>div{flex:1;font-size:13px;color:var(--muted)}
+.wb-stats b{display:block;font-size:22px;font-weight:600;color:var(--bone);font-variant-numeric:tabular-nums;margin-bottom:2px}
+.wb-li{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 0;border-top:1px solid rgba(236,228,210,.08);font-size:15px;color:var(--muted)}
+.wb-li b{font-weight:600;color:var(--bone);font-variant-numeric:tabular-nums}
 .wb-new{color:#c9c38a}
-.wb-set{display:flex;justify-content:space-between;align-items:center;padding:8px 0;font-size:14px;min-height:44px}
+.wb-set{display:flex;justify-content:space-between;align-items:center;padding:8px 0;font-size:15px;min-height:48px}
 .wb-set input[type=range]{width:46%;pointer-events:auto;accent-color:#ece4d2}
-.wb-tog{pointer-events:auto;border:1px solid rgba(236,228,210,.4);background:transparent;color:var(--bone);border-radius:8px;padding:8px 12px;font:700 11px 'Nunito Sans',sans-serif;letter-spacing:.14em;min-width:56px;min-height:36px}
+.wb-tog{pointer-events:auto;border:1px solid rgba(236,228,210,.3);background:transparent;color:var(--bone);border-radius:10px;padding:8px 14px;font:600 13px Inter,sans-serif;min-width:64px;min-height:38px}
 .wb-tog.on{background:var(--bone);color:var(--ink)}
-.wb-act{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(10,9,8,.0);transition:background .6s;pointer-events:auto}
-.wb-act.on{display:flex;background:rgba(10,9,8,.72)}
-.wb-act .t{font-family:'DM Serif Display',Georgia,serif;font-size:36px;line-height:1.1;text-align:center;padding:0 var(--g);opacity:0;transition:opacity 1s}
-.wb-act .s{opacity:0;transition:opacity 1s;margin-bottom:16px}
+.wb-act{position:absolute;inset:0;display:none;flex-direction:column;align-items:flex-start;justify-content:center;padding:0 32px;transition:background .6s;pointer-events:auto}
+.wb-act.on{display:flex;background:rgba(10,9,8,.6)}
+.wb-act .s{font-size:13px;font-weight:600;color:var(--muted);opacity:0;transition:opacity .8s;margin-bottom:8px}
+.wb-act .t{font-size:30px;font-weight:600;line-height:1.15;letter-spacing:-.015em;opacity:0;transition:opacity .8s;text-shadow:0 2px 20px rgba(0,0,0,.9)}
 .wb-act.show .t,.wb-act.show .s{opacity:1}
-.wb-end{position:absolute;left:var(--g);right:var(--g);text-align:center;font-family:'DM Serif Display',Georgia,serif;font-size:20px;line-height:1.5;font-style:italic;opacity:0;transition:opacity 2s;text-shadow:0 1px 16px rgba(0,0,0,.9)}
-.wb-skip{position:absolute;right:var(--g);opacity:.5;pointer-events:auto;padding:12px}
+.wb-end{position:absolute;left:32px;right:32px;font-size:18px;font-weight:500;line-height:1.45;opacity:0;transition:opacity 1.6s;text-shadow:0 1px 16px rgba(0,0,0,.95)}
+.wb-skip{position:absolute;right:16px;font-size:13px;font-weight:600;color:var(--muted);pointer-events:auto;padding:14px}
 `;
 
 const ICON = {
-  pause: '<svg viewBox="-10 -10 20 20"><path d="M-3.5,-6V6M3.5,-6V6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
+  pause: '<svg viewBox="-10 -10 20 20"><path d="M-3.5,-6V6M3.5,-6V6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+  edge: '<svg viewBox="-10 -10 20 20"><path d="M-5,4L0,-3L5,4" fill="none" stroke="#ece4d2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
 
 function createUI(ctx) {
@@ -2622,55 +2764,52 @@ function createUI(ctx) {
   const el = (tag, cls, html, parent) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; (parent || ui).appendChild(e); return e; };
   const H = { root: ui, el };
   H.vig = el('div', 'wb-vig');
+  H.mark = el('div', 'wb-mark');
   H.top = el('div', 'wb-top');
-  const tl = el('div', '', '', H.top);
-  H.num = el('div', 'wb-num', '', tl);
-  H.name = el('div', 'wb-name wb-lab', '', tl);
-  H.whisper = el('div', 'wb-whisper', '', tl);
-  H.score = el('div', 'wb-score wb-lab', '', tl);
+  H.num = el('div', 'wb-num', '', H.top);
   H.pause = el('div', 'wb-btn', ICON.pause, H.top);
   H.pause.setAttribute('aria-label', 'Pause');
+  H.name = el('div', 'wb-name', '');
   H.band = el('div', 'wb-band');
   H.hint = el('div', 'wb-hint', '');
+  H.edge = el('div', 'wb-edge', ICON.edge);
   H.stick = el('div', 'wb-stick', '<b></b>'); H.knob = H.stick.firstChild;
   H.dial = el('div', 'wb-dial', '<em></em>'); H.dialKnob = H.dial.firstChild;
   H.ticks = [];
   for (let i = 0; i < 24; i++) { const t = el('i', i % 4 === 0 ? 'l' : '', undefined, H.dial); H.ticks.push(t); }
-  H.dialLab = el('div', 'wb-dial-lab wb-lab', 'Turn');
-  H.stickLab = el('div', 'wb-dial-lab wb-lab', 'Walk');
   // act card
   H.act = el('div', 'wb-act');
-  H.actS = el('div', 's wb-lab', '', H.act); H.actT = el('div', 't', '', H.act);
+  H.actS = el('div', 's', '', H.act); H.actT = el('div', 't', '', H.act);
   // ending text
   H.end = el('div', 'wb-end', '');
-  H.skip = el('div', 'wb-skip wb-lab', 'Skip'); H.skip.style.display = 'none';
+  H.skip = el('div', 'wb-skip', 'Skip'); H.skip.style.display = 'none';
   // title
   H.title = el('div', 'wb-panel');
-  H.titleText = el('div', 'wb-title', '<small>A spiral of eyes</small>The Thing<br>That Watches<br>Back<div class="wb-tag">Looking at an eye holds it still.<br>Looking away lets it go.</div>', H.title);
+  H.titleText = el('div', 'wb-title', 'The Thing That Watches Back<div class="wb-tag">Watch an eye and it cannot move. Look away and it is free.</div>', H.title);
   const tc = el('div', 'wb-card', '', H.title);
   H.tstats = el('div', 'wb-stats', '', tc);
-  H.begin = el('button', 'wb-b', 'BEGIN', tc);
-  H.cont = el('button', 'wb-b sec', 'CONTINUE', tc);
+  H.begin = el('button', 'wb-b', 'Begin', tc);
+  H.cont = el('button', 'wb-b sec', 'Continue', tc);
   const trow = el('div', 'wb-row', '', tc);
-  H.endless = el('button', 'wb-b sec', 'ENDLESS', trow);
-  H.toSet = el('button', 'wb-b sec', 'SETTINGS', trow);
+  H.endless = el('button', 'wb-b sec', 'Endless', trow);
+  H.toSet = el('button', 'wb-b sec', 'Settings', trow);
   // pause
   H.pausePanel = el('div', 'wb-panel mid');
   const pc = el('div', 'wb-card', '', H.pausePanel);
   el('div', 'wb-h', 'Paused', pc);
   H.pauseSub = el('div', 'wb-sub', '', pc);
-  H.resume = el('button', 'wb-b', 'RESUME', pc);
-  H.restart = el('button', 'wb-b sec', 'BEGIN THIS SPIRAL AGAIN', pc);
+  H.resume = el('button', 'wb-b', 'Resume', pc);
+  H.restart = el('button', 'wb-b sec', 'Restart encounter', pc);
   const prow = el('div', 'wb-row', '', pc);
-  H.pSet = el('button', 'wb-b sec', 'SETTINGS', prow);
-  H.quit = el('button', 'wb-b sec', 'END RUN', prow);
+  H.pSet = el('button', 'wb-b sec', 'Settings', prow);
+  H.quit = el('button', 'wb-b sec', 'End run', prow);
   // capture
   H.cap = el('div', 'wb-panel');
   const cc = el('div', 'wb-card', '', H.cap);
   H.capH = el('div', 'wb-h', '', cc);
   H.capSub = el('div', 'wb-sub', '', cc);
-  H.again = el('button', 'wb-b', 'TRY AGAIN', cc);
-  H.capEnd = el('button', 'wb-b sec', 'END RUN', cc);
+  H.again = el('button', 'wb-b', 'Try again', cc);
+  H.capEnd = el('button', 'wb-b sec', 'End run', cc);
   // results
   H.res = el('div', 'wb-panel');
   const rc = el('div', 'wb-card', '', H.res);
@@ -2678,16 +2817,16 @@ function createUI(ctx) {
   H.resSub = el('div', 'wb-sub', '', rc);
   H.resStats = el('div', 'wb-stats', '', rc);
   H.resList = el('div', '', '', rc);
-  H.resAgain = el('button', 'wb-b', 'AGAIN', rc);
+  H.resAgain = el('button', 'wb-b', 'Play again', rc);
   const rrow = el('div', 'wb-row', '', rc);
-  H.resEndless = el('button', 'wb-b sec', 'ENDLESS', rrow);
-  H.resTitle = el('button', 'wb-b sec', 'TITLE', rrow);
+  H.resEndless = el('button', 'wb-b sec', 'Endless', rrow);
+  H.resTitle = el('button', 'wb-b sec', 'Title', rrow);
   // settings
   H.set = el('div', 'wb-panel mid');
   const sc = el('div', 'wb-card', '', H.set);
   el('div', 'wb-h', 'Settings', sc);
   H.setList = el('div', '', '', sc);
-  H.setBack = el('button', 'wb-b', 'BACK', sc);
+  H.setBack = el('button', 'wb-b', 'Back', sc);
   H.panels = [H.title, H.pausePanel, H.cap, H.res, H.set];
   H.showOnly = p => { for (const x of H.panels) x.classList.toggle('on', x === p); };
   return H;
@@ -2705,16 +2844,16 @@ const defaultSave = () => ({ best: 0, bestEndless: 0, deepest: 0, completed: fal
 
 // why a capture happened, and what it teaches; keyed by what caught you
 const CAUGHT = {
-  watcher: ['It reached you', 'It moves only while you are not looking at it.'],
-  drifter: ['Crushed in the groove', 'The drifter is blind. It only goes until something stops it.'],
-  collector: ['Gathered', 'Hold the collector, or never let three of them meet.'],
-  liar: ['It was never held', 'The shy one looks away when watched. It is waiting for you to look away too.'],
-  liarFeign: ['It was never held', 'Watched, the shy one only pretends. It does not stop for you; walk into it and it takes you.'],
-  mimic: ['It moved the way you moved', 'It copies your steps a moment late. Stop, and it keeps coming for that moment.'],
-  sentinel: ['Seen', 'Held in your gaze, a sentinel sees nothing. Another eye between you hides you too.'],
-  choir: ['The choir sang over you', 'One of them blinks first. Hold that one and the song breaks.'],
-  crown: ['The crown closed', 'Only the eye that conducts it can break it, and only when it is whole.'],
-  unblinking: ['It has no lids', 'Your gaze is nothing to it. Held eyes in its way are walls; turn its ring away from you.'],
+  watcher: ['It reached you', 'It only moves while you are not watching it.'],
+  drifter: ['Crushed in the groove', 'The drifter is blind. It goes until something stops it.'],
+  collector: ['Gathered', 'Watch the collector, or keep the others apart.'],
+  liar: ['It was never held', 'This one looks away when watched. It was waiting for you to look away too.'],
+  liarFeign: ['It was never held', 'Watching it only makes it pretend. Walking into it is still fatal.'],
+  mimic: ['It moved the way you moved', 'It copies your steps a moment late. When you stop, it keeps coming for that moment.'],
+  sentinel: ['Seen', 'A watched sentinel sees nothing. An eye between you hides you too.'],
+  choir: ['The choir closed over you', 'One of them blinks first. Watch that one and the formation breaks.'],
+  crown: ['The crown closed', 'Only the eye leading it can break it, and only when the crown is whole.'],
+  unblinking: ['It has no lids', 'Your gaze does nothing to it. Watched eyes in its way are walls. Turn its ring away.'],
   echo: ['You met yourself', 'These move the way you once moved.'],
 };
 
@@ -2733,13 +2872,11 @@ window.plethoraBit = {
     canvas.style.cssText += ';width:100%;height:100%;display:block;background:#100e0c';
     const H = createUI(ctx);
     H.showOnly(H.title);
-    H.tstats.innerHTML = '<div><b>…</b>OPENING</div>';
+    H.tstats.innerHTML = '<div><b>…</b>Opening</div>';
     for (const b of [H.begin, H.cont, H.endless, H.toSet]) b.style.visibility = 'hidden';
     H.top.style.display = 'none';
     if (ctx.markVisualReady) ctx.markVisualReady('title');
-    try { ctx.loadFont('DM Serif Display', 'dm-serif-display', '1.0.0', { weight: '400', style: 'normal' }).catch(() => { }); } catch (e) { }
-    try { ctx.loadFont('DM Serif Display', 'dm-serif-display', '1.0.0', { weight: '400', style: 'italic' }).catch(() => { }); } catch (e) { }
-    try { ctx.loadFont('Nunito Sans', 'nunito-sans', '1.0.0', { weight: '700', style: 'normal' }).catch(() => { }); } catch (e) { }
+    for (const wgt of ['400', '600', '700']) { try { ctx.loadFont('Inter', 'inter', '1.0.0', { weight: wgt, style: 'normal' }).catch(() => { }); } catch (e) { } }
 
     function bootFail(stage, err) {
       try { ctx.platform.error({ stage, message: String((err && err.message) || err) }); } catch (e) { }
@@ -2790,15 +2927,16 @@ window.plethoraBit = {
     function showTitle() {
       mode = 'title'; mt = 0; run = null;
       def = TITLE_DEF; S = createSim(def); S.forcedRot = 0.05;
+      V.setFollow(false);
       V.build(S, def); V.dread = 0.2; V.fade = 0.6;
       layout(ctx.width, ctx.height, area());
       H.showOnly(H.title); setPlayHud(false);
-      H.tstats.innerHTML = `<div><b>${save.best.toLocaleString()}</b>BEST</div><div><b>${save.deepest ? roman(save.deepest) : '—'}</b>DEEPEST</div><div><b>${save.bestEndless ? save.bestEndless.toLocaleString() : '—'}</b>ENDLESS</div>`;
+      H.tstats.innerHTML = `<div><b>${save.deepest ? save.deepest + ' / 20' : '—'}</b>Furthest</div><div><b>${save.best ? save.best.toLocaleString() : '—'}</b>Best run</div><div><b>${save.bestEndless ? save.bestEndless.toLocaleString() : '—'}</b>Endless</div>`;
       for (const b of [H.begin, H.cont, H.endless, H.toSet]) b.style.visibility = '';
       const act = continueAct();
-      H.cont.hidden = act <= 1; H.cont.textContent = act > 1 ? `CONTINUE FROM ACT ${roman(act)}` : 'CONTINUE';
+      H.cont.hidden = act <= 1; H.cont.textContent = act > 1 ? `Continue from act ${act}` : 'Continue';
       H.endless.disabled = !save.completed; H.endless.style.opacity = save.completed ? '' : '0.35';
-      H.endless.textContent = save.completed ? 'ENDLESS' : 'ENDLESS · LOCKED';
+      H.endless.textContent = save.completed ? 'Endless' : 'Endless (locked)';
       V.ink(0); V.zoom = 1; V.applyCamera();
     }
     // frame the spiral itself, with a margin of the dark field around it
@@ -2810,9 +2948,9 @@ window.plethoraBit = {
       H.top.style.display = on ? '' : 'none';
       H.band.style.display = on ? '' : 'none';
       H.dial.style.display = on && S && !S.rotLocked ? 'block' : 'none';
-      H.dialLab.style.display = H.dial.style.display;
-      H.stickLab.style.display = on && usedTouch ? '' : 'none';
-      if (!on) { H.stick.style.display = 'none'; H.stick.classList.remove('ghost'); H.hint.style.opacity = 0; H.vig.style.opacity = 0; }
+      H.stick.style.display = on && usedTouch ? 'block' : 'none';
+      if (on && !input.stick) homeStick();
+      if (!on) { H.stick.classList.remove('teach'); H.hint.style.opacity = 0; H.vig.style.opacity = 0; H.edge.style.display = 'none'; H.mark.style.opacity = 0; H.name.style.opacity = 0; }
     }
     let hint = { key: null, until: 0 };
     function showHint(key, text, dur) {
@@ -2820,7 +2958,9 @@ window.plethoraBit = {
       hint = { key, until: dur ? mt + dur : 1e9 };
       H.hint.textContent = text; H.hint.style.opacity = 1;
     }
-    function clearHint(key) { if (!key || hint.key === key) { hint.key = null; H.hint.style.opacity = 0; H.stick.classList.remove('ghost'); H.dial.classList.remove('ghost'); } }
+    function clearHint(key) { if (!key || hint.key === key) { hint.key = null; H.hint.style.opacity = 0; H.stick.classList.remove('teach'); H.dial.classList.remove('teach'); } }
+    // the stick rests in the lower left so the player always knows where walking lives
+    function homeStick() { H.stick.classList.remove('live'); H.stick.style.left = (save.settings.swap ? ctx.width - 88 : 88) + 'px'; H.stick.style.top = (bandBottom() - bandPx() * 0.5) + 'px'; H.knob.style.transform = ''; }
 
     // ---------- runs and encounters ----------
     function newRun(kind, startId) {
@@ -2842,29 +2982,44 @@ window.plethoraBit = {
       V.build(S, def); V.ink(0);
       layout(ctx.width, ctx.height, area());
       input.gazeSet = null; input.stick = null; input.dial = null;
-      H.stick.style.display = 'none';
-      H.num.innerHTML = run.kind === 'endless' ? `${roman(Math.min(20, run.depth))}${run.depth > 20 ? '+' + (run.depth - 20) : ''}<small>DEPTH</small>` : `${roman(E.id)}<small>OF XX</small>`;
-      H.name.textContent = E.name; H.whisper.textContent = E.whisper || '';
-      H.name.style.opacity = 0; H.whisper.style.opacity = 0;
-      updateScore();
+      H.num.textContent = run.kind === 'endless' ? `Depth ${run.depth}` : `${E.id} / 20`;
+      H.name.textContent = E.name;
+      H.name.style.opacity = 0;
       const firstOfAct = run.kind === 'campaign' && (E.id === run.startId || ENCOUNTERS.find(q => q.act === E.act).id === E.id);
+      if (V.follow || run) { V.setFollow(true); V.updateRig(S, 0, true); }
       if (showCard && firstOfAct && ACTS[E.act]) { mode = 'card'; mt = 0; H.actS.textContent = ACTS[E.act].sub; H.actT.textContent = ACTS[E.act].title; H.act.classList.add('on'); ctx.timeout(() => H.act.classList.add('show'), 30); setPlayHud(false); }
       else enterPlay();
     }
     function enterPlay() {
       mode = 'play'; mt = 0; V.fade = 1;
+      if (!V.follow) V.setFollow(true);
+      V.updateRig(S, 0, true);
       H.act.classList.remove('on', 'show');
       H.showOnly(null); setPlayHud(true);
       const enc = run.E;
-      ctx.timeout(() => { if (mode === 'play' && run && run.E === enc) { H.name.style.opacity = 0.8; H.whisper.style.opacity = 0.9; } }, 250);
-      ctx.timeout(() => { if (run && run.E === enc) { H.name.style.opacity = 0; H.whisper.style.opacity = 0; } }, 5200);
-      if (run.E.id === 1 && run.kind === 'campaign') showHint('walk', usedTouch ? 'Drag in the lower left to walk.' : 'Walk with W A S D or the arrow keys.');
-      if (!S.rotLocked && !run.learned.turn) { H.dial.classList.add('ghost'); }
-      if (!run.learned.walk && usedTouch) { H.stick.classList.add('ghost'); H.stick.style.left = (ctx.width * 0.22) + 'px'; H.stick.style.top = (bandBottom() - bandPx() * 0.5) + 'px'; }
+      // the encounter's name, briefly; then the drawing has the screen to itself
+      ctx.timeout(() => { if (mode === 'play' && run && run.E === enc) H.name.style.opacity = 0.9; }, 200);
+      ctx.timeout(() => { if (run && run.E === enc) H.name.style.opacity = 0; }, 2600);
+      if (run.E.id === 1 && run.kind === 'campaign') showHint('walk', usedTouch ? 'Drag the circle to walk.' : 'Walk with W A S D or the arrow keys.');
+      else if (enc.intro && run.kind === 'campaign' && !run.learned['intro' + enc.id]) { run.learned['intro' + enc.id] = true; showHint('intro', enc.intro, 4.5); }
+      if (!S.rotLocked && !run.learned.turn) H.dial.classList.add('teach');
+      if (!run.learned.walk && usedTouch) H.stick.classList.add('teach');
       audio.arrive();
     }
     function restartEncounter() { if (!run) return; startEncounter(run.E, false); }
-    function updateScore() { H.score.textContent = run ? Math.floor(run.score).toLocaleString() : ''; }
+    function updateScore() { }
+    // when the way deeper is off-screen, a small arrow on the edge points to it
+    function updateEdge() {
+      if (mode !== 'play' || !V.beacon.on) { H.edge.style.display = 'none'; return; }
+      const [sx, sy] = V.toScreen(V.beacon.x, V.beacon.y, 0), a = area();
+      const x0 = a.left + 24, x1 = ctx.width - a.right - 24, y0 = a.top + 72, y1 = bandBottom() - bandPx() - 12;
+      if (sx > x0 && sx < x1 && sy > y0 && sy < y1) { H.edge.style.display = 'none'; return; }
+      const cx = ctx.width / 2, cy = (y0 + y1) / 2, dx = sx - cx, dy = sy - cy;
+      const k = Math.min(Math.abs((dx > 0 ? x1 - cx : x0 - cx) / (dx || 1e-6)), Math.abs((dy > 0 ? y1 - cy : y0 - cy) / (dy || 1e-6)));
+      H.edge.style.display = 'block';
+      H.edge.style.left = (cx + dx * k) + 'px'; H.edge.style.top = (cy + dy * k) + 'px';
+      H.edge.style.transform = `rotate(${Math.atan2(dx, -dy)}rad)`;
+    }
 
     // ---------- the frame ----------
     let acc = 0;
@@ -2880,7 +3035,9 @@ window.plethoraBit = {
       if (K.has('KeyA') || K.has('ArrowLeft')) mx -= 1; if (K.has('KeyD') || K.has('ArrowRight')) mx += 1;
       if (K.has('KeyW') || K.has('ArrowUp')) my += 1; if (K.has('KeyS') || K.has('ArrowDown')) my -= 1;
       const l = Math.hypot(mx, my); if (l > 1) { mx /= l; my /= l; }
-      inp.move = [mx, my];
+      // screen right walks one way along the groove, screen up steps toward the centre
+      const ax = V.screenAxes();
+      inp.move = [ax.right[0] * mx + ax.up[0] * my, ax.right[1] * mx + ax.up[1] * my];
       // turning: the dial (a jog: how far you hold it is how fast it turns) or Q / E
       let rot = 0;
       if (input.dial) rot = clamp((input.dial.x - input.dial.ox) / (64 / save.settings.dial), -1, 1) * (Math.abs(input.dial.x - input.dial.ox) < 5 ? 0 : 1);
@@ -2900,8 +3057,8 @@ window.plethoraBit = {
     function step() {
       const inp = readInput();
       if (!inp.move) inp.move = [0, 0];
-      if (Math.hypot(inp.move[0], inp.move[1]) > 0.1) { run.learned.walk = true; if (hint.key === 'walk') clearHint('walk'); H.stick.classList.remove('ghost'); }
-      if (inp.rot) { if (!run.learned.turn && Math.abs(S.stats.rotated) > 0.6) { run.learned.turn = true; H.dial.classList.remove('ghost'); if (hint.key === 'turn') clearHint('turn'); } }
+      if (Math.hypot(inp.move[0], inp.move[1]) > 0.1 && !run.learned.walk) { run.learned.walk = true; if (hint.key === 'walk') clearHint('walk'); H.stick.classList.remove('teach'); }
+      if (inp.rot) { if (!run.learned.turn && Math.abs(S.stats.rotated) > 0.6) { run.learned.turn = true; H.dial.classList.remove('teach'); if (hint.key === 'turn') clearHint('turn'); } }
       const ring0 = S.P.k;
       S.step(inp);
       run.encT += DT; run.time += DT;
@@ -2920,8 +3077,8 @@ window.plethoraBit = {
         const e = ev.eye !== undefined && ev.eye >= 0 ? S.eyes[ev.eye] : null;
         const pan = e ? panOf(S.eyePos(e, _pp)) : 0;
         switch (ev.type) {
-          case 'pin': audio.pin(pan, e && e.type === 'drifter'); haptic('light'); run.pins++; if (!run.learned.pin) { run.learned.pin = true; if (hint.key === 'look') clearHint('look'); if (run.E.id <= 2) showHint('held', 'Held in your gaze, it cannot move.', 2.6); } break;
-          case 'release': audio.release(pan); if (!run.learned.release && run.learned.pin && run.E.id <= 2) { run.learned.release = true; showHint('released', 'Look away, and it moves again.', 2.6); } break;
+          case 'pin': audio.pin(pan, e && e.type === 'drifter'); haptic('light'); run.pins++; if (!run.learned.pin) { run.learned.pin = true; if (hint.key === 'look') clearHint('look'); if (run.E.id <= 2) showHint('held', 'While you watch it, it cannot move.', 2.6); } break;
+          case 'release': audio.release(pan); if (!run.learned.release && run.learned.pin && run.E.id <= 2) { run.learned.release = true; showHint('released', 'Look away and it moves again.', 2.6); } break;
           case 'target': if (e && e.state === ST.ACTIVE && e.pinnable) audio.acquire(pan); break;
           case 'feign': audio.feign(pan); break;
           case 'lunge': audio.lunge(pan); break;
@@ -2941,6 +3098,7 @@ window.plethoraBit = {
           case 'unseal': audio.unseal(); break;
           case 'cross': audio.cross(); if (hint.key === 'door') clearHint('door'); run.learned.cross = true; break;
           case 'bump': audio.bump(); break;
+          case 'strike': audio.bump(); audio.lunge(pan); haptic('heavy'); run.strikes = (run.strikes || 0) + 1; if (!run.learned.strike) { run.learned.strike = true; showHint('strike', 'Struck. One more touch and it has you.', 3.2); } break;
           case 'close': audio.close(); break;
           case 'eyeCross': audio.wake(pan); break;
           case 'pressure': audio.wake(0); haptic('light'); break;
@@ -2953,10 +3111,10 @@ window.plethoraBit = {
       const id = run.E.id;
       if (hint.key && mt > hint.until) clearHint();
       if (hint.key) return;
-      if (id === 1 && !run.learned.pin && S.eyes[0].state !== ST.DORMANT) showHint('look', usedTouch ? 'Touch the eye to look at it.' : 'Look at the eye: point at it.');
-      else if (id <= 2 && run.learned.pin && !run.learned.cross) { const nd = S.nearestDoor(S.P.k, S.playerTheta(), true); if (nd && nd.arc < 2.2) showHint('door', usedTouch ? 'At an opening, push toward the centre.' : 'At an opening, walk toward the centre.'); }
-      else if (id === 4 && !run.learned.turn) showHint('turn', usedTouch ? 'Hold in the lower right and drag to turn the spiral.' : 'Q and E turn the spiral.');
-      else if (id === 4 && run.learned.turn && !run.learned.holdturn && S.P.k >= 1) { run.learned.holdturn = true; showHint('holdturn', 'The ring under you keeps still. What you hold stays where you hold it.', 6); }
+      if (id === 1 && !run.learned.pin && S.eyes[0].state !== ST.DORMANT) showHint('look', usedTouch ? 'Tap the eye to watch it.' : 'Point at the eye to watch it.');
+      else if (id <= 2 && run.learned.pin && !run.learned.cross) { const nd = S.nearestDoor(S.P.k, S.playerTheta(), true); if (nd && nd.arc < 2.2) showHint('door', usedTouch ? 'At the opening, push up to go deeper.' : 'At the opening, press W to go deeper.'); }
+      else if (id === 4 && !run.learned.turn) showHint('turn', usedTouch ? 'Drag the lower-right bar to turn the rings.' : 'Q and E turn the rings.');
+      else if (id === 4 && run.learned.turn && !run.learned.holdturn && S.P.k >= 1) { run.learned.holdturn = true; showHint('holdturn', 'A watched eye stays put while its ring turns.', 5); }
     }
     function capture() {
       mode = 'captured'; mt = 0;
@@ -3014,9 +3172,9 @@ window.plethoraBit = {
       if (scoreTrack && (run.kind === 'endless' || run.full)) { try { scoreTrack.set(final); scoreTrack.submit(run.kind === 'endless' ? 'endless' : 'score', { label: final + ' pts' }).catch(() => { }); } catch (e) { } }
       mode = 'results'; mt = 0;
       const mins = Math.floor(run.time / 60), secs = Math.floor(run.time % 60);
-      H.resH.textContent = completed ? 'You reached the centre' : run.kind === 'endless' ? `Depth ${run.depth}` : 'The spiral kept you';
-      H.resSub.innerHTML = (best ? '<span class="wb-new">A new best.</span> ' : '') + (completed ? (run.captures === 0 ? 'Never once caught.' : 'It let you go. This time.') : run.kind === 'endless' ? 'It has learned more than you have.' : `You reached ${roman(run.E.id)}: ${run.E.name}.`) + (!run.full && run.kind === 'campaign' ? ' <span style="opacity:.6">(Continued runs are not ranked.)</span>' : '');
-      H.resStats.innerHTML = `<div><b>${final.toLocaleString()}</b>SCORE</div><div><b>${mins}:${String(secs).padStart(2, '0')}</b>TIME</div><div><b>${run.cleared}</b>${run.kind === 'endless' ? 'SPIRALS' : 'REACHED'}</div>`;
+      H.resH.textContent = completed ? 'You reached the centre' : run.kind === 'endless' ? `Lost at depth ${run.depth}` : 'The spiral kept you';
+      H.resSub.innerHTML = (best ? '<span class="wb-new">New best.</span> ' : '') + (completed ? (run.captures === 0 ? 'Never caught.' : 'It let you go.') : run.kind === 'endless' ? 'It learned faster than you.' : `Encounter ${run.E.id}: ${run.E.name}.`) + (!run.full && run.kind === 'campaign' ? ' Continued runs are not ranked.' : '');
+      H.resStats.innerHTML = `<div><b>${final.toLocaleString()}</b>Score</div><div><b>${mins}:${String(secs).padStart(2, '0')}</b>Time</div><div><b>${run.cleared}</b>${run.kind === 'endless' ? 'Spirals' : 'Encounters'}</div>`;
       const rows = [['Caught', run.captures], ['Chain reactions', run.chains], ['Longest chain', run.bestChain ? run.bestChain + ' eyes' : '—'], ['Eyes held', run.pins]];
       H.resList.innerHTML = rows.map(r => `<div class="wb-li"><span>${r[0]}</span><b>${r[1]}</b></div>`).join('');
       H.resEndless.disabled = !save.completed; H.resEndless.style.opacity = save.completed ? '' : '0.35';
@@ -3032,6 +3190,7 @@ window.plethoraBit = {
       // the traveller is gone; in their place on the outer ring an eye opens, and a newcomer walks in
       const E = { id: 21, n: 4, rotation: true, seed: 2121, doors: [[-90], [150], [-30], [90]], barriers: [[], [], [], []], player: { k: 0, a: -90 }, eyes: [{ type: 'watcher', name: 'you', k: 0, a: -60, beh: 'still', wake: 3.2, wakeNear: 0 }] };
       def = E; S = createSim(E); S.forcedRot = 0.04;
+      V.setFollow(false);
       V.build(S, def); V.dread = 1; V.fade = 1; V.ink(0);
       layout(ctx.width, ctx.height, area());
       ending = { line: -1 };
@@ -3081,9 +3240,12 @@ window.plethoraBit = {
         H.vig.style.opacity = mode === 'play' ? clamp(S.P.exposure * 1.1 + threat * 0.25, 0, 1).toFixed(2) : 0;
         let unb = 0; for (const e of S.eyes) if (e.type === 'unblinking' && e.state === ST.ACTIVE) { const d = Math.hypot(...S.eyePos(e).map((v, i) => v - S.playerPos()[i])); unb = Math.max(unb, clamp(1 - d / 10, 0.15, 1)); }
         audio.ambient({ quiet: def && def.quiet, dread: V.dread, rot: mode === 'play' ? S.rotDone : 0, exposure: mode === 'play' ? S.P.exposure : 0, unblinking: mode === 'play' ? unb : 0 }, dt);
-        V.update(S, dt, { threat, capture: mode === 'captured' ? clamp(mt / 1.1, 0, 1) : mode === 'capcard' ? 1 : 0, hidePlayer: mode === 'title' || mode === 'ending' && false, hideThread: mode !== 'play', calm: save.settings.calm });
+        if (V.follow) V.updateRig(S, dt);
+        V.update(S, dt, { beacon: mode === 'play' || mode === 'card', threat, capture: mode === 'captured' ? clamp(mt / 1.1, 0, 1) : mode === 'capcard' ? 1 : 0, hidePlayer: mode === 'title' || mode === 'ending' && false, hideThread: mode !== 'play', calm: save.settings.calm });
         if (mode === 'ending' || mode === 'title') V.update.hide = true;
         updateDial(dt);
+        H.mark.style.opacity = mode === 'play' && S.P.marked > 0 ? (0.55 + 0.45 * Math.min(1, S.P.marked / 2)).toFixed(2) : 0;
+        updateEdge();
       }
       V.render();
     }
@@ -3130,7 +3292,7 @@ window.plethoraBit = {
       if (inBand && (leftSide || S.rotLocked)) {
         roles.set(e.pointerId, 'stick');
         input.stick = { ox: x, oy: y, x, y };
-        H.stick.classList.remove('ghost'); H.stick.style.display = 'block'; H.stick.style.left = x + 'px'; H.stick.style.top = y + 'px'; H.knob.style.transform = '';
+        H.stick.classList.remove('teach'); H.stick.classList.add('live'); H.stick.style.display = 'block'; H.stick.style.left = x + 'px'; H.stick.style.top = y + 'px'; H.knob.style.transform = '';
       } else if (inBand) {
         roles.set(e.pointerId, 'dial');
         input.dial = { ox: x, x };
@@ -3155,7 +3317,7 @@ window.plethoraBit = {
     }
     function onUp(e) {
       const role = roles.get(e.pointerId); roles.delete(e.pointerId);
-      if (role === 'stick') { input.stick = null; H.stick.style.display = 'none'; }
+      if (role === 'stick') { input.stick = null; homeStick(); }
       if (role === 'dial') input.dial = null;
       // the gaze stays where it was left
     }
@@ -3182,12 +3344,12 @@ window.plethoraBit = {
       if (/^(Key[WASD]|Arrow)/.test(e.code)) usedTouch = false;
     });
     ctx.listen(window, 'keyup', e => input.keys.delete(e.code));
-    const dropInputs = () => { input.keys.clear(); input.stick = null; input.dial = null; roles.clear(); H.stick.style.display = 'none'; };
+    const dropInputs = () => { input.keys.clear(); input.stick = null; input.dial = null; roles.clear(); homeStick(); };
     ctx.listen(window, 'blur', () => { dropInputs(); if (mode === 'play') pauseGame(); });
     ctx.listen(document, 'visibilitychange', () => { if (document.hidden) { dropInputs(); if (mode === 'play') pauseGame(); audio.suspend(); } else audio.resume(); });
 
     // ---------- panels ----------
-    function pauseGame() { if (mode !== 'play') return; mode = 'paused'; dropInputs(); H.pauseSub.textContent = run.E ? `${roman(run.E.id)} · ${run.E.name}` : ''; H.showOnly(H.pausePanel); }
+    function pauseGame() { if (mode !== 'play') return; mode = 'paused'; dropInputs(); H.pauseSub.textContent = run.E ? (run.kind === 'endless' ? `Depth ${run.depth}` : `Encounter ${run.E.id} of 20: ${run.E.name}`) : ''; H.showOnly(H.pausePanel); }
     function resumeGame() { if (mode !== 'paused') return; mode = 'play'; H.showOnly(null); }
     const click = (b, fn) => ctx.listen(b, 'click', ev => { ev.stopPropagation(); audio.unlock(); fn(ev); });
     click(H.begin, () => begin('campaign', 1));
@@ -3230,14 +3392,13 @@ window.plethoraBit = {
       const dw = Math.min(200, w * 0.42);
       Object.assign(H.dial.style, save.settings.swap ? { left: '16px', right: 'auto' } : { right: '16px', left: 'auto' });
       Object.assign(H.dial.style, { width: dw + 'px', bottom: (bot + band * 0.5 - 28) + 'px' });
-      Object.assign(H.dialLab.style, save.settings.swap ? { left: '16px', right: 'auto' } : { right: '16px', left: 'auto' });
-      Object.assign(H.dialLab.style, { width: dw + 'px', bottom: (bot + band * 0.5 - 52) + 'px' });
-      Object.assign(H.stickLab.style, save.settings.swap ? { right: '16px', left: 'auto' } : { left: '16px', right: 'auto' });
-      Object.assign(H.stickLab.style, { width: dw + 'px', bottom: (bot + band * 0.5 - 52) + 'px' });
+      H.name.style.top = (16 + top + 52) + 'px';
+      if (!input.stick) homeStick();
       H.titleText.style.top = (top + h * 0.06) + 'px';
       H.end.style.top = (top + h * 0.12) + 'px';
       for (const p of H.panels) p.style.paddingBottom = (bot + 16) + 'px';
       renderer.setSize(w, h, false);
+      V.bandPx = band + bot;
       V.layout(w, h, safe, mode === 'title' ? 0.32 : layoutBand + bot / h, frameR());
     }
     ctx.onResize(({ width, height, contentSafeArea, safeArea }) => layout(width, height, contentSafeArea || ctx.contentSafeArea || ctx.safeArea || safeArea), { immediate: true });

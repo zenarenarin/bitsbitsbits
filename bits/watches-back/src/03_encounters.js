@@ -7,16 +7,16 @@
 
 const ACTS = [
   null,
-  { n: 1, title: 'Something Is Looking', sub: 'Act I' },
-  { n: 2, title: 'The System Moves', sub: 'Act II' },
-  { n: 3, title: 'It Learned Your Habits', sub: 'Act III' },
-  { n: 4, title: 'The Thing That Watches Back', sub: 'Act IV' },
+  { n: 1, title: 'Learning to look', sub: 'Act 1' },
+  { n: 2, title: 'Control is conditional', sub: 'Act 2' },
+  { n: 3, title: 'The world learns', sub: 'Act 3' },
+  { n: 4, title: 'The system converges', sub: 'Act 4' },
 ];
 
 const ENCOUNTERS = [
   // ------------------------------------------------------------ ACT I
   {
-    id: 1, act: 1, name: 'The First Eye', whisper: 'Something here has noticed you.', par: 25,
+    id: 1, act: 1, name: 'The First Eye', par: 25,
     n: 2, rotation: false,
     doors: [[25], [200]], barriers: [[-122], []],
     player: { k: 0, a: -90 },
@@ -24,7 +24,7 @@ const ENCOUNTERS = [
     hints: ['walk', 'look'],
   },
   {
-    id: 2, act: 1, name: 'The Unwatched', whisper: 'It keeps pace with you, wherever you go.', par: 30,
+    id: 2, act: 1, name: 'The Unwatched', intro: 'It follows you while you are not watching it.', par: 30,
     n: 2, rotation: false,
     doors: [[-30], [70]], barriers: [[40], []],
     player: { k: 0, a: -110 },
@@ -34,7 +34,7 @@ const ENCOUNTERS = [
     ],
   },
   {
-    id: 3, act: 1, name: 'The First Obstruction', whisper: 'Held still, an eye is only a thing in the way.', par: 35,
+    id: 3, act: 1, name: 'The First Obstruction', intro: 'A watched eye blocks whatever is behind it.', par: 35,
     n: 2, rotation: false,
     doors: [[-30], [15]], barriers: [[], [30, 170]],
     player: { k: 0, a: -100 },
@@ -45,7 +45,7 @@ const ENCOUNTERS = [
     ],
   },
   {
-    id: 4, act: 1, name: 'The Spiral Turns', whisper: 'The ground you stand on is the only thing that keeps still.', par: 45,
+    id: 4, act: 1, name: 'The Spiral Turns', par: 45,
     n: 3, rotation: true,
     doors: [[90], [150], [0]], barriers: [[-124, -56], [], []],
     player: { k: 0, a: -90 },
@@ -54,7 +54,7 @@ const ENCOUNTERS = [
   },
   // ------------------------------------------------------------ ACT II
   {
-    id: 5, act: 2, name: 'The Drifter', whisper: 'This one does not follow you. It simply goes.', par: 50,
+    id: 5, act: 2, name: 'The Drifter', intro: 'The drifter is blind. It goes until something stops it.', par: 50,
     n: 3, rotation: true,
     doors: [[-90], [40], [70]], barriers: [[-132, -48], [-172, 62], []],
     player: { k: 0, a: -90 },
@@ -66,7 +66,7 @@ const ENCOUNTERS = [
     ],
   },
   {
-    id: 6, act: 2, name: 'A Gathering', whisper: 'Some of them prefer company.', par: 55,
+    id: 6, act: 2, name: 'A Gathering', intro: 'Three eyes together become something worse.', par: 55,
     n: 3, rotation: true,
     doors: [[-90], [-170], [150]], barriers: [[-152, -28], [], [60]],
     player: { k: 0, a: -90 },
@@ -78,7 +78,7 @@ const ENCOUNTERS = [
     ],
   },
   {
-    id: 7, act: 2, name: 'The Wrong Direction', whisper: 'It is shy. It cannot bear to be looked at.', par: 50,
+    id: 7, act: 2, name: 'The Wrong Direction', intro: 'This one only pretends to stop when watched.', par: 50,
     n: 3, rotation: true,
     doors: [[-10], [30], [200]], barriers: [[-140], [], [120]],
     player: { k: 0, a: -90 },
@@ -88,20 +88,15 @@ const ENCOUNTERS = [
     ],
   },
   {
-    id: 8, act: 2, name: 'Broken Formation', whisper: 'They are learning to need one another.', par: 60,
-    n: 3, rotation: true,
-    doors: [[-90], [-55], [170]], barriers: [[-160, -20], [175], [80]],
+    id: 8, act: 2, name: 'Broken Formation', intro: 'They move together. One of them leads.', par: 40,
+    n: 2, rotation: true,
+    doors: [[-90], [-150]], barriers: [[-130, -50], [-178, -20]],
     player: { k: 0, a: -90 },
-    eyes: [
-      { type: 'liar', name: 'shy', k: 1, a: -90 },
-      { type: 'watcher', name: 'pace', k: 1, a: 20, beh: 'patrol', dir: -1, speed: 0.8 },
-      { type: 'collector', name: 'gatherer', k: 1, a: -10 },
-      { type: 'drifter', name: 'drift', k: 1, a: 120, dir: -1 },
-      { type: 'watcher', name: 'low', k: 2, a: -60 },
-    ],
+    eyes: [0, 1, 2].map(i => ({ type: 'choir', name: 'c' + i, k: 1, a: -112 + i * 13 })),
+    choirs: [{ members: ['c0', 'c1', 'c2'], conductor: 'c1', dir: 1, spd: 1.7 }],
   },
   {
-    id: 9, act: 2, name: 'The Narrowing', whisper: 'The way in is getting smaller. So is the way out.', par: 70,
+    id: 9, act: 2, name: 'The Narrowing', intro: 'The openings close as you go deeper.', par: 70,
     n: 5, rotation: true,
     doors: [[-90], [90], [-150], [30], [-90]],
     barriers: [[-140, -40], [-170, 10], [], [-60, 120], []],
@@ -114,7 +109,7 @@ const ENCOUNTERS = [
     ],
   },
   {
-    id: 10, act: 2, name: 'The First Hunt', whisper: 'It has been watching how you walk.', par: 70,
+    id: 10, act: 2, name: 'The First Hunt', intro: 'These learned the way you walk.', par: 70,
     n: 4, rotation: true,
     doors: [[0], [90], [-90], [90]], barriers: [[-130, -50], [], [], []],
     player: { k: 0, a: -90 },
@@ -130,7 +125,7 @@ const ENCOUNTERS = [
   },
   // ------------------------------------------------------------ ACT III
   {
-    id: 11, act: 3, name: 'The Mimic', whisper: 'It moves like you. A little late.', par: 55,
+    id: 11, act: 3, name: 'The Mimic', intro: 'It copies your steps, a moment late.', par: 55,
     n: 3, rotation: true,
     doors: [[-30], [-120], [-175]], barriers: [[-150], [], [30]],
     player: { k: 0, a: -110 },
@@ -140,7 +135,7 @@ const ENCOUNTERS = [
     ],
   },
   {
-    id: 12, act: 3, name: 'The Sentinel', whisper: 'Not everything that watches moves.', par: 60,
+    id: 12, act: 3, name: 'The Sentinel', intro: 'The sentinel stays put. Its sight does not.', par: 60,
     n: 3, rotation: true,
     doors: [[-110], [60], [-60]], barriers: [[-135, -45], [], []],
     player: { k: 0, a: -90 },
@@ -151,7 +146,7 @@ const ENCOUNTERS = [
     ],
   },
   {
-    id: 13, act: 3, name: 'The False Pattern', whisper: 'Most of them are only drawings.', par: 50,
+    id: 13, act: 3, name: 'The False Pattern', intro: 'Most of these are only drawings.', par: 50,
     n: 3, rotation: true,
     doors: [[-90], [0, 180], [100]], barriers: [[-130, -50], [], [-120]],
     player: { k: 0, a: -90 },
@@ -168,7 +163,7 @@ const ENCOUNTERS = [
     ],
   },
   {
-    id: 14, act: 3, name: 'The Choir', whisper: 'One of them is singing. The rest are listening.', par: 55,
+    id: 14, act: 3, name: 'The Choir', intro: 'Watch the one that blinks first.', par: 55,
     n: 3, rotation: true,
     doors: [[-90], [-150], [-120]], barriers: [[-130, -50], [-178, 100], []],
     player: { k: 0, a: -90 },
@@ -177,17 +172,18 @@ const ENCOUNTERS = [
     choirs: [{ members: ['c0', 'c1', 'c2', 'c3', 'c4'], conductor: 'c3', dir: 1, spd: 1.0 }],
   },
   {
-    id: 15, act: 3, name: 'The Repetition', whisper: 'You have been here before.', par: 50,
+    id: 15, act: 3, name: 'The Repetition', intro: 'You have solved this before. It remembers.', par: 50,
     n: 3, rotation: true,
     doors: [[-90], [-90], [0]], barriers: [[-124, -56], [], []],
     player: { k: 0, a: -90 },
     eyes: [
       { type: 'liar', name: 'keeper', k: 2, a: -90, speed: 0.7 },
       { type: 'drifter', name: 'wedge', k: 2, a: -45, speed: 0.35, dir: 1 },
+      { type: 'mimic', name: 'echoer', k: 1, a: 20, delay: 0.9, mirror: -1 },
     ],
   },
   {
-    id: 16, act: 3, name: 'No Safe Direction', whisper: 'Everything is in front of you.', par: 75,
+    id: 16, act: 3, name: 'No Safe Direction', par: 75,
     n: 4, rotation: true,
     doors: [[-90], [90], [-30], [150]], barriers: [[-150, -30], [], [-100], []],
     player: { k: 0, a: -90 },
@@ -201,7 +197,7 @@ const ENCOUNTERS = [
   },
   // ------------------------------------------------------------ ACT IV
   {
-    id: 17, act: 4, name: 'The Convergence', whisper: 'They no longer take turns.', par: 80, dread: 0.4,
+    id: 17, act: 4, name: 'The Convergence', par: 80, dread: 0.4,
     n: 4, rotation: true,
     doors: [[-90], [30], [-150], [60]], barriers: [[-150, -30], [150], [], [-20]],
     player: { k: 0, a: -90 },
@@ -216,7 +212,7 @@ const ENCOUNTERS = [
     choirs: [{ members: ['c0', 'c1', 'c2', 'c3'], conductor: 'c1', dir: 1, spd: 0.9 }],
   },
   {
-    id: 18, act: 4, name: 'The Unblinking', whisper: 'This one has no lids. Your gaze is nothing to it.', par: 90, dread: 0.55,
+    id: 18, act: 4, name: 'The Unblinking', intro: 'Your gaze does nothing to this one.', par: 90, dread: 0.55,
     n: 4, rotation: true,
     doors: [[90], [-90], [90], [-90]], barriers: [[-140, -40], [], [], []],
     player: { k: 0, a: -90 },
@@ -228,7 +224,7 @@ const ENCOUNTERS = [
     ],
   },
   {
-    id: 19, act: 4, name: 'The Crown', whisper: 'It has gathered itself into one thing.', par: 110, dread: 0.75,
+    id: 19, act: 4, name: 'The Crown', intro: 'Break the eye that leads it.', par: 110, dread: 0.75,
     n: 4, rotation: true,
     doors: [[-90], [90], [-90], [{ a: 90, sealed: true }, { a: -90, sealed: true }]], barriers: [[-150, -30], [], [], []],
     player: { k: 0, a: -90 },
@@ -250,7 +246,7 @@ const ENCOUNTERS = [
     },
   },
   {
-    id: 20, act: 4, name: 'The Centre', whisper: '', par: 90, dread: 1, quiet: true,
+    id: 20, act: 4, name: 'The Centre', par: 90, dread: 1, quiet: true,
     n: 4, rotation: true, rotMax: 0.32,
     doors: [[-90], [150], [68], [{ a: 88, lid: 'first' }]], barriers: [[-150, -30], [], [], [56, 124]],
     player: { k: 0, a: -90 },
