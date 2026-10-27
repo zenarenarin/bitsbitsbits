@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "The Thing That Watches Back",
+  "description": "A psychological horror arcade game drawn in ink. You are trapped in a living spiral of eyes. Looking at an eye holds it still; looking away lets it go. Walk the grooves, turn the rings, choose what to watch, and make the eyes stop one another, through twenty spirals to the centre, then deeper in endless mode.",
+  "tags": [
+    "arcade",
+    "horror",
+    "puzzle",
+    "strategy"
+  ],
+  "permissions": [
+    "haptics",
+    "audio",
+    "storage"
+  ],
+  "dependencies": [
+    "three@0.164.1"
+  ],
+  "onboarding": {
+    "kind": "one_line",
+    "version": 1,
+    "message": "Walk with your left thumb. Touch an eye to look at it: while you watch it, it cannot move."
+  },
+  "memory": {
+    "records": {
+      "score": {
+        "label": "Campaign Score",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": [
+          "daily",
+          "weekly",
+          "all_time"
+        ],
+        "scopes": [
+          "following",
+          "global"
+        ],
+        "dedupe": "best_per_user"
+      },
+      "endless": {
+        "label": "Endless Score",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": [
+          "daily",
+          "weekly",
+          "all_time"
+        ],
+        "scopes": [
+          "following",
+          "global"
+        ],
+        "dedupe": "best_per_user"
+      }
+    }
+  }
+}
