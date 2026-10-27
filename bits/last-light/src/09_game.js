@@ -437,11 +437,11 @@ window.plethoraBit = {
         if (g.letterSpacing !== undefined) g.letterSpacing = '2px';
         g.fillText('THE WATCHER’S STREET', x + 2, y + 82);
         if (save.best) { g.globalAlpha = 0.75; g.fillText('BEST ' + save.best.toLocaleString(), x + 2, y + 102); g.globalAlpha = 1; }
-        const k = 0.55 + 0.45 * Math.sin(titleT * 2.4);
-        g.globalAlpha = k;
-        g.textAlign = 'center';
-        g.fillText('TAP TO BEGIN', W / 2, bottomLimit() - 12);
-        g.textAlign = 'left'; g.globalAlpha = 1;
+        // the prompt sits in the title block, far from the bottom inset and the logo
+        g.globalAlpha = 0.8 + 0.2 * Math.sin(titleT * 2.4);
+        g.font = '600 12px Inter, system-ui, sans-serif';
+        g.fillText('TAP TO BEGIN', x + 2, y + (save.best ? 140 : 120));
+        g.globalAlpha = 1;
         if (g.letterSpacing !== undefined) g.letterSpacing = '0px';
         g.restore();
         return;
