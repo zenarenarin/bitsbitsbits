@@ -295,7 +295,7 @@ window.plethoraBit = {
       mode = 'capcard'; mt = 0;
       const c = CAUGHT[run.capturedBy] || CAUGHT.watcher;
       H.capH.textContent = c[0]; H.capSub.textContent = c[1];
-      H.again.textContent = run.kind === 'endless' ? 'SEE THE RESULTS' : 'TRY AGAIN';
+      H.again.textContent = run.kind === 'endless' ? 'See results' : 'Try again';
       H.capEnd.hidden = run.kind === 'endless';
       H.showOnly(H.cap); setPlayHud(false);
     }
@@ -560,7 +560,7 @@ window.plethoraBit = {
       H.name.style.top = (16 + top + 52) + 'px';
       if (!input.stick) homeStick();
       H.titleText.style.top = (top + h * 0.06) + 'px';
-      H.end.style.top = (top + h * 0.12) + 'px';
+      H.end.style.top = (top + h * 0.72) + 'px';
       for (const p of H.panels) p.style.paddingBottom = (bot + 16) + 'px';
       renderer.setSize(w, h, false);
       V.bandPx = band + bot;

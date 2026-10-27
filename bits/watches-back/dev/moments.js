@@ -8,7 +8,7 @@ const out = process.argv[2] || '.';
   await page.goto('http://localhost:8766/dev/index.html');
   await page.waitForFunction(() => window.__ready, null, { timeout: 90000 });
   // capture: stand still in encounter 2
-  await page.evaluate(() => { const w = window.__wtb; w.begin('campaign', 2); for (let i = 0; i < 200 && w.mode !== 'play'; i++) w.frame(1 / 30); for (let i = 0; i < 600 && w.mode === 'play'; i++) w.stepGame({ move: [0, 0] }); w.frame(1 / 60); });
+  await page.evaluate(() => { const w = window.__wtb; w.begin('campaign', 2); for (let i = 0; i < 200 && w.mode !== 'play'; i++) w.frame(1 / 30); for (let i = 0; i < 1200 && w.mode === 'play'; i++) w.stepGame({ move: [0, 0] }); w.frame(1 / 60); });
   await page.evaluate(() => { for (let i = 0; i < 18; i++) window.__wtb.frame(1 / 30); }); await page.screenshot({ path: out + '/m1_captured.png' });
   await page.evaluate(() => { for (let i = 0; i < 40; i++) window.__wtb.frame(1 / 30); }); await page.screenshot({ path: out + '/m2_card.png' });
   // the ending

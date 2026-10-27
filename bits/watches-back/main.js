@@ -2779,7 +2779,7 @@ const UI_CSS = `
 .wb-act .s{font-size:13px;font-weight:600;color:var(--muted);opacity:0;transition:opacity .8s;margin-bottom:8px}
 .wb-act .t{font-size:30px;font-weight:600;line-height:1.15;letter-spacing:-.015em;opacity:0;transition:opacity .8s;text-shadow:0 2px 20px rgba(0,0,0,.9)}
 .wb-act.show .t,.wb-act.show .s{opacity:1}
-.wb-end{position:absolute;left:32px;right:32px;font-size:18px;font-weight:500;line-height:1.45;opacity:0;transition:opacity 1.6s;text-shadow:0 1px 16px rgba(0,0,0,.95)}
+.wb-end{position:absolute;left:32px;right:32px;text-align:center;font-size:18px;font-weight:500;line-height:1.45;opacity:0;transition:opacity 1.6s;text-shadow:0 1px 16px rgba(0,0,0,.95)}
 .wb-skip{position:absolute;right:16px;font-size:13px;font-weight:600;color:var(--muted);pointer-events:auto;padding:14px}
 `;
 
@@ -3160,7 +3160,7 @@ window.plethoraBit = {
       mode = 'capcard'; mt = 0;
       const c = CAUGHT[run.capturedBy] || CAUGHT.watcher;
       H.capH.textContent = c[0]; H.capSub.textContent = c[1];
-      H.again.textContent = run.kind === 'endless' ? 'SEE THE RESULTS' : 'TRY AGAIN';
+      H.again.textContent = run.kind === 'endless' ? 'See results' : 'Try again';
       H.capEnd.hidden = run.kind === 'endless';
       H.showOnly(H.cap); setPlayHud(false);
     }
@@ -3425,7 +3425,7 @@ window.plethoraBit = {
       H.name.style.top = (16 + top + 52) + 'px';
       if (!input.stick) homeStick();
       H.titleText.style.top = (top + h * 0.06) + 'px';
-      H.end.style.top = (top + h * 0.12) + 'px';
+      H.end.style.top = (top + h * 0.72) + 'px';
       for (const p of H.panels) p.style.paddingBottom = (bot + 16) + 'px';
       renderer.setSize(w, h, false);
       V.bandPx = band + bot;

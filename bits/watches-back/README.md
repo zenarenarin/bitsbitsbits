@@ -1,6 +1,8 @@
 # THE THING THAT WATCHES BACK
 
-A portrait, mobile-first psychological horror arcade Bit for Plethora (`plethora-bit@2`, three.js 0.164.1). A small figure is trapped in an enormous living spiral drawn in black ink on bone-white paper. The spiral's grooves are full of eyes.
+A portrait, mobile-first psychological horror arcade Bit for Plethora (`plethora-bit@2`, three.js 0.164.1). A small figure in a coat is trapped in an enormous living spiral drawn in heavy black ink on ivory paper. The spiral's grooves are full of eyes, each one sunk in a blot of ink.
+
+The camera stands just behind and above the figure, tilted toward the centre, so the figure stays near the middle of the portrait frame while the rings, walls and eyes turn around it.
 
 **The rule players learn:** looking at an eye holds it still. Looking away lets it go. You can only hold one at a time, so every choice to watch one eye is a choice to leave the others unwatched.
 
@@ -10,14 +12,14 @@ The campaign is twenty spirals in four acts, each one inside the last. Endless m
 
 | | Touch | Keyboard and mouse |
 |---|---|---|
-| Walk along a groove | Drag in the lower left (a floating stick) | W A S D or the arrow keys |
-| Step through an opening | Push toward (or away from) the centre at an opening; near one, you slide to it | The same |
+| Walk along a groove | Drag the circle in the lower left. Left and right walk along the groove as you see it on screen | A and D (or left and right arrows) |
+| Step through an opening | Push up (deeper) or down (outward) at an opening; near one, you slide to it. The nearest inner opening is marked with chevrons, and an arrow on the screen edge points to it when it is out of view | W and S (or up and down arrows) |
 | Look (gaze) | Touch anything on the spiral. A touch near an eye means that eye. The gaze stays where you left it when you lift your finger | Point with the mouse |
 | Turn the spiral | Hold in the lower right and drag (a jog dial: the further you drag, the faster it turns) | Q and E (hold Shift for slow) |
 | Pause | The pause button, top right | Esc or P |
 | Begin this spiral again | Pause menu | R |
 
-Walking and looking use different thumbs, so you can walk while holding an eye. Looking and turning also combine, because the gaze stays put. A setting swaps the stick and dial between hands. Cancelled touches, a lost window focus and a hidden page all release every input; a hidden page also pauses.
+Controls are relative to the camera, which always faces the centre, so up always means deeper. Walking and looking use different thumbs, so you can walk while holding an eye. Looking and turning also combine, because the gaze stays put. A setting swaps the stick and dial between hands. Cancelled touches, a lost window focus and a hidden page all release every input; a hidden page also pauses.
 
 ## The rules
 
@@ -43,6 +45,10 @@ Walking and looking use different thumbs, so you can walk while holding an eye. 
 - **A held eye in a groove is held still in the world.** If its ring turns, the ring slides beneath it, and the held eye shoves whatever it meets along the groove. If that would push something through a barrier or a fixed eye, the spiral jams and will not turn.
 - Only one eye can be held, and held eyes still block the way, including yours. That is the constraint that keeps holding everything still from becoming the answer. There is no stamina meter.
 
+### Being touched
+
+An eye that reaches you **strikes** first instead of killing outright: you are knocked back along the groove, the eye recoils for a moment, and the screen edge darkens olive for six seconds. A second touch inside that time catches you. The Crown, immune eyes and the final spiral catch on the first touch. A caught player restarts the same spiral at once with one tap.
+
 ### Eyes
 
 | Eye | Behaviour | How it is beaten |
@@ -66,12 +72,12 @@ Causality is drawn. Whenever an eye reacts because of something you held (it is 
 
 | Act | Spirals |
 |---|---|
-| I. Something Is Looking | 1 The First Eye (hold one eye) · 2 The Unwatched (two eyes; choose) · 3 The First Obstruction (a held eye dams others: the first chain) · 4 The Spiral Turns (rotation; hold an eye and turn its ring out from under it) |
-| II. The System Moves | 5 The Drifter · 6 A Gathering (you decide where the knot forms) · 7 The Wrong Direction (the liar) · 8 Broken Formation (feed the liar to the collector) · 9 The Narrowing (five narrow rings, veils; turn just far enough to keep a held eye in sight) · 10 The First Hunt (hunters cross openings and aim where you are going; they wait on the side you have favoured so far this run) |
-| III. It Learned Your Habits | 11 The Mimic · 12 The Sentinel · 13 The False Pattern · 14 The Choir · 15 The Repetition (Spiral 4's layout with a liar as keeper: the old answer fails because a feigning liar rides its ring; hold a drifter as a wedge instead) · 16 No Safe Direction |
-| IV. The Thing That Watches Back | 17 The Convergence · 18 The Unblinking · 19 The Crown · 20 The Centre (silent and heavy to turn; your own echoes; to enter, you must look at the first eye) |
+| 1. Learning to look | 1 The First Eye (hold one eye) · 2 The Unwatched (two eyes; choose) · 3 The First Obstruction (a held eye dams others: the first chain) · 4 The Spiral Turns (rotation; hold an eye and turn its ring out from under it) |
+| 2. Control is conditional | 5 The Drifter · 6 A Gathering (you decide where the knot forms) · 7 The Wrong Direction (the liar: your attention must be somewhere other than where you walk) · 8 Broken Formation (the choir: break a three-eye formation by watching its leader; waiting it out gets you struck) · 9 The Narrowing (five narrow rings, veils; turn just far enough to keep a held eye in sight) · 10 The First Hunt (hunters cross openings and aim where you are going; they wait on the side you have favoured so far this run) |
+| 3. The world learns | 11 The Mimic · 12 The Sentinel · 13 The False Pattern · 14 The Choir · 15 The Repetition (Spiral 4's layout with a liar as keeper: the old answer fails because a feigning liar rides its ring; hold a drifter as a wedge instead, then turn your gaze to a mirroring mimic before it closes the opening) · 16 No Safe Direction |
+| 4. The system converges | 17 The Convergence · 18 The Unblinking · 19 The Crown · 20 The Centre (silent and heavy to turn; your own echoes; to enter, you must look at the first eye) |
 
-The ending is short and is not explained in text.
+Each new kind of eye is introduced by one short plain sentence when its spiral begins. The ending is short and is not explained in text.
 
 ## Scoring
 
@@ -109,7 +115,9 @@ Measured across 6 run seeds and depths 1–20: 119 of 120 spirals were generated
 
   A shader wraps each drawing onto its annulus over procedural paper grain. The linework breathes slightly, more as dread rises; the "Steadier linework" setting calms it.
 - **Eyes:** every eye is one instanced quad drawn entirely in a fragment shader. That covers lid shapes per type, iris fibres, pupil shapes (round, goat bar, slit, three, the stunned swirl), lashes, the pins of a held eye, the stitches of a closed one, and the running ink of a revealed false eye.
-- **The traveller:** a signed-distance figure that turns its head toward its gaze, breathes, leans into its walk, hunches near threats, and is taken by ink on capture.
+- **Eyes sit in ink:** floor eyes are drawn in a separate pass first as ragged ink blots with flung drops, so neighbouring eyes never cut into each other. The eye you are about to hold gets an olive ring round its blot; a held eye's pins are drawn pale across the blot.
+- **The traveller:** a figure in a long coat, drawn as a billboard that faces the camera, with a short olive shadow on the floor. It turns its head toward its gaze, breathes, leans into its walk, hunches near threats, and is taken by ink on capture.
+- **HUD:** Inter only, in sentence case. The top shows the spiral number ("8 / 20") and the pause button; the spiral's name appears for two seconds. There are no score counters, Roman numerals or serif type during play.
 - **Sentinel cones:** raycast against the actual occluders each frame.
 - **Colour:** the palette is ink, bone, ivory and a rare sickly olive. There is no neon, glow or red, and the overlay has no full-screen distortion.
 - **Sound:** all procedural Web Audio.
@@ -153,9 +161,9 @@ python3 -m http.server 8766        # from this folder
 ## Tests
 
 ```sh
-node dev/test_core.js         # 54 checks: every mechanic and eye type on small hand-built spirals, determinism
-node dev/test_campaign.js     # 64 checks: each encounter's intended plan reaches the centre, and still does when started
-                              #   up to 1 s late; naive play fails everywhere; Spiral 15 punishes Spiral 4's old answer;
+node dev/test_core.js         # 57 checks: every mechanic and eye type on small hand-built spirals, determinism
+node dev/test_campaign.js     # 65 checks: each encounter's intended plan reaches the centre unstruck, and still does when started
+                              #   up to 1 s late; naive play is caught or struck everywhere; waiting out the choir in 8 gets you struck; Spiral 15 punishes Spiral 4's old answer;
                               #   Spiral 10 for both habits; Spiral 20 against real recordings of the earlier plans
 node dev/test_endless.js [seeds] [depth]  # start safety, bot validation, and "needs looking" for generated spirals
 node dev/endless_browser.js <outdir>      # endless in the real game: locked until completion, several spirals, a capture ends the run

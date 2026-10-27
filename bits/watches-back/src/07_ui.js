@@ -57,7 +57,7 @@ const UI_CSS = `
 .wb-act .s{font-size:13px;font-weight:600;color:var(--muted);opacity:0;transition:opacity .8s;margin-bottom:8px}
 .wb-act .t{font-size:30px;font-weight:600;line-height:1.15;letter-spacing:-.015em;opacity:0;transition:opacity .8s;text-shadow:0 2px 20px rgba(0,0,0,.9)}
 .wb-act.show .t,.wb-act.show .s{opacity:1}
-.wb-end{position:absolute;left:32px;right:32px;font-size:18px;font-weight:500;line-height:1.45;opacity:0;transition:opacity 1.6s;text-shadow:0 1px 16px rgba(0,0,0,.95)}
+.wb-end{position:absolute;left:32px;right:32px;text-align:center;font-size:18px;font-weight:500;line-height:1.45;opacity:0;transition:opacity 1.6s;text-shadow:0 1px 16px rgba(0,0,0,.95)}
 .wb-skip{position:absolute;right:16px;font-size:13px;font-weight:600;color:var(--muted);pointer-events:auto;padding:14px}
 `;
 
