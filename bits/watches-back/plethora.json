@@ -58,5 +58,6 @@
         "dedupe": "best_per_user"
       }
     }
-  }
+  },
+  "display": "fullscreen"
 }

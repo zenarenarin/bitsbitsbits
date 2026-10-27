@@ -2113,6 +2113,7 @@ function createView(THREE, renderer, opts) {
 
   V.build = function (S, def) {
     disposeBuilt();
+    if (opts.resetCanvases) opts.resetCanvases();
     const G = S.G;
     const meshes = [], rings = [];
     // the dark field outside, with the closed rings of every spiral before this one
@@ -2757,9 +2758,17 @@ window.plethoraBit = {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     ctx.onDestroy(() => { destroyed = true; try { V.dispose(); renderer.dispose(); } catch (e) { } });
 
-    const scratch = ctx.createCanvas2D ? null : null;
-    const mkCanvas = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
-    const V = createView(THREE, renderer, { canvas: mkCanvas, small });
+    // off-screen drawing surfaces for the ring drawings: hidden ctx canvases, reused for every spiral
+    const pool = [];
+    let poolIdx = 0;
+    const mkCanvas = (w, h) => {
+      let c = pool[poolIdx];
+      if (!c) { c = ctx.createCanvas2D({ layer: 'background', input: 'passthrough' }); c.style.display = 'none'; pool.push(c); }
+      poolIdx++;
+      c.width = w; c.height = h;
+      return c;
+    };
+    const V = createView(THREE, renderer, { canvas: mkCanvas, resetCanvases: () => { poolIdx = 0; }, small });
     const audio = createAudio(!!caps.audio);
     audio.setVolume(save.settings.volume);
     ctx.onDestroy(() => audio.kill());
@@ -2782,7 +2791,7 @@ window.plethoraBit = {
       mode = 'title'; mt = 0; run = null;
       def = TITLE_DEF; S = createSim(def); S.forcedRot = 0.05;
       V.build(S, def); V.dread = 0.2; V.fade = 0.6;
-      layout(ctx.width, ctx.height, ctx.safeArea);
+      layout(ctx.width, ctx.height, area());
       H.showOnly(H.title); setPlayHud(false);
       H.tstats.innerHTML = `<div><b>${save.best.toLocaleString()}</b>BEST</div><div><b>${save.deepest ? roman(save.deepest) : '—'}</b>DEEPEST</div><div><b>${save.bestEndless ? save.bestEndless.toLocaleString() : '—'}</b>ENDLESS</div>`;
       for (const b of [H.begin, H.cont, H.endless, H.toSet]) b.style.visibility = '';
@@ -2831,7 +2840,7 @@ window.plethoraBit = {
       def = buildEncounter(E, { habit: run.habit, recordings: run.recordings });
       S = createSim(def, {});
       V.build(S, def); V.ink(0);
-      layout(ctx.width, ctx.height, ctx.safeArea);
+      layout(ctx.width, ctx.height, area());
       input.gazeSet = null; input.stick = null; input.dial = null;
       H.stick.style.display = 'none';
       H.num.innerHTML = run.kind === 'endless' ? `${roman(Math.min(20, run.depth))}${run.depth > 20 ? '+' + (run.depth - 20) : ''}<small>DEPTH</small>` : `${roman(E.id)}<small>OF XX</small>`;
@@ -2839,18 +2848,19 @@ window.plethoraBit = {
       H.name.style.opacity = 0; H.whisper.style.opacity = 0;
       updateScore();
       const firstOfAct = run.kind === 'campaign' && (E.id === run.startId || ENCOUNTERS.find(q => q.act === E.act).id === E.id);
-      if (showCard && firstOfAct && ACTS[E.act]) { mode = 'card'; mt = 0; H.actS.textContent = ACTS[E.act].sub; H.actT.textContent = ACTS[E.act].title; H.act.classList.add('on'); setTimeout(() => H.act.classList.add('show'), 30); setPlayHud(false); }
+      if (showCard && firstOfAct && ACTS[E.act]) { mode = 'card'; mt = 0; H.actS.textContent = ACTS[E.act].sub; H.actT.textContent = ACTS[E.act].title; H.act.classList.add('on'); ctx.timeout(() => H.act.classList.add('show'), 30); setPlayHud(false); }
       else enterPlay();
     }
     function enterPlay() {
       mode = 'play'; mt = 0; V.fade = 1;
       H.act.classList.remove('on', 'show');
       H.showOnly(null); setPlayHud(true);
-      setTimeout(() => { if (mode === 'play') { H.name.style.opacity = 0.8; H.whisper.style.opacity = 0.9; } }, 250);
-      setTimeout(() => { H.name.style.opacity = 0; H.whisper.style.opacity = 0; }, 5200);
+      const enc = run.E;
+      ctx.timeout(() => { if (mode === 'play' && run && run.E === enc) { H.name.style.opacity = 0.8; H.whisper.style.opacity = 0.9; } }, 250);
+      ctx.timeout(() => { if (run && run.E === enc) { H.name.style.opacity = 0; H.whisper.style.opacity = 0; } }, 5200);
       if (run.E.id === 1 && run.kind === 'campaign') showHint('walk', usedTouch ? 'Drag in the lower left to walk.' : 'Walk with W A S D or the arrow keys.');
       if (!S.rotLocked && !run.learned.turn) { H.dial.classList.add('ghost'); }
-      if (!run.learned.walk && usedTouch) { H.stick.classList.add('ghost'); H.stick.style.left = (ctx.width * 0.22) + 'px'; H.stick.style.top = (ctx.height - bandPx() * 0.5) + 'px'; }
+      if (!run.learned.walk && usedTouch) { H.stick.classList.add('ghost'); H.stick.style.left = (ctx.width * 0.22) + 'px'; H.stick.style.top = (bandBottom() - bandPx() * 0.5) + 'px'; }
       audio.arrive();
     }
     function restartEncounter() { if (!run) return; startEncounter(run.E, false); }
@@ -3018,12 +3028,12 @@ window.plethoraBit = {
     const END_LINES = ['It was never looking at you.', 'It was waiting to be looked at.', 'Someone new has come in from the edge.', 'Watch them.'];
     function startEnding() {
       mode = 'ending'; mt = 0;
-      setPlayHud(false); H.skip.style.display = ''; H.skip.style.bottom = (bandPx() * 0.4) + 'px';
+      setPlayHud(false); H.skip.style.display = ''; H.skip.style.bottom = ((area().bottom || 0) + 16) + 'px';
       // the traveller is gone; in their place on the outer ring an eye opens, and a newcomer walks in
       const E = { id: 21, n: 4, rotation: true, seed: 2121, doors: [[-90], [150], [-30], [90]], barriers: [[], [], [], []], player: { k: 0, a: -90 }, eyes: [{ type: 'watcher', name: 'you', k: 0, a: -60, beh: 'still', wake: 3.2, wakeNear: 0 }] };
       def = E; S = createSim(E); S.forcedRot = 0.04;
       V.build(S, def); V.dread = 1; V.fade = 1; V.ink(0);
-      layout(ctx.width, ctx.height, ctx.safeArea);
+      layout(ctx.width, ctx.height, area());
       ending = { line: -1 };
       audio.ending();
       V.zoom = 0.55; V.applyCamera();
@@ -3035,7 +3045,7 @@ window.plethoraBit = {
       const you = S.eye('you'); if (you.state !== ST.DORMANT) { you.look = S.playerPos(); }
       V.zoom = damp(V.zoom, mt < 3 ? 0.55 : 1.15, 0.35, dt); V.applyCamera();
       const li = Math.floor((mt - 3.5) / 3.2);
-      if (li !== ending.line && li >= 0 && li < END_LINES.length) { ending.line = li; H.end.textContent = END_LINES[li]; H.end.style.opacity = 1; setTimeout(() => { if (mode === 'ending') H.end.style.opacity = 0; }, 2400); }
+      if (li !== ending.line && li >= 0 && li < END_LINES.length) { ending.line = li; H.end.textContent = END_LINES[li]; H.end.style.opacity = 1; ctx.timeout(() => { if (mode === 'ending') H.end.style.opacity = 0; }, 2400); }
       if (mt > 3.5 + END_LINES.length * 3.2 + 1) finishEnding();
     }
     function finishEnding() { H.skip.style.display = 'none'; H.end.style.opacity = 0; V.zoom = 1; V.applyCamera(); endRun('complete'); }
@@ -3090,7 +3100,9 @@ window.plethoraBit = {
     }
 
     // ---------- input ----------
+    const area = () => ctx.contentSafeArea || ctx.safeArea || { top: 0, right: 0, bottom: 0, left: 0 };
     const bandPx = () => Math.max(132, ctx.height * layoutBand);
+    const bandBottom = () => ctx.height - (area().bottom || 0);   // the control band sits just above this line
     const rect = () => canvas.getBoundingClientRect();
     const roles = new Map();
     function gazeAt(sx, sy) {
@@ -3113,7 +3125,7 @@ window.plethoraBit = {
       if (mode !== 'play') return;
       if (e.cancelable) e.preventDefault();
       if (e.pointerType === 'touch') usedTouch = true;
-      const inBand = y > ctx.height - bandPx() - ((ctx.safeArea && ctx.safeArea.bottom) || 0);
+      const inBand = y > bandBottom() - bandPx();
       const leftSide = save.settings.swap ? x > ctx.width / 2 : x < ctx.width / 2;
       if (inBand && (leftSide || S.rotLocked)) {
         roles.set(e.pointerId, 'stick');
@@ -3138,7 +3150,7 @@ window.plethoraBit = {
       else if (role === 'gaze') gazeAt(x, y);
       else if (!role && e.pointerType === 'mouse') {
         // with a mouse, the gaze follows the pointer over the spiral
-        if (y < ctx.height - bandPx()) gazeAt(x, y);
+        if (y < bandBottom() - bandPx()) gazeAt(x, y);
       }
     }
     function onUp(e) {
@@ -3213,6 +3225,7 @@ window.plethoraBit = {
       layoutBand = clamp(150 / h, 0.17, 0.26);
       const band = bandPx();
       H.top.style.paddingTop = (16 + top) + 'px';
+      H.top.style.left = (16 + ((safe && safe.left) || 0)) + 'px'; H.top.style.right = (16 + ((safe && safe.right) || 0)) + 'px';
       H.hint.style.bottom = (band + bot + 8) + 'px';
       const dw = Math.min(200, w * 0.42);
       Object.assign(H.dial.style, save.settings.swap ? { left: '16px', right: 'auto' } : { right: '16px', left: 'auto' });
@@ -3227,7 +3240,7 @@ window.plethoraBit = {
       renderer.setSize(w, h, false);
       V.layout(w, h, safe, mode === 'title' ? 0.32 : layoutBand + bot / h, frameR());
     }
-    ctx.onResize(({ width, height, safeArea }) => layout(width, height, safeArea || ctx.safeArea), { immediate: true });
+    ctx.onResize(({ width, height, contentSafeArea, safeArea }) => layout(width, height, contentSafeArea || ctx.contentSafeArea || ctx.safeArea || safeArea), { immediate: true });
 
     if (ctx.game && ctx.game.loop) ctx.game.loop({ update: dtMs => tick(dtMs) });
     else ctx.onFrame(dtMs => tick(dtMs));
@@ -3245,7 +3258,7 @@ window.plethoraBit = {
         frame(dt) { tick((dt || DT) * 1000); },
         screenOf(name) { const e = S.eye(name); return e ? V.toScreen(...S.eyePos(e)) : null; },
         playerScreen() { return V.toScreen(...S.playerPos()); },
-        relayout: () => layout(ctx.width, ctx.height, ctx.safeArea),
+        relayout: () => layout(ctx.width, ctx.height, area()),
         // one game step with a given input, through the full game path (events, scoring, transitions)
         glInfo: () => ({ textures: renderer.info.memory.textures, geometries: renderer.info.memory.geometries, calls: renderer.info.render.calls }),
         stepGame(inp) { if (mode !== 'play') return false; input.override = inp; step(); input.override = null; return true; },

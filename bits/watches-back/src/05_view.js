@@ -112,6 +112,7 @@ function createView(THREE, renderer, opts) {
 
   V.build = function (S, def) {
     disposeBuilt();
+    if (opts.resetCanvases) opts.resetCanvases();
     const G = S.G;
     const meshes = [], rings = [];
     // the dark field outside, with the closed rings of every spiral before this one
