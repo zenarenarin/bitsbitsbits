@@ -1758,10 +1758,11 @@ function makeRingMaterial(THREE, tex, rIn, rOut, isCentre) {
 // Eyes: one instanced quad each, drawn entirely in the fragment shader.
 // type ids
 const EYE_ID = { watcher: 0, drifter: 1, collector: 2, liar: 3, mimic: 4, sentinel: 5, warden: 6, choir: 7, crown: 8, falseeye: 9, unblinking: 10, echo: 11, decor: 12 };
-function makeEyeMaterial(THREE) {
+// blotPass draws only the ink blots, underneath every eye, so neighbours never cut into each other
+function makeEyeMaterial(THREE, blotPass) {
   return new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false,
-    uniforms: { time: { value: 0 }, fade: { value: 1 } },
+    transparent: true, depthWrite: false, depthTest: false,
+    uniforms: { time: { value: 0 }, fade: { value: 1 }, blotPass: { value: blotPass ? 1 : 0 } },
     vertexShader: `
       attribute vec4 iA; // x, y, rad, rot
       attribute vec4 iB; // type, open, pupilX, pupilY
@@ -1770,7 +1771,7 @@ function makeEyeMaterial(THREE) {
       attribute vec4 iE; // seed, wall(0/1), stare, knot
       varying vec2 vP; varying vec4 vB; varying vec4 vC; varying vec4 vD; varying vec4 vE;
       void main(){
-        float s = iA.z * 1.9;
+        float s = iA.z * 2.15;
         float c = cos(iA.w), sn = sin(iA.w);
         vec2 q = position.xy * s;
         vec2 w = vec2(iA.x + q.x * c - q.y * sn, iA.y + q.x * sn + q.y * c);
@@ -1778,7 +1779,7 @@ function makeEyeMaterial(THREE) {
         gl_Position = projectionMatrix * viewMatrix * vec4(w, 0.0, 1.0);
       }`,
     fragmentShader: GLSL_NOISE + `
-      uniform float time, fade;
+      uniform float time, fade, blotPass;
       varying vec2 vP; varying vec4 vB; varying vec4 vC; varying vec4 vD; varying vec4 vE;
       float seg(vec2 p, vec2 a, vec2 b){ vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0); return length(pa - ba * h); }
       void main(){
@@ -1822,8 +1823,8 @@ function makeEyeMaterial(THREE) {
           alpha = 1.0;
           // hatched shade under the upper lid
           float shade = smoothstep(0.0, 0.35, (up - p.y)) ;
-          float hatch = step(0.55, fract((p.x * 0.7 + p.y) * 9.0 + seed));
-          col *= 1.0 - (1.0 - shade) * 0.35 * hatch;
+          float hatch = smoothstep(0.35, 0.65, abs(fract((p.x * 0.7 + p.y) * 5.0 + seed) - 0.5) * 2.0);
+          col *= 1.0 - (1.0 - shade) * 0.22 * hatch;
           if (abs(type - 1.0) < 0.5 || abs(type - 8.0) < 0.5) col = mix(col, vec3(0.80, 0.78, 0.62), 0.25);
           vec2 c = pup;
           float d = length(p - c);
@@ -1889,13 +1890,14 @@ function makeEyeMaterial(THREE) {
           }
         }
         // pins: held eyes are pinned like specimens — short radial strokes that grow while acquiring
+        float pinI = 0.0;
         if (pinned > 0.01) {
           for (int i = 0; i < 6; i++) {
             float a = float(i) * 1.0472 + 0.5;
             vec2 dir = vec2(cos(a), sin(a));
             vec2 a0 = dir * vec2(1.05, max(Hu, 0.5) * 1.15);
             vec2 b0 = a0 + dir * 0.42 * pinned;
-            ink = max(ink, 1.0 - smoothstep(0.03, 0.065, seg(p, a0, b0)));
+            pinI = max(pinI, 1.0 - smoothstep(0.03, 0.065, seg(p, a0, b0)));
           }
         }
         // a dead eye: stitched shut
@@ -1912,9 +1914,34 @@ function makeEyeMaterial(THREE) {
         // wall eyes get a pale halo so they read against ink
         float halo = 0.0;
         if (inWall > 0.5) { float hp = pow(max(0.0, 1.0 - (x * x) / 1.25), ex); float hu = Hu * hp * max(open, 0.3) + 0.18; halo = step(abs(x), 1.15) * step(p.y, hu) * step(-hu, p.y); }
-        float a = max(alpha, ink);
+        // floor eyes sit in a blot of brushed ink, with a few flung drops around it
+        float blot = 0.0, rim = 0.0;
+        if (inWall < 0.5 && dead < 0.5 && abs(type - 11.0) > 0.5) {
+          float ang = atan(p.y, p.x);
+          float rr = length(p * vec2(0.9, 1.08));
+          float R = 1.3 + 0.22 * (vnoise(vec2(ang * 1.9 + seed * 5.0, seed * 2.0)) - 0.5) + 0.2 * pow(max(0.0, sin(ang * 3.0 + seed * 9.0)), 14.0);
+          blot = 1.0 - smoothstep(R - 0.035, R + 0.015, rr);
+          for (int i = 0; i < 3; i++) {
+            float h = hash(vec2(seed * 13.0, float(i)));
+            float da = h * 6.283;
+            vec2 sp = vec2(cos(da), sin(da) * 0.8) * (1.5 + 0.25 * hash(vec2(float(i), seed)));
+            blot = max(blot, 1.0 - smoothstep(0.03 + 0.04 * h, 0.06 + 0.04 * h, length(p - sp)));
+          }
+          // the eye you are about to hold: an olive ring drawn round its blot
+          rim = tgt * (1.0 - smoothstep(0.025, 0.06, abs(rr - R - 0.1)));
+        }
+        if (blotPass > 0.5) {
+          float ba = max(blot, rim);
+          if (ba < 0.02) discard;
+          gl_FragColor = vec4(rim > 0.5 && blot < 0.5 ? vec3(0.52, 0.50, 0.22) : vec3(0.05, 0.045, 0.04), ba * (1.0 - dim * 0.55) * fade);
+          return;
+        }
+        float blotUnder = blot; blot = 0.0; rim = 0.0;
+        ink = max(ink, pinI);
+        float a = max(max(alpha, ink), max(blot, rim));
         a = max(a, halo * 0.9);
-        vec3 c3 = mix(col, vec3(0.04), ink);
+        vec3 c3 = mix(col, vec3(0.04), max(ink, blot));
+        if (pinI > 0.5) c3 = blotUnder > 0.5 ? vec3(0.83, 0.80, 0.58) : vec3(0.04);
         if (halo > 0.5 && alpha < 0.5 && ink < 0.5) c3 = vec3(0.86, 0.82, 0.73);
         if (a < 0.02) discard;
         float al = a * (1.0 - dim * 0.55) * fade;
@@ -1928,7 +1955,7 @@ function makeEyeMaterial(THREE) {
 // turn its head toward its gaze, breathe, flinch, and be swallowed by ink.
 function makeFigureMaterial(THREE) {
   return new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false,
+    transparent: true, depthWrite: false, depthTest: false,
     uniforms: { time: { value: 0 }, face: { value: 1 }, look: { value: new THREE.Vector2(1, 0) }, walk: { value: 0 }, speed: { value: 0 }, fear: { value: 0 }, ink: { value: 0 }, exposure: { value: 0 }, lean: { value: 0 } },
     vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: GLSL_NOISE + `
@@ -1989,7 +2016,7 @@ function makeFigureMaterial(THREE) {
 // an ink thread when it holds.
 function makeThreadMaterial(THREE) {
   return new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false,
+    transparent: true, depthWrite: false, depthTest: false,
     uniforms: { time: { value: 0 }, held: { value: 0 }, len: { value: 1 }, alpha: { value: 1 } },
     vertexShader: `attribute float t; attribute float side; varying float vT; varying float vS; void main(){ vT = t; vS = side; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: GLSL_NOISE + `
@@ -2008,7 +2035,7 @@ function makeThreadMaterial(THREE) {
 // A sentinel's sight: diagonal ink hatching inside the fan, darkening when it sees you.
 function makeConeMaterial(THREE) {
   return new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false,
+    transparent: true, depthWrite: false, depthTest: false,
     uniforms: { time: { value: 0 } },
     vertexShader: `attribute float aT; attribute float aSeen; varying float vT; varying float vSeen; varying vec2 vW; void main(){ vT = aT; vSeen = aSeen; vW = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `
@@ -2059,6 +2086,10 @@ function createView(THREE, renderer, opts) {
   const eyeMesh = new THREE.Mesh(eyeGeo, eyeMat);
   eyeMesh.frustumCulled = false; eyeMesh.renderOrder = 5;
   scene.add(eyeMesh);
+  const blotMat = makeEyeMaterial(THREE, true);
+  const blotMesh = new THREE.Mesh(eyeGeo, blotMat);
+  blotMesh.frustumCulled = false; blotMesh.renderOrder = 4;
+  scene.add(blotMesh);
 
   // ---------- the traveller ----------
   const figGeo = new THREE.PlaneGeometry(0.8, 1.2); figGeo.translate(0, 0.6, 0);
@@ -2067,24 +2098,23 @@ function createView(THREE, renderer, opts) {
   const FIG_SCALE = 1.25;
   figure.scale.setScalar(FIG_SCALE);
   scene.add(figure);
-  // its long olive shadow, thrown outward across the floor
+  // its short olive shadow, thrown outward across the floor
   const shadowMat = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, uniforms: { alpha: { value: 0.5 } },
+    transparent: true, depthWrite: false, depthTest: false, uniforms: { alpha: { value: 0.5 } },
     vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: GLSL_NOISE + `uniform float alpha; varying vec2 vP; void main(){
-      float t = clamp(vP.y / 2.2, 0.0, 1.0);
-      float w = mix(0.2, 0.42, t) * (1.0 - smoothstep(0.75, 1.0, t));
-      float edge = abs(vP.x) - w + (vnoise(vP * 9.0) - 0.5) * 0.06;
-      float a = (1.0 - smoothstep(-0.02, 0.03, edge)) * alpha * (1.0 - t * 0.6);
+      vec2 q = (vP - vec2(0.0, 0.4)) / vec2(0.3, 0.52);
+      float edge = length(q) - 1.0 + (vnoise(vP * 7.0) - 0.5) * 0.18;
+      float a = (1.0 - smoothstep(-0.08, 0.04, edge)) * alpha * (1.0 - 0.45 * clamp(vP.y, 0.0, 1.0));
       if (a < 0.01) discard; gl_FragColor = vec4(0.43, 0.42, 0.18, a); }`,
   });
-  const shadowGeo = new THREE.PlaneGeometry(1.2, 2.4); shadowGeo.translate(0, 1.1, 0);
+  const shadowGeo = new THREE.PlaneGeometry(0.9, 1.15); shadowGeo.translate(0, 0.42, 0);
   const shadow = new THREE.Mesh(shadowGeo, shadowMat);
   shadow.renderOrder = 2; shadow.frustumCulled = false;
   scene.add(shadow);
   // the way in: a pale breath over the opening that leads inward, so the goal is never a mystery
   const beaconMat = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, uniforms: { time: { value: 0 }, alpha: { value: 0 } },
+    transparent: true, depthWrite: false, depthTest: false, uniforms: { time: { value: 0 }, alpha: { value: 0 } },
     vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `uniform float time, alpha; varying vec2 vP; void main(){
       float r = length(vP);
@@ -2124,14 +2154,14 @@ function createView(THREE, renderer, opts) {
   const linkGeo = new THREE.BufferGeometry();
   const lPos = new Float32Array(LMAX * 2 * 3), lCol = new Float32Array(LMAX * 2 * 4);
   linkGeo.setAttribute('position', new THREE.BufferAttribute(lPos, 3)); linkGeo.setAttribute('color', new THREE.BufferAttribute(lCol, 4));
-  const linkMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false });
+  const linkMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, depthTest: false });
   const links = new THREE.LineSegments(linkGeo, linkMat);
   links.frustumCulled = false; links.renderOrder = 4;
   scene.add(links);
 
   // ---------- ripples (pin, chain, knot, absorb) ----------
   const rippleMat = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false,
+    transparent: true, depthWrite: false, depthTest: false,
     uniforms: {},
     vertexShader: `attribute vec4 rA; attribute vec2 rB; varying vec2 vP; varying vec2 vB; void main(){ vP = position.xy; vB = rB; vec2 w = rA.xy + position.xy * rA.z; gl_Position = projectionMatrix * viewMatrix * vec4(w, 0.0, 1.0); }`,
     fragmentShader: `varying vec2 vP; varying vec2 vB; void main(){ float r = length(vP); float a = (1.0 - smoothstep(0.0, 0.06, abs(r - 0.9))) * vB.x; if (vB.y > 0.5) a = max(a, (1.0 - smoothstep(0.75, 0.9, r)) * vB.x * 0.85); if (a < 0.01) discard; gl_FragColor = vec4(vec3(0.04), a); }`,
@@ -2189,7 +2219,7 @@ function createView(THREE, renderer, opts) {
     // the dark field outside, with the closed rings of every spiral before this one
     const voidTex = new THREE.CanvasTexture(makeVoidCanvas(G, def, canvasMaker, small ? 1024 : 1536));
     voidTex.colorSpace = THREE.SRGBColorSpace;
-    const voidMesh = new THREE.Mesh(new THREE.PlaneGeometry(27, 27), new THREE.MeshBasicMaterial({ map: voidTex, depthWrite: false }));
+    const voidMesh = new THREE.Mesh(new THREE.PlaneGeometry(27, 27), new THREE.MeshBasicMaterial({ map: voidTex, depthWrite: false, depthTest: false }));
     voidMesh.renderOrder = 0; scene.add(voidMesh); meshes.push(voidMesh);
     for (let k = 0; k <= G.n; k++) {
       const { rIn, rOut } = bandRadii(G, k);
@@ -2312,7 +2342,7 @@ function createView(THREE, renderer, opts) {
     const T = S.t;
     for (const m of B.rings) { m.material.uniforms.time.value = tmr; m.material.uniforms.fade.value = V.fade; m.material.uniforms.wobble.value = o.calm ? 0.25 : 1; }
     for (let k = 0; k < B.rings.length; k++) B.rings[k].rotation.z = S.phi[k];
-    eyeMat.uniforms.time.value = tmr; eyeMat.uniforms.fade.value = V.fade;
+    eyeMat.uniforms.time.value = tmr; eyeMat.uniforms.fade.value = V.fade; blotMat.uniforms.time.value = tmr; blotMat.uniforms.fade.value = V.fade;
     figMat.uniforms.time.value = tmr; threadMat.uniforms.time.value = tmr; coneMat.uniforms.time.value = tmr;
     overlayMat.uniforms.time.value = tmr;
 
@@ -2699,8 +2729,8 @@ const UI_CSS = `
 .wb{position:absolute;inset:0;font-family:Inter,system-ui,-apple-system,sans-serif;font-weight:400;color:#ece4d2;user-select:none;-webkit-user-select:none;overflow:hidden;pointer-events:none;--bone:#ece4d2;--ink:#0f0d0b;--muted:rgba(236,228,210,.62)}
 .wb *{box-sizing:border-box}
 .wb-top{position:absolute;left:16px;right:16px;top:0;display:flex;justify-content:space-between;align-items:center;transition:opacity .4s}
-.wb-num{font-size:13px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums;letter-spacing:.01em}
-.wb-name{position:absolute;left:16px;right:16px;font-size:15px;font-weight:600;opacity:0;transition:opacity .8s;text-shadow:0 1px 12px rgba(0,0,0,.9)}
+.wb-num{font-size:13px;font-weight:600;color:#ece4d2;background:rgba(18,16,12,.62);padding:6px 11px;border-radius:999px;font-variant-numeric:tabular-nums;letter-spacing:.01em}
+.wb-name{position:absolute;left:16px;max-width:calc(100% - 32px);font-size:15px;font-weight:600;color:#ece4d2;background:rgba(18,16,12,.66);padding:7px 12px;border-radius:10px;opacity:0;transition:opacity .8s;pointer-events:none}
 .wb-btn{pointer-events:auto;width:44px;height:44px;border-radius:50%;border:1px solid rgba(236,228,210,.35);background:rgba(15,13,11,.45);color:var(--bone);display:flex;align-items:center;justify-content:center;touch-action:none;cursor:pointer}
 .wb-btn svg{width:38%;height:38%;overflow:visible}
 .wb-btn:active{background:rgba(236,228,210,.18)}

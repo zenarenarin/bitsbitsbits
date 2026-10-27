@@ -32,7 +32,8 @@ const out = process.argv[2] || '.';
   check('stick: dragging in the lower left walks the traveller', a1 > a0 + 0.1, { a0, a1 });
   await page.screenshot({ path: out + '/t1_walk.png', timeout: 8000 }).catch(() => {});
   // second finger on the eye while still walking: both at once
-  await frames(30);
+  // keep walking until the eye is clearly on screen (it starts beyond the edge of the frame)
+  for (let i = 0; i < 40; i++) { const s = await page.evaluate(() => window.__wtb.screenOf('first')); if (s[1] > 170 && s[1] < 600 && s[0] > 30 && s[0] < 360) break; await frames(6); }
   const eye = await page.evaluate(() => { const w = window.__wtb; return { s: w.screenOf('first'), state: w.S.eye('first').state }; });
   await touch('touchMove', [{ x: 140, y: 760, id: 1 }, { x: eye.s[0], y: eye.s[1], id: 2 }]);
   await touch('touchStart', [{ x: 140, y: 760, id: 1 }, { x: eye.s[0], y: eye.s[1], id: 2 }]);
@@ -51,9 +52,10 @@ const out = process.argv[2] || '.';
     if (s.k > 0 || s.mode !== 'play') break;
     // a screen direction: along the tangent toward the door, or toward the centre when near
     let dx, dy;
-    if (s.arc > 0.4) { const t = Math.sign(s.dth); dx = -Math.sin(s.th) * t; dy = -Math.cos(s.th) * t; } else { dx = -Math.cos(s.th); dy = Math.sin(s.th); }
-    if (i === 0) await touch('touchStart', [{ x: 90, y: 760, id: 3 }]);
-    await touch('touchMove', [{ x: 90 + dx * 40, y: 760 + dy * 40, id: 3 }]);
+    // controls follow the groove: right walks counter-clockwise, up steps toward the centre
+    if (s.arc > 0.4) { dx = Math.sign(s.dth); dy = 0; } else { dx = 0; dy = -1; }
+    if (i === 0) await touch('touchStart', [{ x: 90, y: 700, id: 3 }]);
+    await touch('touchMove', [{ x: 90 + dx * 40, y: 700 + dy * 40, id: 3 }]);
     await frames(6);
   }
   await touch('touchEnd', []);

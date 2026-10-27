@@ -33,6 +33,10 @@ function createView(THREE, renderer, opts) {
   const eyeMesh = new THREE.Mesh(eyeGeo, eyeMat);
   eyeMesh.frustumCulled = false; eyeMesh.renderOrder = 5;
   scene.add(eyeMesh);
+  const blotMat = makeEyeMaterial(THREE, true);
+  const blotMesh = new THREE.Mesh(eyeGeo, blotMat);
+  blotMesh.frustumCulled = false; blotMesh.renderOrder = 4;
+  scene.add(blotMesh);
 
   // ---------- the traveller ----------
   const figGeo = new THREE.PlaneGeometry(0.8, 1.2); figGeo.translate(0, 0.6, 0);
@@ -41,24 +45,23 @@ function createView(THREE, renderer, opts) {
   const FIG_SCALE = 1.25;
   figure.scale.setScalar(FIG_SCALE);
   scene.add(figure);
-  // its long olive shadow, thrown outward across the floor
+  // its short olive shadow, thrown outward across the floor
   const shadowMat = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, uniforms: { alpha: { value: 0.5 } },
+    transparent: true, depthWrite: false, depthTest: false, uniforms: { alpha: { value: 0.5 } },
     vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: GLSL_NOISE + `uniform float alpha; varying vec2 vP; void main(){
-      float t = clamp(vP.y / 2.2, 0.0, 1.0);
-      float w = mix(0.2, 0.42, t) * (1.0 - smoothstep(0.75, 1.0, t));
-      float edge = abs(vP.x) - w + (vnoise(vP * 9.0) - 0.5) * 0.06;
-      float a = (1.0 - smoothstep(-0.02, 0.03, edge)) * alpha * (1.0 - t * 0.6);
+      vec2 q = (vP - vec2(0.0, 0.4)) / vec2(0.3, 0.52);
+      float edge = length(q) - 1.0 + (vnoise(vP * 7.0) - 0.5) * 0.18;
+      float a = (1.0 - smoothstep(-0.08, 0.04, edge)) * alpha * (1.0 - 0.45 * clamp(vP.y, 0.0, 1.0));
       if (a < 0.01) discard; gl_FragColor = vec4(0.43, 0.42, 0.18, a); }`,
   });
-  const shadowGeo = new THREE.PlaneGeometry(1.2, 2.4); shadowGeo.translate(0, 1.1, 0);
+  const shadowGeo = new THREE.PlaneGeometry(0.9, 1.15); shadowGeo.translate(0, 0.42, 0);
   const shadow = new THREE.Mesh(shadowGeo, shadowMat);
   shadow.renderOrder = 2; shadow.frustumCulled = false;
   scene.add(shadow);
   // the way in: a pale breath over the opening that leads inward, so the goal is never a mystery
   const beaconMat = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, uniforms: { time: { value: 0 }, alpha: { value: 0 } },
+    transparent: true, depthWrite: false, depthTest: false, uniforms: { time: { value: 0 }, alpha: { value: 0 } },
     vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `uniform float time, alpha; varying vec2 vP; void main(){
       float r = length(vP);
@@ -98,14 +101,14 @@ function createView(THREE, renderer, opts) {
   const linkGeo = new THREE.BufferGeometry();
   const lPos = new Float32Array(LMAX * 2 * 3), lCol = new Float32Array(LMAX * 2 * 4);
   linkGeo.setAttribute('position', new THREE.BufferAttribute(lPos, 3)); linkGeo.setAttribute('color', new THREE.BufferAttribute(lCol, 4));
-  const linkMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false });
+  const linkMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, depthTest: false });
   const links = new THREE.LineSegments(linkGeo, linkMat);
   links.frustumCulled = false; links.renderOrder = 4;
   scene.add(links);
 
   // ---------- ripples (pin, chain, knot, absorb) ----------
   const rippleMat = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false,
+    transparent: true, depthWrite: false, depthTest: false,
     uniforms: {},
     vertexShader: `attribute vec4 rA; attribute vec2 rB; varying vec2 vP; varying vec2 vB; void main(){ vP = position.xy; vB = rB; vec2 w = rA.xy + position.xy * rA.z; gl_Position = projectionMatrix * viewMatrix * vec4(w, 0.0, 1.0); }`,
     fragmentShader: `varying vec2 vP; varying vec2 vB; void main(){ float r = length(vP); float a = (1.0 - smoothstep(0.0, 0.06, abs(r - 0.9))) * vB.x; if (vB.y > 0.5) a = max(a, (1.0 - smoothstep(0.75, 0.9, r)) * vB.x * 0.85); if (a < 0.01) discard; gl_FragColor = vec4(vec3(0.04), a); }`,
@@ -163,7 +166,7 @@ function createView(THREE, renderer, opts) {
     // the dark field outside, with the closed rings of every spiral before this one
     const voidTex = new THREE.CanvasTexture(makeVoidCanvas(G, def, canvasMaker, small ? 1024 : 1536));
     voidTex.colorSpace = THREE.SRGBColorSpace;
-    const voidMesh = new THREE.Mesh(new THREE.PlaneGeometry(27, 27), new THREE.MeshBasicMaterial({ map: voidTex, depthWrite: false }));
+    const voidMesh = new THREE.Mesh(new THREE.PlaneGeometry(27, 27), new THREE.MeshBasicMaterial({ map: voidTex, depthWrite: false, depthTest: false }));
     voidMesh.renderOrder = 0; scene.add(voidMesh); meshes.push(voidMesh);
     for (let k = 0; k <= G.n; k++) {
       const { rIn, rOut } = bandRadii(G, k);
@@ -286,7 +289,7 @@ function createView(THREE, renderer, opts) {
     const T = S.t;
     for (const m of B.rings) { m.material.uniforms.time.value = tmr; m.material.uniforms.fade.value = V.fade; m.material.uniforms.wobble.value = o.calm ? 0.25 : 1; }
     for (let k = 0; k < B.rings.length; k++) B.rings[k].rotation.z = S.phi[k];
-    eyeMat.uniforms.time.value = tmr; eyeMat.uniforms.fade.value = V.fade;
+    eyeMat.uniforms.time.value = tmr; eyeMat.uniforms.fade.value = V.fade; blotMat.uniforms.time.value = tmr; blotMat.uniforms.fade.value = V.fade;
     figMat.uniforms.time.value = tmr; threadMat.uniforms.time.value = tmr; coneMat.uniforms.time.value = tmr;
     overlayMat.uniforms.time.value = tmr;
 

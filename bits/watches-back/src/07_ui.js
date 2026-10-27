@@ -7,8 +7,8 @@ const UI_CSS = `
 .wb{position:absolute;inset:0;font-family:Inter,system-ui,-apple-system,sans-serif;font-weight:400;color:#ece4d2;user-select:none;-webkit-user-select:none;overflow:hidden;pointer-events:none;--bone:#ece4d2;--ink:#0f0d0b;--muted:rgba(236,228,210,.62)}
 .wb *{box-sizing:border-box}
 .wb-top{position:absolute;left:16px;right:16px;top:0;display:flex;justify-content:space-between;align-items:center;transition:opacity .4s}
-.wb-num{font-size:13px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums;letter-spacing:.01em}
-.wb-name{position:absolute;left:16px;right:16px;font-size:15px;font-weight:600;opacity:0;transition:opacity .8s;text-shadow:0 1px 12px rgba(0,0,0,.9)}
+.wb-num{font-size:13px;font-weight:600;color:#ece4d2;background:rgba(18,16,12,.62);padding:6px 11px;border-radius:999px;font-variant-numeric:tabular-nums;letter-spacing:.01em}
+.wb-name{position:absolute;left:16px;max-width:calc(100% - 32px);font-size:15px;font-weight:600;color:#ece4d2;background:rgba(18,16,12,.66);padding:7px 12px;border-radius:10px;opacity:0;transition:opacity .8s;pointer-events:none}
 .wb-btn{pointer-events:auto;width:44px;height:44px;border-radius:50%;border:1px solid rgba(236,228,210,.35);background:rgba(15,13,11,.45);color:var(--bone);display:flex;align-items:center;justify-content:center;touch-action:none;cursor:pointer}
 .wb-btn svg{width:38%;height:38%;overflow:visible}
 .wb-btn:active{background:rgba(236,228,210,.18)}

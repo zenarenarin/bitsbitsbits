@@ -8,7 +8,7 @@ const [out, id, name, zoom, sec, gz] = process.argv.slice(2);
   await page.goto('http://localhost:8766/dev/index.html');
   await page.waitForFunction(() => window.__ready, null, { timeout: 90000 });
   await page.evaluate(([id, name, zoom, sec, gz]) => {
-    const w = window.__wtb; w.goto(+id); w.frame();
+    const w = window.__wtb; w.goto(+id); w.frame(); w.V.setFollow(false);
     w.advance(+sec || 1.5, { move: [0, 0], gaze: gz ? w.S.eyePos(w.S.eye(gz)) : undefined });
     const p = name === 'player' ? w.S.playerPos() : w.S.eyePos(w.S.eye(name)); const V = w.V;
     V.zoom = +zoom || 3.5; const s = V.scale * V.zoom; V.cx = 195 - p[0] * s; V.cy = 380 + p[1] * s; V.applyCamera();
