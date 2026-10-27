@@ -30,8 +30,10 @@ const ctx = {
   get height() { return host.clientHeight; },
   get dpr() { return dprOf(); },
   nativeDpr: window.devicePixelRatio || 1,
-  safeArea: insets ? { top: 62, right: 0, bottom: 34, left: 0 } : { top: 0, right: 0, bottom: 120, left: 0 },
-  contentSafeArea: insets || undefined,
+  // ?nocontent: full screen but the host reports only the bare phone insets;
+  // ?zero: the host reports no insets at all. Worst cases for layout.
+  safeArea: q.has('zero') ? { top: 0, right: 0, bottom: 0, left: 0 } : q.has('nocontent') ? { top: 62, right: 0, bottom: 34, left: 0 } : insets ? { top: 62, right: 0, bottom: 34, left: 0 } : { top: 0, right: 0, bottom: 120, left: 0 },
+  contentSafeArea: (q.has('zero') || q.has('nocontent')) ? undefined : insets || undefined,
   logoArea: insets ? { x: 171, y: 778, width: 60, height: 60 } : undefined,
   capabilities: { audio: true, backgroundMusic: true, haptics: true, storage: true },
   container: host,
@@ -61,7 +63,8 @@ window.__ctx = ctx;
 // ?show draws the reserved zones over the Bit, to check HUD placement
 if (q.has('show')) {
   const z = (css) => { const d = document.createElement('div'); d.style.cssText = 'position:absolute;pointer-events:none;z-index:99;background:rgba(255,0,0,0.28);' + css; document.body.appendChild(d); };
-  const a = ctx.contentSafeArea || ctx.safeArea;
+  // in the worst-case modes, overlay the real phone's zones, not what the host reported
+  const a = (q.has('zero') || q.has('nocontent')) ? { top: 62, bottom: 108.5 } : ctx.contentSafeArea || ctx.safeArea;
   z(`left:0;right:0;top:0;height:${a.top}px`); z(`left:0;right:0;bottom:0;height:${a.bottom}px`);
   if (ctx.logoArea) z(`left:${ctx.logoArea.x}px;top:${ctx.logoArea.y}px;width:${ctx.logoArea.width}px;height:${ctx.logoArea.height}px;background:rgba(255,0,0,0.6)`);
 }

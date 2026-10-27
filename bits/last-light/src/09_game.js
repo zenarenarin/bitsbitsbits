@@ -8,7 +8,9 @@ const LAMP_NAME = { tower: 'the tower searchlight', bracket: 'the wall lamp', la
 
 const UI_CSS = `
 .ll{position:absolute;inset:0;font-family:Inter,system-ui,sans-serif;color:#ece7dc;user-select:none;-webkit-user-select:none;pointer-events:none;
-  --top:var(--plethora-content-safe-top,0px);--bot:var(--plethora-content-safe-bottom,120px)}
+  --top:max(var(--plethora-content-safe-top,0px),64px);--bot:max(var(--plethora-content-safe-bottom,120px),120px)}
+.ll-play{position:absolute;left:calc(var(--plethora-content-safe-left,0px) + 26px);top:calc(var(--top) + 16px + 188px);pointer-events:auto;border:0;background:#ece7dc;color:#0d0d0c;font:600 15px Inter,system-ui,sans-serif;padding:13px 30px;cursor:pointer}
+.ll-play:active{opacity:.85}
 .ll *{box-sizing:border-box}
 .ll-panel{position:absolute;inset:0;display:none;flex-direction:column;justify-content:flex-end;align-items:center;padding:calc(var(--top) + 16px) 16px calc(var(--bot) + 16px);background:rgba(13,13,12,.62)}
 .ll-panel.on{display:flex}
@@ -44,7 +46,14 @@ window.plethoraBit = {
     ctx.onDestroy(() => { destroyed = true; });
     const tune = (id, d) => { try { const v = ctx.tune && ctx.tune.number(id); return Number.isFinite(v) ? v : d; } catch (e) { return d; } };
     const safe = fn => { try { return fn(); } catch (e) { return undefined; } };
-    const area = () => ctx.contentSafeArea || ctx.safeArea || { top: 0, right: 0, bottom: 120, left: 0 };
+    // Layout area: ctx.contentSafeArea ?? ctx.safeArea, never smaller than the
+    // documented reserves (the 120px content-safe-bottom fallback, and room for
+    // a camera cutout/island at the top) even if a host reports smaller insets.
+    const SAFE_MIN = { top: 64, bottom: 120 };
+    const area = () => {
+      const a = ctx.contentSafeArea ?? ctx.safeArea ?? { top: 0, right: 0, bottom: 120, left: 0 };
+      return { top: Math.max(a.top || 0, SAFE_MIN.top), right: a.right || 0, bottom: Math.max(a.bottom || 0, SAFE_MIN.bottom), left: a.left || 0 };
+    };
 
     // fonts: wanted, not required
     safe(() => ctx.loadFont('DM Serif Display', 'dm-serif-display', '1.0.0', { weight: '400', style: 'normal' }).catch(() => { }));
@@ -211,7 +220,7 @@ window.plethoraBit = {
       runT = 0; farX = level.start.x; captures = 0; cp = 0; sectionSeen = -1; caption = null; result = null; R.capture = null;
       watcher.alarms = 0; watcher.hunts = 0; watcher.exposure = 0;
       score.reset && score.reset();
-      hidePanels();
+      hidePanels(); playBtn.style.display = 'none';
       save.runs++; persist();
       respawn(false);
     }
@@ -377,6 +386,11 @@ window.plethoraBit = {
 
     // ---- DOM panels: pause and result
     const panel = document.createElement('div'); panel.className = 'll-panel'; ui.appendChild(panel);
+    // the start control: a real button under the title, laid out from the
+    // content-safe CSS variables, nowhere near the bottom of the screen
+    const playBtn = document.createElement('button'); playBtn.className = 'll-play'; playBtn.textContent = 'Play';
+    ctx.input.activate(playBtn, () => { audio.unlock(); if (mode === 'title') beginRun(); });
+    ui.appendChild(playBtn);
     function hidePanels() { panel.className = 'll-panel'; panel.innerHTML = ''; }
     function button(label, cls, fn) { const b = document.createElement('button'); b.className = 'll-b' + (cls ? ' ' + cls : ''); b.textContent = label; ctx.input.activate(b, e => { audio.ui(); fn(e); }); return b; }
     function showPause() {
@@ -437,11 +451,6 @@ window.plethoraBit = {
         if (g.letterSpacing !== undefined) g.letterSpacing = '2px';
         g.fillText('THE WATCHER’S STREET', x + 2, y + 82);
         if (save.best) { g.globalAlpha = 0.75; g.fillText('BEST ' + save.best.toLocaleString(), x + 2, y + 102); g.globalAlpha = 1; }
-        // the prompt sits in the title block, far from the bottom inset and the logo
-        g.globalAlpha = 0.8 + 0.2 * Math.sin(titleT * 2.4);
-        g.font = '600 12px Inter, system-ui, sans-serif';
-        g.fillText('TAP TO BEGIN', x + 2, y + (save.best ? 140 : 120));
-        g.globalAlpha = 1;
         if (g.letterSpacing !== undefined) g.letterSpacing = '0px';
         g.restore();
         return;
