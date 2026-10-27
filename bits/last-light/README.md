@@ -1,6 +1,6 @@
 # The Last Light on the Street
 
-A monochrome pursuit arcade Bit for Plethora (`plethora-bit@2`, Canvas2D, no dependencies). Something unseen, the Watcher, hunts a small figure through an engraved old city using the city's own lamps. You run, climb, hang and swing through the architecture, and pull awnings out to throw new shadows. The slice is **The Watcher's Street**: seven sections, a result screen and an immediate retry.
+A monochrome pursuit arcade Bit for Plethora (`plethora-bit@2`, SDK 1.7.0, Canvas2D, no dependencies). Checked against `plethora-agent-context-2026-10-22.1`: full screen (`"display": "fullscreen"`, which publishing now requires), the manifest validates against the current schema, and uploads must declare this context version or they are refused with 409 `context_outdated`. Something unseen, the Watcher, hunts a small figure through an engraved old city using the city's own lamps. You run, climb, hang and swing through the architecture, and pull awnings out to throw new shadows. The slice is **The Watcher's Street**: seven sections, a result screen and an immediate retry.
 
 ## The signature idea
 
