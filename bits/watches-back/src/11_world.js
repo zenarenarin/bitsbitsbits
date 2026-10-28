@@ -42,6 +42,8 @@ function buildWorldView(W, look, quality) {
     else if (t === 'entry') buildEntry(v);
     else if (t === 'zone') buildZone(v);
     else if (t === 'rail') buildRail(v);
+    else if (t === 'canopy') buildCanopy(v);
+    else if (t === 'blade') buildBlade(v);
   }
   // tendons last: they need eye and mover positions
   for (const v of W.visuals) if (v.type === 'tendon') buildTendon(v);
@@ -444,6 +446,32 @@ function buildWorldView(W, look, quality) {
       parts.push(sweepGeo(pts2, circleProfile(0.12, 5), null));
     }
     if (parts.length) put(mergeGeos(parts), hatchMat('ink', { vc: true }), null);
+  }
+  function buildCanopy(v) {
+    // a vaulted shell of ribs on four bone posts
+    const parts = [];
+    const n = Math.max(2, Math.round(v.l / 0.9));
+    for (let i = 0; i < n; i++) {
+      const u = -v.l / 2 + (i + 0.5) * v.l / n, pts = [];
+      for (let k = 0; k <= 10; k++) { const a = Math.PI * k / 10; pts.push(new THREE.Vector3(Math.cos(a) * v.w * 0.55, v.y0 + Math.sin(a) * (v.y1 - v.y0 + 0.6), u)); }
+      parts.push(sweepGeo(pts, circleProfile(0.17, 6, 2, 0.3), null));
+    }
+    const sh = new THREE.BoxGeometry(v.w * 1.05, 0.25, v.l); sh.translate(0, v.y1 + 0.35, 0); parts.push(ensureColor(sh, 0.9));
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) { const c = columnGeo(0.16, -0.5, v.y0 + 0.2, { flutes: 5, radial: 8, rows: 6, bands: 1 }); c.translate(sx * v.w * 0.52, 0, sz * v.l * 0.45); parts.push(c); }
+    const g = mergeGeos(parts); bakeXf(g, v.x, 0, v.z, Math.PI / 2 - v.yaw);
+    put(g, hatchMat('bone', { vc: true, occ: true }), v.mover);
+  }
+  function buildBlade(v) {
+    // a vertebral blade: a tall rib slab with a spine, turning high above
+    const h = v.y1 - v.y0, parts = [];
+    const b = new THREE.BoxGeometry(v.t, h, v.w, 1, 6, Math.max(2, Math.round(v.w))); b.translate(0, v.y0 + h / 2, 0);
+    const p = b.attributes.position;
+    for (let i = 0; i < p.count; i++) { const z = p.getZ(i), y = p.getY(i); const k = 1 - 0.35 * Math.pow(Math.abs(z) / (v.w / 2), 3); p.setY(i, v.y0 + (y - v.y0) * k + (1 - k) * h * 0.5); }
+    b.computeVertexNormals(); parts.push(ensureColor(b, 0.85));
+    const n = Math.max(3, Math.round(v.w / 1.1));
+    for (let i = 0; i < n; i++) { const z = -v.w / 2 + (i + 0.5) * v.w / n; const pts = [new THREE.Vector3(0, v.y1 - 0.4, z), new THREE.Vector3(0.3, v.y1 + 1.2, z + 0.3), new THREE.Vector3(0.1, v.y1 + 2.2, z + 0.9)]; parts.push(sweepGeo(pts, circleProfile(0.18, 6), t => 1 - t * 0.8)); }
+    const g = mergeGeos(parts); bakeXf(g, v.x, 0, v.z, Math.PI / 2 - v.yaw);
+    put(g, hatchMat('ink', { vc: true, occ: true }), v.mover);
   }
   function anchorOf(ref) {
     if (ref.p) return new THREE.Vector3(ref.p[0], ref.p[1], ref.p[2]);

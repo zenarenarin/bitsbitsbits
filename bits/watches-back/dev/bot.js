@@ -20,6 +20,7 @@ module.exports = function runBot(api, def, steps, opts) {
       else if (s.wait !== undefined) { done = stepT >= s.wait; }
       else if (s.until) { done = s.until(W); if (!done && stepT > (s.max || 20)) { log.push('timeout at step ' + i + (s.label ? ' ' + s.label : '')); return { W, ok: false, log, step: i }; } }
       else if (s.do) { s.do(W); done = true; }
+      else if (s.ctl) { const r = s.ctl(W, stepT); if (r === 'done') done = true; else if (r) { W.input.mx = r[0]; W.input.mz = r[1]; } if (!done && stepT > (s.max || 60)) { log.push('ctl timeout at step ' + i); return { W, ok: false, log, step: i }; } }
       if (s.hold && s.go === undefined) {}
       if (done) { if (opts.trace) log.push(`[${W.t.toFixed(2)}] step ${i} done ${JSON.stringify(s.go || s.gaze || s.wait || s.label || '')}`); i++; stepT = 0; }
     }

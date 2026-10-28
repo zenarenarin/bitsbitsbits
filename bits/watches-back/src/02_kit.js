@@ -11,7 +11,14 @@ function makeKit(B, W) {
   const vis = o => { V.push(o); return o; };
   const T = () => 'h' + (tagN++);
 
-  K.spawn = (x, z, yaw, y) => { B.spawn(x, z, yaw, y); vis({ type: 'entry', x, z, y: y || 0, yaw: yaw === undefined ? -Math.PI / 2 : yaw }); };
+  K.spawn = (x, z, yaw, y) => {
+    yaw = yaw === undefined ? -Math.PI / 2 : yaw;
+    B.spawn(x, z, yaw, y);
+    // the landing you arrive on, behind the spawn point
+    const d = dirYP(yaw, 0);
+    B.rect({ cx: x - d[0] * 1.7, cz: z - d[2] * 1.7, hw: 1.6, hl: 1.7, yaw, y: y || 0 });
+    vis({ type: 'entry', x, z, y: y || 0, yaw });
+  };
 
   // ---- walkable ground -------------------------------------------------
   K.floor = o => { // rectangle slab; yaw = direction of its length
@@ -65,6 +72,21 @@ function makeKit(B, W) {
     vis({ type: 'block', x: o.x, z: o.z, w: o.w, t: o.t, yaw, y0: o.vy0 === undefined ? y0 : o.vy0, y1, mat: o.mat || 'olive', style: o.style || 'rib', mover: o.mover, tag });
     return tag;
   };
+  // A canopy over a walkway: hides you from eyes above, does not stop you.
+  K.canopy = o => {
+    const tag = o.tag || T();
+    const y0 = o.y0 === undefined ? 2.6 : o.y0, y1 = o.y1 === undefined ? 3.2 : o.y1, yaw = o.yaw === undefined ? -Math.PI / 2 : o.yaw;
+    B.occBox({ cx: o.x, cz: o.z, cy: (y0 + y1) / 2, hw: o.w / 2, hl: o.l / 2, hh: (y1 - y0) / 2, yaw, tag, mover: o.mover });
+    vis({ type: 'canopy', x: o.x, z: o.z, w: o.w, l: o.l, y0, y1, yaw, mover: o.mover });
+    return tag;
+  };
+  // A blade on a rotor: blocks sight between eyes, high above the walkway.
+  K.blade = o => {
+    const tag = o.tag || T();
+    B.occBox({ cx: o.x, cz: o.z, cy: (o.y0 + o.y1) / 2, hw: o.t / 2, hl: o.w / 2, hh: (o.y1 - o.y0) / 2, yaw: o.yaw || 0, tag, mover: o.mover });
+    vis({ type: 'blade', x: o.x, z: o.z, w: o.w, t: o.t, y0: o.y0, y1: o.y1, yaw: o.yaw || 0, mover: o.mover });
+    return tag;
+  };
   // A screen of ribs: sight is blocked but the traveller can't pass either.
   K.screen = o => K.block(Object.assign({ style: 'screen', mat: 'ink' }, o));
 
@@ -81,7 +103,7 @@ function makeKit(B, W) {
     return m;
   };
   K.rotor = o => {
-    const m = B.mover({ id: o.id, kind: 'rotor', pivot: [o.x, o.z], mode: o.mode || 'toggle', omega: o.omega || 0.3, angles: o.angles || [0, Math.PI / 2], signal: o.signal, speed: o.speed || 0.35, e: o.start || 0, angle: o.angles ? o.angles[0] + (o.angles[1] - o.angles[0]) * (o.start || 0) : (o.angle || 0), prime: o.prime === undefined ? 0.6 : o.prime, accel: o.accel });
+    const m = B.mover({ id: o.id, kind: 'rotor', pivot: [o.x, o.z], mode: o.mode || 'toggle', omega: o.omega || 0.3, angles: o.angles || [0, Math.PI / 2], signal: o.signal, speed: o.speed || 0.35, e: o.start || 0, angle: o.mode === 'cont' ? (o.angle || 0) : (o.angles ? o.angles[0] + (o.angles[1] - o.angles[0]) * (o.start || 0) : 0), prime: o.prime === undefined ? 0.6 : o.prime, accel: o.accel });
     vis({ type: 'rotor', id: o.id, x: o.x, z: o.z, y: o.y || 0, r: o.r || 6, hub: o.hub });
     return m;
   };

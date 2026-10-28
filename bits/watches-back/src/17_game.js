@@ -266,7 +266,7 @@ window.plethoraBit = {
       for (const ev of W.events) {
         const e = ev.id ? W.eyeById[ev.id] : null, pan = e ? panOf(e) : 0;
         switch (ev.type) {
-          case 'notice': audio.notice(pan); if (view.player) view.player.flinch = 1; haptic('light'); break;
+          case 'notice': if (e && e.isFalse) { audio.alert(pan); break; } audio.notice(pan); if (view.player) view.player.flinch = 1; haptic('light'); break;
           case 'alert': audio.alert(pan); break;
           case 'pin': audio.pin(pan); haptic('medium'); try { ctx.platform.interact({ type: 'pin' }); } catch (er) { } break;
           case 'release': audio.release(pan); break;
@@ -282,6 +282,7 @@ window.plethoraBit = {
           case 'caught': audio.caught(); haptic('error'); break;
           case 'fall_start': audio.fall(); break;
           case 'won': audio.won(); haptic('success'); break;
+          case 'checkpoint': G.cp = Math.max(G.cp, ev.cp); break;
         }
       }
       W.events.length = 0;

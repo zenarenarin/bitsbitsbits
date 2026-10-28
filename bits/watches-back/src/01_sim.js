@@ -149,7 +149,7 @@ function createWorld(def, opts) {
     input: { mx: 0, mz: 0 },
     mods: Object.assign({ acquire: 1, speed: 1, mech: 1 }, opts.mods || {}),
     rng: makeRng(def.seed || 7),
-    checkpoint: opts.checkpoint || 0,
+    checkpoint: opts.checkpoint || 0, checkpointReached: 0,
     script: null
   };
   W.emit = (type, o) => { const e = o || {}; e.type = type; e.t = W.t; W.events.push(e); return e; };
@@ -168,6 +168,15 @@ function createWorld(def, opts) {
   // initial looks: point eyes at their home so the world starts composed
   for (const e of W.eyes) { const d = desiredDir(W, e, true); if (d) e.look = clampCone(d, e.facing, e.maxDev); }
   computeLinks(W, true);
+  // mechanisms start settled in the state their signal asks for
+  const S0 = signalApi(W);
+  for (const m of W.movers) {
+    if (!m.signal || m.keepStart) continue;
+    const want = m.signal(S0) ? 1 : 0; m.lastSig = want;
+    if (m.kind !== 'rotor' || m.mode !== 'cont') m.e = want;
+    if (m.kind === 'rotor' && m.mode !== 'cont') m.angle = lerp(m.angles[0], m.angles[1], easeInOut(m.e));
+  }
+  refreshAll(W);
   if (def.init) def.init(W);
   return W;
 }
@@ -274,7 +283,11 @@ function refreshAll(W) {
     const m = moverXf(W, e.mover);
     if (e.rail) {
       const rp = railPoint(e.rail, e.rail.u); e.pos = rp.p; e.railTan = rp.tan;
-      if (e.rail.center) { const c = e.rail.center; e.facing = vNorm([c[0] - e.pos[0], (e.rail.faceY || -0.6), c[2] - e.pos[2]]); }
+      if (e.rail.center) {
+        const c = e.rail.center, sg = e.rail.out ? -1 : 1;
+        const h = vNorm([(c[0] - e.pos[0]) * sg, 0, (c[2] - e.pos[2]) * sg]);
+        e.facing = vNorm([h[0], e.rail.faceY === undefined ? -0.6 : e.rail.faceY, h[2]]);
+      }
     } else if (m) {
       const p = xfPoint(m, e.basePos[0], e.basePos[2]); e.pos = [p[0], e.basePos[1], p[1]];
       const f = rot2(e.baseFacing[0], e.baseFacing[2], m.angle); e.facing = [f[0], e.baseFacing[1], f[1]];
@@ -351,6 +364,7 @@ function signalApi(W) {
   const S = {
     get t() { return W.t; },
     observed: id => (W.observedBy[id] || []).length > 0,
+    count: id => (W.observedBy[id] || []).length,
     observedBy: (id, by) => (W.observedBy[id] || []).indexOf(by) >= 0,
     link: (a, b) => (W.observedBy[b] || []).indexOf(a) >= 0,
     pinned: id => { const e = W.eyeById[id]; return !!e && e.state === ST.PINNED; },
@@ -359,7 +373,9 @@ function signalApi(W) {
     synced: group => groupSynced(W, group),
     playerIn: zid => inZone(W.zones[zid], W.player.pos[0], W.player.pos[2]),
     flag: k => !!W.flags[k],
-    mover: id => W.moverById[id]
+    num: k => +W.flags[k] || 0,
+    mover: id => W.moverById[id],
+    eye: id => W.eyeById[id]
   };
   W._S = S; return S;
 }
@@ -407,13 +423,15 @@ function stepWorld(W, dt) {
     for (const e of W.eyes) if (e.acq >= 1 && !e.isFalse) { W.status = 'caught'; W.catcher = e.id; W.statusT = 0; W.emit('caught', { id: e.id }); break; }
   }
   if (W.status === 'play') {
+    // checkpoints: zones named cp1, cp2 ...
+    for (let k = 1; k <= 3; k++) { const z = W.zones['cp' + k]; if (z && W.checkpointReached < k && W.checkpoint < k && inZone(z, W.player.pos[0], W.player.pos[2])) { W.checkpointReached = k; W.emit('checkpoint', { cp: k }); } }
     const ex = W.zones.exit;
     const open = W.def.exitOpen ? W.def.exitOpen(S) : true;
     W.exitOpen = open;
     if (ex && open && !W.player.falling && inZone(ex, W.player.pos[0], W.player.pos[2])) { W.status = 'won'; W.statusT = 0; W.emit('won'); }
   }
   // history of what the player looked at (for mimics)
-  W.gazeHist[W.tick % W.gazeHistLen] = W.gaze.target && W.gaze.focus >= 1 ? W.gaze.target : null;
+  W.gazeHist[W.tick % W.gazeHistLen] = W.gaze.target && W.gaze.focus >= 0.3 && W.gaze.lostT === 0 ? W.gaze.target : null;
 }
 
 function stepMover(W, m, dt, S) {
@@ -553,8 +571,9 @@ function gazeLosTo(W, e) {
   const p1 = vAddS(e.pos, vNorm(vSub(h, e.pos)), e.size * 1.05);
   return los(W, h, p1, e.ignore);
 }
-function pinnableNow(e) {
+function pinnableNow(e, W) {
   if (e.state === ST.DORMANT) return false;
+  if (e.shield && W && groupSynced(W, e.shield) && e.state !== ST.PINNED) return false;
   if (e.type === 'liar' && !e.liarOpen) return false;
   if (e.unblink || e.isFalse) return false;
   return !!e.pinnable;
@@ -572,7 +591,7 @@ function stepGaze(W, dt) {
     return;
   }
   G.lostT = 0;
-  if (!pinnableNow(e)) {
+  if (!pinnableNow(e, W)) {
     // false eyes accept the gaze and do nothing; liars and the lidless refuse it
     if (e.isFalse) { G.focus = Math.min(1, G.focus + dt / 0.22); if (G.focus >= 1 && !e.revealed) { e.revealed = true; W.emit('false_reveal', { id: e.id }); } }
     else { if (!G.refused) { G.refused = true; W.emit('gaze_refused', { id: e.id }); } G.focus = Math.min(0.35, G.focus + dt); }
@@ -591,7 +610,7 @@ function stepGaze(W, dt) {
 // Eyes
 // ---------------------------------------------------------------------
 function isPresent(e) { return e.state !== ST.PINNED && e.state !== ST.RELEASING && e.state !== ST.DORMANT && e.state !== ST.DISRUPTED; }
-function canHoldLink(e) { return !e.isFalse && (e.state === ST.ACTIVE || e.state === ST.SEARCHING); }
+function canHoldLink(e) { return !e.isFalse && (e.state === ST.ACTIVE || e.state === ST.SEARCHING || e.state === ST.DISRUPTED); }
 
 // What does this eye want to look at (when not acquiring the player)?
 function resolveTarget(W, e, init) {
@@ -801,9 +820,10 @@ function stepEye(W, e, dt) {
     if (e.state !== ST.ACQUIRING) { e.state = ST.ACQUIRING; e.st = 0; W.emit('notice', { id: e.id }); }
     e.seesPlayer = true;
     e.lastSeen = playerChest(W);
-    let r = rate * (1 + Math.max(0, 1 - vis.d / e.range) * 0.35);
+    // closer is faster; a fresh notice starts slow, so there is always a moment to react
+    let r = rate * (1 + Math.max(0, 1 - vis.d / e.range) * 0.2) * Math.min(1, 0.45 + e.st * 0.9);
     if (e.type === 'liar' && !e.liarOpen) r *= 0.6;
-    e.acq = Math.min(1, e.acq + dt * r);
+    e.acq = Math.min(W.t < (W.def.grace === undefined ? 2.2 : W.def.grace) ? 0.25 : 1, e.acq + dt * r);
     if (e.isFalse) e.acq = Math.min(0.72, e.acq);
     if (e.type === 'liar' && !e.liarOpen && e.acq >= 0.45) { e.liarOpen = true; W.emit('liar_open', { id: e.id }); }
     turnLook(W, e, vNorm(vSub(playerChest(W), e.pos)), e.acqTurn, dt);
