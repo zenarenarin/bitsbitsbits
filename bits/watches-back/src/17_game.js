@@ -183,6 +183,7 @@ window.plethoraBit = {
       setGazeInput(vis[(i + 1) % vis.length].id);
     }
     function readMove() {
+      if (input.botMove) return input.botMove;
       let mx = 0, mz = 0;
       const k = input.keys;
       if (k.KeyA || k.ArrowLeft) mx -= 1; if (k.KeyD || k.ArrowRight) mx += 1;
@@ -297,10 +298,11 @@ window.plethoraBit = {
       save.current = G.idx + 1; persist();
       try { if (ctx.game && ctx.game.progress && ctx.manifest && ctx.manifest.game) ctx.game.progress.save('campaign', { state: { enc: G.idx + 1 }, label: `${String(G.idx + 2).padStart(2, '0')} · ${ENCOUNTERS[G.idx + 1].name}`, percent: (G.idx + 1) / ENCOUNTERS.length }).catch(() => { }); } catch (e) { }
       // transition: the iris closes, then opens on the next place
+      H.setHint(null);
       mode = 'trans'; transT = 0; transKind = 'next';
     }
     function startEnding() {
-      mode = 'ending'; transT = 0; ended = true;
+      mode = 'ending'; transT = 0; ended = true; H.setHint(null);
       save.finished = true;
       const total = G.runMs;
       if (!save.bestMs || total < save.bestMs) save.bestMs = total;
@@ -336,6 +338,7 @@ window.plethoraBit = {
       for (const h of d.hints || []) {
         if (G.hintsDone[h.id]) continue;
         if (h.when && !h.when(W)) continue;
+        if (!h.stick && G.encT < 3.4) continue; // let the encounter's name be read first
         if (h.until && h.until(W)) { G.hintsDone[h.id] = true; if (H.hintId() === h.id) H.setHint(null); continue; }
         shown = h; break;
       }
@@ -409,6 +412,7 @@ window.plethoraBit = {
       const dt = Math.min(0.1, dtMs / 1000);
       const W = G.W;
       if (mode === 'play') {
+        if (window.__ttwbBot) window.__ttwbBot(W);
         const mv = readMove();
         W.input.mx = mv[0]; W.input.mz = mv[1];
         acc += dt;
@@ -462,6 +466,13 @@ window.plethoraBit = {
       } else if (mode === 'ending') {
         transT += dt;
         stepWorld(W, SIM_DT); W.events.length = 0;
+        // every eye closes but one; the traveller becomes the light in its pupil
+        for (const e of W.eyes) {
+          if (e.type === 'centre') { e.look = rotateToward(e.look, vNorm(vSub(playerChest(W), e.pos)), SIM_DT * 2); e.seesPlayer = true; continue; }
+          if (transT > 0.4 + (e.pos[0] * 0.03 + 0.5)) e.state = 'dormant';
+        }
+        const cv = view.eyes.C; if (cv) cv.irisMat.uniforms.uPupil.value = Math.min(0.92, 0.28 + transT * 0.12);
+        if (view.player) view.player.body.scale.setScalar(1.3 * Math.max(0.001, 1 - transT / 3.5));
         view.extraZoom = Math.min(120, transT * transT * 6);
         if (transT > 4.5 && !H.panels.end.classList.contains('on')) { H.show('end'); H.inGame(false); try { if (ctx.pulse && ctx.pulse.complete) ctx.pulse.complete({ timeMs: G.runMs, text: 'Reached the Centre in ' + fmtTime(G.runMs) }); } catch (e) { } }
       } else if (mode === 'title') {
@@ -483,7 +494,10 @@ window.plethoraBit = {
       else ctx.onFrame(dtMs => tick(dtMs));
     }
     // dev hook
-    if (window.__TTWB_DEV) window.__ttwb = { G, get mode() { return mode; }, begin: () => beginPlay(), load: (i, cp) => { loadEncounter(i, cp || 0, false); mode = 'play'; H.show(null); H.inGame(true); }, setGaze: id => setGazeInput(id), view: () => view, input, save: () => save, pause: pauseGame, resume: resumeGame };
+    if (window.__TTWB_DEV) window.stepWorld_dev = W => stepWorld(W, SIM_DT);
+    if (window.__TTWB_DEV) window.__ttwb = { G, get mode() { return mode; }, begin: () => beginPlay(), load: (i, cp) => { loadEncounter(i, cp || 0, false); mode = 'play'; H.show(null); H.inGame(true); }, setGaze: id => setGazeInput(id), view: () => view, input, save: () => save, pause: pauseGame, resume: resumeGame,
+      tapAt(x, y) { const r = canvas.getBoundingClientRect(); for (const t of ['pointerdown', 'pointerup']) canvas.dispatchEvent(new PointerEvent(t, { clientX: r.left + x, clientY: r.top + y, pointerId: 77, bubbles: true, pointerType: 'touch', isPrimary: true })); },
+      tapEye(id) { const e = G.W.eyeById[id]; const s = view.toScreen(e.pos); this.tapAt(s.x, s.y); return s; } };
     boot();
   }
 };

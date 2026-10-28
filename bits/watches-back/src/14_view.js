@@ -106,10 +106,10 @@ function createView(renderer, opts) {
   function camConfig(W) {
     const c = W.def.cam || {};
     const fov = c.fov || 40, pitch = (V.pitchOverride || 50) * DEG;
-    const wNeed = c.w || 19;
+    const wNeed = Math.min(c.w || 17, 18.5);
     const tanH = Math.tan(fov * DEG / 2);
     const distW = wNeed / (2 * tanH * Math.max(0.3, camera.aspect));
-    const dist = Math.max(c.dist || 34, Math.min(distW, (c.dist || 34) * 1.9)) + V.extraZoom;
+    const dist = Math.max(c.dist || 34, Math.min(distW, (c.dist || 34) * 1.45)) + V.extraZoom;
     return { fov, pitch, dist, c };
   }
   V.updateCamera = (W, dt, snap) => {

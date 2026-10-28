@@ -246,7 +246,7 @@ function createWorld(def, opts) {
     input: { mx: 0, mz: 0 },
     mods: Object.assign({ acquire: 1, speed: 1, mech: 1 }, opts.mods || {}),
     rng: makeRng(def.seed || 7),
-    checkpoint: opts.checkpoint || 0,
+    checkpoint: opts.checkpoint || 0, checkpointReached: 0,
     script: null
   };
   W.emit = (type, o) => { const e = o || {}; e.type = type; e.t = W.t; W.events.push(e); return e; };
@@ -265,6 +265,15 @@ function createWorld(def, opts) {
   // initial looks: point eyes at their home so the world starts composed
   for (const e of W.eyes) { const d = desiredDir(W, e, true); if (d) e.look = clampCone(d, e.facing, e.maxDev); }
   computeLinks(W, true);
+  // mechanisms start settled in the state their signal asks for
+  const S0 = signalApi(W);
+  for (const m of W.movers) {
+    if (!m.signal || m.keepStart) continue;
+    const want = m.signal(S0) ? 1 : 0; m.lastSig = want;
+    if (m.kind !== 'rotor' || m.mode !== 'cont') m.e = want;
+    if (m.kind === 'rotor' && m.mode !== 'cont') m.angle = lerp(m.angles[0], m.angles[1], easeInOut(m.e));
+  }
+  refreshAll(W);
   if (def.init) def.init(W);
   return W;
 }
@@ -371,7 +380,11 @@ function refreshAll(W) {
     const m = moverXf(W, e.mover);
     if (e.rail) {
       const rp = railPoint(e.rail, e.rail.u); e.pos = rp.p; e.railTan = rp.tan;
-      if (e.rail.center) { const c = e.rail.center; e.facing = vNorm([c[0] - e.pos[0], (e.rail.faceY || -0.6), c[2] - e.pos[2]]); }
+      if (e.rail.center) {
+        const c = e.rail.center, sg = e.rail.out ? -1 : 1;
+        const h = vNorm([(c[0] - e.pos[0]) * sg, 0, (c[2] - e.pos[2]) * sg]);
+        e.facing = vNorm([h[0], e.rail.faceY === undefined ? -0.6 : e.rail.faceY, h[2]]);
+      }
     } else if (m) {
       const p = xfPoint(m, e.basePos[0], e.basePos[2]); e.pos = [p[0], e.basePos[1], p[1]];
       const f = rot2(e.baseFacing[0], e.baseFacing[2], m.angle); e.facing = [f[0], e.baseFacing[1], f[1]];
@@ -448,6 +461,7 @@ function signalApi(W) {
   const S = {
     get t() { return W.t; },
     observed: id => (W.observedBy[id] || []).length > 0,
+    count: id => (W.observedBy[id] || []).length,
     observedBy: (id, by) => (W.observedBy[id] || []).indexOf(by) >= 0,
     link: (a, b) => (W.observedBy[b] || []).indexOf(a) >= 0,
     pinned: id => { const e = W.eyeById[id]; return !!e && e.state === ST.PINNED; },
@@ -456,7 +470,9 @@ function signalApi(W) {
     synced: group => groupSynced(W, group),
     playerIn: zid => inZone(W.zones[zid], W.player.pos[0], W.player.pos[2]),
     flag: k => !!W.flags[k],
-    mover: id => W.moverById[id]
+    num: k => +W.flags[k] || 0,
+    mover: id => W.moverById[id],
+    eye: id => W.eyeById[id]
   };
   W._S = S; return S;
 }
@@ -504,13 +520,15 @@ function stepWorld(W, dt) {
     for (const e of W.eyes) if (e.acq >= 1 && !e.isFalse) { W.status = 'caught'; W.catcher = e.id; W.statusT = 0; W.emit('caught', { id: e.id }); break; }
   }
   if (W.status === 'play') {
+    // checkpoints: zones named cp1, cp2 ...
+    for (let k = 1; k <= 3; k++) { const z = W.zones['cp' + k]; if (z && W.checkpointReached < k && W.checkpoint < k && inZone(z, W.player.pos[0], W.player.pos[2])) { W.checkpointReached = k; W.emit('checkpoint', { cp: k }); } }
     const ex = W.zones.exit;
     const open = W.def.exitOpen ? W.def.exitOpen(S) : true;
     W.exitOpen = open;
     if (ex && open && !W.player.falling && inZone(ex, W.player.pos[0], W.player.pos[2])) { W.status = 'won'; W.statusT = 0; W.emit('won'); }
   }
   // history of what the player looked at (for mimics)
-  W.gazeHist[W.tick % W.gazeHistLen] = W.gaze.target && W.gaze.focus >= 1 ? W.gaze.target : null;
+  W.gazeHist[W.tick % W.gazeHistLen] = W.gaze.target && W.gaze.focus >= 0.3 && W.gaze.lostT === 0 ? W.gaze.target : null;
 }
 
 function stepMover(W, m, dt, S) {
@@ -650,8 +668,9 @@ function gazeLosTo(W, e) {
   const p1 = vAddS(e.pos, vNorm(vSub(h, e.pos)), e.size * 1.05);
   return los(W, h, p1, e.ignore);
 }
-function pinnableNow(e) {
+function pinnableNow(e, W) {
   if (e.state === ST.DORMANT) return false;
+  if (e.shield && W && groupSynced(W, e.shield) && e.state !== ST.PINNED) return false;
   if (e.type === 'liar' && !e.liarOpen) return false;
   if (e.unblink || e.isFalse) return false;
   return !!e.pinnable;
@@ -669,7 +688,7 @@ function stepGaze(W, dt) {
     return;
   }
   G.lostT = 0;
-  if (!pinnableNow(e)) {
+  if (!pinnableNow(e, W)) {
     // false eyes accept the gaze and do nothing; liars and the lidless refuse it
     if (e.isFalse) { G.focus = Math.min(1, G.focus + dt / 0.22); if (G.focus >= 1 && !e.revealed) { e.revealed = true; W.emit('false_reveal', { id: e.id }); } }
     else { if (!G.refused) { G.refused = true; W.emit('gaze_refused', { id: e.id }); } G.focus = Math.min(0.35, G.focus + dt); }
@@ -688,7 +707,7 @@ function stepGaze(W, dt) {
 // Eyes
 // ---------------------------------------------------------------------
 function isPresent(e) { return e.state !== ST.PINNED && e.state !== ST.RELEASING && e.state !== ST.DORMANT && e.state !== ST.DISRUPTED; }
-function canHoldLink(e) { return !e.isFalse && (e.state === ST.ACTIVE || e.state === ST.SEARCHING); }
+function canHoldLink(e) { return !e.isFalse && (e.state === ST.ACTIVE || e.state === ST.SEARCHING || e.state === ST.DISRUPTED); }
 
 // What does this eye want to look at (when not acquiring the player)?
 function resolveTarget(W, e, init) {
@@ -898,9 +917,10 @@ function stepEye(W, e, dt) {
     if (e.state !== ST.ACQUIRING) { e.state = ST.ACQUIRING; e.st = 0; W.emit('notice', { id: e.id }); }
     e.seesPlayer = true;
     e.lastSeen = playerChest(W);
-    let r = rate * (1 + Math.max(0, 1 - vis.d / e.range) * 0.35);
+    // closer is faster; a fresh notice starts slow, so there is always a moment to react
+    let r = rate * (1 + Math.max(0, 1 - vis.d / e.range) * 0.2) * Math.min(1, 0.45 + e.st * 0.9);
     if (e.type === 'liar' && !e.liarOpen) r *= 0.6;
-    e.acq = Math.min(1, e.acq + dt * r);
+    e.acq = Math.min(W.t < (W.def.grace === undefined ? 2.2 : W.def.grace) ? 0.25 : 1, e.acq + dt * r);
     if (e.isFalse) e.acq = Math.min(0.72, e.acq);
     if (e.type === 'liar' && !e.liarOpen && e.acq >= 0.45) { e.liarOpen = true; W.emit('liar_open', { id: e.id }); }
     turnLook(W, e, vNorm(vSub(playerChest(W), e.pos)), e.acqTurn, dt);
@@ -979,7 +999,14 @@ function makeKit(B, W) {
   const vis = o => { V.push(o); return o; };
   const T = () => 'h' + (tagN++);
 
-  K.spawn = (x, z, yaw, y) => { B.spawn(x, z, yaw, y); vis({ type: 'entry', x, z, y: y || 0, yaw: yaw === undefined ? -Math.PI / 2 : yaw }); };
+  K.spawn = (x, z, yaw, y) => {
+    yaw = yaw === undefined ? -Math.PI / 2 : yaw;
+    B.spawn(x, z, yaw, y);
+    // the landing you arrive on, behind the spawn point
+    const d = dirYP(yaw, 0);
+    B.rect({ cx: x - d[0] * 1.7, cz: z - d[2] * 1.7, hw: 1.6, hl: 1.7, yaw, y: y || 0 });
+    vis({ type: 'entry', x, z, y: y || 0, yaw });
+  };
 
   // ---- walkable ground -------------------------------------------------
   K.floor = o => { // rectangle slab; yaw = direction of its length
@@ -1033,6 +1060,21 @@ function makeKit(B, W) {
     vis({ type: 'block', x: o.x, z: o.z, w: o.w, t: o.t, yaw, y0: o.vy0 === undefined ? y0 : o.vy0, y1, mat: o.mat || 'olive', style: o.style || 'rib', mover: o.mover, tag });
     return tag;
   };
+  // A canopy over a walkway: hides you from eyes above, does not stop you.
+  K.canopy = o => {
+    const tag = o.tag || T();
+    const y0 = o.y0 === undefined ? 2.6 : o.y0, y1 = o.y1 === undefined ? 3.2 : o.y1, yaw = o.yaw === undefined ? -Math.PI / 2 : o.yaw;
+    B.occBox({ cx: o.x, cz: o.z, cy: (y0 + y1) / 2, hw: o.w / 2, hl: o.l / 2, hh: (y1 - y0) / 2, yaw, tag, mover: o.mover });
+    vis({ type: 'canopy', x: o.x, z: o.z, w: o.w, l: o.l, y0, y1, yaw, mover: o.mover });
+    return tag;
+  };
+  // A blade on a rotor: blocks sight between eyes, high above the walkway.
+  K.blade = o => {
+    const tag = o.tag || T();
+    B.occBox({ cx: o.x, cz: o.z, cy: (o.y0 + o.y1) / 2, hw: o.t / 2, hl: o.w / 2, hh: (o.y1 - o.y0) / 2, yaw: o.yaw || 0, tag, mover: o.mover });
+    vis({ type: 'blade', x: o.x, z: o.z, w: o.w, t: o.t, y0: o.y0, y1: o.y1, yaw: o.yaw || 0, mover: o.mover });
+    return tag;
+  };
   // A screen of ribs: sight is blocked but the traveller can't pass either.
   K.screen = o => K.block(Object.assign({ style: 'screen', mat: 'ink' }, o));
 
@@ -1049,7 +1091,7 @@ function makeKit(B, W) {
     return m;
   };
   K.rotor = o => {
-    const m = B.mover({ id: o.id, kind: 'rotor', pivot: [o.x, o.z], mode: o.mode || 'toggle', omega: o.omega || 0.3, angles: o.angles || [0, Math.PI / 2], signal: o.signal, speed: o.speed || 0.35, e: o.start || 0, angle: o.angles ? o.angles[0] + (o.angles[1] - o.angles[0]) * (o.start || 0) : (o.angle || 0), prime: o.prime === undefined ? 0.6 : o.prime, accel: o.accel });
+    const m = B.mover({ id: o.id, kind: 'rotor', pivot: [o.x, o.z], mode: o.mode || 'toggle', omega: o.omega || 0.3, angles: o.angles || [0, Math.PI / 2], signal: o.signal, speed: o.speed || 0.35, e: o.start || 0, angle: o.mode === 'cont' ? (o.angle || 0) : (o.angles ? o.angles[0] + (o.angles[1] - o.angles[0]) * (o.start || 0) : 0), prime: o.prime === undefined ? 0.6 : o.prime, accel: o.accel });
     vis({ type: 'rotor', id: o.id, x: o.x, z: o.z, y: o.y || 0, r: o.r || 6, hub: o.hub });
     return m;
   };
@@ -1111,10 +1153,10 @@ ENCOUNTERS.push({
     K.wall({ x: 0, z: -12, r0: 10.6, r1: 12.4, a0: N + 0.24, a1: S_ - 0.34, y1: 15 });
     K.block({ x: -2.3, z: -24.5, w: 7, t: 1.2, yaw: N, y1: 14, mat: 'bone', style: 'jamb' });
     K.block({ x: 2.3, z: -24.5, w: 7, t: 1.2, yaw: N, y1: 14, mat: 'bone', style: 'jamb' });
-    const p1 = K.pillar({ x: 4.6, z: -11, r: 1.7, top: 30, mat: 'bone', style: 'fluted' });
+    const p1 = K.pillar({ x: 4.6, z: -11, r: 2.3, top: 30, mat: 'bone', style: 'fluted' });
     K.pillar({ x: -5.2, z: -13.5, r: 1.3, top: 30, mat: 'bone', style: 'fluted' });
     const yaw = Math.atan2(-2 + 11, 0 - 4.6);
-    const m = K.onPillar(4.6, -11, 1.7, 4.6, yaw, -0.3);
+    const m = K.onPillar(4.6, -11, 2.3, 4.6, yaw, -0.3);
     K.eye({ id: 'W', type: 'watcher', host: p1, pos: m.pos, facing: m.facing, acquireTime: 3.2,
       home: { sweep: [[-5.5, 0.8, -4.5], [-3.5, 0.8, -18.5]], period: 9 } });
     K.exit({ x: 0, z: -26.2, yaw: N });
@@ -1174,14 +1216,14 @@ ENCOUNTERS.push({
     K.ring({ x: 0, z: -14, r1: 5.2, etch: 'spiral' });
     K.floor({ x: 0, z: -20.5, w: 3, l: 4 });
     K.bridge({ id: 'span', ax: 0, az: 4.2, yaw: N, len: 13.6, w: 2.4, signal: S => !S.observed('B'), speed: 0.55 });
-    const pa = K.pillar({ x: -8.5, z: -3, r: 2.3, top: 34, bottom: -70, style: 'fluted' });
-    const pb = K.pillar({ x: 8.5, z: -5, r: 2.1, top: 34, bottom: -70, style: 'fluted' });
-    const a = K.onPillar(-8.5, -3, 2.3, 7.5, Math.atan2(-5 + 3, 8.5 + 8.5), -0.1);
+    const pa = K.pillar({ x: -8.5, z: -3, r: 2.7, top: 34, bottom: -70, style: 'fluted' });
+    const pb = K.pillar({ x: 8.5, z: -5, r: 2.6, top: 34, bottom: -70, style: 'fluted' });
+    const a = K.onPillar(-8.5, -3, 2.7, 7.5, Math.atan2(-5 + 3, 8.5 + 8.5), -0.1);
     K.eye({ id: 'A', type: 'watcher', host: pa, pos: a.pos, facing: a.facing, home: { eye: 'B' }, acquireTime: 2.4 });
-    const b = K.onPillar(8.5, -5, 2.1, 5.5, W_ + 0.12, -0.15);
+    const b = K.onPillar(8.5, -5, 2.6, 5.5, W_ + 0.12, -0.15);
     K.eye({ id: 'B', type: 'watcher', host: pb, pos: b.pos, facing: b.facing, home: { point: [14, 0.5, -24] }, acquireTime: 2.4, maxDev: 50 * DEG });
-    const pc = K.pillar({ x: -5.5, z: -18.5, r: 1.4, top: 28, style: 'fluted' });
-    const c = K.onPillar(-5.5, -18.5, 1.4, 3.4, Math.atan2(-11 + 18.5, 0 + 5.5), -0.25);
+    const pc = K.pillar({ x: -5.8, z: -18.8, r: 2.1, top: 28, style: 'fluted' });
+    const c = K.onPillar(-5.8, -18.8, 2.1, 3.4, Math.atan2(-11 + 18.8, 0 + 5.8), -0.25);
     K.eye({ id: 'C', type: 'watcher', host: pc, pos: c.pos, facing: c.facing, acquireTime: 2.6, range: 13, home: { sweep: [[3.5, 0.8, -12], [-1.5, 0.8, -9]], period: 6 } });
     K.tendon({ from: { eye: 'B' }, to: { mover: 'span' }, sag: 6 });
     K.exit({ x: 0, z: -22, yaw: N });
@@ -1212,11 +1254,11 @@ ENCOUNTERS.push({
     const col = K.pillar({ x: 0, z: cz, r: 3, top: 40, bottom: -80, style: 'core' });
     const x = K.onPillar(0, cz, 3, 6, 0, -0.08);
     K.eye({ id: 'X', type: 'watcher', host: col, pos: x.pos, facing: x.facing, home: { eye: 'Y' }, acquireTime: 2.4, maxDev: 40 * DEG });
-    const py = K.pillar({ x: 13.5, z: cz, r: 1.8, top: 34, bottom: -70 });
-    const y = K.onPillar(13.5, cz, 1.8, 5.5, W_, -0.05);
+    const py = K.pillar({ x: 13.5, z: cz, r: 2.4, top: 34, bottom: -70 });
+    const y = K.onPillar(13.5, cz, 2.4, 5.5, W_, -0.05);
     K.eye({ id: 'Y', type: 'watcher', host: py, pos: y.pos, facing: y.facing, home: { sweep: [[3, 0.8, -15.5], [-3, 0.8, -15.5]], period: 5 }, acquireTime: 2.0, maxDev: 70 * DEG });
-    const pw = K.pillar({ x: -13, z: cz + 2, r: 1.8, top: 34, bottom: -70 });
-    const w = K.onPillar(-13, cz + 2, 1.8, 3.8, 0, -0.2);
+    const pw = K.pillar({ x: -13.5, z: cz + 2, r: 2.3, top: 34, bottom: -70 });
+    const w = K.onPillar(-13.5, cz + 2, 2.3, 3.8, 0, -0.2);
     K.eye({ id: 'Wd', type: 'watcher', host: pw, pos: w.pos, facing: w.facing, home: { sweep: [[-6.5, 0.8, cz + 4], [-6.5, 0.8, cz - 4]], period: 6 }, acquireTime: 2.3, fov: 20 * DEG, range: 10, maxDev: 35 * DEG });
     K.block({ x: -2.4, z: -21, w: 9, t: 1.2, yaw: N, y1: 10, mat: 'bone', style: 'jamb' });
     K.block({ x: 2.4, z: -21, w: 9, t: 1.2, yaw: N, y1: 10, mat: 'bone', style: 'jamb' });
@@ -1233,6 +1275,653 @@ ENCOUNTERS.push({
   failHint: 'Ride the ring past the left eye, then step off at the far side.'
 });
 
+// ---- 04_act2.js ----
+// =====================================================================
+// Act II — Relationships. Moss and tendon, deeper shafts, eyes that act
+// on one another. Pinning starts to have consequences you didn't choose.
+// =====================================================================
+
+// helper: place an eye on a pillar facing a world point
+function eyeOnPillar(K, o) {
+  const tag = K.pillar({ x: o.px, z: o.pz, r: o.pr, top: o.top === undefined ? 26 : o.top, bottom: o.bottom, style: o.style || 'fluted', mat: o.mat });
+  const yaw = Math.atan2(o.look[2] - o.pz, o.look[0] - o.px);
+  const m = K.onPillar(o.px, o.pz, o.pr, o.y, yaw, 0);
+  const facing = vNorm(vSub(o.look, m.pos));
+  const e = K.eye(Object.assign({ host: tag, pos: m.pos, facing }, o.eye));
+  return { tag, e };
+}
+
+// ---- 05 The Drifter --------------------------------------------------------
+ENCOUNTERS.push({
+  id: 'e05', act: 2, name: 'The Drifter',
+  cam: { w: 22, ahead: 3 },
+  look: 'act2',
+  build(K) {
+    const C = [0, -8];
+    K.spawn(-6.3, 10.5);
+    K.floor({ x: -6.3, z: 5.5, w: 3, l: 11, etch: 'rungs' });
+    K.ring({ x: C[0], z: C[1], r0: 8.5, r1: 11.6, a0: 2.12, a1: 6.05, etch: 'radial' });
+    K.floor({ x: 13.4, z: -10.6, w: 3, l: 6.4, yaw: 0, etch: 'rungs' });
+    K.exit({ x: 15.6, z: -10.6, yaw: 0 });
+    // the outer wall and the shaft
+    K.wall({ x: C[0], z: C[1], r0: 12.2, r1: 13.6, a0: 2.3, a1: 5.95, y1: 16, mat: 'moss' });
+    K.shaft({ x: C[0], z: C[1], r: 7.6, depth: 100, rings: 10 });
+    // screens on the inner edge: cover from the drifter's light
+    for (const a of [2.75, 3.4, 4.05, 4.7, 5.35]) {
+      const r = 9.05;
+      K.block({ x: C[0] + Math.cos(a) * r, z: C[1] + Math.sin(a) * r, w: 2.9, t: 0.6, yaw: a + Math.PI / 2, y1: 4.4, mat: 'ink', style: 'screen' });
+    }
+    // the drifter rides a rail around the shaft, looking outward and down
+    const pts = [];
+    for (let i = 0; i <= 14; i++) { const a = 2.3 + (5.95 - 2.3) * i / 14; pts.push([C[0] + Math.cos(a) * 5.4, 6.2, C[1] + Math.sin(a) * 5.4]); }
+    K.eye({ id: 'D', type: 'drifter', pos: pts[0], facing: [0, -0.6, 1], rail: { pts, speed: 2.3, center: [C[0], 0, C[1]], out: true, faceY: -0.72, pause: 1.0, u: 4 }, range: 18, acquireTime: 1.6, maxDev: 50 * DEG });
+    // a watcher in the north wall covers the far stretch, where the screens don't help
+    const wa = 4.6, wr = 11.75;
+    K.eye({ id: 'N', type: 'watcher', pos: [C[0] + Math.cos(wa) * wr, 4.2, C[1] + Math.sin(wa) * wr], facing: vNorm([-Math.cos(wa), -0.35, -Math.sin(wa)]), acquireTime: 2.0, range: 15, fov: 20 * DEG, maxDev: 45 * DEG,
+      home: { sweep: [[C[0] + Math.cos(4.25) * 10, 0.8, C[1] + Math.sin(4.25) * 10], [C[0] + Math.cos(5.0) * 10, 0.8, C[1] + Math.sin(5.0) * 10]], period: 5 } });
+    K.ribs({ x: C[0], z: C[1], r: 14, count: 9, h: 26, span: 'crown', thick: 1.0, mat: 'moss' });
+    K.mass({ seed: 51, style: 'towers' });
+    K.roots({ x: C[0], z: C[1], r: 12.5, n: 10, top: 26 });
+  },
+  hints: [
+    { id: 'cover', text: 'Its light moves. Wait behind the screens', when: W => W.t > 1, until: W => W.player.pos[2] < -6, ms: 5000 },
+    { id: 'north', text: 'The screens cannot hide you from the wall eye', when: W => W.eyeById.N.state === 'alert' || W.eyeById.N.state === 'acquiring', until: W => W.eyeById.N.state === 'pinned', ms: 4000 }
+  ],
+  failHint: 'Hold the drifter when its light is away from your path.'
+});
+
+// ---- 06 The Gathering --------------------------------------------------------
+ENCOUNTERS.push({
+  id: 'e06', act: 2, name: 'The Gathering',
+  cam: { w: 22, ahead: 4 },
+  look: 'act2',
+  build(K) {
+    K.spawn(0, 20);
+    K.floor({ x: 0, z: 14, w: 9, l: 13, etch: 'rungs' });
+    K.floor({ x: 0, z: 6.2, w: 3.6, l: 2.8 });
+    K.ring({ x: 0, z: -2, r1: 7.6, etch: 'spiral' });
+    K.floor({ x: 0, z: -10.6, w: 3.6, l: 3.2 });
+    K.floor({ x: 0, z: -18, w: 4, l: 12.4, etch: 'rungs' });
+    K.exit({ x: 0, z: -23.4, yaw: -Math.PI / 2 });
+    // walls with iris gates
+    K.block({ x: -6.2, z: 6.6, w: 8.6, t: 1.1, yaw: 0, y1: 3, mat: 'moss', style: 'jamb' });
+    K.block({ x: 6.2, z: 6.6, w: 8.6, t: 1.1, yaw: 0, y1: 3, mat: 'moss', style: 'jamb' });
+    K.gate({ id: 'g1', x: 0, z: 6.6, w: 3.8, yaw: 0, signal: S => !S.observed('A'), speed: 1.5 });
+    K.block({ x: -6.2, z: -10.6, w: 8.6, t: 1.1, yaw: 0, y1: 3, mat: 'moss', style: 'jamb' });
+    K.block({ x: 6.2, z: -10.6, w: 8.6, t: 1.1, yaw: 0, y1: 3, mat: 'moss', style: 'jamb' });
+    K.gate({ id: 'g2', x: 0, z: -10.6, w: 3.8, yaw: 0, signal: S => !S.observed('D'), speed: 1.5 });
+    // A watches the start platform but is held by B; C collects; D guards the corridor
+    eyeOnPillar(K, { px: 10, pz: 1.5, pr: 2.6, y: 5.5, look: [0, 1, 13], eye: { id: 'A', type: 'watcher', group: 'g', acquireTime: 2.1, range: 22, home: { sweep: [[-3.5, 0.8, 17], [3.5, 0.8, 9.5]], period: 6 } } });
+    eyeOnPillar(K, { px: -10, pz: -0.5, pr: 2.6, y: 10, look: [10, 5.5, 1.5], eye: { id: 'B', type: 'watcher', acquireTime: 2.2, fov: 15 * DEG, periph: 1, home: { eye: 'A' } } });
+    eyeOnPillar(K, { px: -8.5, pz: -13, pr: 2.4, y: 6.5, look: [0, 3, -4], eye: { id: 'C', type: 'collector', group: 'g', home: { eye: 'D' }, collect: { notice: 0.5, turn: 0.55 }, maxDev: 110 * DEG } });
+    eyeOnPillar(K, { px: 6.5, pz: -18.5, pr: 2.2, y: 3.8, look: [0, 1, -15], eye: { id: 'D', type: 'watcher', acquireTime: 2.0, range: 16, home: { sweep: [[1.5, 0.8, -12.5], [-1.5, 0.8, -22]], period: 5 } } });
+    K.tendon({ from: { eye: 'A' }, to: { mover: 'g1' }, sag: 4 });
+    K.tendon({ from: { eye: 'D' }, to: { mover: 'g2' }, sag: 3 });
+    K.shaft({ x: 0, z: -2, r: 11, depth: 80, rings: 8 });
+    K.ribs({ x: 0, z: -2, r: 13, count: 7, h: 24, span: 'over', thick: 1.0, mat: 'moss' });
+    K.mass({ seed: 61, style: 'arches' });
+    K.lamp({ x: 0, y: 5, z: -2, color: '#c9b064', intensity: 0.5, dist: 14 });
+  },
+  hints: [
+    { id: 'b', text: 'The left eye holds the one that would see you', focus: 'B', when: W => W.t > 1.5, until: W => W.eyeById.B.state === 'pinned', ms: 6000 },
+    { id: 'c', text: 'Watch the one in the back. It gathers what you let go', when: W => W.eyeById.B.state === 'pinned' && W.eyeById.C.target && W.eyeById.C.target.orphan, until: W => W.player.pos[2] < -12, ms: 5000 }
+  ],
+  failHint: 'Hold the left eye, slip through as the gate opens, then wait for the gatherer to turn.'
+});
+
+// ---- 07 The Blind Seam -------------------------------------------------------
+ENCOUNTERS.push({
+  id: 'e07', act: 2, name: 'The Blind Seam',
+  cam: { w: 20, ahead: 5 },
+  look: 'act2',
+  build(K) {
+    K.spawn(0, 13);
+    K.ring({ x: 0, z: 10, r1: 4.6, etch: 'spiral' });
+    K.floor({ x: 0, z: -3.5, w: 2.4, l: 20, etch: 'rungs' });
+    K.ring({ x: 0, z: -18, r1: 5, etch: 'spiral' });
+    K.floor({ x: 0, z: -24.2, w: 3, l: 3 });
+    K.exit({ x: 0, z: -25.2, yaw: -Math.PI / 2 });
+    // the seam: two high walls
+    K.block({ x: -2.1, z: -3.5, w: 18, t: 1.6, yaw: -Math.PI / 2, y1: 6, mat: 'moss', style: 'rib' });
+    K.block({ x: 2.1, z: -3.5, w: 18, t: 1.6, yaw: -Math.PI / 2, y1: 6, mat: 'moss', style: 'rib' });
+    // S hangs over the seam's end and looks down it, unless H holds it
+    K.eye({ id: 'S', type: 'watcher', pos: [0, 8.5, -15.6], facing: vNorm([0, -0.45, 1]), acquireTime: 1.5, range: 21, fov: 16 * DEG, periph: 1, maxDev: 60 * DEG,
+      home: { sweep: [[0, 0.8, 4], [0, 0.8, -12]], period: 4 } });
+    eyeOnPillar(K, { px: 11, pz: -7, pr: 2.4, y: 8.5, look: [0, 8.5, -15.6], eye: { id: 'H', type: 'watcher', home: { eye: 'S' }, fov: 12 * DEG, periph: 1, range: 20 } });
+    // a blade turns between H and S while R watches T
+    K.rotor({ id: 'rot', x: 6.3, z: -12.9, mode: 'cont', omega: 0.42, signal: S => S.link('R', 'T'), accel: 0.8, r: 4, hub: false });
+    K.blade({ x: 6.3, z: -12.9, w: 9, t: 0.7, y0: 6.2, y1: 12, yaw: 0, mover: 'rot' });
+    K.pillar({ x: 6.3, z: -12.9, r: 0.8, top: 6.4, bottom: -70, style: 'tendon', mat: 'moss', block: false, occlude: false, cap: false });
+    eyeOnPillar(K, { px: -9, pz: 6, pr: 2.3, y: 6.5, look: [-7, 4, -22], eye: { id: 'R', type: 'watcher', home: { eye: 'T' }, fov: 12 * DEG, periph: 1, range: 14 } });
+    eyeOnPillar(K, { px: -7.5, pz: -23, pr: 2.2, y: 4.2, look: [0, 0.8, -18], eye: { id: 'T', type: 'watcher', acquireTime: 2.0, range: 15, home: { sweep: [[3.5, 0.8, -15.5], [-1, 0.8, -21]], period: 5 } } });
+    K.tendon({ from: { eye: 'R' }, to: { mover: 'rot' }, sag: 7 });
+    K.shaft({ x: 0, z: -4, r: 13, depth: 90, rings: 8 });
+    K.mass({ seed: 71, style: 'towers' });
+  },
+  hints: [
+    { id: 'seam', text: 'The eye above the seam is only blind while the right eye holds it', focus: 'H', when: W => W.t > 1.5, until: W => W.player.pos[2] < 4, ms: 7000 },
+    { id: 'blade', text: 'The blade turns while the far left eye watches', focus: 'R', when: W => W.t > 9 && W.player.pos[2] > 4, until: W => W.eyeById.R.state === 'pinned', ms: 6000 }
+  ],
+  failHint: 'Hold the left eye the moment the blade leaves the line between the two right-hand eyes.'
+});
+
+// ---- 08 The Choir --------------------------------------------------------------
+ENCOUNTERS.push({
+  id: 'e08', act: 2, name: 'The Choir',
+  cam: { w: 22, ahead: 3 },
+  look: 'act2',
+  build(K) {
+    K.spawn(0, 10);
+    K.floor({ x: 0, z: 7, w: 3, l: 6.2 });
+    K.ring({ x: 0, z: -4, r1: 8.2, etch: 'radial' });
+    K.floor({ x: 0, z: -15.5, w: 3.4, l: 7.4, etch: 'rungs' });
+    K.exit({ x: 0, z: -18.6, yaw: -Math.PI / 2 });
+    K.block({ x: -5.5, z: -12.4, w: 7.4, t: 1.2, yaw: 0, y1: 7, mat: 'moss', style: 'jamb' });
+    K.block({ x: 5.5, z: -12.4, w: 7.4, t: 1.2, yaw: 0, y1: 7, mat: 'moss', style: 'jamb' });
+    K.gate({ id: 'g', x: 0, z: -12.4, w: 3.6, yaw: 0, signal: S => !S.synced('ring'), speed: 1.2 });
+    // the ring: c1 -> c2 -> c3 -> c4 -> c1, each holding the next
+    const P = { c1: [-9.4, -3], c2: [-5, -11], c3: [5, -11], c4: [9.4, -3] };
+    const next = { c1: 'c2', c2: 'c3', c3: 'c4', c4: 'c1' };
+    for (const id in P) {
+      const [x, z] = P[id];
+      const tag = K.pillar({ x, z, r: 1.3, top: 3.2, bottom: -60, style: 'knotted', mat: 'bone', cap: false });
+      K.eye({ id, type: 'choir', group: 'ring', host: tag, pos: [x, 4.5, z], facing: vNorm([-x * 0.6, 0.15, (-4 - z) * 0.6]), home: { eye: next[id] }, heal: 2.0, acquireTime: 1.9, fov: 18 * DEG, range: 22 });
+    }
+    // a column that hides c1 and c3 from each other
+    K.pillar({ x: -4.8, z: -5.6, r: 1.15, top: 16, style: 'tendon', mat: 'moss' });
+    K.tendon({ from: { p: [-5, 2, -11] }, to: { mover: 'g' }, sag: 2 });
+    K.tendon({ from: { p: [5, 2, -11] }, to: { mover: 'g' }, sag: 2 });
+    K.shaft({ x: 0, z: -4, r: 11, depth: 80, rings: 8 });
+    K.ribs({ x: 0, z: -4, r: 14, count: 8, h: 22, span: 'over', thick: 1.0, mat: 'moss' });
+    K.mass({ seed: 81, style: 'arches' });
+    K.lamp({ x: 0, y: 3, z: -4, color: '#c9b064', intensity: 0.45, dist: 12 });
+  },
+  hints: [
+    { id: 'ring', text: 'Four eyes hold each other. Break the ring and the gate opens', when: W => W.t > 1.2, until: W => W.gaze.target && W.eyeById[W.gaze.target].state === 'pinned', ms: 6000 },
+    { id: 'heal', text: 'The ring closes around the one you hold. Find one it cannot close around', when: W => W.flags.healedOnce, until: W => !W.flags.healedOnce || W.player.pos[2] < -12, ms: 6000 }
+  ],
+  init(W) {
+    W.script = { update(W) { if (W.gaze.target && W.eyeById[W.gaze.target].state === 'pinned' && groupSynced(W, 'ring')) W.flags.healedOnce = true; } };
+  },
+  failHint: 'The column hides two of the eyes from each other.'
+});
+
+// ---- 09 The Narrow Crossing ---------------------------------------------------------
+ENCOUNTERS.push({
+  id: 'e09', act: 2, name: 'The Narrow Crossing',
+  cam: { w: 18, ahead: 5 },
+  look: 'act2',
+  build(K) {
+    K.spawn(0, 13.5);
+    K.ring({ x: 0, z: 12, r1: 4.2, etch: 'spiral' });
+    K.floor({ x: 0, z: -6, w: 1.9, l: 28.4, etch: 'rungs' });
+    K.ring({ x: 0, z: -24.2, r1: 4.6, etch: 'spiral' });
+    K.floor({ x: 0, z: -30, w: 3, l: 3.4 });
+    K.exit({ x: 0, z: -31, yaw: -Math.PI / 2 });
+    // each gate answers to where a drifter is
+    K.gate({ id: 'g1', x: 0, z: 0, w: 1.9, h: 3.6, yaw: 0, signal: S => S.eye('D1').pos[2] > -5, speed: 1.6, sight: false });
+    K.gate({ id: 'g2', x: 0, z: -11.5, w: 1.9, h: 3.6, yaw: 0, signal: S => S.eye('D2').pos[2] < -7, speed: 1.6, sight: false });
+    const r1 = [], r2 = [];
+    for (let i = 0; i <= 8; i++) { const z = lerp(6, -19.5, i / 8); r1.push([-2.3, 6.8, z]); r2.push([2.3, 7.4, z]); }
+    K.eye({ id: 'D1', type: 'drifter', pos: r1[0], facing: [0.25, -1, 0], rail: { pts: r1, speed: 3.0, look: vNorm([0.32, -1, 0.05]), pause: 0.6, u: 0 }, acquireTime: 1.9, range: 13, fov: 20 * DEG });
+    K.eye({ id: 'D2', type: 'drifter', pos: r2[0], facing: [-0.25, -1, 0], rail: { pts: r2, speed: 2.4, look: vNorm([-0.32, -1, -0.05]), pause: 0.6, u: 14 }, acquireTime: 1.9, range: 13, fov: 20 * DEG });
+    K.tendon({ from: { p: [-2.3, 4, -5] }, to: { mover: 'g1' }, sag: 2 });
+    K.tendon({ from: { p: [2.3, 4, -7] }, to: { mover: 'g2' }, sag: 2 });
+    K.shaft({ x: 0, z: -6, r: 12, depth: 110, rings: 10 });
+    K.ribs({ x: 0, z: 0, r: 6, count: 7, along: 'z', z0: 6, z1: -20, h: 12, thick: 0.7, span: 'vault', mat: 'moss' });
+    K.mass({ seed: 91, style: 'towers' });
+  },
+  hints: [
+    { id: 'two', text: 'Each gate opens with a drifter. Holding one keeps its gate as it is', when: W => W.t > 1.2, until: W => W.player.pos[2] < -1, ms: 6500 }
+  ],
+  failHint: 'Hold the left drifter while its gate is open. Then wait for the right one.'
+});
+
+// ---- 10 The First Collapse ------------------------------------------------------------
+ENCOUNTERS.push({
+  id: 'e10', act: 2, name: 'The First Collapse',
+  cam: { w: 20, ahead: 5 },
+  look: 'act2',
+  build(K) {
+    K.spawn(0, 9.5);
+    K.floor({ x: 0, z: 6.5, w: 3, l: 6 });
+    K.ring({ x: 0, z: -3, r1: 7, etch: 'spiral' });
+    K.floor({ x: 0, z: -11.2, w: 3.4, l: 3 });
+    K.block({ x: -5.2, z: -11.6, w: 7, t: 1.2, yaw: 0, y1: 6, mat: 'moss', style: 'jamb' });
+    K.block({ x: 5.2, z: -11.6, w: 7, t: 1.2, yaw: 0, y1: 6, mat: 'moss', style: 'jamb' });
+    K.gate({ id: 'g', x: 0, z: -11.6, w: 3.4, yaw: 0, signal: S => !S.observed('K'), speed: 1.3 });
+    // the escape: two spans that will not wait for you
+    K.bridge({ id: 'b1', ax: 0, az: -12.5, yaw: -Math.PI / 2, len: 8.2, w: 2.2, open: true, speed: 0.55, signal: S => !(S.flag('collapse') && S.t > S.num('collapseAt') + 6.5) });
+    K.ring({ x: 0, z: -23.4, r1: 3.2, etch: 'spiral' });
+    K.bridge({ id: 'b2', ax: 0, az: -26.4, yaw: -Math.PI / 2, len: 8.6, w: 2.2, open: true, speed: 0.55, signal: S => !(S.flag('collapse') && S.t > S.num('collapseAt') + 11) });
+    K.ring({ x: 0, z: -37.6, r1: 3.6, etch: 'spiral' });
+    K.floor({ x: 0, z: -42.2, w: 3, l: 3 });
+    K.exit({ x: 0, z: -43, yaw: -Math.PI / 2 });
+    // K sits over the gate, held by J. Free it and everything starts to go.
+    K.eye({ id: 'K', type: 'watcher', ignore: ['lintel'], pos: [0, 8.6, -12.6], facing: vNorm([0, -0.4, 1]), acquireTime: 2.4, range: 22, fov: 20 * DEG, maxDev: 55 * DEG, home: { sweep: [[-4, 0.8, -1], [4, 0.8, -8]], period: 4 } });
+    K.block({ x: 0, z: -12.6, w: 5, t: 2.2, yaw: 0, y0: 6.5, y1: 11, mat: 'bone', style: 'rib', block: false, tag: 'lintel' });
+    eyeOnPillar(K, { px: -9.5, pz: -3, pr: 2.4, y: 7.5, look: [0, 8.6, -12.6], eye: { id: 'J', type: 'watcher', home: { eye: 'K' }, fov: 14 * DEG, periph: 1, range: 18 } });
+    // sleepers along the escape
+    eyeOnPillar(K, { px: 5.5, pz: -20.5, pr: 2, y: 3.6, look: [0, 0.8, -23], eye: { id: 'E1', type: 'watcher', dormant: true, wake: S => S.flag('collapse') && S.t > S.num('collapseAt') + 2.5, acquireTime: 1.9, range: 14, home: { sweep: [[2, 0.8, -16], [-2, 0.8, -26]], period: 3.5 } } });
+    eyeOnPillar(K, { px: -5.5, pz: -34, pr: 2, y: 3.6, look: [0, 0.8, -36], eye: { id: 'E2', type: 'watcher', dormant: true, wake: S => S.flag('collapse') && S.t > S.num('collapseAt') + 7, acquireTime: 1.9, range: 14, home: { sweep: [[-2, 0.8, -29], [2, 0.8, -39]], period: 3.5 } } });
+    K.tendon({ from: { eye: 'K' }, to: { mover: 'g' }, sag: 1.5 });
+    K.shaft({ x: 0, z: -24, r: 12, depth: 120, rings: 11 });
+    K.ribs({ x: 0, z: -3, r: 12, count: 7, h: 22, span: 'over', thick: 1.0, mat: 'moss' });
+    K.mass({ seed: 101, style: 'arches' });
+  },
+  init(W) {
+    W.script = { update(W) { const g = W.moverById.g; if (!W.flags.collapse && g.e > 0.5) { W.flags.collapse = true; W.flags.collapseAt = W.t; W.emit('collapse'); } } };
+  },
+  hints: [
+    { id: 'k', text: 'The eye over the gate is held from the left', focus: 'J', when: W => W.t > 1.2, until: W => W.eyeById.J.state === 'pinned', ms: 6000 },
+    { id: 'run', text: 'Run', when: W => W.flags.collapse, until: W => W.player.pos[2] < -20, ms: 2500 }
+  ],
+  failHint: 'The spans fall in order. Hold only what you must, and keep moving.'
+});
+
+// ---- 05_act3.js ----
+// =====================================================================
+// Act III — Deception. Amber light from low windows, darker stone.
+// Eyes that copy you, eyes that watch places, eyes that lie.
+// =====================================================================
+
+// ---- 11 The Mimic -------------------------------------------------------------
+ENCOUNTERS.push({
+  id: 'e11', act: 3, name: 'The Mimic',
+  cam: { w: 20, ahead: 5 },
+  look: 'act3',
+  build(K) {
+    K.spawn(0, 14);
+    K.floor({ x: 0, z: 12, w: 5, l: 4.4 });
+    K.floor({ x: 0, z: -6, w: 4.6, l: 32, etch: 'rungs' });
+    K.floor({ x: 0, z: -24.6, w: 3, l: 5.4 });
+    K.exit({ x: 0, z: -26.3, yaw: -Math.PI / 2 });
+    // a drifter that runs the whole length, high on the left
+    const pts = [];
+    for (let i = 0; i <= 8; i++) pts.push([-4.6, 6.6, lerp(8, -20, i / 8)]);
+    K.eye({ id: 'D', type: 'drifter', pos: pts[0], facing: [0.4, -1, 0], rail: { pts, speed: 3.6, look: vNorm([0.42, -1, 0]), pause: 0.4, u: 6 }, acquireTime: 1.7, range: 14, fov: 22 * DEG });
+    // the end watcher
+    eyeOnPillar(K, { px: 4.5, pz: -24.5, pr: 2.2, y: 4.4, look: [0, 0.8, -12], eye: { id: 'W', type: 'watcher', acquireTime: 2.0, range: 20, home: { sweep: [[1, 0.8, -6], [-1, 0.8, -21]], period: 4.5 } } });
+    // the mimic: it looks where you looked, a few heartbeats ago
+    eyeOnPillar(K, { px: 10.5, pz: -4, pr: 2.6, y: 10, look: [0, 4, -6], top: 30, style: 'core', eye: { id: 'M', type: 'mimic', mimic: { delay: 3 }, home: { point: [0, 0.8, -4] }, acquireTime: 1.8, range: 40, maxDev: 110 * DEG } });
+    K.block({ x: 5.8, z: -6, w: 26, t: 1.2, yaw: -Math.PI / 2, y1: 2.2, mat: 'ink', style: 'rib' });
+    K.shaft({ x: 0, z: -6, r: 12, depth: 100, rings: 9 });
+    K.ribs({ x: 0, z: 0, r: 7.5, count: 6, along: 'z', z0: 8, z1: -22, h: 13, thick: 0.8, span: 'vault', mat: 'bone' });
+    K.mass({ seed: 111, style: 'stairs' });
+    K.lamp({ x: -6, y: 3, z: -6, color: '#e0a64e', intensity: 0.6, dist: 16 });
+  },
+  hints: [
+    { id: 'm', text: 'The tall eye looks wherever you looked, three heartbeats later', focus: 'M', when: W => W.t > 1.5, until: W => W.player.pos[2] < 2, ms: 6500 },
+    { id: 'self', text: 'Never let it see you looking at it', when: W => W.eyeById.M.target && W.eyeById.M.target.kind === 'player', until: W => !(W.eyeById.M.target && W.eyeById.M.target.kind === 'player'), ms: 3500 }
+  ],
+  failHint: 'Hold the drifter a while, then the end eye. The mimic keeps holding the drifter for you.'
+});
+
+// ---- 12 The Sentinel ------------------------------------------------------------
+ENCOUNTERS.push({
+  id: 'e12', act: 3, name: 'The Sentinel',
+  cam: { w: 22, ahead: 4 },
+  look: 'act3',
+  build(K) {
+    K.spawn(0, 15);
+    K.ring({ x: 0, z: 12.5, r1: 3.6, etch: 'spiral' });
+    K.floor({ x: 0, z: 8, w: 13, l: 2.4, etch: 'rungs' });
+    for (const x of [-5.3, 5.3]) K.floor({ x, z: -4, w: 2.4, l: 22, etch: 'rungs' });
+    K.floor({ x: 0, z: 1.8, w: 2.4, l: 10.4, etch: 'rungs' });
+    K.floor({ x: 0, z: -4, w: 13, l: 2.4 });
+    K.floor({ x: 0, z: -15.6, w: 13, l: 2.4 });
+    K.floor({ x: 0, z: -19.5, w: 3, l: 6 });
+    K.exit({ x: 0, z: -21.6, yaw: -Math.PI / 2 });
+    // the patches it watches
+    K.zone('za', { x: -5.3, z: 2, hw: 1.6, hl: 5, show: 'ring' });
+    K.zone('zb', { x: 0, z: 2, hw: 1.6, hl: 5, show: 'ring' });
+    K.zone('zc', { x: 5.3, z: 2, hw: 1.6, hl: 5, show: 'ring' });
+    K.zone('zd', { x: -5.3, z: -10, hw: 1.6, hl: 5, show: 'ring' });
+    K.zone('ze', { x: 0, z: -15.6, hw: 3, hl: 1.5, yaw: 0, show: 'ring' });
+    K.zone('zf', { x: 5.3, z: -10, hw: 1.6, hl: 5, show: 'ring' });
+    K.eye({ id: 'S', type: 'sentinel', pos: [0, 12, -27], facing: vNorm([0, -0.55, 1]), sentinel: { zones: ['zb', 'zd', 'za', 'zf', 'zc', 'ze'], period: 2.6, alarm: 30 }, acquireTime: 1.0, range: 60 });
+    K.pillar({ x: 0, z: -29.5, r: 3, top: 9.5, bottom: -80, style: 'core', mat: 'ochre', occlude: false });
+    // two watchers on the flanks answer alarms
+    eyeOnPillar(K, { px: -13, pz: -5, pr: 2.3, y: 5, look: [-5, 0.8, -6], eye: { id: 'A', type: 'watcher', acquireTime: 2.0, range: 11.5, fov: 17 * DEG, home: { sweep: [[-5.3, 0.8, 4], [-5.3, 0.8, -14]], period: 6 } } });
+    eyeOnPillar(K, { px: 13, pz: -3, pr: 2.3, y: 5, look: [5, 0.8, -4], eye: { id: 'B', type: 'watcher', acquireTime: 2.0, range: 11.5, fov: 17 * DEG, home: { sweep: [[5.3, 0.8, -14], [5.3, 0.8, 4]], period: 6 } } });
+    K.shaft({ x: 0, z: -4, r: 13, depth: 90, rings: 8 });
+    K.ribs({ x: 0, z: -12, r: 16, count: 9, h: 28, span: 'over', thick: 1.2, mat: 'bone' });
+    K.mass({ seed: 121, style: 'towers' });
+  },
+  hints: [
+    { id: 's', text: 'It watches places, not people. Do not stand where it is looking', focus: 'S', when: W => W.t > 1.2, until: W => W.player.pos[2] < 4, ms: 6500 },
+    { id: 'alarm', text: 'When it sees you, every free eye looks there', when: W => W.eyeById.S.state === 'acquiring', until: W => W.eyeById.S.state !== 'acquiring', ms: 3500 }
+  ],
+  failHint: 'Watch which patch is warming next, and take the lane it has just left.'
+});
+
+// ---- 13 The False Pattern ---------------------------------------------------------
+ENCOUNTERS.push({
+  id: 'e13', act: 3, name: 'The False Pattern',
+  cam: { w: 22, ahead: 4 },
+  look: 'act3',
+  build(K) {
+    K.spawn(0, 14);
+    K.floor({ x: 0, z: 2, w: 7, l: 26, etch: 'rungs' });
+    K.floor({ x: 0, z: -13.2, w: 3.6, l: 4.6 });
+    K.floor({ x: 0, z: -19.5, w: 4, l: 8.4, etch: 'rungs' });
+    K.floor({ x: 3.6, z: -22, w: 3, l: 4.4, yaw: 0 });
+    K.exit({ x: 5.4, z: -22, yaw: 0 });
+    K.pillar({ x: -2.4, z: -26.6, r: 2, top: 9, bottom: -70, style: 'knotted', mat: 'ochre', cap: false });
+    K.block({ x: -5.2, z: -13.4, w: 6.8, t: 1.2, yaw: 0, y1: 4, mat: 'ochre', style: 'jamb' });
+    K.block({ x: 5.2, z: -13.4, w: 6.8, t: 1.2, yaw: 0, y1: 4, mat: 'ochre', style: 'jamb', tag: 'jambE' });
+    K.gate({ id: 'g', x: 0, z: -13.4, w: 3.6, yaw: 0, signal: S => !S.observed('K'), speed: 1.2 });
+    // colonnade walls with eyes that turn to you: carvings, mostly
+    K.block({ x: -4.6, z: 2, w: 26, t: 1.6, yaw: -Math.PI / 2, y1: 3, mat: 'bone', style: 'colonnade' });
+    K.block({ x: 4.6, z: 2, w: 26, t: 1.6, yaw: -Math.PI / 2, y1: 3, mat: 'bone', style: 'colonnade' });
+    const F = [[-4.6, 8, 0.2], [4.6, 3, Math.PI - 0.2], [-4.6, -3, 0.25], [4.6, -8, Math.PI - 0.25]];
+    F.forEach(([x, z, yaw], i) => K.eye({ id: 'F' + (i + 1), type: 'falseeye', pos: [x + Math.cos(yaw) * 0.6, 4.6, z], facing: vNorm([Math.cos(yaw), -0.3, Math.sin(yaw)]), range: 18, home: { dir: vNorm([Math.cos(yaw), -0.4, Math.sin(yaw) + 0.3]) } }));
+    // the liar sleeps above the gate. Its gaze holds K, which holds the gate shut.
+    K.eye({ id: 'L', type: 'liar', pos: [-2.4, 7, -24.4], facing: vNorm([0.4, -0.25, 1]), home: { eye: 'K' }, fov: 26 * DEG, range: 28, acquireTime: 2.4, maxDev: 80 * DEG });
+    K.eye({ id: 'K', type: 'watcher', ignore: ['jambE'], pos: [2.9, 5.0, -13.2], facing: vNorm([0.3, -0.2, 1]), home: { point: [9, 1, -2] }, acquireTime: 2.2, range: 9, fov: 12 * DEG, periph: 1, maxDev: 30 * DEG });
+    K.tendon({ from: { eye: 'K' }, to: { mover: 'g' }, sag: 1.5 });
+    K.shaft({ x: 0, z: -2, r: 12, depth: 90, rings: 8 });
+    K.mass({ seed: 131, style: 'arches' });
+    K.lamp({ x: 0, y: 4, z: 2, color: '#e0a64e', intensity: 0.55, dist: 16 });
+  },
+  hints: [
+    { id: 'f', text: 'Real eyes carry your light in them, and cast a beam at you', when: W => W.eyes.some(e => e.isFalse && e.state === 'acquiring'), until: W => W.player.pos[2] < -9, ms: 6500 },
+    { id: 'l', text: 'A closed eye is holding something', focus: 'L', when: W => W.player.pos[2] < -6, until: W => W.eyeById.L.liarOpen, ms: 6000 },
+    { id: 'l2', text: 'It opened. Hold it now', focus: 'L', when: W => W.eyeById.L.liarOpen && W.eyeById.L.state !== 'pinned', until: W => W.eyeById.L.state === 'pinned', ms: 4000 }
+  ],
+  failHint: 'Let the sleeping eye see you. It must look away from what it holds, and it opens.'
+});
+
+// ---- 14 The Choir Returns ------------------------------------------------------------
+ENCOUNTERS.push({
+  id: 'e14', act: 3, name: 'The Choir Returns',
+  cam: { w: 22, ahead: 3 },
+  look: 'act3',
+  build(K) {
+    // a square spiral descending around a shaft; the choir hangs around it
+    K.spawn(-7, 8);
+    K.floor({ x: -7, z: 6, w: 3, l: 5 });
+    K.floor({ x: -7, z: -5.5, w: 3, l: 18, y: 0, y2: -4, etch: 'rungs' });
+    K.ring({ x: -7, z: -16.5, r1: 2.6, y: -4 });
+    K.floor({ x: 0, z: -16.5, w: 3, l: 11, yaw: 0, y: -4, y2: -8, etch: 'rungs' });
+    K.ring({ x: 7, z: -16.5, r1: 2.6, y: -8 });
+    K.floor({ x: 7, z: -6, w: 3, l: 18, yaw: Math.PI / 2, y: -8, y2: -12, etch: 'rungs' });
+    K.ring({ x: 7, z: 4.4, r1: 3, y: -12 });
+    K.floor({ x: 11.6, z: 4.4, w: 3, l: 5, yaw: 0, y: -12 });
+    K.zone('cp1', { x: 7, z: -16.5, r: 2.4 });
+    K.block({ x: 11.6, z: 2.4, w: 5, t: 0.8, yaw: 0, y0: -14, y1: -8, mat: 'ochre', style: 'jamb' });
+    K.block({ x: 11.6, z: 6.4, w: 5, t: 0.8, yaw: 0, y0: -14, y1: -8, mat: 'ochre', style: 'jamb' });
+    K.gate({ id: 'g', x: 10.4, z: 4.4, y: -12, w: 3.2, yaw: Math.PI / 2, signal: S => !S.synced('ring2'), speed: 1.2 });
+    K.exit({ x: 13.4, z: 4.4, y: -12, yaw: 0 });
+    // the central column hides opposite members from each other
+    K.pillar({ x: 0, z: -6, r: 3.2, top: 24, bottom: -90, style: 'core', mat: 'ochre' });
+    // choir: q1 -> q2 -> q3 -> q4 -> q1, set around the shaft at different heights
+    const Q = { q1: [-12, 2, -9], q2: [-2, 1, -21], q3: [12, -4, -12], q4: [4, -7, 7] };
+    const nx = { q1: 'q2', q2: 'q3', q3: 'q4', q4: 'q1' };
+    for (const id in Q) {
+      const [x, y, z] = Q[id];
+      const tag = K.pillar({ x, z, r: 1.2, top: y - 1, bottom: -90, style: 'knotted', mat: 'bone', cap: false });
+      K.eye({ id, type: 'choir', group: 'ring2', host: tag, pos: [x, y + 0.3, z], facing: vNorm([-x, 0.1, -6 - z]), home: { eye: nx[id] }, heal: 2.0, acquireTime: 1.8, fov: 20 * DEG, range: 24, maxDev: 120 * DEG });
+    }
+    // a blade turns slowly about the column, sometimes cutting a pair apart
+    K.rotor({ id: 'rot', x: 0, z: -6, mode: 'cont', omega: 0.18, signal: () => true, r: 6, hub: false });
+    K.blade({ x: 0, z: -12.2, w: 5.4, t: 0.8, y0: -9, y1: 4, yaw: 0, mover: 'rot' });
+    K.shaft({ x: 0, z: -6, r: 14, depth: 120, rings: 11 });
+    K.mass({ seed: 141, style: 'spiral' });
+    K.lamp({ x: 7, y: -10, z: 4, color: '#e0a64e', intensity: 0.6, dist: 14 });
+  },
+  hints: [
+    { id: 'r', text: 'The ring again. This time the column and the blade decide which eye is weak', when: W => W.t > 1.2, until: W => W.player.pos[1] < -3, ms: 6500 }
+  ],
+  failHint: 'Hold an eye whose neighbours cannot see each other past the column.'
+});
+
+// ---- 15 The Familiar Solution ------------------------------------------------------------
+ENCOUNTERS.push({
+  id: 'e15', act: 3, name: 'The Familiar Solution',
+  cam: { w: 22, ahead: 3 },
+  look: 'act3',
+  build(K) {
+    // the same room as before. Almost.
+    K.spawn(0, 13);
+    K.ring({ x: 0, z: 9, r1: 5.4, etch: 'spiral' });
+    K.ring({ x: 0, z: -14, r1: 5.2, etch: 'spiral' });
+    K.floor({ x: 0, z: -20.5, w: 3, l: 4 });
+    K.bridge({ id: 'span', ax: 0, az: 4.2, yaw: -Math.PI / 2, len: 13.6, w: 2.4, signal: S => !S.observed('B'), speed: 0.55 });
+    const pa = K.pillar({ x: -8.5, z: -3, r: 2.7, top: 34, bottom: -70, style: 'fluted' });
+    const a = K.onPillar(-8.5, -3, 2.7, 7.5, Math.atan2(-5 + 3, 8.5 + 8.5), -0.1);
+    K.eye({ id: 'A', type: 'falseeye', host: pa, pos: a.pos, facing: a.facing, home: { eye: 'B' }, range: 24 });
+    const pb = K.pillar({ x: 8.5, z: -5, r: 2.6, top: 34, bottom: -70, style: 'fluted' });
+    const b = K.onPillar(8.5, -5, 2.6, 5.5, Math.PI + 0.12, -0.15);
+    K.eye({ id: 'B', type: 'watcher', host: pb, pos: b.pos, facing: b.facing, home: { point: [14, 0.5, -24] }, acquireTime: 2.4, maxDev: 50 * DEG });
+    // the one that really holds B sleeps low on the right, by the start
+    eyeOnPillar(K, { px: 13.5, pz: -20, pr: 2.4, y: 9.5, look: [2, 1, 8], style: 'knotted', eye: { id: 'L', type: 'liar', home: { eye: 'B' }, fov: 22 * DEG, range: 42, acquireTime: 2.2, maxDev: 60 * DEG } });
+    const pc = K.pillar({ x: -5.8, z: -18.8, r: 2.1, top: 28, style: 'fluted' });
+    const c = K.onPillar(-5.8, -18.8, 2.1, 3.4, Math.atan2(-11 + 18.8, 0 + 5.8), -0.25);
+    K.eye({ id: 'C', type: 'watcher', host: pc, pos: c.pos, facing: c.facing, acquireTime: 2.4, range: 13, home: { sweep: [[3.5, 0.8, -12], [-1.5, 0.8, -9]], period: 6 } });
+    K.tendon({ from: { eye: 'B' }, to: { mover: 'span' }, sag: 6 });
+    K.exit({ x: 0, z: -22, yaw: -Math.PI / 2 });
+    K.shaft({ x: 0, z: -2, r: 14, depth: 90, rings: 9 });
+    K.ribs({ x: 0, z: -3, r: 16, count: 6, h: 28, span: 'over', thick: 1.3 });
+    K.mass({ seed: 151, style: 'arches' });
+    K.lamp({ x: 0, y: 6, z: -14, color: '#e0a64e', intensity: 0.5, dist: 16 });
+  },
+  hints: [
+    { id: 'a', text: 'You have been here before', when: W => W.t > 0.8, until: W => W.t > 4, ms: 3000 },
+    { id: 'b', text: 'Which eye is really holding the right one?', when: W => W.eyeById.A.revealed, until: W => W.eyeById.L.liarOpen, ms: 6000 }
+  ],
+  failHint: 'Follow the beam that holds the right eye. It starts at a closed eye.'
+});
+
+// ---- 16 No Safe Direction -------------------------------------------------------------------
+ENCOUNTERS.push({
+  id: 'e16', act: 3, name: 'No Safe Direction',
+  cam: { w: 24, ahead: 3 },
+  look: 'act3',
+  build(K) {
+    const C = [0, -5];
+    K.spawn(0, 9.5);
+    K.floor({ x: 0, z: 7, w: 3, l: 5 });
+    K.ring({ x: C[0], z: C[1], r0: 2.6, r1: 10, etch: 'radial' });
+    K.floor({ x: 0, z: -16.4, w: 3.4, l: 3.6 });
+    K.floor({ x: 0, z: -21.5, w: 3.4, l: 7, etch: 'rungs' });
+    K.exit({ x: 0, z: -24.6, yaw: -Math.PI / 2 });
+    K.wall({ x: C[0], z: C[1], r0: 10.6, r1: 12, a0: -Math.PI / 2 + 0.22, a1: Math.PI / 2 - 0.2, y1: 12, mat: 'ochre', low: 1.6 });
+    K.wall({ x: C[0], z: C[1], r0: 10.6, r1: 12, a0: Math.PI / 2 + 0.2, a1: 3 * Math.PI / 2 - 0.22, y1: 12, mat: 'ochre', low: 1.6 });
+    K.pillar({ x: C[0], z: C[1], r: 2.4, top: 16, bottom: -90, style: 'core', mat: 'bone' });
+    K.block({ x: -2.6, z: -15.8, w: 3.4, t: 1, yaw: 0, y1: 5, mat: 'ochre', style: 'jamb' });
+    K.block({ x: 2.6, z: -15.8, w: 3.4, t: 1, yaw: 0, y1: 5, mat: 'ochre', style: 'jamb' });
+    K.gate({ id: 'g', x: 0, z: -15.8, w: 3.4, yaw: 0, signal: S => !S.observed('Q'), speed: 1.4 });
+    // Q over the gate, held by P across the room. C gathers Q back when it is free.
+    K.eye({ id: 'Q', type: 'watcher', group: 'q', ignore: ['lintel'], pos: [0, 7.4, -17.2], facing: vNorm([0, -0.5, 1]), home: { sweep: [[-5, 0.8, 2], [5, 0.8, 2]], period: 5 }, acquireTime: 2.2, range: 24, fov: 18 * DEG, maxDev: 55 * DEG });
+    K.block({ x: 0, z: -17.4, w: 5, t: 1.8, yaw: 0, y0: 5, y1: 9.5, mat: 'bone', style: 'rib', block: false, tag: 'lintel' });
+    eyeOnPillar(K, { px: 12, pz: 3, pr: 2.2, y: 8, look: [0, 7.4, -17.2], eye: { id: 'P', type: 'watcher', home: { eye: 'Q' }, fov: 12 * DEG, periph: 1, range: 30 } });
+    eyeOnPillar(K, { px: -12.5, pz: -9, pr: 2.3, y: 7.5, look: [0, 2, -5], eye: { id: 'C', type: 'collector', group: 'q', home: { point: [-4, 0.5, 2] }, collect: { notice: 0.7, turn: 0.5 }, range: 20, fov: 9 * DEG } });
+    // a drifter circles above, and a sentinel watches the quarters
+    const pts = []; for (let i = 0; i < 16; i++) { const a = i / 16 * TAU; pts.push([C[0] + Math.cos(a) * 6.5, 7.5, C[1] + Math.sin(a) * 6.5]); }
+    K.eye({ id: 'D', type: 'drifter', pos: pts[0], facing: [0, -1, 0], rail: { pts, loop: true, speed: 2.2, center: [C[0], 0, C[1]], out: true, faceY: -1.2, u: 30 }, acquireTime: 1.8, range: 14, fov: 19 * DEG });
+    K.zone('nw', { x: -5, z: -9.5, hw: 3.4, hl: 3.4, show: 'ring' });
+    K.zone('ne', { x: 5, z: -9.5, hw: 3.4, hl: 3.4, show: 'ring' });
+    K.zone('se', { x: 5, z: -0.5, hw: 3.4, hl: 3.4, show: 'ring' });
+    K.zone('sw', { x: -5, z: -0.5, hw: 3.4, hl: 3.4, show: 'ring' });
+    K.eye({ id: 'S', type: 'sentinel', pos: [9, 11, -16], facing: vNorm([-0.5, -0.6, 0.6]), sentinel: { zones: ['ne', 'sw', 'nw', 'se'], period: 3.2, alarm: 30 }, acquireTime: 1.2, range: 50 });
+    K.pillar({ x: 10.2, z: -17.2, r: 2, top: 9, bottom: -80, style: 'core', mat: 'ochre', occlude: false });
+    K.tendon({ from: { eye: 'Q' }, to: { mover: 'g' }, sag: 1.5 });
+    K.shaft({ x: C[0], z: C[1], r: 14, depth: 110, rings: 10 });
+    K.ribs({ x: C[0], z: C[1], r: 15, count: 10, h: 26, span: 'crown', thick: 1.1, mat: 'ochre' });
+    K.mass({ seed: 161, style: 'towers' });
+  },
+  hints: [
+    { id: 'q', text: 'The eye over the gate is held from across the room', focus: 'P', when: W => W.t > 1.5, until: W => W.eyeById.P.state === 'pinned', ms: 6000 }
+  ],
+  failHint: 'Get close to the gate first. Then let the eye above it go.'
+});
+
+// ---- 06_act4.js ----
+// =====================================================================
+// Act IV — Convergence. Ink and bone, a cold overhead light. The network
+// stops hiding its threads, and everything turns toward the centre.
+// =====================================================================
+
+// ---- 17 The Network -----------------------------------------------------------------
+ENCOUNTERS.push({
+  id: 'e17', act: 4, name: 'The Network',
+  cam: { w: 24, ahead: 3 },
+  look: 'act4',
+  build(K) {
+    K.spawn(0, 20.5);
+    K.floor({ x: 0, z: 18, w: 3, l: 5 });
+    K.ring({ x: 0, z: 12, r1: 4.4, etch: 'spiral' });
+    K.floor({ x: 0, z: 7, w: 3.4, l: 3.6 });
+    K.ring({ x: 0, z: -2, r1: 7.4, etch: 'radial' });
+    K.floor({ x: 0, z: -10.8, w: 3.4, l: 3.4 });
+    K.floor({ x: 0, z: -17, w: 3.6, l: 9.4, etch: 'rungs' });
+    K.exit({ x: 0, z: -21, yaw: -Math.PI / 2 });
+    K.block({ x: -5.6, z: 6.6, w: 7.8, t: 1, yaw: 0, y1: 3, mat: 'ink', style: 'jamb' });
+    K.block({ x: 5.6, z: 6.6, w: 7.8, t: 1, yaw: 0, y1: 3, mat: 'ink', style: 'jamb' });
+    K.gate({ id: 'g1', x: 0, z: 6.6, w: 3.4, yaw: 0, signal: S => S.observed('B'), speed: 1.3 });
+    K.block({ x: -5.6, z: -11, w: 7.8, t: 1, yaw: 0, y1: 3, mat: 'ink', style: 'jamb' });
+    K.block({ x: 5.6, z: -11, w: 7.8, t: 1, yaw: 0, y1: 3, mat: 'ink', style: 'jamb' });
+    K.gate({ id: 'g2', x: 0, z: -11, w: 3.4, yaw: 0, signal: S => !S.observed('Z'), speed: 1.3 });
+    // B guards the start and is free. C would hold it, if the screen let it see.
+    eyeOnPillar(K, { px: -10, pz: 12, pr: 2.3, y: 4.6, look: [0, 0.8, 11], eye: { id: 'B', type: 'watcher', group: 'n', acquireTime: 2.4, range: 13, fov: 17 * DEG, periph: 1.3, home: { sweep: [[-2, 0.8, 13], [2, 0.8, 8.6]], period: 5 } } });
+    eyeOnPillar(K, { px: 11, pz: 1, pr: 2.4, y: 7, look: [-4, 2, 6], eye: { id: 'C', type: 'collector', group: 'n', home: { point: [3, 0.5, -2] }, collect: { notice: 0.5, turn: 0.7 }, fov: 9 * DEG, range: 30 } });
+    K.rotor({ id: 'r1', x: 4.5, z: 7.2, mode: 'toggle', angles: [0, 1.75], signal: S => !S.link('X', 'Y'), speed: 0.55, r: 3, hub: false });
+    K.blade({ x: 4.5, z: 4.7, w: 5, t: 0.7, y0: 4, y1: 11, yaw: 0, mover: 'r1' });
+    K.pillar({ x: 4.5, z: 7.2, r: 0.7, top: 4.2, bottom: -70, style: 'tendon', mat: 'ink', block: false, occlude: false, cap: false });
+    // X holds Y; Y holds Z; Z holds the second gate shut.
+    eyeOnPillar(K, { px: -10.5, pz: -9, pr: 2.4, y: 8, look: [10, 9.5, -9], eye: { id: 'X', type: 'watcher', home: { eye: 'Y' }, fov: 12 * DEG, periph: 1, range: 30 } });
+    eyeOnPillar(K, { px: 10.5, pz: -9.5, pr: 2.4, y: 9.5, look: [0, 4.4, -12.4], eye: { id: 'Y', type: 'watcher', home: { eye: 'Z' }, fov: 22 * DEG, range: 20, acquireTime: 2.6 } });
+    K.eye({ id: 'Z', type: 'watcher', ignore: ['lintel'], pos: [0, 5.2, -12.4], facing: vNorm([0, -0.6, 1]), home: { sweep: [[-4, 0.8, 0], [4, 0.8, 2]], period: 5 }, acquireTime: 2.4, range: 18, fov: 16 * DEG, maxDev: 50 * DEG });
+    K.block({ x: 0, z: -12.6, w: 5, t: 1.8, yaw: 0, y0: 4.8, y1: 9.5, mat: 'bone', style: 'rib', block: false, tag: 'lintel' });
+    K.tendon({ from: { eye: 'B' }, to: { mover: 'g1' }, sag: 3 });
+    K.tendon({ from: { eye: 'Z' }, to: { mover: 'g2' }, sag: 1.5 });
+    K.tendon({ from: { eye: 'X' }, to: { mover: 'r1' }, sag: 6 });
+    K.shaft({ x: 0, z: -2, r: 12, depth: 100, rings: 9 });
+    K.ribs({ x: 0, z: -2, r: 15, count: 9, h: 26, span: 'over', thick: 1.1, mat: 'bone' });
+    K.mass({ seed: 171, style: 'arches' });
+  },
+  hints: [
+    { id: 'n', text: 'Every thread is visible now. Follow them', when: W => W.t > 1.2, until: W => W.t > 7, ms: 5000 },
+    { id: 'n2', text: 'The far right eye only lets go of the gate eye if it sees you', when: W => W.player.pos[2] < 4, until: W => W.eyeById.Y.state === 'pinned', ms: 6500 }
+  ],
+  failHint: 'The left eye moves the screen. The right eye must be tempted away, then held.'
+});
+
+// ---- 18 Unblinking ---------------------------------------------------------------------
+ENCOUNTERS.push({
+  id: 'e18', act: 4, name: 'Unblinking',
+  cam: { w: 24, ahead: 2 },
+  look: 'act4',
+  build(K) {
+    const C = [0, -5];
+    K.spawn(0, 10);
+    K.floor({ x: 0, z: 8, w: 3, l: 6 });
+    K.ring({ x: C[0], z: C[1], r0: 3.4, r1: 11, etch: 'radial' });
+    K.floor({ x: 0, z: -17.6, w: 3.4, l: 3.4 });
+    K.floor({ x: 0, z: -23, w: 3.6, l: 7.6, etch: 'rungs' });
+    K.exit({ x: 0, z: -26.4, yaw: -Math.PI / 2 });
+    K.wall({ x: C[0], z: C[1], r0: 11.6, r1: 13, a0: -Math.PI / 2 + 0.2, a1: Math.PI / 2 - 0.16, y1: 14, mat: 'ink', low: 1.6 });
+    K.wall({ x: C[0], z: C[1], r0: 11.6, r1: 13, a0: Math.PI / 2 + 0.16, a1: 3 * Math.PI / 2 - 0.2, y1: 14, mat: 'ink', low: 1.6 });
+    K.block({ x: -3, z: -17.4, w: 3.8, t: 1, yaw: 0, y1: 6, mat: 'ink', style: 'jamb' });
+    K.block({ x: 3, z: -17.4, w: 3.8, t: 1, yaw: 0, y1: 6, mat: 'ink', style: 'jamb' });
+    K.gate({ id: 'g', x: 0, z: -17.4, w: 3.4, yaw: 0, signal: S => S.observed('U'), speed: 1.3 });
+    // the lidless one, on a stem in the pit
+    K.pillar({ x: C[0], z: C[1], r: 1.6, top: 3.2, bottom: -100, style: 'tendon', mat: 'ink', cap: false, occlude: false });
+    K.eye({ id: 'U', type: 'unblinking', pos: [C[0], 5.6, C[1]], facing: [0, 0.1, 1], mount: 'free', acquireTime: 3.0, range: 40, fov: 40 * DEG, turn: 0.9, acqTurn: 0.9, maxDev: 180 * DEG });
+    for (const a of [0.6, 2.55, 3.75, 5.6]) K.pillar({ x: C[0] + Math.cos(a) * 7.2, z: C[1] + Math.sin(a) * 7.2, r: 1.25, top: 14, style: 'knotted', mat: 'bone' });
+    eyeOnPillar(K, { px: -15, pz: -7, pr: 2.6, y: 9, look: [0, 5, -5], top: 26, style: 'core', eye: { id: 'M', type: 'mimic', mimic: { delay: 2.4 }, home: { point: [-6, 0.5, -2] }, acquireTime: 1.8, range: 40, maxDev: 120 * DEG } });
+    eyeOnPillar(K, { px: 6.5, pz: -21, pr: 2.1, y: 3.8, look: [0, 0.8, -21], eye: { id: 'W', type: 'watcher', acquireTime: 2.2, range: 13, fov: 20 * DEG, home: { sweep: [[0, 0.8, -19], [0, 0.8, -25]], period: 4 } } });
+    K.tendon({ from: { eye: 'M' }, to: { mover: 'g' }, sag: 5 });
+    K.shaft({ x: C[0], z: C[1], r: 3.2, depth: 120, rings: 10 });
+    K.ribs({ x: C[0], z: C[1], r: 14, count: 10, h: 24, span: 'crown', thick: 1.1, mat: 'ink' });
+    K.mass({ seed: 181, style: 'towers' });
+  },
+  hints: [
+    { id: 'u', text: 'It has no lids. Your gaze slides off it', when: W => W.gaze.refused, until: W => W.eyeById.U.target && W.eyeById.U.target.stare, ms: 5000 },
+    { id: 'u2', text: 'The tall eye copies what you look at', focus: 'M', when: W => W.t > 6, until: W => W.eyeById.U.target && W.eyeById.U.target.stare, ms: 6000 },
+    { id: 'u3', text: 'Keep looking at it. Its own kind holds it for you', when: W => W.eyeById.U.target && W.eyeById.U.target.stare, until: W => W.player.pos[2] < -18, ms: 4000 }
+  ],
+  failHint: 'Look at the lidless eye and keep looking. The mimic will hold it, and the gate opens.'
+});
+
+// ---- 19 The Crown ------------------------------------------------------------------------
+ENCOUNTERS.push({
+  id: 'e19', act: 4, name: 'The Crown',
+  cam: { w: 26, ahead: 4 },
+  look: 'act4',
+  build(K) {
+    const CC = [0, -15];
+    K.spawn(0, 10);
+    K.floor({ x: 0, z: 8, w: 3, l: 4 });
+    K.ring({ x: 0, z: 0, r1: 7.4, etch: 'spiral' });
+    K.floor({ x: 9, z: -3, w: 3.2, l: 5.4, yaw: 0 });
+    K.bridge({ id: 'span', ax: 10.2, az: -4.4, yaw: -Math.PI / 2, len: 20, w: 2.2, signal: S => S.pinned('X'), speed: 0.55, prime: 0.6 });
+    K.ring({ x: 10.2, z: -27.4, r1: 3.4, etch: 'spiral' });
+    K.floor({ x: 10.2, z: -32, w: 3, l: 3.4 });
+    K.exit({ x: 10.2, z: -33.2, yaw: -Math.PI / 2 });
+    for (const a of [0.9, 2.3, 3.9]) K.pillar({ x: Math.cos(a) * 5.2, z: Math.sin(a) * 5.2, r: 1.15, top: 12, style: 'knotted', mat: 'bone' });
+    // the crown: a great eye on a spire, ringed by five that hold each other and shield it
+    K.pillar({ x: CC[0], z: CC[1], r: 2.3, top: 5, bottom: -100, style: 'core', mat: 'bone', cap: false });
+    K.eye({ id: 'X', type: 'crown', shield: 'crown', pos: [CC[0], 8.2, CC[1]], facing: vNorm([0, -0.25, 1]), mount: 'free', home: { sweep: [[-5, 0.8, 1], [6, 0.8, -4]], period: 7 }, acquireTime: 3.0, range: 20, fov: 26 * DEG, maxDev: 100 * DEG, turn: 0.8, acqTurn: 0.8 });
+    K.rotor({ id: 'crown', x: CC[0], z: CC[1], mode: 'cont', omega: 0.22, signal: S => !S.pinned('X'), accel: 1.2, r: 6.6, hub: true });
+    K.ring({ x: CC[0], z: CC[1], r0: 5.4, r1: 7.4, mover: 'crown', mat: 'ink', y: 3.4, keel: true, lip: true });
+    const names = ['s1', 's2', 's3', 's4', 's5'];
+    names.forEach((id, i) => {
+      const a = i / 5 * TAU + 0.3, x = CC[0] + Math.cos(a) * 6.4, z = CC[1] + Math.sin(a) * 6.4;
+      K.eye({ id, type: 'choir', group: 'crown', mover: 'crown', pos: [x, 5.2, z], facing: vNorm([Math.cos(a), 0.1, Math.sin(a)]), home: { eye: names[(i + 1) % 5] }, heal: 1.6, acquireTime: 2.4, fov: 16 * DEG, range: 24, maxDev: 130 * DEG });
+    });
+    K.tendon({ from: { eye: 'X' }, to: { mover: 'span' }, sag: 3 });
+    K.shaft({ x: CC[0], z: CC[1], r: 9, depth: 140, rings: 12 });
+    K.ribs({ x: CC[0], z: CC[1], r: 16, count: 11, h: 30, span: 'crown', thick: 1.3, mat: 'bone' });
+    K.mass({ seed: 191, style: 'spiral' });
+    K.lamp({ x: CC[0], y: 13, z: CC[1], color: '#e9c27c', intensity: 0.8, dist: 24 });
+  },
+  hints: [
+    { id: 'c', text: 'Its ring shields it. Your gaze slides off while the ring is whole', when: W => W.gaze.refused && W.gaze.target === 'X', until: W => W.eyeById.X.state === 'pinned', ms: 6000 },
+    { id: 'c2', text: 'Break the ring, then turn to the crown before it closes', when: W => W.gaze.target && W.eyeById[W.gaze.target].group === 'crown' && W.eyeById[W.gaze.target].state === 'pinned', until: W => W.eyeById.X.state === 'pinned', ms: 5000 }
+  ],
+  failHint: 'Hold one of the five. While the ring is broken, the crown can be held.'
+});
+
+// ---- 20 The Centre ------------------------------------------------------------------------
+ENCOUNTERS.push({
+  id: 'e20', act: 4, name: 'The Centre',
+  cam: { w: 26, ahead: 1 },
+  look: 'act4',
+  final: true,
+  build(K) {
+    K.spawn(0, 25);
+    K.floor({ x: 0, z: 19.5, w: 3.4, l: 11 });
+    K.ring({ x: 0, z: 0, r0: 12.4, r1: 15.4, etch: 'radial' });
+    K.bridge({ id: 'pupil', ax: 0, az: 12.6, yaw: -Math.PI / 2, len: 8.2, w: 2.4, signal: S => S.count('C') >= 3, speed: 0.6 });
+    K.ring({ x: 0, z: 2.8, r1: 2.1, etch: 'spiral' });
+    K.exit({ x: 0, z: 2.6, r: 1.1, yaw: -Math.PI / 2, size: 1.6 });
+    // the thing itself
+    K.eye({ id: 'C', type: 'centre', pos: [0, 7.2, -3], facing: vNorm([0, 0, 1]), mount: 'free', size: 6.5, acquireTime: 3.6, range: 90, fov: 60 * DEG, turn: 0.55, acqTurn: 0.55, maxDev: 180 * DEG });
+    // three that copy you, slower each
+    eyeOnPillar(K, { px: -18, pz: -2, pr: 2.6, y: 9, look: [0, 7, -3], top: 30, style: 'core', eye: { id: 'M1', type: 'mimic', mimic: { delay: 1.0 }, home: { point: [-8, 0.5, 6] }, acquireTime: 2.0, range: 50, maxDev: 120 * DEG } });
+    eyeOnPillar(K, { px: 0, pz: -20, pr: 2.6, y: 13, look: [0, 7, -3], top: 32, style: 'core', eye: { id: 'M2', type: 'mimic', mimic: { delay: 2.0 }, home: { point: [0, 0.5, 8] }, acquireTime: 2.0, range: 50, maxDev: 120 * DEG } });
+    eyeOnPillar(K, { px: 18, pz: -2, pr: 2.6, y: 9, look: [0, 7, -3], top: 30, style: 'core', eye: { id: 'M3', type: 'mimic', mimic: { delay: 3.0 }, home: { point: [8, 0.5, 6] }, acquireTime: 2.0, range: 50, maxDev: 120 * DEG } });
+    // witnesses wake when the way opens
+    for (const [id, a] of [['W1', 2.25], ['W2', 0.9]]) {
+      const x = Math.cos(a) * 17.4, z = Math.sin(a) * 17.4;
+      eyeOnPillar(K, { px: x, pz: z, pr: 2.2, y: 5, look: [0, 0.8, 8], eye: { id, type: 'watcher', dormant: true, wake: S => S.mover('pupil').e > 0.35, acquireTime: 3.4, range: 26, fov: 26 * DEG, home: { point: [0, 0.8, 8] } } });
+    }
+    for (const a of [0.35, 1.35, 1.8, 2.8, 3.6, 4.4, 5.0, 5.8]) K.pillar({ x: Math.cos(a) * 13.9, z: Math.sin(a) * 13.9, r: 0.9, top: 18, style: 'knotted', mat: 'bone' });
+    K.shaft({ x: 0, z: 0, r: 11.6, depth: 160, rings: 14 });
+    K.ribs({ x: 0, z: 0, r: 19, count: 14, h: 40, span: 'crown', thick: 1.6, mat: 'bone' });
+    K.mass({ seed: 201, style: 'towers' });
+    K.lamp({ x: 0, y: 9, z: 4, color: '#f1e2b0', intensity: 0.9, dist: 20 });
+  },
+  hints: [
+    { id: 'c1', text: 'It cannot be held by you', when: W => W.t > 1.5, until: W => W.eyeById.C.target && W.eyeById.C.target.stare, ms: 4500 },
+    { id: 'c2', text: 'Look at it, and keep looking', when: W => W.t > 6, until: W => W.moverById.pupil.e > 0.2, ms: 6000 },
+    { id: 'c3', text: 'Do not look away', when: W => W.moverById.pupil.e > 0.3, until: W => W.status !== 'play', ms: 4000 }
+  ],
+  failHint: 'Look only at it. When all three hold it, walk into the eye.'
+});
+
 // ---- 10_gfx.js ----
 // =====================================================================
 // Rendering core: the illustrated material and geometry builders.
@@ -1247,9 +1936,9 @@ let THREE = null;
 
 const LOOKS = {
   act1: { bg: '#2a2c22', fog: '#4d4e3e', fogD: 0.0105, void: '#1b1c15', key: '#f3e6c8', keyI: 3.2, keyDir: [0.4, 0.8, 0.5], sky: '#a19e78', gnd: '#25221a', hemiI: 1.25, rim: '#c9b98e', haze: '#5c5b43', glow: '#d9b26a' },
-  act2: { bg: '#1a1f17', fog: '#33402a', fogD: 0.012, void: '#121710', key: '#d9e0b8', keyI: 2.1, keyDir: [0.5, 0.78, 0.2], sky: '#6f7a4c', gnd: '#10130c', hemiI: 0.85, rim: '#aeb98a', haze: '#3f4a2c', glow: '#c9b064' },
-  act3: { bg: '#18140f', fog: '#3a2d1c', fogD: 0.0125, void: '#150f09', key: '#e6c48a', keyI: 2.2, keyDir: [-0.7, 0.55, 0.3], sky: '#7a6440', gnd: '#120e09', hemiI: 0.8, rim: '#d2a75e', haze: '#4a3a24', glow: '#e0a64e' },
-  act4: { bg: '#121210', fog: '#2c2c25', fogD: 0.0115, void: '#0d0d0b', key: '#f1ece0', keyI: 2.5, keyDir: [0.15, 0.95, 0.25], sky: '#7d7b6c', gnd: '#0d0d0b', hemiI: 0.75, rim: '#e8e0c8', haze: '#3a3a30', glow: '#e9c27c' }
+  act2: { bg: '#1a1f17', fog: '#33402a', fogD: 0.012, void: '#121710', key: '#dfe6bd', keyI: 2.9, keyDir: [0.45, 0.8, 0.4], sky: '#7e8a58', gnd: '#1a1f14', hemiI: 1.15, rim: '#aeb98a', haze: '#3f4a2c', glow: '#c9b064' },
+  act3: { bg: '#18140f', fog: '#3a2d1c', fogD: 0.0125, void: '#150f09', key: '#ecca90', keyI: 3.0, keyDir: [-0.45, 0.8, 0.4], sky: '#8a7450', gnd: '#20180f', hemiI: 1.15, rim: '#d2a75e', haze: '#4a3a24', glow: '#e0a64e' },
+  act4: { bg: '#121210', fog: '#2c2c25', fogD: 0.0115, void: '#0d0d0b', key: '#f1ece0', keyI: 3.0, keyDir: [0.2, 0.9, 0.4], sky: '#8d8b7c', gnd: '#181816', hemiI: 1.05, rim: '#e8e0c8', haze: '#3a3a30', glow: '#e9c27c' }
 };
 
 // Material palette: base colour, ink colour, how strongly darkness turns to ink.
@@ -1635,6 +2324,11 @@ const threeYaw = yaw => -yaw;
 // follows the simulation's angle; bridges and gates animate from sim e.
 // =====================================================================
 
+function encBounds(W) {
+  let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
+  for (const r of W.regions) { const cx = r.wx === undefined ? r.cx : r.wx, cz = r.wz === undefined ? r.cz : r.wz; x0 = Math.min(x0, cx); x1 = Math.max(x1, cx); z0 = Math.min(z0, cz); z1 = Math.max(z1, cz); }
+  return { cx: (x0 + x1) / 2, z0, z1 };
+}
 function buildWorldView(W, look, quality) {
   const root = new THREE.Group();
   const statics = new Map();      // material -> [geometry in world space]
@@ -1673,6 +2367,8 @@ function buildWorldView(W, look, quality) {
     else if (t === 'entry') buildEntry(v);
     else if (t === 'zone') buildZone(v);
     else if (t === 'rail') buildRail(v);
+    else if (t === 'canopy') buildCanopy(v);
+    else if (t === 'blade') buildBlade(v);
   }
   // tendons last: they need eye and mover positions
   for (const v of W.visuals) if (v.type === 'tendon') buildTendon(v);
@@ -1955,9 +2651,10 @@ function buildWorldView(W, look, quality) {
     const parts = [], far = [];
     const style = v.style || 'towers';
     const nT = style === 'towers' ? 14 : 9;
+    const B0 = encBounds(W), farA = () => r.range(Math.PI * 0.95, Math.PI * 2.05);
     for (let i = 0; i < nT; i++) {
-      const a = r.range(0, TAU), d = r.range(55, 140);
-      const x = Math.cos(a) * d, z = Math.sin(a) * d - 20;
+      const a = farA(), d = r.range(60, 150);
+      const x = B0.cx + Math.cos(a) * d, z = B0.z0 + Math.sin(a) * d;
       const rr = r.range(4, 13), top = r.range(40, 140);
       const g = columnGeo(rr, -120, top, { flutes: r.int(6, 16), fluteDepth: 0.12, radial: 16, rows: 26, seed: r.int(1, 99), bands: 5, profile: t => 1 + 0.3 * Math.pow(Math.max(0, t - 0.85) / 0.15, 2) });
       g.translate(x, 0, z); (d > 100 ? far : parts).push(g);
@@ -1965,22 +2662,22 @@ function buildWorldView(W, look, quality) {
     // great arches spanning the void
     const nA = style === 'arches' ? 6 : 3;
     for (let i = 0; i < nA; i++) {
-      const a = r.range(0, TAU), d = r.range(60, 120), span = r.range(30, 70), h = r.range(30, 80);
-      const cx = Math.cos(a) * d, cz = Math.sin(a) * d - 20, dir = r.range(0, TAU);
+      const a = farA(), d = r.range(70, 130), span = r.range(30, 70), h = r.range(30, 80);
+      const cx = B0.cx + Math.cos(a) * d, cz = B0.z0 + Math.sin(a) * d, dir = r.range(0, TAU);
       const pts = [];
       for (let k = 0; k <= 24; k++) { const u = k / 24 * 2 - 1; pts.push(new THREE.Vector3(cx + Math.cos(dir) * u * span, -60 + (h + 60) * Math.sqrt(1 - u * u), cz + Math.sin(dir) * u * span)); }
       far.push(sweepGeo(pts, circleProfile(1, 10, 4, 0.4, 0.7), () => r.range(2.2, 3.5)));
     }
     // a spiral ramp coiling around a void
     {
-      const a = r.range(0, TAU), d = r.range(70, 110), cx = Math.cos(a) * d, cz = Math.sin(a) * d - 20, R = r.range(14, 24);
+      const a = farA(), d = r.range(75, 115), cx = B0.cx + Math.cos(a) * d, cz = B0.z0 + Math.sin(a) * d, R = r.range(14, 24);
       const pts = [];
       for (let k = 0; k <= 90; k++) { const t = k / 90; const ang = t * TAU * 3.2; pts.push(new THREE.Vector3(cx + Math.cos(ang) * R * (1 - t * 0.35), -70 + t * 130, cz + Math.sin(ang) * R * (1 - t * 0.35))); }
       far.push(sweepGeo(pts, [[-3, 0.6], [3, 0.6], [3, -0.6], [-3, -0.6]], null));
     }
     // floating impossible stairs
     for (let i = 0; i < 4; i++) {
-      const a = r.range(0, TAU), d = r.range(45, 90), cx = Math.cos(a) * d, cz = Math.sin(a) * d - 20, y0 = r.range(-10, 40), dir = r.int(0, 3) * Math.PI / 2;
+      const a = farA(), d = r.range(55, 95), cx = B0.cx + Math.cos(a) * d, cz = B0.z0 + Math.sin(a) * d, y0 = r.range(-10, 40), dir = r.int(0, 3) * Math.PI / 2;
       for (let k = 0; k < 14; k++) {
         const b = new THREE.BoxGeometry(5, 1, 1.8); b.translate(0, k * 0.9, k * 1.6); b.rotateY(dir); b.translate(cx, y0, cz); parts.push(b);
       }
@@ -2043,23 +2740,26 @@ function buildWorldView(W, look, quality) {
     put(g, hatchMat('walk', { vc: true }), null);
   }
   function buildZone(v) {
-    const r = v.r || Math.max(v.hw || 2, v.hl || 2);
-    const g = new THREE.RingGeometry(r * 0.15, r, 48, 3);
-    g.rotateX(-Math.PI / 2);
+    const rect = v.r === undefined;
+    const hw = rect ? v.hw : v.r, hl = rect ? v.hl : v.r;
+    const g = new THREE.PlaneGeometry(hw * 2, hl * 2, 1, 1); g.rotateX(-Math.PI / 2);
     const mat = new THREE.ShaderMaterial({
-      uniforms: { uA: { value: 0 }, uWarm: { value: 0 }, uT: GU.uTime, uC: { value: new THREE.Color('#e3a94f') } },
+      uniforms: { uA: { value: 0 }, uWarm: { value: 0 }, uT: GU.uTime, uC: { value: new THREE.Color('#e3a94f') }, uH: { value: new THREE.Vector2(hw, hl) }, uRect: { value: rect ? 1 : 0 } },
       vertexShader: 'varying vec2 vP; void main(){ vP = position.xz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-      fragmentShader: `uniform float uA; uniform float uWarm; uniform float uT; uniform vec3 uC; varying vec2 vP;
-        void main(){ float r = length(vP); float a = atan(vP.y, vP.x);
-          float sp = abs(fract(r * 0.9 - a / 6.2831 * 2.0 - uT * 0.15) - 0.5);
-          float line = smoothstep(0.08, 0.0, sp);
-          float edge = smoothstep(${r.toFixed(2)} * 0.9, ${r.toFixed(2)}, r) * (1.0 - smoothstep(${r.toFixed(2)}, ${r.toFixed(2)} * 1.02, r));
-          float k = (line * 0.55 + edge * 0.9) * max(uA, uWarm * 0.35);
-          gl_FragColor = vec4(uC * k, k);\n#include <colorspace_fragment>\n}`,
+      fragmentShader: `uniform float uA; uniform float uWarm; uniform float uT; uniform vec3 uC; uniform vec2 uH; uniform float uRect; varying vec2 vP;
+        void main(){
+          vec2 q = abs(vP) / uH; float d = uRect > 0.5 ? max(q.x, q.y) : length(vP) / uH.x;
+          if (d > 1.0) discard;
+          float edge = smoothstep(0.86, 0.96, d) * (1.0 - smoothstep(0.97, 1.0, d));
+          float hatch = step(0.5, fract((vP.x + vP.y) * 1.3 - uT * 0.4)) * 0.25;
+          float k = (edge * 1.0 + hatch) * max(uA, uWarm * 0.45);
+          gl_FragColor = vec4(uC * k, k);
+          #include <colorspace_fragment>
+        }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
     });
-    const m = new THREE.Mesh(g, mat); m.position.set(v.x, (v.y || 0) + 0.05, v.z);
-    if (v.hw) { m.scale.set(1, 1, (v.hl || v.hw) / (v.hw)); }
+    const m = new THREE.Mesh(g, mat); m.position.set(v.x, (v.y || 0) + 0.06, v.z);
+    if (v.yaw !== undefined && rect) m.rotation.y = -v.yaw - Math.PI / 2;
     root.add(m); zones[v.id] = { m, mat, v };
   }
   function buildRail(v) {
@@ -2075,6 +2775,32 @@ function buildWorldView(W, look, quality) {
       parts.push(sweepGeo(pts2, circleProfile(0.12, 5), null));
     }
     if (parts.length) put(mergeGeos(parts), hatchMat('ink', { vc: true }), null);
+  }
+  function buildCanopy(v) {
+    // a vaulted shell of ribs on four bone posts
+    const parts = [];
+    const n = Math.max(2, Math.round(v.l / 0.9));
+    for (let i = 0; i < n; i++) {
+      const u = -v.l / 2 + (i + 0.5) * v.l / n, pts = [];
+      for (let k = 0; k <= 10; k++) { const a = Math.PI * k / 10; pts.push(new THREE.Vector3(Math.cos(a) * v.w * 0.55, v.y0 + Math.sin(a) * (v.y1 - v.y0 + 0.6), u)); }
+      parts.push(sweepGeo(pts, circleProfile(0.17, 6, 2, 0.3), null));
+    }
+    const sh = new THREE.BoxGeometry(v.w * 1.05, 0.25, v.l); sh.translate(0, v.y1 + 0.35, 0); parts.push(ensureColor(sh, 0.9));
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) { const c = columnGeo(0.16, -0.5, v.y0 + 0.2, { flutes: 5, radial: 8, rows: 6, bands: 1 }); c.translate(sx * v.w * 0.52, 0, sz * v.l * 0.45); parts.push(c); }
+    const g = mergeGeos(parts); bakeXf(g, v.x, 0, v.z, Math.PI / 2 - v.yaw);
+    put(g, hatchMat('bone', { vc: true, occ: true }), v.mover);
+  }
+  function buildBlade(v) {
+    // a vertebral blade: a tall rib slab with a spine, turning high above
+    const h = v.y1 - v.y0, parts = [];
+    const b = new THREE.BoxGeometry(v.t, h, v.w, 1, 6, Math.max(2, Math.round(v.w))); b.translate(0, v.y0 + h / 2, 0);
+    const p = b.attributes.position;
+    for (let i = 0; i < p.count; i++) { const z = p.getZ(i), y = p.getY(i); const k = 1 - 0.35 * Math.pow(Math.abs(z) / (v.w / 2), 3); p.setY(i, v.y0 + (y - v.y0) * k + (1 - k) * h * 0.5); }
+    b.computeVertexNormals(); parts.push(ensureColor(b, 0.85));
+    const n = Math.max(3, Math.round(v.w / 1.1));
+    for (let i = 0; i < n; i++) { const z = -v.w / 2 + (i + 0.5) * v.w / n; const pts = [new THREE.Vector3(0, v.y1 - 0.4, z), new THREE.Vector3(0.3, v.y1 + 1.2, z + 0.3), new THREE.Vector3(0.1, v.y1 + 2.2, z + 0.9)]; parts.push(sweepGeo(pts, circleProfile(0.18, 6), t => 1 - t * 0.8)); }
+    const g = mergeGeos(parts); bakeXf(g, v.x, 0, v.z, Math.PI / 2 - v.yaw);
+    put(g, hatchMat('ink', { vc: true, occ: true }), v.mover);
   }
   function anchorOf(ref) {
     if (ref.p) return new THREE.Vector3(ref.p[0], ref.p[1], ref.p[2]);
@@ -2275,7 +3001,7 @@ function eyeGeos() {
   _eyeGeo.lashL = lash(0.98, -1, 9, 0.22);
   // socket: a raised, folded rim that the ball sits back inside
   const prof = [];
-  const sp = [[0.99, 0.30], [1.03, 0.47], [1.16, 0.6], [1.36, 0.6], [1.62, 0.45], [1.9, 0.2], [2.2, -0.12], [2.5, -0.45], [2.7, -0.9]];
+  const sp = [[0.99, 0.30], [1.03, 0.47], [1.16, 0.6], [1.34, 0.6], [1.54, 0.42], [1.7, 0.1], [1.72, -0.25], [1.45, -0.55], [0.9, -0.75], [0.02, -0.8]];
   for (const q of sp) prof.push(new THREE.Vector2(q[0], q[1]));
   const sock = new THREE.LatheGeometry(prof, 40);
   sock.rotateX(Math.PI / 2); // lathe axis y -> z
@@ -2332,7 +3058,7 @@ function buildEyeView(e, look) {
   const root = new THREE.Group();
   root.position.fromArray(e.pos);
   const lidMat = e.type === 'falseeye' ? hatchMat('stone', { vc: true }) : hatchMat('lid', { vc: true });
-  const sockMat = e.type === 'falseeye' ? hatchMat('stone', { vc: true, side: 2 }) : hatchMat(e.type === 'sentinel' || e.type === 'crown' ? 'ochre' : 'flesh', { vc: true, side: 2, color: e.type === 'choir' ? '#cdbf9d' : '#9a8564' });
+  const sockMat = e.type === 'falseeye' ? hatchMat('stone', { vc: true, side: 2 }) : hatchMat(e.type === 'sentinel' || e.type === 'crown' ? 'ochre' : 'flesh', { vc: true, side: 2, color: e.type === 'choir' ? '#cdbf9d' : '#7d6c4f' });
   const scl = hatchMat('flesh', { vc: true, color: L.sclera, rim: 0.7 });
   const scale = new THREE.Group(); scale.scale.setScalar(s); root.add(scale);
   if (e.mount !== 'free') { const sock = new THREE.Mesh(G.socket, sockMat); sock.castShadow = true; scale.add(sock); }
@@ -2719,10 +3445,10 @@ function createView(renderer, opts) {
   function camConfig(W) {
     const c = W.def.cam || {};
     const fov = c.fov || 40, pitch = (V.pitchOverride || 50) * DEG;
-    const wNeed = c.w || 19;
+    const wNeed = Math.min(c.w || 17, 18.5);
     const tanH = Math.tan(fov * DEG / 2);
     const distW = wNeed / (2 * tanH * Math.max(0.3, camera.aspect));
-    const dist = Math.max(c.dist || 34, Math.min(distW, (c.dist || 34) * 1.9)) + V.extraZoom;
+    const dist = Math.max(c.dist || 34, Math.min(distW, (c.dist || 34) * 1.45)) + V.extraZoom;
     return { fov, pitch, dist, c };
   }
   V.updateCamera = (W, dt, snap) => {
@@ -3019,8 +3745,9 @@ const HUD_CSS = `
 .tw-prog i{width:6px;height:2px;background:rgba(239,230,210,.25);display:block}
 .tw-prog i.d{background:rgba(239,230,210,.75)}
 .tw-prog i.c{background:var(--ochre)}
-.tw-hint{position:absolute;left:50%;top:calc(var(--st) + 70px);transform:translate(-50%,-6px);max-width:min(84vw,360px);text-align:center;font-size:15px;font-weight:600;line-height:1.35;padding:9px 14px;border-radius:10px;background:rgba(15,14,11,.55);opacity:0;transition:opacity .45s ease,transform .45s ease;text-shadow:0 1px 4px rgba(0,0,0,.4)}
-.tw-hint.on{opacity:1;transform:translate(-50%,0)}
+.tw-hint{position:absolute;left:calc(var(--sl) + 16px);right:calc(var(--sr) + 72px);top:calc(var(--st) + 14px);transform:translate(0,-6px);text-align:left;font-size:14px;font-weight:600;line-height:1.35;padding:8px 12px;border-radius:10px;background:rgba(15,14,11,.62);opacity:0;transition:opacity .45s ease,transform .45s ease;text-shadow:0 1px 4px rgba(0,0,0,.4)}
+.tw-hint.on{opacity:1;transform:translate(0,0)}
+.tw.hinting .tw-label,.tw.hinting .tw-prog{opacity:0 !important}
 .tw-stick{position:absolute;width:112px;height:112px;margin:-56px 0 0 -56px;border-radius:56px;border:1.5px solid rgba(239,230,210,.35);background:rgba(15,14,11,.18);opacity:0;transition:opacity .2s}
 .tw-stick b{position:absolute;left:50%;top:50%;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:23px;background:rgba(239,230,210,.82);box-shadow:0 2px 10px rgba(0,0,0,.4)}
 .tw-stick.on{opacity:1}
@@ -3039,6 +3766,7 @@ const HUD_CSS = `
 .tw-edge svg{position:absolute;left:-14px;top:-14px;width:28px;height:28px;overflow:visible}
 .tw-panel{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-end;align-items:stretch;padding:calc(var(--st) + 24px) calc(var(--sr) + 24px) calc(var(--sb) + 18px) calc(var(--sl) + 24px);opacity:0;pointer-events:none;transition:opacity .5s ease}
 .tw-panel.on{opacity:1;pointer-events:auto}
+.tw-panel:not(.on), .tw-panel:not(.on) *{pointer-events:none !important}
 .tw-panel.dim{background:linear-gradient(rgba(12,11,8,.25),rgba(12,11,8,.82) 62%)}
 .tw-title{font-size:34px;line-height:1.02;font-weight:700;letter-spacing:-.02em;margin:0 0 10px;max-width:320px}
 .tw-sub{font-size:14px;line-height:1.45;opacity:.72;max-width:300px;margin:0 0 26px}
@@ -3105,12 +3833,12 @@ function createHud(ctx) {
   // hint line
   let hintTimer = 0, hintId = null;
   H.setHint = (text, id, ms) => {
-    if (!text) { H.hint.classList.remove('on'); hintId = null; return; }
+    if (!text) { H.hint.classList.remove('on'); ui.classList.remove('hinting'); hintId = null; return; }
     if (hintId === id && H.hint.classList.contains('on')) return;
-    hintId = id; H.hint.textContent = text; H.hint.classList.add('on'); hintTimer = ms || 0;
+    hintId = id; H.hint.textContent = text; H.hint.classList.add('on'); ui.classList.add('hinting'); hintTimer = ms || 0;
   };
   H.hintId = () => hintId;
-  H.tickHint = dt => { if (hintTimer > 0) { hintTimer -= dt * 1000; if (hintTimer <= 0) { H.hint.classList.remove('on'); } } };
+  H.tickHint = dt => { if (hintTimer > 0) { hintTimer -= dt * 1000; if (hintTimer <= 0) { H.hint.classList.remove('on'); ui.classList.remove('hinting'); } } };
   H.setLabel = (n, name, ms) => {
     H.label.innerHTML = `${String(n).padStart(2, '0')}<small>${name}</small>`;
     H.label.classList.add('on');
@@ -3319,6 +4047,7 @@ window.plethoraBit = {
       setGazeInput(vis[(i + 1) % vis.length].id);
     }
     function readMove() {
+      if (input.botMove) return input.botMove;
       let mx = 0, mz = 0;
       const k = input.keys;
       if (k.KeyA || k.ArrowLeft) mx -= 1; if (k.KeyD || k.ArrowRight) mx += 1;
@@ -3402,7 +4131,7 @@ window.plethoraBit = {
       for (const ev of W.events) {
         const e = ev.id ? W.eyeById[ev.id] : null, pan = e ? panOf(e) : 0;
         switch (ev.type) {
-          case 'notice': audio.notice(pan); if (view.player) view.player.flinch = 1; haptic('light'); break;
+          case 'notice': if (e && e.isFalse) { audio.alert(pan); break; } audio.notice(pan); if (view.player) view.player.flinch = 1; haptic('light'); break;
           case 'alert': audio.alert(pan); break;
           case 'pin': audio.pin(pan); haptic('medium'); try { ctx.platform.interact({ type: 'pin' }); } catch (er) { } break;
           case 'release': audio.release(pan); break;
@@ -3418,6 +4147,7 @@ window.plethoraBit = {
           case 'caught': audio.caught(); haptic('error'); break;
           case 'fall_start': audio.fall(); break;
           case 'won': audio.won(); haptic('success'); break;
+          case 'checkpoint': G.cp = Math.max(G.cp, ev.cp); break;
         }
       }
       W.events.length = 0;
@@ -3432,10 +4162,11 @@ window.plethoraBit = {
       save.current = G.idx + 1; persist();
       try { if (ctx.game && ctx.game.progress && ctx.manifest && ctx.manifest.game) ctx.game.progress.save('campaign', { state: { enc: G.idx + 1 }, label: `${String(G.idx + 2).padStart(2, '0')} · ${ENCOUNTERS[G.idx + 1].name}`, percent: (G.idx + 1) / ENCOUNTERS.length }).catch(() => { }); } catch (e) { }
       // transition: the iris closes, then opens on the next place
+      H.setHint(null);
       mode = 'trans'; transT = 0; transKind = 'next';
     }
     function startEnding() {
-      mode = 'ending'; transT = 0; ended = true;
+      mode = 'ending'; transT = 0; ended = true; H.setHint(null);
       save.finished = true;
       const total = G.runMs;
       if (!save.bestMs || total < save.bestMs) save.bestMs = total;
@@ -3471,6 +4202,7 @@ window.plethoraBit = {
       for (const h of d.hints || []) {
         if (G.hintsDone[h.id]) continue;
         if (h.when && !h.when(W)) continue;
+        if (!h.stick && G.encT < 3.4) continue; // let the encounter's name be read first
         if (h.until && h.until(W)) { G.hintsDone[h.id] = true; if (H.hintId() === h.id) H.setHint(null); continue; }
         shown = h; break;
       }
@@ -3544,6 +4276,7 @@ window.plethoraBit = {
       const dt = Math.min(0.1, dtMs / 1000);
       const W = G.W;
       if (mode === 'play') {
+        if (window.__ttwbBot) window.__ttwbBot(W);
         const mv = readMove();
         W.input.mx = mv[0]; W.input.mz = mv[1];
         acc += dt;
@@ -3597,6 +4330,13 @@ window.plethoraBit = {
       } else if (mode === 'ending') {
         transT += dt;
         stepWorld(W, SIM_DT); W.events.length = 0;
+        // every eye closes but one; the traveller becomes the light in its pupil
+        for (const e of W.eyes) {
+          if (e.type === 'centre') { e.look = rotateToward(e.look, vNorm(vSub(playerChest(W), e.pos)), SIM_DT * 2); e.seesPlayer = true; continue; }
+          if (transT > 0.4 + (e.pos[0] * 0.03 + 0.5)) e.state = 'dormant';
+        }
+        const cv = view.eyes.C; if (cv) cv.irisMat.uniforms.uPupil.value = Math.min(0.92, 0.28 + transT * 0.12);
+        if (view.player) view.player.body.scale.setScalar(1.3 * Math.max(0.001, 1 - transT / 3.5));
         view.extraZoom = Math.min(120, transT * transT * 6);
         if (transT > 4.5 && !H.panels.end.classList.contains('on')) { H.show('end'); H.inGame(false); try { if (ctx.pulse && ctx.pulse.complete) ctx.pulse.complete({ timeMs: G.runMs, text: 'Reached the Centre in ' + fmtTime(G.runMs) }); } catch (e) { } }
       } else if (mode === 'title') {
@@ -3618,7 +4358,10 @@ window.plethoraBit = {
       else ctx.onFrame(dtMs => tick(dtMs));
     }
     // dev hook
-    if (window.__TTWB_DEV) window.__ttwb = { G, get mode() { return mode; }, begin: () => beginPlay(), load: (i, cp) => { loadEncounter(i, cp || 0, false); mode = 'play'; H.show(null); H.inGame(true); }, setGaze: id => setGazeInput(id), view: () => view, input, save: () => save, pause: pauseGame, resume: resumeGame };
+    if (window.__TTWB_DEV) window.stepWorld_dev = W => stepWorld(W, SIM_DT);
+    if (window.__TTWB_DEV) window.__ttwb = { G, get mode() { return mode; }, begin: () => beginPlay(), load: (i, cp) => { loadEncounter(i, cp || 0, false); mode = 'play'; H.show(null); H.inGame(true); }, setGaze: id => setGazeInput(id), view: () => view, input, save: () => save, pause: pauseGame, resume: resumeGame,
+      tapAt(x, y) { const r = canvas.getBoundingClientRect(); for (const t of ['pointerdown', 'pointerup']) canvas.dispatchEvent(new PointerEvent(t, { clientX: r.left + x, clientY: r.top + y, pointerId: 77, bubbles: true, pointerType: 'touch', isPrimary: true })); },
+      tapEye(id) { const e = G.W.eyeById[id]; const s = view.toScreen(e.pos); this.tapAt(s.x, s.y); return s; } };
     boot();
   }
 };

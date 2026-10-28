@@ -4,6 +4,11 @@
 // follows the simulation's angle; bridges and gates animate from sim e.
 // =====================================================================
 
+function encBounds(W) {
+  let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
+  for (const r of W.regions) { const cx = r.wx === undefined ? r.cx : r.wx, cz = r.wz === undefined ? r.cz : r.wz; x0 = Math.min(x0, cx); x1 = Math.max(x1, cx); z0 = Math.min(z0, cz); z1 = Math.max(z1, cz); }
+  return { cx: (x0 + x1) / 2, z0, z1 };
+}
 function buildWorldView(W, look, quality) {
   const root = new THREE.Group();
   const statics = new Map();      // material -> [geometry in world space]
@@ -326,9 +331,10 @@ function buildWorldView(W, look, quality) {
     const parts = [], far = [];
     const style = v.style || 'towers';
     const nT = style === 'towers' ? 14 : 9;
+    const B0 = encBounds(W), farA = () => r.range(Math.PI * 0.95, Math.PI * 2.05);
     for (let i = 0; i < nT; i++) {
-      const a = r.range(0, TAU), d = r.range(55, 140);
-      const x = Math.cos(a) * d, z = Math.sin(a) * d - 20;
+      const a = farA(), d = r.range(60, 150);
+      const x = B0.cx + Math.cos(a) * d, z = B0.z0 + Math.sin(a) * d;
       const rr = r.range(4, 13), top = r.range(40, 140);
       const g = columnGeo(rr, -120, top, { flutes: r.int(6, 16), fluteDepth: 0.12, radial: 16, rows: 26, seed: r.int(1, 99), bands: 5, profile: t => 1 + 0.3 * Math.pow(Math.max(0, t - 0.85) / 0.15, 2) });
       g.translate(x, 0, z); (d > 100 ? far : parts).push(g);
@@ -336,22 +342,22 @@ function buildWorldView(W, look, quality) {
     // great arches spanning the void
     const nA = style === 'arches' ? 6 : 3;
     for (let i = 0; i < nA; i++) {
-      const a = r.range(0, TAU), d = r.range(60, 120), span = r.range(30, 70), h = r.range(30, 80);
-      const cx = Math.cos(a) * d, cz = Math.sin(a) * d - 20, dir = r.range(0, TAU);
+      const a = farA(), d = r.range(70, 130), span = r.range(30, 70), h = r.range(30, 80);
+      const cx = B0.cx + Math.cos(a) * d, cz = B0.z0 + Math.sin(a) * d, dir = r.range(0, TAU);
       const pts = [];
       for (let k = 0; k <= 24; k++) { const u = k / 24 * 2 - 1; pts.push(new THREE.Vector3(cx + Math.cos(dir) * u * span, -60 + (h + 60) * Math.sqrt(1 - u * u), cz + Math.sin(dir) * u * span)); }
       far.push(sweepGeo(pts, circleProfile(1, 10, 4, 0.4, 0.7), () => r.range(2.2, 3.5)));
     }
     // a spiral ramp coiling around a void
     {
-      const a = r.range(0, TAU), d = r.range(70, 110), cx = Math.cos(a) * d, cz = Math.sin(a) * d - 20, R = r.range(14, 24);
+      const a = farA(), d = r.range(75, 115), cx = B0.cx + Math.cos(a) * d, cz = B0.z0 + Math.sin(a) * d, R = r.range(14, 24);
       const pts = [];
       for (let k = 0; k <= 90; k++) { const t = k / 90; const ang = t * TAU * 3.2; pts.push(new THREE.Vector3(cx + Math.cos(ang) * R * (1 - t * 0.35), -70 + t * 130, cz + Math.sin(ang) * R * (1 - t * 0.35))); }
       far.push(sweepGeo(pts, [[-3, 0.6], [3, 0.6], [3, -0.6], [-3, -0.6]], null));
     }
     // floating impossible stairs
     for (let i = 0; i < 4; i++) {
-      const a = r.range(0, TAU), d = r.range(45, 90), cx = Math.cos(a) * d, cz = Math.sin(a) * d - 20, y0 = r.range(-10, 40), dir = r.int(0, 3) * Math.PI / 2;
+      const a = farA(), d = r.range(55, 95), cx = B0.cx + Math.cos(a) * d, cz = B0.z0 + Math.sin(a) * d, y0 = r.range(-10, 40), dir = r.int(0, 3) * Math.PI / 2;
       for (let k = 0; k < 14; k++) {
         const b = new THREE.BoxGeometry(5, 1, 1.8); b.translate(0, k * 0.9, k * 1.6); b.rotateY(dir); b.translate(cx, y0, cz); parts.push(b);
       }
@@ -414,23 +420,26 @@ function buildWorldView(W, look, quality) {
     put(g, hatchMat('walk', { vc: true }), null);
   }
   function buildZone(v) {
-    const r = v.r || Math.max(v.hw || 2, v.hl || 2);
-    const g = new THREE.RingGeometry(r * 0.15, r, 48, 3);
-    g.rotateX(-Math.PI / 2);
+    const rect = v.r === undefined;
+    const hw = rect ? v.hw : v.r, hl = rect ? v.hl : v.r;
+    const g = new THREE.PlaneGeometry(hw * 2, hl * 2, 1, 1); g.rotateX(-Math.PI / 2);
     const mat = new THREE.ShaderMaterial({
-      uniforms: { uA: { value: 0 }, uWarm: { value: 0 }, uT: GU.uTime, uC: { value: new THREE.Color('#e3a94f') } },
+      uniforms: { uA: { value: 0 }, uWarm: { value: 0 }, uT: GU.uTime, uC: { value: new THREE.Color('#e3a94f') }, uH: { value: new THREE.Vector2(hw, hl) }, uRect: { value: rect ? 1 : 0 } },
       vertexShader: 'varying vec2 vP; void main(){ vP = position.xz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-      fragmentShader: `uniform float uA; uniform float uWarm; uniform float uT; uniform vec3 uC; varying vec2 vP;
-        void main(){ float r = length(vP); float a = atan(vP.y, vP.x);
-          float sp = abs(fract(r * 0.9 - a / 6.2831 * 2.0 - uT * 0.15) - 0.5);
-          float line = smoothstep(0.08, 0.0, sp);
-          float edge = smoothstep(${r.toFixed(2)} * 0.9, ${r.toFixed(2)}, r) * (1.0 - smoothstep(${r.toFixed(2)}, ${r.toFixed(2)} * 1.02, r));
-          float k = (line * 0.55 + edge * 0.9) * max(uA, uWarm * 0.35);
-          gl_FragColor = vec4(uC * k, k);\n#include <colorspace_fragment>\n}`,
+      fragmentShader: `uniform float uA; uniform float uWarm; uniform float uT; uniform vec3 uC; uniform vec2 uH; uniform float uRect; varying vec2 vP;
+        void main(){
+          vec2 q = abs(vP) / uH; float d = uRect > 0.5 ? max(q.x, q.y) : length(vP) / uH.x;
+          if (d > 1.0) discard;
+          float edge = smoothstep(0.86, 0.96, d) * (1.0 - smoothstep(0.97, 1.0, d));
+          float hatch = step(0.5, fract((vP.x + vP.y) * 1.3 - uT * 0.4)) * 0.25;
+          float k = (edge * 1.0 + hatch) * max(uA, uWarm * 0.45);
+          gl_FragColor = vec4(uC * k, k);
+          #include <colorspace_fragment>
+        }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
     });
-    const m = new THREE.Mesh(g, mat); m.position.set(v.x, (v.y || 0) + 0.05, v.z);
-    if (v.hw) { m.scale.set(1, 1, (v.hl || v.hw) / (v.hw)); }
+    const m = new THREE.Mesh(g, mat); m.position.set(v.x, (v.y || 0) + 0.06, v.z);
+    if (v.yaw !== undefined && rect) m.rotation.y = -v.yaw - Math.PI / 2;
     root.add(m); zones[v.id] = { m, mat, v };
   }
   function buildRail(v) {

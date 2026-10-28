@@ -21,6 +21,7 @@ const host = document.getElementById('bit');
 const cleanups = [];
 const store = {};
 const q = new URLSearchParams(location.search);
+if (q.has('q')) store.ttwb_save_v1 = JSON.stringify({ v: 1, cleared: 20, current: 0, sound: false, quality: +q.get('q'), totalMs: 0, seen: 0, bestMs: 0, finished: false, encMs: {} });
 const manifest = await fetch('../plethora.json').then(r => r.json()).catch(() => ({}));
 const ctx = {
   get width() { return host.clientWidth; },

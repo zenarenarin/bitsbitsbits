@@ -24,8 +24,9 @@ const HUD_CSS = `
 .tw-prog i{width:6px;height:2px;background:rgba(239,230,210,.25);display:block}
 .tw-prog i.d{background:rgba(239,230,210,.75)}
 .tw-prog i.c{background:var(--ochre)}
-.tw-hint{position:absolute;left:50%;top:calc(var(--st) + 70px);transform:translate(-50%,-6px);max-width:min(84vw,360px);text-align:center;font-size:15px;font-weight:600;line-height:1.35;padding:9px 14px;border-radius:10px;background:rgba(15,14,11,.55);opacity:0;transition:opacity .45s ease,transform .45s ease;text-shadow:0 1px 4px rgba(0,0,0,.4)}
-.tw-hint.on{opacity:1;transform:translate(-50%,0)}
+.tw-hint{position:absolute;left:calc(var(--sl) + 16px);right:calc(var(--sr) + 72px);top:calc(var(--st) + 14px);transform:translate(0,-6px);text-align:left;font-size:14px;font-weight:600;line-height:1.35;padding:8px 12px;border-radius:10px;background:rgba(15,14,11,.62);opacity:0;transition:opacity .45s ease,transform .45s ease;text-shadow:0 1px 4px rgba(0,0,0,.4)}
+.tw-hint.on{opacity:1;transform:translate(0,0)}
+.tw.hinting .tw-label,.tw.hinting .tw-prog{opacity:0 !important}
 .tw-stick{position:absolute;width:112px;height:112px;margin:-56px 0 0 -56px;border-radius:56px;border:1.5px solid rgba(239,230,210,.35);background:rgba(15,14,11,.18);opacity:0;transition:opacity .2s}
 .tw-stick b{position:absolute;left:50%;top:50%;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:23px;background:rgba(239,230,210,.82);box-shadow:0 2px 10px rgba(0,0,0,.4)}
 .tw-stick.on{opacity:1}
@@ -44,6 +45,7 @@ const HUD_CSS = `
 .tw-edge svg{position:absolute;left:-14px;top:-14px;width:28px;height:28px;overflow:visible}
 .tw-panel{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-end;align-items:stretch;padding:calc(var(--st) + 24px) calc(var(--sr) + 24px) calc(var(--sb) + 18px) calc(var(--sl) + 24px);opacity:0;pointer-events:none;transition:opacity .5s ease}
 .tw-panel.on{opacity:1;pointer-events:auto}
+.tw-panel:not(.on), .tw-panel:not(.on) *{pointer-events:none !important}
 .tw-panel.dim{background:linear-gradient(rgba(12,11,8,.25),rgba(12,11,8,.82) 62%)}
 .tw-title{font-size:34px;line-height:1.02;font-weight:700;letter-spacing:-.02em;margin:0 0 10px;max-width:320px}
 .tw-sub{font-size:14px;line-height:1.45;opacity:.72;max-width:300px;margin:0 0 26px}
@@ -110,12 +112,12 @@ function createHud(ctx) {
   // hint line
   let hintTimer = 0, hintId = null;
   H.setHint = (text, id, ms) => {
-    if (!text) { H.hint.classList.remove('on'); hintId = null; return; }
+    if (!text) { H.hint.classList.remove('on'); ui.classList.remove('hinting'); hintId = null; return; }
     if (hintId === id && H.hint.classList.contains('on')) return;
-    hintId = id; H.hint.textContent = text; H.hint.classList.add('on'); hintTimer = ms || 0;
+    hintId = id; H.hint.textContent = text; H.hint.classList.add('on'); ui.classList.add('hinting'); hintTimer = ms || 0;
   };
   H.hintId = () => hintId;
-  H.tickHint = dt => { if (hintTimer > 0) { hintTimer -= dt * 1000; if (hintTimer <= 0) { H.hint.classList.remove('on'); } } };
+  H.tickHint = dt => { if (hintTimer > 0) { hintTimer -= dt * 1000; if (hintTimer <= 0) { H.hint.classList.remove('on'); ui.classList.remove('hinting'); } } };
   H.setLabel = (n, name, ms) => {
     H.label.innerHTML = `${String(n).padStart(2, '0')}<small>${name}</small>`;
     H.label.classList.add('on');

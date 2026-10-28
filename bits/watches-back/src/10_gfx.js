@@ -11,9 +11,9 @@ let THREE = null;
 
 const LOOKS = {
   act1: { bg: '#2a2c22', fog: '#4d4e3e', fogD: 0.0105, void: '#1b1c15', key: '#f3e6c8', keyI: 3.2, keyDir: [0.4, 0.8, 0.5], sky: '#a19e78', gnd: '#25221a', hemiI: 1.25, rim: '#c9b98e', haze: '#5c5b43', glow: '#d9b26a' },
-  act2: { bg: '#1a1f17', fog: '#33402a', fogD: 0.012, void: '#121710', key: '#d9e0b8', keyI: 2.1, keyDir: [0.5, 0.78, 0.2], sky: '#6f7a4c', gnd: '#10130c', hemiI: 0.85, rim: '#aeb98a', haze: '#3f4a2c', glow: '#c9b064' },
-  act3: { bg: '#18140f', fog: '#3a2d1c', fogD: 0.0125, void: '#150f09', key: '#e6c48a', keyI: 2.2, keyDir: [-0.7, 0.55, 0.3], sky: '#7a6440', gnd: '#120e09', hemiI: 0.8, rim: '#d2a75e', haze: '#4a3a24', glow: '#e0a64e' },
-  act4: { bg: '#121210', fog: '#2c2c25', fogD: 0.0115, void: '#0d0d0b', key: '#f1ece0', keyI: 2.5, keyDir: [0.15, 0.95, 0.25], sky: '#7d7b6c', gnd: '#0d0d0b', hemiI: 0.75, rim: '#e8e0c8', haze: '#3a3a30', glow: '#e9c27c' }
+  act2: { bg: '#1a1f17', fog: '#33402a', fogD: 0.012, void: '#121710', key: '#dfe6bd', keyI: 2.9, keyDir: [0.45, 0.8, 0.4], sky: '#7e8a58', gnd: '#1a1f14', hemiI: 1.15, rim: '#aeb98a', haze: '#3f4a2c', glow: '#c9b064' },
+  act3: { bg: '#18140f', fog: '#3a2d1c', fogD: 0.0125, void: '#150f09', key: '#ecca90', keyI: 3.0, keyDir: [-0.45, 0.8, 0.4], sky: '#8a7450', gnd: '#20180f', hemiI: 1.15, rim: '#d2a75e', haze: '#4a3a24', glow: '#e0a64e' },
+  act4: { bg: '#121210', fog: '#2c2c25', fogD: 0.0115, void: '#0d0d0b', key: '#f1ece0', keyI: 3.0, keyDir: [0.2, 0.9, 0.4], sky: '#8d8b7c', gnd: '#181816', hemiI: 1.05, rim: '#e8e0c8', haze: '#3a3a30', glow: '#e9c27c' }
 };
 
 // Material palette: base colour, ink colour, how strongly darkness turns to ink.

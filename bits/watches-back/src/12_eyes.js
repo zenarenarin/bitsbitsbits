@@ -104,7 +104,7 @@ function eyeGeos() {
   _eyeGeo.lashL = lash(0.98, -1, 9, 0.22);
   // socket: a raised, folded rim that the ball sits back inside
   const prof = [];
-  const sp = [[0.99, 0.30], [1.03, 0.47], [1.16, 0.6], [1.34, 0.6], [1.56, 0.42], [1.78, 0.12], [1.95, -0.3], [1.9, -0.9], [1.4, -1.3], [0.6, -1.45], [0.02, -1.5]];
+  const sp = [[0.99, 0.30], [1.03, 0.47], [1.16, 0.6], [1.34, 0.6], [1.54, 0.42], [1.7, 0.1], [1.72, -0.25], [1.45, -0.55], [0.9, -0.75], [0.02, -0.8]];
   for (const q of sp) prof.push(new THREE.Vector2(q[0], q[1]));
   const sock = new THREE.LatheGeometry(prof, 40);
   sock.rotateX(Math.PI / 2); // lathe axis y -> z
@@ -161,7 +161,7 @@ function buildEyeView(e, look) {
   const root = new THREE.Group();
   root.position.fromArray(e.pos);
   const lidMat = e.type === 'falseeye' ? hatchMat('stone', { vc: true }) : hatchMat('lid', { vc: true });
-  const sockMat = e.type === 'falseeye' ? hatchMat('stone', { vc: true, side: 2 }) : hatchMat(e.type === 'sentinel' || e.type === 'crown' ? 'ochre' : 'flesh', { vc: true, side: 2, color: e.type === 'choir' ? '#cdbf9d' : '#9a8564' });
+  const sockMat = e.type === 'falseeye' ? hatchMat('stone', { vc: true, side: 2 }) : hatchMat(e.type === 'sentinel' || e.type === 'crown' ? 'ochre' : 'flesh', { vc: true, side: 2, color: e.type === 'choir' ? '#cdbf9d' : '#7d6c4f' });
   const scl = hatchMat('flesh', { vc: true, color: L.sclera, rim: 0.7 });
   const scale = new THREE.Group(); scale.scale.setScalar(s); root.add(scale);
   if (e.mount !== 'free') { const sock = new THREE.Mesh(G.socket, sockMat); sock.castShadow = true; scale.add(sock); }

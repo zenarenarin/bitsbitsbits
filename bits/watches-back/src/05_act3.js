@@ -217,7 +217,7 @@ ENCOUNTERS.push({
     eyeOnPillar(K, { px: -12.5, pz: -9, pr: 2.3, y: 7.5, look: [0, 2, -5], eye: { id: 'C', type: 'collector', group: 'q', home: { point: [-4, 0.5, 2] }, collect: { notice: 0.7, turn: 0.5 }, range: 20, fov: 9 * DEG } });
     // a drifter circles above, and a sentinel watches the quarters
     const pts = []; for (let i = 0; i < 16; i++) { const a = i / 16 * TAU; pts.push([C[0] + Math.cos(a) * 6.5, 7.5, C[1] + Math.sin(a) * 6.5]); }
-    K.eye({ id: 'D', type: 'drifter', pos: pts[0], facing: [0, -1, 0], rail: { pts, loop: true, speed: 2.2, center: [C[0], 0, C[1]], out: true, faceY: -1.2, u: 10 }, acquireTime: 1.8, range: 14, fov: 19 * DEG });
+    K.eye({ id: 'D', type: 'drifter', pos: pts[0], facing: [0, -1, 0], rail: { pts, loop: true, speed: 2.2, center: [C[0], 0, C[1]], out: true, faceY: -1.2, u: 30 }, acquireTime: 1.8, range: 14, fov: 19 * DEG });
     K.zone('nw', { x: -5, z: -9.5, hw: 3.4, hl: 3.4, show: 'ring' });
     K.zone('ne', { x: 5, z: -9.5, hw: 3.4, hl: 3.4, show: 'ring' });
     K.zone('se', { x: 5, z: -0.5, hw: 3.4, hl: 3.4, show: 'ring' });
