@@ -1,0 +1,62 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Watches Back dev harness</title>
+<style>
+  html,body{margin:0;height:100%;background:#111;overflow:hidden}
+  #bit{position:absolute;inset:0;overflow:hidden;touch-action:none;--plethora-content-safe-top:62px;--plethora-content-safe-bottom:108px}
+  #logo{position:absolute;left:50%;bottom:30px;width:56px;height:56px;margin-left:-28px;border-radius:28px;background:rgba(255,255,255,.15);pointer-events:none;z-index:99}
+</style>
+</head>
+<body>
+<div id="bit"></div>
+<div id="logo"></div>
+<script>window.__TTWB_DEV = true;</script>
+<script src="../main.js"></script>
+<script type="module">
+// A stand-in for the Plethora runtime covering what this Bit uses.
+const host = document.getElementById('bit');
+const cleanups = [];
+const store = {};
+const q = new URLSearchParams(location.search);
+const manifest = await fetch('../plethora.json').then(r => r.json()).catch(() => ({}));
+const ctx = {
+  get width() { return host.clientWidth; },
+  get height() { return host.clientHeight; },
+  dpr: Math.min(2, window.devicePixelRatio || 1),
+  nativeDpr: window.devicePixelRatio || 1,
+  safeArea: { top: 62, bottom: 34, left: 0, right: 0 },
+  contentSafeArea: { top: 62, bottom: 108, left: 0, right: 0 },
+  logoArea: null,
+  capabilities: { audio: true, backgroundMusic: false, haptics: true, storage: true },
+  manifest,
+  container: host,
+  createCanvas2D(opts) { const c = document.createElement('canvas'); c.style.cssText = 'position:absolute;inset:0;pointer-events:none'; host.appendChild(c); return c; },
+  createCanvas(opts) { const c = document.createElement('canvas'); c.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;touch-action:none'; host.appendChild(c); return c; },
+  createRoot(opts) { const d = document.createElement('div'); d.className = (opts && opts.className) || ''; d.style.cssText = 'position:absolute;inset:0;pointer-events:none'; host.appendChild(d); return d; },
+  listen(t, ev, fn, o) { t.addEventListener(ev, fn, o); cleanups.push(() => t.removeEventListener(ev, fn, o)); return () => t.removeEventListener(ev, fn, o); },
+  onResize(cb, o) { const f = () => cb({ width: ctx.width, height: ctx.height, dpr: ctx.dpr, nativeDpr: ctx.nativeDpr, safeArea: ctx.safeArea, contentSafeArea: ctx.contentSafeArea }); window.addEventListener('resize', f); if (o && o.immediate) f(); return () => {}; },
+  timeout(fn, ms) { setTimeout(fn, ms); },
+  onDestroy(fn) { cleanups.push(fn); },
+  onFrame(cb) { let last = performance.now(); const loop = t => { cb(t - last, t); last = t; requestAnimationFrame(loop); }; requestAnimationFrame(loop); },
+  markVisualReady(r) { window.__visualReady = r; },
+  async importModule(name, version) { if (q.has('failthree') && !window.__failedOnce) { window.__failedOnce = true; throw new Error('simulated download failure'); } return await import('./vendor/three.module.js'); },
+  async loadFont() { return null; },
+  storage: { get: k => (k in store ? JSON.parse(store[k]) : null), set: (k, v) => { store[k] = JSON.stringify(v); }, remove: k => { delete store[k]; } },
+  input: { activate(el, fn) { el.style.pointerEvents = 'auto'; el.addEventListener('click', fn); el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') fn(e); }); return () => {}; } },
+  tune: { number: id => undefined },
+  platform: { error(p) { window.__platformError = p; console.log('platform.error', JSON.stringify(p)); }, ready() { window.__ready = true; }, start(p) { (window.__starts = window.__starts || []).push(p); }, interact() {}, milestone(n, p) { (window.__milestones = window.__milestones || []).push([n, p]); }, fail(p) { window.__failed = p; }, complete(p) { window.__complete = p; }, haptic() {}, setScore() {}, setProgress() {}, emit() {} },
+  pulse: { complete(p) { window.__pulse = p; } },
+  game: {
+    loop(o) { let last = performance.now(); const f = t => { if (!window.__hold) o.update && o.update(Math.min(100, t - last)); last = t; requestAnimationFrame(f); }; requestAnimationFrame(f); return {}; },
+    progress: { save: async p => { window.__progress = p; return { ok: true }; }, complete: async () => ({ ok: true }), load: async () => ({ status: 'empty' }) }
+  },
+  memory: { record: id => ({ submit: async v => ({ submitted: true, value: v }), leaderboard: async () => ({ rows: [{ rank: 1, username: 'ink', value: 1500000, displayLabel: '25:00' }], viewerRank: { rank: 1 }, totalRanked: 1 }) }) }
+};
+window.__ctx = ctx;
+window.plethoraBit.init(ctx).catch(e => { console.error(e); window.__initError = String(e && e.stack || e); });
+</script>
+</body>
+</html>

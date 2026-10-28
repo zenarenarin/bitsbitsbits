@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "The Thing That Watches Back",
+  "description": "A dimensional horror game about a tiny traveller in an impossible architecture of watching eyes. Eyes hold each other in place; your gaze can pin only one, and freeing one frees another. Manipulate the network to move bridges, gates and turning structures across a twenty-encounter campaign.",
+  "tags": ["horror", "3d", "puzzle", "stealth", "story"],
+  "permissions": ["audio", "haptics", "storage"],
+  "dependencies": ["three@0.164.1"],
+  "display": "fullscreen",
+  "onboarding": { "kind": "immersive", "version": 1 },
+  "game": {
+    "progress": {
+      "campaign": { "label": "Campaign", "stateSchemaVersion": 1 }
+    }
+  },
+  "memory": {
+    "records": {
+      "campaign_time": {
+        "label": "Campaign time",
+        "valueType": "duration_ms",
+        "order": "asc",
+        "format": "timer",
+        "periods": ["weekly", "all_time"],
+        "scopes": ["following", "global"],
+        "dedupe": "best_per_user"
+      }
+    }
+  },
+  "tuning": {
+    "schemaVersion": 1,
+    "groups": { "feel": { "label": "Feel" } },
+    "knobs": {
+      "acquire_scale": { "label": "Time an eye needs to see you (multiplier)", "type": "number", "default": 1, "min": 0.6, "max": 1.8, "step": 0.05, "group": "feel", "intent": "difficulty", "apply": "restart" },
+      "walk_speed": { "label": "Walking speed (multiplier)", "type": "number", "default": 1, "min": 0.7, "max": 1.4, "step": 0.05, "group": "feel", "intent": "feel", "apply": "restart" },
+      "mechanism_speed": { "label": "Mechanism speed (multiplier)", "type": "number", "default": 1, "min": 0.6, "max": 1.6, "step": 0.05, "group": "feel", "intent": "difficulty", "apply": "restart" }
+    }
+  }
+}
