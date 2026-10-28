@@ -36,7 +36,7 @@ const ctx = {
   onResize(cb, o) { const f = () => cb({ width: ctx.width, height: ctx.height, dpr: ctx.dpr, nativeDpr: ctx.nativeDpr, safeArea: ctx.safeArea, contentSafeArea: ctx.contentSafeArea, logoArea: ctx.logoArea }); window.addEventListener('resize', f); if (o && o.immediate) f(); },
   timeout(fn, ms) { setTimeout(fn, ms); },
   onDestroy(fn) { cleanups.push(fn); },
-  onFrame(cb) { let last = performance.now(); const loop = t => { cb(t - last, t); last = t; requestAnimationFrame(loop); }; requestAnimationFrame(loop); },
+  onFrame(cb) { let last = performance.now(); const loop = t => { if (!window.__noLoop) cb(t - last, t); last = t; requestAnimationFrame(loop); }; requestAnimationFrame(loop); },
   markVisualReady(r) { window.__visualReady = r; },
   async importModule(name, version) { if (location.search.includes('failthree') && !window.__failedOnce) { window.__failedOnce = true; throw new Error('simulated download failure'); } return await import('./vendor/three.module.js'); },
   async loadFont() { return null; },
@@ -44,7 +44,7 @@ const ctx = {
   music: { unlock: async () => {}, play: () => ({}), sting: () => Promise.resolve() },
   platform: { error(p) { window.__platformError = p; }, ready() { window.__ready = true; }, start() {}, interact() {}, milestone() {}, fail(p) { window.__failed = p; }, complete() {}, haptic() {}, setScore() {}, emit() {} },
   game: {
-    loop(o) { let last = performance.now(); const f = t => { o.update && o.update(Math.min(100, t - last)); last = t; requestAnimationFrame(f); }; requestAnimationFrame(f); return {}; },
+    loop(o) { let last = performance.now(); const f = t => { if (!window.__noLoop && o.update) o.update(Math.min(100, t - last)); last = t; requestAnimationFrame(f); }; requestAnimationFrame(f); return {}; },
     score() { let v = 0; return { set: x => { v = x; }, reset: () => { v = 0; }, submit: async () => ({ ok: true }), get value() { return v; } }; }
   }
 };
