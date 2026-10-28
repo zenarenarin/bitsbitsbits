@@ -98,7 +98,8 @@
           const step = 1000 / (o.fixedHz || 60);
           const frame = (now) => {
             if (stopped) return;
-            let dt = Math.min(o.maxDeltaMs || 100, now - last);
+            // window.__manualDt (ms) drives a deterministic clock for recordings
+            let dt = window.__manualDt !== undefined ? window.__manualDt : Math.min(o.maxDeltaMs || 100, now - last);
             last = now;
             const scale = window.__timeScale || 1;
             dt *= scale;
