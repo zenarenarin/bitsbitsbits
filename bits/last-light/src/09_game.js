@@ -3,7 +3,9 @@
 // marks, the HUD, title, pause, result and the Plethora lifecycle.
 // =====================================================================
 const SAVE_KEY = 'lastlight_v1';
-const SCORE = { base: 10000, perSecond: 40, perSeen: 250, perAlarm: 500, perCapture: 1500, floor: 100 };
+const SCORE = { base: 10000, perSecond: 40, perSeen: 250, perAlarm: 500, perCapture: 1500, floor: 100, perMetre: 10, escapeMin: 1500 };
+// While running, the score is the distance reached (10 points a metre, at most ~1,420).
+// An escape scores at least escapeMin, so any escape outranks any capture.
 const LAMP_NAME = { tower: 'the tower searchlight', bracket: 'the wall lamp', lantern: 'the lantern', post: 'the lamppost', door: 'the open doorway' };
 
 const UI_CSS = `
@@ -197,6 +199,29 @@ window.plethoraBit = {
     let farX = 0, mode = 'title', runT = 0, time = 0, captures = 0, cp = 0, sectionSeen = -1, caption = null, captureT = 0, attempt = 0, result = null;
     let titleT = 0, stepAcc = 0, cityStepT = 0;
     const score = safe(() => ctx.game.score()) || { set() { }, reset() { }, value: 0 };
+    const progressPts = () => Math.max(0, Math.floor(farX - level.start.x)) * SCORE.perMetre;
+    // ---- the board: the server's numbers are the truth; ctx.storage is only a fallback
+    const BOARD = { scope: 'global', period: 'all_time' };
+    let serverBest = null, runSaved = 0;
+    const bestShown = () => serverBest != null ? serverBest : save.best;
+    const standingOf = s => { const v = s && ((s.viewerRank && s.viewerRank.value) ?? (s.standing && s.standing.value)); return typeof v === 'number' && isFinite(v) ? v : null; };
+    function refreshBest() {
+      return Promise.resolve().then(() => score.rank('score', BOARD)).then(s => { if (destroyed) return; const v = standingOf(s); if (v != null) serverBest = v; }).catch(() => { });
+    }
+    // submit one run result; if the server cannot take it, report it and hand
+    // it to the host's retrying checkpoint queue so it is not lost
+    function saveScore(value, kind, metadata) {
+      const label = value.toLocaleString() + ' pts';
+      if (value > save.best) { save.best = value; persist(); }
+      return Promise.resolve().then(() => score.submit('score', { label, metadata }))
+        .then(res => { const pb = !!(res && res.isPersonalBest); if (pb) serverBest = Math.max(serverBest || 0, value); return refreshBest().then(() => ({ state: 'ok', pb })); })
+        .catch(err => {
+          safe(() => ctx.platform.error({ code: 'score_submit_failed', message: String(err && (err.code || err.message) || err), kind, value }));
+          return Promise.resolve().then(() => ctx.memory.record('score').checkpoint(value, { label, metadata }))
+            .then(() => ({ state: 'queued' }), () => ({ state: 'fail' }));
+        });
+    }
+    refreshBest();
     function resetWorld() {
       world.reset(); watcher.reset();
       world.dynamicOccluders(dynOcc, time); optics.setDynamic(dynOcc);
@@ -217,7 +242,7 @@ window.plethoraBit = {
       safe(() => ctx.platform.start({ attempt }));
       safe(() => ctx.platform.interact({ type: 'begin' }));
       if (caps.backgroundMusic && save.sound) safe(() => { ctx.music.unlock(); ctx.music.play({ preset: 'drone', volume: 0.22, intensity: 0.15, tempo: 60, scale: 'minor', fadeInMs: 2400 }); });
-      runT = 0; farX = level.start.x; captures = 0; cp = 0; sectionSeen = -1; caption = null; result = null; R.capture = null;
+      runT = 0; farX = level.start.x; runSaved = 0; captures = 0; cp = 0; sectionSeen = -1; caption = null; result = null; R.capture = null;
       watcher.alarms = 0; watcher.hunts = 0; watcher.exposure = 0;
       score.reset && score.reset();
       hidePanels(); playBtn.style.display = 'none';
@@ -254,7 +279,21 @@ window.plethoraBit = {
       const k = document.createElement('div'); k.className = 'll-break';
       k.textContent = 'From the mark, the clock keeps running and this capture costs ' + SCORE.perCapture.toLocaleString() + ' points.';
       card.appendChild(k);
+      const pts = progressPts();
+      const saveLine = document.createElement('div'); saveLine.className = 'll-dim ll-save';
+      card.insertBefore(saveLine, card.querySelector('.ll-b'));
       panel.appendChild(card); panel.className = 'll-panel on';
+      // the distance reached is a result too: save it (best_per_user keeps the best)
+      score.set && score.set(pts);
+      const show = t => { if (!destroyed && saveLine.isConnected) saveLine.textContent = t; };
+      if (pts > runSaved) {
+        runSaved = pts;
+        show('Score ' + pts.toLocaleString() + '. Saving…');
+        saveScore(pts, 'caught', { timeMs: Math.round(runT * 1000), captures, metres: pts / SCORE.perMetre }).then(r => show(
+          r.state === 'ok' ? 'Score ' + pts.toLocaleString() + (r.pb ? ', a new best.' : ' saved. Your best is ' + bestShown().toLocaleString() + '.')
+            : r.state === 'queued' ? 'Score ' + pts.toLocaleString() + '. The board could not be reached; it will be saved when it can.'
+              : 'Score ' + pts.toLocaleString() + '. It could not be saved.'));
+      } else show('Score ' + pts.toLocaleString() + '. Your best is ' + bestShown().toLocaleString() + '.');
       safe(() => ctx.platform.fail({ section: currentSection() + 1, timeMs: Math.round(runT * 1000) }));
     }
     function markSection() { const c = level.checkpoints[Math.min(cp, level.checkpoints.length - 1)]; let s = 0; for (let i = 0; i < level.sections.length; i++) if (c.x >= level.sections[i].x) s = i; return s; }
@@ -320,6 +359,7 @@ window.plethoraBit = {
       if (mode === 'play') {
         runT += dt;
         farX = Math.max(farX, player.x);
+        { const pp = progressPts(); if (pp > score.value) score.set && score.set(pp); }
         // act: pull the cord in reach
         if (I.actPressed) {
           updateActVis();
@@ -361,25 +401,25 @@ window.plethoraBit = {
       mode = 'result';
       player.state = 'gone';
       const t = runT, seen = watcher.exposure, alarms = watcher.alarms;
-      const value = Math.max(SCORE.floor, Math.round(SCORE.base - SCORE.perSecond * t - SCORE.perSeen * seen - SCORE.perAlarm * alarms - SCORE.perCapture * captures));
-      const prevBest = save.best;
-      const pb = value > save.best;
-      if (pb) save.best = value;
+      const value = Math.max(SCORE.escapeMin, Math.round(SCORE.base - SCORE.perSecond * t - SCORE.perSeen * seen - SCORE.perAlarm * alarms - SCORE.perCapture * captures));
+      const prevBest = bestShown();
       if (!save.bestTime || t < save.bestTime) save.bestTime = t;
       persist();
-      result = { t, seen, alarms, captures, value, pb, prevBest, attempt, board: { state: 'loading' } };
+      result = { t, seen, alarms, captures, value, prevBest, attempt, saved: { state: 'saving' }, board: { state: 'loading' } };
       audio.escape();
       safe(() => caps.backgroundMusic && save.sound && ctx.music.sting('win'));
       setMusic(0.1, 56);
       score.set && score.set(value);
       showResult();
+      // records: submit first, then mark the outcome; detached, fenced to this attempt
+      const mine = attempt, live = () => !destroyed && mine === attempt && result && mode === 'result';
+      runSaved = value;
+      const saving = saveScore(value, 'escape', { timeMs: Math.round(t * 1000), captures, alarms });
       safe(() => ctx.platform.complete({ score: value, timeMs: Math.round(t * 1000), captures }));
-      // records: detached, fenced to this attempt
-      const mine = attempt;
-      Promise.resolve().then(() => score.submit('score', { label: value.toLocaleString() + ' pts', metadata: { timeMs: Math.round(t * 1000), captures, alarms } }))
-        .then(() => score.leaderboard('score', { scope: 'global', period: 'all_time', limit: 3 }))
-        .then(b => { if (destroyed || mine !== attempt || !result) return; result.board = { state: 'ok', rows: (b && b.rows) || [], me: b && b.viewerRank, total: b && b.totalRanked }; renderBoard(); })
-        .catch(err => { if (destroyed || mine !== attempt || !result) return; result.board = { state: 'fail' }; renderBoard(); });
+      saving.then(sv => { if (live()) { result.saved = sv; renderBoard(); } })
+        .then(() => score.leaderboard('score', Object.assign({ limit: 3 }, BOARD)))
+        .then(b => { if (!live()) return; const v = standingOf(b); if (v != null) serverBest = v; result.board = { state: 'ok', rows: (b && b.rows) || [], me: b && b.viewerRank, total: b && b.totalRanked, failed: !!(b && b.checkpointStatus && b.checkpointStatus.failed) }; renderBoard(); })
+        .catch(() => { if (live()) { result.board = { state: 'fail' }; renderBoard(); } });
       safe(() => ctx.timeout(() => { if (!destroyed && mine === attempt && mode === 'result') safe(() => ctx.pulse.complete({ timeMs: Math.round(t * 1000), score: value, text: 'Escaped the Watcher\'s street in ' + fmtTime(t) + '.' })); }, 900));
     }
     const fmtTime = t => { const m = Math.floor(t / 60), s = t - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1); };
@@ -416,7 +456,7 @@ window.plethoraBit = {
         <div class="ll-stats"><div><b>${fmtTime(r.t)}</b>Time</div><div><b>${r.seen.toFixed(1)}s</b>In light</div><div><b>${r.alarms}</b>Detected</div><div><b>${r.captures}</b>Caught</div></div>
         <div class="ll-score"><b>${r.value.toLocaleString()}</b><span>Score</span></div>
         <div class="ll-break">${SCORE.base.toLocaleString()} − ${Math.round(SCORE.perSecond * r.t)} time − ${Math.round(SCORE.perSeen * r.seen)} light − ${SCORE.perAlarm * r.alarms} detected − ${SCORE.perCapture * r.captures} caught</div>
-        <div class="ll-note">${r.pb && r.prevBest ? 'A new best: ' + r.prevBest.toLocaleString() + ' before.' : r.pb ? '' : 'Best ' + save.best.toLocaleString() + '.'}</div>
+        <div class="ll-note"></div>
         <div class="ll-board"></div>`;
       card.appendChild(button('Run again', '', () => beginRun()));
       panel.appendChild(card); panel.className = 'll-panel on';
@@ -424,12 +464,20 @@ window.plethoraBit = {
     }
     function renderBoard() {
       const el = panel.querySelector('.ll-board'); if (!el || !result) return;
+      const note = panel.querySelector('.ll-note'), sv = result.saved, r0 = result;
+      if (note) note.textContent = sv.state === 'saving' ? 'Saving your score…'
+        : sv.state === 'ok' ? (sv.pb ? (r0.prevBest ? 'A new best: ' + r0.prevBest.toLocaleString() + ' before.' : 'Your first score on the board.') : 'Saved. Your best is ' + bestShown().toLocaleString() + '.')
+          : sv.state === 'queued' ? 'The board could not be reached. Your score will be saved when it can.'
+            : 'Your score could not be saved.';
       const b = result.board;
       if (b.state === 'loading') { el.innerHTML = '<div class="ll-dim">Updating the board…</div>'; return; }
       if (b.state === 'fail') { el.innerHTML = '<div class="ll-dim">The board is unavailable right now.</div>'; return; }
-      const rows = (b.rows || []).slice(0, 3).map(r => `<div class="ll-row${b.me && r.rank === b.me.rank ? ' me' : ''}"><span>${r.rank}. ${esc(r.username || r.displayName || 'runner')}</span><span>${esc(r.displayLabel || String(r.value))}</span></div>`).join('');
+      const isMe = r => !!b.me && (r.userId && b.me.userId ? r.userId === b.me.userId : r.rank === b.me.rank);
+      const who = r => r.username || r.displayName || r.name || (isMe(r) ? 'you' : '');
+      const rows = (b.rows || []).slice(0, 3).map(r => `<div class="ll-row${isMe(r) ? ' me' : ''}"><span>${r.rank}.${who(r) ? ' ' + esc(who(r)) : ''}</span><span>${esc(r.displayLabel || (typeof r.value === 'number' ? r.value.toLocaleString() + ' pts' : ''))}</span></div>`).join('');
       const me = b.me && b.me.rank ? `<div class="ll-dim">You are ${b.me.rank}${b.total ? ' of ' + b.total : ''}.</div>` : '';
-      el.innerHTML = rows ? rows + me : '<div class="ll-dim">No scores yet.</div>';
+      const warn = b.failed ? '<div class="ll-dim">Some scores were not saved. Showing the scores the board accepted.</div>' : '';
+      el.innerHTML = (rows ? rows + me : '<div class="ll-dim">No scores yet.</div>') + warn;
     }
     const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
@@ -450,7 +498,7 @@ window.plethoraBit = {
         g.font = '600 11px Inter, system-ui, sans-serif';
         if (g.letterSpacing !== undefined) g.letterSpacing = '2px';
         g.fillText('THE WATCHER’S STREET', x + 2, y + 82);
-        if (save.best) { g.globalAlpha = 0.75; g.fillText('BEST ' + save.best.toLocaleString(), x + 2, y + 102); g.globalAlpha = 1; }
+        if (bestShown()) { g.globalAlpha = 0.75; g.fillText('BEST ' + bestShown().toLocaleString(), x + 2, y + 102); g.globalAlpha = 1; }
         if (g.letterSpacing !== undefined) g.letterSpacing = '0px';
         g.restore();
         return;
@@ -605,7 +653,7 @@ window.plethoraBit = {
       onError: (err, phase) => { safe(() => ctx.platform.error({ stage: 'loop_' + phase, message: String((err && err.message) || err) })); }
     });
     ctx.onDestroy(() => audio.close());
-    if (window.__LL_DEV) window.__ll = { act: actVis, level, world, player, watcher, optics, R, I, key, touch, btn, get mode() { return mode; }, set mode(v) { mode = v; }, beginRun, retryFromMark, respawn, step, frame, finish, setCp: i => { cp = i; }, get cp() { return cp; }, get runT() { return runT; }, get captures() { return captures; }, get result() { return result; } };
+    if (window.__LL_DEV) window.__ll = { act: actVis, level, world, player, watcher, optics, R, I, key, touch, btn, get mode() { return mode; }, set mode(v) { mode = v; }, beginRun, retryFromMark, respawn, step, frame, finish, setCp: i => { cp = i; }, get cp() { return cp; }, get runT() { return runT; }, get captures() { return captures; }, get result() { return result; }, get farX() { return farX; }, set farX(v) { farX = v; }, bestShown, get score() { return score.value; } };
     ctx.markVisualReady('title');
     ctx.platform.ready();
   }

@@ -48,6 +48,7 @@ const ctx = {
   storage: { get: k => (k in store ? JSON.parse(store[k]) : null), set: (k, v) => { store[k] = JSON.stringify(v); } },
   music: { unlock: async () => {}, play: () => ({}), pause() {}, resume() {}, stop() {}, setIntensity() {}, setTempo() {}, sting: () => Promise.resolve() },
   input: { activate(el, fn) { el.addEventListener('click', fn); } },
+  memory: { record: ch => ({ checkpoint: async (value, o) => { (window.__board.checkpoints).push({ ch, value }); return { queued: true }; } }) },
   pulse: { complete(o) { window.__pulse = o; } },
   platform: { error(p) { window.__platformError = p; console.error('platform.error', JSON.stringify(p)); }, ready() { window.__ready = true; }, start() { window.__starts = (window.__starts || 0) + 1; }, interact() {}, milestone() {}, fail(p) {}, complete(p) { window.__complete = p; }, haptic() {}, setProgress() {}, emit() {} },
   game: {
@@ -56,7 +57,17 @@ const ctx = {
       const f = t => { const d = Math.min(o.maxDeltaMs || 80, t - last); last = t; if (!window.__paused) { acc += d; let n = 0; while (acc >= step && n < 12) { o.fixedUpdate && o.fixedUpdate(step); acc -= step; n++; } o.update && o.update(d); } requestAnimationFrame(f); };
       requestAnimationFrame(f); return {};
     },
-    score() { let v = 0; return { set: x => { v = x; }, reset: () => { v = 0; }, submit: async () => ({ submitted: true }), leaderboard: async () => ({ rows: [{ rank: 1, username: 'ink', displayLabel: '8,120 pts' }, { rank: 2, username: 'you', displayLabel: String(v) + ' pts' }], viewerRank: { rank: 2 }, totalRanked: 2 }), get value() { return v; } }; }
+    // a board that remembers each viewer's best; ?scorefail makes submits reject
+    score() {
+      let v = 0; const B = window.__board = window.__board || { best: null, submits: [], checkpoints: [], others: [{ rank: 0, userId: 'u-ink', username: 'ink', value: 8120 }] };
+      const rows = () => { const all = B.others.map(r => ({ ...r })); if (B.best != null) all.push({ userId: 'u-me', username: 'you', value: B.best }); all.sort((a, b) => b.value - a.value).forEach((r, i) => { r.rank = i + 1; r.displayLabel = r.value.toLocaleString() + ' pts'; }); return all; };
+      const board = () => { const r = rows(); const me = r.find(x => x.userId === 'u-me') || null; return { rows: r, viewerRank: me, standing: me, totalRanked: r.length, checkpointStatus: { pending: 0, failed: 0 } }; };
+      return { set: x => { v = x; }, reset: () => { v = 0; },
+        submit: async (ch, o) => { if (q.has('scorefail')) throw Object.assign(new Error('offline'), { code: 'network' }); const pb = B.best == null || v > B.best; if (pb) B.best = v; B.submits.push({ ch, value: v, label: o && o.label }); return { submitted: true, value: v, isPersonalBest: pb }; },
+        rank: async () => { const b = board(); delete b.rows; return b; },
+        leaderboard: async (ch, o) => { const b = board(); b.rows = b.rows.slice(0, (o && o.limit) || 25); return b; },
+        get value() { return v; } };
+    }
   }
 };
 window.__ctx = ctx;
