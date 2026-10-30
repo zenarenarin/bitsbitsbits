@@ -121,13 +121,12 @@ function createUI(ctx) {
   U.again = el('button', 'rf-b', 'AGAIN', U.results);
   U.paused = el('div', 'rf-panel'); el('div', 'rf-lab', 'paused', U.paused); el('div', 'rf-rule', '', U.paused); U.resume = el('button', 'rf-b', 'RESUME', U.paused);
 
-  let wordTimer = 0;
-  U.say = (txt, yFrac) => { U.word.textContent = txt; U.word.style.top = (yFrac * 100) + '%'; U.word.classList.remove('go'); void U.word.offsetWidth; U.word.classList.add('go'); clearTimeout(wordTimer); };
+  U.say = (txt, yFrac) => { U.word.textContent = txt; U.word.style.top = (yFrac * 100) + '%'; U.word.classList.remove('go'); void U.word.offsetWidth; U.word.classList.add('go'); };
   U.showLine = (html, yFrac) => { U.line.innerHTML = html; U.line.style.top = (yFrac * 100) + '%'; U.line.classList.add('on'); };
   U.hideLine = () => U.line.classList.remove('on');
   U.panel = p => {
     for (const x of [U.start, U.results, U.paused]) {
-      if (x === p) { x.classList.add('on'); requestAnimationFrame(() => requestAnimationFrame(() => x.classList.add('vis'))); }
+      if (x === p) { x.classList.add('on'); ctx.timeout(() => { if (x.classList.contains('on')) x.classList.add('vis'); }, 34); }
       else { x.classList.remove('on', 'vis'); }
     }
   };

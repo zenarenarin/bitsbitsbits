@@ -102,7 +102,9 @@ window.plethoraBit = {
     ctx.onDestroy(() => { destroyed = true; try { renderer.dispose(); } catch (e) { } });
 
     // ---------- the two rooms ----------
-    const T = createTextures(THREE, Math.min(8, renderer.capabilities.getMaxAnisotropy()));
+    const scratch = ctx.createCanvas2D({ layer: 'background', input: 'passthrough', willReadFrequently: true });
+    scratch.style.display = 'none';
+    const T = createTextures(THREE, Math.min(8, renderer.capabilities.getMaxAnisotropy()), scratch);
     const RM = createRoomMaterials(THREE, T);
     const CM = createCatMaterials(THREE);
     const real = new THREE.Scene(), mirror = new THREE.Scene();
@@ -323,7 +325,7 @@ window.plethoraBit = {
       if (mode !== 'play') return;
       audio.unlock();
       cat.perform(a);
-      const b = U.btn[a]; b.classList.add('down'); setTimeout(() => b.classList.remove('down'), 140);
+      const b = U.btn[a]; b.classList.add('down'); ctx.timeout(() => b.classList.remove('down'), 140);
       const r = D.input(a);
       if (r === 'wrong' || r === 'stray' || r === 'fooled') U.flashBtn(a, 'bad');
       try { ctx.platform.interact({ type: 'action', action: a }); } catch (e) { }

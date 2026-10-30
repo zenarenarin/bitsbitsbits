@@ -297,10 +297,26 @@ function createDirector(hooks, seed, tune) {
 const ROOM = { W: 2.7, D: 5.6, H: 3.3, wall: -0.06 };
 const PAL = { char: '#100e0d', brown: '#3b2a1f', bronze: '#7a5c34', grey: '#5d5b58', amber: '#ffb15c', moon: '#9fb4d0' };
 
-function createTextures(THREE, maxAniso) {
+// Textures are painted on one SDK scratch surface (ctx.createCanvas2D) and
+// copied into DataTextures, so the Bit never creates raw canvas elements.
+function createTextures(THREE, maxAniso, scratch) {
   const T = {};
-  const cv = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; };
-  const tex = (c, rep, srgb) => { const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; if (rep) t.repeat.set(rep[0], rep[1]); if (srgb !== false) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = maxAniso; return t; };
+  const cv = (w, h) => {
+    scratch.width = w; scratch.height = h;
+    const g = scratch.getContext('2d', { willReadFrequently: true });
+    g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.clearRect(0, 0, w, h);
+    return [scratch, g];
+  };
+  // snapshot the scratch pixels, flipped so row 0 is the bottom like a canvas texture
+  const snap = c => {
+    const w = c.width, h = c.height, src = c.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, w, h).data;
+    const data = new Uint8Array(w * h * 4), row = w * 4;
+    for (let y = 0; y < h; y++) data.set(src.subarray((h - 1 - y) * row, (h - y) * row), y * row);
+    const t = new THREE.DataTexture(data, w, h, THREE.RGBAFormat);
+    t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true; t.needsUpdate = true;
+    return t;
+  };
+  const tex = (c, rep, srgb) => { const t = snap(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; if (rep) t.repeat.set(rep[0], rep[1]); if (srgb !== false) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = maxAniso; return t; };
   const rng = makeRng(11);
   // dark floorboards, 8 planks per tile, grain, gaps and wear
   {
@@ -369,11 +385,11 @@ function createTextures(THREE, maxAniso) {
     for (let k = 0; k < 3000; k++) { const v = Math.floor(rng() * 255); g.fillStyle = `rgba(${v},${v},${v},0.25)`; g.beginPath(); g.arc(rng() * 256, rng() * 256, 1 + rng() * 6, 0, TAU); g.fill(); }
     T.patina = tex(c, [2, 2], false);
   }
-  const radial = (stops, size) => { const [c, g] = cv(size || 128, size || 128); const s = (size || 128) / 2; const gr = g.createRadialGradient(s, s, 0, s, s, s); for (const [o, col] of stops) gr.addColorStop(o, col); g.fillStyle = gr; g.fillRect(0, 0, s * 2, s * 2); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
+  const radial = (stops, size) => { const [c, g] = cv(size || 128, size || 128); const s = (size || 128) / 2; const gr = g.createRadialGradient(s, s, 0, s, s, s); for (const [o, col] of stops) gr.addColorStop(o, col); g.fillStyle = gr; g.fillRect(0, 0, s * 2, s * 2); const t = snap(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
   T.glow = radial([[0, 'rgba(255,255,255,1)'], [0.25, 'rgba(255,255,255,0.45)'], [1, 'rgba(255,255,255,0)']]);
   T.shadow = radial([[0, 'rgba(0,0,0,0.85)'], [0.5, 'rgba(0,0,0,0.45)'], [1, 'rgba(0,0,0,0)']]);
-  T.flame = (() => { const [c, g] = cv(64, 128); const gr = g.createRadialGradient(32, 92, 2, 32, 80, 50); gr.addColorStop(0, 'rgba(255,250,230,1)'); gr.addColorStop(0.25, 'rgba(255,200,110,0.95)'); gr.addColorStop(0.6, 'rgba(230,110,30,0.35)'); gr.addColorStop(1, 'rgba(120,40,0,0)'); g.fillStyle = gr; g.beginPath(); g.moveTo(32, 4); g.bezierCurveTo(52, 50, 54, 92, 32, 120); g.bezierCurveTo(10, 92, 12, 50, 32, 4); g.fill(); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
-  T.beam = (() => { const [c, g] = cv(64, 256); const gr = g.createLinearGradient(0, 0, 0, 256); gr.addColorStop(0, 'rgba(255,255,255,0.9)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 256); const h = g.createLinearGradient(0, 0, 64, 0); h.addColorStop(0, 'rgba(0,0,0,1)'); h.addColorStop(0.3, 'rgba(0,0,0,0)'); h.addColorStop(0.7, 'rgba(0,0,0,0)'); h.addColorStop(1, 'rgba(0,0,0,1)'); g.globalCompositeOperation = 'destination-out'; g.fillStyle = h; g.fillRect(0, 0, 64, 256); return new THREE.CanvasTexture(c); })();
+  T.flame = (() => { const [c, g] = cv(64, 128); const gr = g.createRadialGradient(32, 92, 2, 32, 80, 50); gr.addColorStop(0, 'rgba(255,250,230,1)'); gr.addColorStop(0.25, 'rgba(255,200,110,0.95)'); gr.addColorStop(0.6, 'rgba(230,110,30,0.35)'); gr.addColorStop(1, 'rgba(120,40,0,0)'); g.fillStyle = gr; g.beginPath(); g.moveTo(32, 4); g.bezierCurveTo(52, 50, 54, 92, 32, 120); g.bezierCurveTo(10, 92, 12, 50, 32, 4); g.fill(); const t = snap(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
+  T.beam = (() => { const [c, g] = cv(64, 256); const gr = g.createLinearGradient(0, 0, 0, 256); gr.addColorStop(0, 'rgba(255,255,255,0.9)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 256); const h = g.createLinearGradient(0, 0, 64, 0); h.addColorStop(0, 'rgba(0,0,0,1)'); h.addColorStop(0.3, 'rgba(0,0,0,0)'); h.addColorStop(0.7, 'rgba(0,0,0,0)'); h.addColorStop(1, 'rgba(0,0,0,1)'); g.globalCompositeOperation = 'destination-out'; g.fillStyle = h; g.fillRect(0, 0, 64, 256); return snap(c); })();
   return T;
 }
 
@@ -1044,13 +1060,12 @@ function createUI(ctx) {
   U.again = el('button', 'rf-b', 'AGAIN', U.results);
   U.paused = el('div', 'rf-panel'); el('div', 'rf-lab', 'paused', U.paused); el('div', 'rf-rule', '', U.paused); U.resume = el('button', 'rf-b', 'RESUME', U.paused);
 
-  let wordTimer = 0;
-  U.say = (txt, yFrac) => { U.word.textContent = txt; U.word.style.top = (yFrac * 100) + '%'; U.word.classList.remove('go'); void U.word.offsetWidth; U.word.classList.add('go'); clearTimeout(wordTimer); };
+  U.say = (txt, yFrac) => { U.word.textContent = txt; U.word.style.top = (yFrac * 100) + '%'; U.word.classList.remove('go'); void U.word.offsetWidth; U.word.classList.add('go'); };
   U.showLine = (html, yFrac) => { U.line.innerHTML = html; U.line.style.top = (yFrac * 100) + '%'; U.line.classList.add('on'); };
   U.hideLine = () => U.line.classList.remove('on');
   U.panel = p => {
     for (const x of [U.start, U.results, U.paused]) {
-      if (x === p) { x.classList.add('on'); requestAnimationFrame(() => requestAnimationFrame(() => x.classList.add('vis'))); }
+      if (x === p) { x.classList.add('on'); ctx.timeout(() => { if (x.classList.contains('on')) x.classList.add('vis'); }, 34); }
       else { x.classList.remove('on', 'vis'); }
     }
   };
@@ -1196,7 +1211,9 @@ window.plethoraBit = {
     ctx.onDestroy(() => { destroyed = true; try { renderer.dispose(); } catch (e) { } });
 
     // ---------- the two rooms ----------
-    const T = createTextures(THREE, Math.min(8, renderer.capabilities.getMaxAnisotropy()));
+    const scratch = ctx.createCanvas2D({ layer: 'background', input: 'passthrough', willReadFrequently: true });
+    scratch.style.display = 'none';
+    const T = createTextures(THREE, Math.min(8, renderer.capabilities.getMaxAnisotropy()), scratch);
     const RM = createRoomMaterials(THREE, T);
     const CM = createCatMaterials(THREE);
     const real = new THREE.Scene(), mirror = new THREE.Scene();
@@ -1417,7 +1434,7 @@ window.plethoraBit = {
       if (mode !== 'play') return;
       audio.unlock();
       cat.perform(a);
-      const b = U.btn[a]; b.classList.add('down'); setTimeout(() => b.classList.remove('down'), 140);
+      const b = U.btn[a]; b.classList.add('down'); ctx.timeout(() => b.classList.remove('down'), 140);
       const r = D.input(a);
       if (r === 'wrong' || r === 'stray' || r === 'fooled') U.flashBtn(a, 'bad');
       try { ctx.platform.interact({ type: 'action', action: a }); } catch (e) { }
