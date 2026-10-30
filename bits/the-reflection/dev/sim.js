@@ -58,4 +58,14 @@ const a2 = play(skilled, 3, 60), a3 = play(skilled, 3, 60);
 ok(JSON.stringify(a2.reflect) === JSON.stringify(a3.reflect) || true, 'deterministic queue (bot rng differs per run)');
 const x = make.createDirector({}, 9); for (let i = 0; i < 1100; i++) x.update(1 / 60); ok(x.sync === 100, 'idle phase 1 keeps sync at 100');
 x.input('sit'); ok(x.prompts.length >= 0, 'input during lead ok');
+// creator tuning: a later takeover shifts every level, wider windows widen grading
+{
+  let firstLead = null;
+  const t = make.createDirector({ reflect(a, k) { if (k === 'lead' && firstLead === null) firstLead = t.t; } }, 4, { takeover: 30, window: 1.3, feint: 0 });
+  for (let i = 0; i < 60 * 45; i++) t.update(1 / 60);
+  ok(firstLead > 30 && firstLead < 31.5, 'takeover_seconds moves the first lead to ' + (firstLead && firstLead.toFixed(2)));
+  ok(Math.abs(t.config.windows.perfect - 0.65) < 1e-9, 'response_window scales the timing windows');
+  ok(t.config.levels[2].at === 30 && t.config.survivalAt === 90, 'levels shift with the takeover');
+  ok(make.CONFIG.initiativeAt === 20 && make.CONFIG.windows.perfect === 0.5, 'tuning never mutates the shared config');
+}
 process.exit(fails ? 1 : 0);

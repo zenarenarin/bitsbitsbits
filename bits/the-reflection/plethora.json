@@ -4,13 +4,94 @@
   "entry": "main.js",
   "title": "The Reflection",
   "description": "A small black cat, an antique mirror, and a reflection that slowly stops following. Keep in sync with it for as long as you can.",
-  "tags": ["arcade", "horror", "3d", "rhythm", "endless"],
-  "permissions": ["haptics", "audio", "storage"],
-  "dependencies": ["three@0.164.1"],
+  "tags": [
+    "arcade",
+    "horror",
+    "3d",
+    "rhythm",
+    "endless"
+  ],
+  "permissions": [
+    "haptics",
+    "audio",
+    "storage"
+  ],
+  "dependencies": [
+    "three@0.164.1"
+  ],
+  "display": "fullscreen",
   "onboarding": {
     "kind": "one_line",
     "version": 1,
     "message": "Move with 1–5 or the buttons. When it moves first, copy it."
+  },
+  "tuning": {
+    "schemaVersion": 1,
+    "groups": {
+      "difficulty": {
+        "label": "Difficulty"
+      },
+      "feel": {
+        "label": "Feel"
+      }
+    },
+    "knobs": {
+      "response_window": {
+        "label": "Response window",
+        "type": "number",
+        "default": 1,
+        "min": 0.7,
+        "max": 1.4,
+        "step": 0.05,
+        "group": "difficulty",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "takeover_seconds": {
+        "label": "Reflection takes over at (s)",
+        "type": "integer",
+        "default": 20,
+        "min": 10,
+        "max": 40,
+        "step": 1,
+        "group": "difficulty",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "feint_rate": {
+        "label": "Feint frequency",
+        "type": "number",
+        "default": 1,
+        "min": 0,
+        "max": 2,
+        "step": 0.1,
+        "group": "difficulty",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "camera_shake": {
+        "label": "Camera shake",
+        "type": "percent",
+        "default": 1,
+        "min": 0,
+        "max": 1,
+        "step": 0.05,
+        "group": "feel",
+        "intent": "feel",
+        "apply": "live"
+      },
+      "mirror_distortion": {
+        "label": "Mirror distortion",
+        "type": "percent",
+        "default": 1,
+        "min": 0,
+        "max": 1,
+        "step": 0.05,
+        "group": "feel",
+        "intent": "visual",
+        "apply": "live"
+      }
+    }
   },
   "memory": {
     "records": {
@@ -19,8 +100,15 @@
         "valueType": "number",
         "order": "desc",
         "format": "integer",
-        "periods": ["daily", "weekly", "all_time"],
-        "scopes": ["following", "global"],
+        "periods": [
+          "daily",
+          "weekly",
+          "all_time"
+        ],
+        "scopes": [
+          "following",
+          "global"
+        ],
         "dedupe": "best_per_user"
       }
     }

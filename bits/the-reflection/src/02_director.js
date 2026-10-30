@@ -10,8 +10,19 @@
 // hooks.phase(n), hooks.level(n), hooks.warn(state), hooks.milestone(id), hooks.over()
 // =====================================================================
 
-function createDirector(hooks, seed) {
-  const C = CONFIG;
+function createDirector(hooks, seed, tune) {
+  // creator tuning reshapes a copy of the config for this run only
+  tune = tune || {};
+  const C = Object.assign({}, CONFIG);
+  const shift = (tune.takeover || CONFIG.initiativeAt) - CONFIG.initiativeAt;
+  if (shift) {
+    C.initiativeAt = CONFIG.initiativeAt + shift; C.follow = Object.assign({}, CONFIG.follow, { until: CONFIG.follow.until + shift });
+    C.levels = CONFIG.levels.map((l, i) => i < 2 ? (i === 1 ? { at: Math.min(l.at, C.initiativeAt - 2), name: l.name } : l) : { at: l.at + shift, name: l.name });
+    C.intruderAt = CONFIG.intruderAt + shift; C.survivalAt = CONFIG.survivalAt + shift;
+    C.pair = Object.assign({}, CONFIG.pair, { from: CONFIG.pair.from + shift }); C.triple = Object.assign({}, CONFIG.triple, { from: CONFIG.triple.from + shift });
+  }
+  if (tune.window) C.windows = { perfect: CONFIG.windows.perfect * tune.window, good: CONFIG.windows.good * tune.window, miss: CONFIG.windows.miss * tune.window };
+  if (tune.feint !== undefined) C.feint = Object.assign({}, CONFIG.feint, { chance: CONFIG.feint.chance * tune.feint, chanceMax: CONFIG.feint.chanceMax * tune.feint });
   const rng = makeRng(seed || 1);
   const D = {
     t: 0, sync: C.sync.start, score: 0, streak: 0, bestStreak: 0, perfectStreak: 0,
@@ -193,5 +204,6 @@ function createDirector(hooks, seed) {
     }
   };
   D.pending = () => D.prompts.find(q => !q.resolved && q.started) || null;
+  D.config = C;
   return D;
 }

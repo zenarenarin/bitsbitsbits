@@ -9,7 +9,7 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
   const b = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const p = await b.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1, hasTouch: W < 600, isMobile: W < 600 });
   const errs = []; p.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') errs.push(m.text()); }); p.on('pageerror', e => errs.push(String(e)));
-  await p.goto(`http://localhost:${port}/dev/index.html`);
+  await p.goto(`http://localhost:${port}/dev/index.html${process.env.QS || ''}`);
   await p.waitForFunction(() => window.__ready || window.__initError, null, { timeout: 60000 });
   const ie = await p.evaluate(() => window.__initError); if (ie) console.log('INIT', ie);
   const shot = async n => { await p.screenshot({ path: `${out}/${n}.png` }); console.log('shot', n); };
@@ -26,6 +26,21 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       await p.evaluate(() => { window.__rf.act('stand'); window.__rf.advance(1.0); }); await shot('both_stand');
       await p.evaluate(() => { window.__rf.act('jump'); window.__rf.advance(0.36); }); await shot('real_jump');
       await p.evaluate(() => window.__rf.advance(0.7)); await shot('refl_jump');
+    },
+    async results() {
+      // a quick loss, the result screen with its board, then a real tap on AGAIN
+      await p.evaluate(() => window.__rf.begin());
+      await p.evaluate(() => { const rf = window.__rf; for (let i = 0; i < 60 * 70 && rf.mode !== 'results'; i++) rf.frame(1 / 60, true); rf.frame(1 / 60); });
+      await p.waitForTimeout(1500); await shot('results');
+      console.log('board', await p.evaluate(() => document.querySelector('.rf-board').textContent));
+      const box = await p.evaluate(() => { const r = document.querySelector('.rf-panel.on .rf-b').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+      if (W < 600) await p.touchscreen.tap(box.x, box.y); else await p.mouse.click(box.x, box.y);
+      await p.waitForTimeout(300);
+      console.log('after AGAIN', await p.evaluate(() => window.__rf.mode));
+      // real taps on two action buttons
+      for (const i of [0, 3]) { const b = await p.evaluate(i => { const r = document.querySelectorAll('.rf-act')[i].getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }, i); if (W < 600) await p.touchscreen.tap(b.x, b.y); else await p.mouse.click(b.x, b.y); await p.waitForTimeout(200); }
+      console.log('real cat pose', await p.evaluate(() => window.__rf.cat.base));
+      await p.evaluate(() => window.__rf.advance(0.8)); await shot('play');
     },
     async poses() {
       // side and front close-ups of both cats in every pose

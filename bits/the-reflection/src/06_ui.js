@@ -61,6 +61,10 @@ const UI_CSS = `
 .rf-res .rf-num{font-size:24px;margin-bottom:6px}
 .rf-res .rf-lab{opacity:.55}
 .rf-res .big .rf-num{font-size:44px}
+.rf-board{min-height:58px;margin:-8px 0 22px;text-align:center;font-size:12px;line-height:1.6;color:var(--dim)}
+.rf-board .row{display:flex;gap:14px;justify-content:center;font-variant-numeric:tabular-nums}
+.rf-board .row b{font-family:'DM Serif Display',Georgia,serif;font-weight:400;color:#d9cdb8;min-width:22px;text-align:right}
+.rf-board .you{color:var(--amber);margin-top:4px}
 .rf-new{color:var(--amber);opacity:.9;margin-bottom:10px;min-height:12px}
 .rf-head{opacity:.6;margin-bottom:18px}
 .rf-shade{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 45%,rgba(0,0,0,0) 30%,rgba(0,0,0,.55) 100%);opacity:0;transition:opacity 1.2s}
@@ -113,6 +117,7 @@ function createUI(ctx) {
   U.resHead = el('div', 'rf-head rf-lab', 'The reflection escaped', U.results);
   U.resNew = el('div', 'rf-new rf-lab', '', U.results);
   U.resStats = el('div', 'rf-res', '', U.results);
+  U.board = el('div', 'rf-board', '', U.results);
   U.again = el('button', 'rf-b', 'AGAIN', U.results);
   U.paused = el('div', 'rf-panel'); el('div', 'rf-lab', 'paused', U.paused); el('div', 'rf-rule', '', U.paused); U.resume = el('button', 'rf-b', 'RESUME', U.paused);
 
@@ -141,15 +146,24 @@ function createUI(ctx) {
     if (cache.k !== k) { cache.k = k; U.streak.textContent = k; U.streak.classList.toggle('on', !!k); }
   };
   U.flashBtn = (a, cls) => { const b = U.btn[a]; if (!b) return; b.classList.remove('ok', 'bad'); void b.offsetWidth; b.classList.add(cls); };
-  U.layout = (w, h, safe) => {
-    const top = (safe && safe.top) || 0, bot = (safe && safe.bottom) || 0;
+  // area is ctx.contentSafeArea ?? ctx.safeArea: clear of the cutout, the home
+  // indicator and Plethora's logo button. Only the scene runs edge to edge.
+  U.layout = (w, h, area) => {
+    const top = (area && area.top) || 0, bot = (area && area.bottom) || 0, left = (area && area.left) || 0, right = (area && area.right) || 0;
     U.top.style.paddingTop = (14 + top) + 'px';
+    U.top.style.left = (16 + left) + 'px'; U.top.style.right = (16 + right) + 'px';
+    U.sync.style.left = (16 + left) + 'px';
+    U.pad.style.paddingLeft = (16 + left) + 'px'; U.pad.style.paddingRight = (16 + right) + 'px';
+    for (const p of [U.start, U.results, U.paused]) { p.style.paddingTop = top + 'px'; p.style.paddingBottom = bot + 'px'; }
+    w -= left + right;
     const narrow = w < 520;
     const bs = Math.round(clamp((w - 32 - 4 * 10) / 5, 50, narrow ? 64 : 62));
     const gap = Math.round(clamp((w - 32 - bs * 5) / 4, 8, 18));
     U.pad.style.setProperty('--bs', bs + 'px'); U.pad.style.setProperty('--gap', gap + 'px');
-    U.pad.style.paddingBottom = (bot + (narrow ? 18 : 30)) + 'px';
-    U.padH = bs + bot + (narrow ? 18 : 30) + 10;
+    const lift = bot > 40 ? 8 : (narrow ? 18 : 30);
+    U.pad.style.paddingBottom = (bot + lift) + 'px';
+    U.padH = bs + bot + lift + 10;
+    U.safeTop = top;
   };
   return U;
 }

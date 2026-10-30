@@ -4,6 +4,20 @@ A 3D psychological-horror arcade Bit for Plethora (`plethora-bit@2`, three.js 0.
 
 **One endless run, no rounds and no breaks.** The three phases flow into each other on a clock. The only text is two lines: *At first, it follows you.* at the start and *Then it doesn't.* when the reflection takes over. After that the room says the rest: the candle gutters, the glass warps, the drone tightens. Past 80 s the run keeps going and keeps escalating, with floors so it stays fair.
 
+## Plethora contract
+
+Built against the agent context **`plethora-agent-context-2026-10-22.1`** (SDK 1.7.0), fetched from <https://agent.plethora.studio/v1/agent/context.md>. Fetch it again before any upload and send that version as `agentFeedback.contextVersion`; an upload built against an older context is refused with `409 context_outdated`.
+
+- **`"display": "fullscreen"`** (required to publish). The scene runs edge to edge. The HUD, the action buttons and every screen are laid out from `ctx.contentSafeArea ?? ctx.safeArea`, so they stay clear of the camera cutout, the home indicator and Plethora's logo button.
+- **Onboarding:** `one_line`.
+- **Dependency:** `three@0.164.1`, the approved registry pin. Fonts (DM Serif Display in roman and italic, Nunito Sans 700) come from the font registry through `ctx.loadFont`.
+- **Score:** kept on `ctx.game.score()` and submitted once per run to the `score` record. The results screen shows the top three and your own rank from that same board. Replay never waits for it.
+- **Pulse:** a run that survives 80 s ends with `ctx.pulse.complete` on the results screen.
+- **Storage:** used synchronously, for the best score and the mute setting.
+- **Creator tuning (Draft Tools):**
+  - `response_window`, `takeover_seconds` and `feint_rate` apply on restart.
+  - `camera_shake` and `mirror_distortion` apply live.
+
 ## Controls
 
 | Action | Keyboard | Touch |
@@ -74,6 +88,7 @@ When the reflection escapes, it stops pretending: it stares, turns from the glas
 node build.js
 mkdir -p dev/vendor && curl -sS -o dev/vendor/three.module.js https://libs.plethora.studio/three/0.164.1/three.module.js
 python3 -m http.server 8765        # from this folder, then open http://localhost:8765/dev/index.html
+# add ?fullscreen to emulate a full-screen iPhone 17 Pro (insets and the logo button)
 ```
 
 ## Tests
@@ -84,4 +99,5 @@ node dev/shoot.js <outdir> 1280 800 basic    # screenshots of all five actions, 
 node dev/shoot.js <outdir> 390 844 basic     # the same on a phone
 node dev/shoot.js <outdir> 1280 800 long     # 85 s bot run through every phase, escape, results, AGAIN
 node dev/shoot.js <outdir> 900 600 poses     # side close-ups of every pose
+QS='?fullscreen' node dev/shoot.js <outdir> 402 874 results   # full-screen phone: result board, real taps on AGAIN and the action buttons
 ```

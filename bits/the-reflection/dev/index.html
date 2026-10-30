@@ -11,6 +11,7 @@
 </head>
 <body>
 <div id="bit"></div>
+<div id="logo" style="position:absolute;display:none;border-radius:50%;background:rgba(255,255,255,.85);pointer-events:none;z-index:99"></div>
 <script>window.__REFLECTION_DEV = true;</script>
 <script src="../main.js"></script>
 <script type="module">
@@ -23,7 +24,13 @@ const ctx = {
   get height() { return host.clientHeight; },
   dpr: Math.min(2, window.devicePixelRatio || 1),
   nativeDpr: window.devicePixelRatio || 1,
-  safeArea: { top: 0, bottom: 0, left: 0, right: 0 },
+  // ?fullscreen emulates a full-screen Bit on an iPhone 17 Pro, logo button included
+  safeArea: location.search.includes('fullscreen') ? { top: 62, right: 0, bottom: 34, left: 0 } : { top: 0, bottom: 120, left: 0, right: 0 },
+  contentSafeArea: location.search.includes('fullscreen') ? { top: 62, right: 0, bottom: 108.5, left: 0 } : undefined,
+  get logoArea() { return location.search.includes('fullscreen') ? { x: host.clientWidth / 2 - 28, y: host.clientHeight - 34 - 64, width: 56, height: 56 } : undefined; },
+  input: { activate(el, fn) { el.addEventListener('click', fn); cleanups.push(() => el.removeEventListener('click', fn)); } },
+  tune: { number(id) { const m = { response_window: 1, takeover_seconds: 20, feint_rate: 1, camera_shake: 1, mirror_distortion: 1 }; return m[id]; } },
+  pulse: { complete(o) { window.__pulse = o; } },
   capabilities: { audio: true, backgroundMusic: true, haptics: true, storage: true },
   container: host,
   createCanvas2D(opts) { const c = document.createElement('canvas'); c.style.cssText = 'position:absolute;inset:0;pointer-events:none'; host.appendChild(c); return c; },
@@ -42,10 +49,11 @@ const ctx = {
   platform: { error(p) { window.__platformError = p; }, ready() { window.__ready = true; }, start() {}, interact() {}, milestone() {}, fail(p) { window.__failed = p; }, complete() {}, haptic() {}, setScore() {}, emit() {} },
   game: {
     loop(o) { let last = performance.now(); const f = t => { o.update && o.update(Math.min(100, t - last)); last = t; requestAnimationFrame(f); }; requestAnimationFrame(f); return {}; },
-    score() { let v = 0; return { set: x => { v = x; }, reset: () => { v = 0; }, submit: async () => ({ ok: true }), get value() { return v; } }; }
+    score() { let v = 0; return { set: x => { v = x; }, reset: () => { v = 0; }, submit: async () => ({ submitted: true }), leaderboard: async () => ({ rows: [{ rank: 1, value: 52310, displayLabel: '52,310 pts' }, { rank: 2, value: v, displayLabel: v.toLocaleString() + ' pts' }], viewerRank: { rank: 2 } }), get value() { return v; } }; }
   }
 };
 window.__ctx = ctx;
+if (ctx.logoArea) { const l = ctx.logoArea, e = document.getElementById('logo'); Object.assign(e.style, { display: 'block', left: l.x + 'px', top: l.y + 'px', width: l.width + 'px', height: l.height + 'px' }); }
 window.plethoraBit.init(ctx).catch(e => { console.error(e); window.__initError = String(e && e.stack || e); });
 </script>
 </body>

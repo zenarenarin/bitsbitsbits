@@ -1,3 +1,4 @@
+// Plethora Bit · docs and draft upload: https://agent.plethora.studio/v1/agent/start.md
 // THE REFLECTION — a 3D psychological horror arcade for Plethora.
 // Built from src/ by build.js; edit the sources, not this file.
 (function () {
@@ -87,8 +88,19 @@ function makeRng(seed) {
 // hooks.phase(n), hooks.level(n), hooks.warn(state), hooks.milestone(id), hooks.over()
 // =====================================================================
 
-function createDirector(hooks, seed) {
-  const C = CONFIG;
+function createDirector(hooks, seed, tune) {
+  // creator tuning reshapes a copy of the config for this run only
+  tune = tune || {};
+  const C = Object.assign({}, CONFIG);
+  const shift = (tune.takeover || CONFIG.initiativeAt) - CONFIG.initiativeAt;
+  if (shift) {
+    C.initiativeAt = CONFIG.initiativeAt + shift; C.follow = Object.assign({}, CONFIG.follow, { until: CONFIG.follow.until + shift });
+    C.levels = CONFIG.levels.map((l, i) => i < 2 ? (i === 1 ? { at: Math.min(l.at, C.initiativeAt - 2), name: l.name } : l) : { at: l.at + shift, name: l.name });
+    C.intruderAt = CONFIG.intruderAt + shift; C.survivalAt = CONFIG.survivalAt + shift;
+    C.pair = Object.assign({}, CONFIG.pair, { from: CONFIG.pair.from + shift }); C.triple = Object.assign({}, CONFIG.triple, { from: CONFIG.triple.from + shift });
+  }
+  if (tune.window) C.windows = { perfect: CONFIG.windows.perfect * tune.window, good: CONFIG.windows.good * tune.window, miss: CONFIG.windows.miss * tune.window };
+  if (tune.feint !== undefined) C.feint = Object.assign({}, CONFIG.feint, { chance: CONFIG.feint.chance * tune.feint, chanceMax: CONFIG.feint.chanceMax * tune.feint });
   const rng = makeRng(seed || 1);
   const D = {
     t: 0, sync: C.sync.start, score: 0, streak: 0, bestStreak: 0, perfectStreak: 0,
@@ -270,6 +282,7 @@ function createDirector(hooks, seed) {
     }
   };
   D.pending = () => D.prompts.find(q => !q.resolved && q.started) || null;
+  D.config = C;
   return D;
 }
 
@@ -971,6 +984,10 @@ const UI_CSS = `
 .rf-res .rf-num{font-size:24px;margin-bottom:6px}
 .rf-res .rf-lab{opacity:.55}
 .rf-res .big .rf-num{font-size:44px}
+.rf-board{min-height:58px;margin:-8px 0 22px;text-align:center;font-size:12px;line-height:1.6;color:var(--dim)}
+.rf-board .row{display:flex;gap:14px;justify-content:center;font-variant-numeric:tabular-nums}
+.rf-board .row b{font-family:'DM Serif Display',Georgia,serif;font-weight:400;color:#d9cdb8;min-width:22px;text-align:right}
+.rf-board .you{color:var(--amber);margin-top:4px}
 .rf-new{color:var(--amber);opacity:.9;margin-bottom:10px;min-height:12px}
 .rf-head{opacity:.6;margin-bottom:18px}
 .rf-shade{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 45%,rgba(0,0,0,0) 30%,rgba(0,0,0,.55) 100%);opacity:0;transition:opacity 1.2s}
@@ -1023,6 +1040,7 @@ function createUI(ctx) {
   U.resHead = el('div', 'rf-head rf-lab', 'The reflection escaped', U.results);
   U.resNew = el('div', 'rf-new rf-lab', '', U.results);
   U.resStats = el('div', 'rf-res', '', U.results);
+  U.board = el('div', 'rf-board', '', U.results);
   U.again = el('button', 'rf-b', 'AGAIN', U.results);
   U.paused = el('div', 'rf-panel'); el('div', 'rf-lab', 'paused', U.paused); el('div', 'rf-rule', '', U.paused); U.resume = el('button', 'rf-b', 'RESUME', U.paused);
 
@@ -1051,15 +1069,24 @@ function createUI(ctx) {
     if (cache.k !== k) { cache.k = k; U.streak.textContent = k; U.streak.classList.toggle('on', !!k); }
   };
   U.flashBtn = (a, cls) => { const b = U.btn[a]; if (!b) return; b.classList.remove('ok', 'bad'); void b.offsetWidth; b.classList.add(cls); };
-  U.layout = (w, h, safe) => {
-    const top = (safe && safe.top) || 0, bot = (safe && safe.bottom) || 0;
+  // area is ctx.contentSafeArea ?? ctx.safeArea: clear of the cutout, the home
+  // indicator and Plethora's logo button. Only the scene runs edge to edge.
+  U.layout = (w, h, area) => {
+    const top = (area && area.top) || 0, bot = (area && area.bottom) || 0, left = (area && area.left) || 0, right = (area && area.right) || 0;
     U.top.style.paddingTop = (14 + top) + 'px';
+    U.top.style.left = (16 + left) + 'px'; U.top.style.right = (16 + right) + 'px';
+    U.sync.style.left = (16 + left) + 'px';
+    U.pad.style.paddingLeft = (16 + left) + 'px'; U.pad.style.paddingRight = (16 + right) + 'px';
+    for (const p of [U.start, U.results, U.paused]) { p.style.paddingTop = top + 'px'; p.style.paddingBottom = bot + 'px'; }
+    w -= left + right;
     const narrow = w < 520;
     const bs = Math.round(clamp((w - 32 - 4 * 10) / 5, 50, narrow ? 64 : 62));
     const gap = Math.round(clamp((w - 32 - bs * 5) / 4, 8, 18));
     U.pad.style.setProperty('--bs', bs + 'px'); U.pad.style.setProperty('--gap', gap + 'px');
-    U.pad.style.paddingBottom = (bot + (narrow ? 18 : 30)) + 'px';
-    U.padH = bs + bot + (narrow ? 18 : 30) + 10;
+    const lift = bot > 40 ? 8 : (narrow ? 18 : 30);
+    U.pad.style.paddingBottom = (bot + lift) + 'px';
+    U.padH = bs + bot + lift + 10;
+    U.safeTop = top;
   };
   return U;
 }
@@ -1130,9 +1157,9 @@ window.plethoraBit = {
     const caps = ctx.capabilities || {};
     let destroyed = false;
     let save = { best: 0, muted: false, runs: 0 };
-    const applySave = s => { if (s && typeof s === 'object') save = Object.assign(save, s); };
-    try { const s = caps.storage && ctx.storage ? ctx.storage.get(SAVE_KEY) : null; if (s && typeof s.then === 'function') s.then(v => { applySave(v); refreshBest(); }).catch(() => { }); else applySave(s); } catch (e) { }
-    const persist = () => { try { if (caps.storage && ctx.storage) { const r = ctx.storage.set(SAVE_KEY, save); if (r && r.catch) r.catch(() => { }); } } catch (e) { } };
+    // ctx.storage is synchronous: get returns the value or null, set returns nothing
+    try { const s = caps.storage && ctx.storage ? ctx.storage.get(SAVE_KEY) : null; if (s && typeof s === 'object') save = Object.assign(save, s); } catch (e) { }
+    const persist = () => { try { if (caps.storage && ctx.storage) ctx.storage.set(SAVE_KEY, save); } catch (e) { } };
 
     // ---------- first frame: DOM shell ----------
     const canvas = ctx.createCanvas({ touchAction: 'none', layer: 'content' });
@@ -1144,6 +1171,7 @@ window.plethoraBit = {
     refreshBest();
     if (ctx.markVisualReady) ctx.markVisualReady('title');
     try { ctx.loadFont('DM Serif Display', 'dm-serif-display', '1.0.0', { weight: '400', style: 'normal' }).catch(() => { }); } catch (e) { }
+    try { ctx.loadFont('DM Serif Display', 'dm-serif-display', '1.0.0', { weight: '400', style: 'italic' }).catch(() => { }); } catch (e) { }
     try { ctx.loadFont('Nunito Sans', 'nunito-sans', '1.0.0', { weight: '700', style: 'normal' }).catch(() => { }); } catch (e) { }
     function bootFail(stage, err) {
       try { ctx.platform.error({ stage, message: String((err && err.message) || err) }); } catch (e) { }
@@ -1246,6 +1274,9 @@ window.plethoraBit = {
     audio.setMuted(!!save.muted); U.setMuted(!!save.muted);
     ctx.onDestroy(() => audio.close());
     const scoreTrack = ctx.game && ctx.game.score ? ctx.game.score() : null;
+    // creator tuning (draft tools); published playback reads the manifest defaults
+    const tn = (id, d) => { try { const v = ctx.tune && ctx.tune.number(id); return typeof v === 'number' && isFinite(v) ? v : d; } catch (e) { return d; } };
+    const BOARD = { scope: 'global', period: 'all_time' };
     const haptic = k => { try { if (caps.haptics) ctx.platform.haptic(k); } catch (e) { } };
     cat.onStep = a => audio.catMove(a);
 
@@ -1313,8 +1344,8 @@ window.plethoraBit = {
       if (mode === 'play') return;
       audio.unlock(); audio.click();
       resetWorld();
-      D = createDirector(hooks(), (Date.now() & 0xffff) + 1);
-      run = { cue: null, firstLead: false, lineOff: 3.6, markOff: 0, over: 0, idle: 0, glance: 3 + Math.random() * 3, creak: 6 };
+      D = createDirector(hooks(), (Date.now() & 0xffff) + 1, { window: tn('response_window', 1), takeover: Math.round(tn('takeover_seconds', CONFIG.initiativeAt)), feint: tn('feint_rate', 1) });
+      run = { attempt: (run ? run.attempt : 0) + 1, cue: null, firstLead: false, lineOff: 3.6, markOff: 0, over: 0, idle: 0, glance: 3 + Math.random() * 3, creak: 6 };
       mode = 'play';
       U.panel(null); U.hud(true); U.shade.classList.remove('on');
       U.showLine('At first, it follows you.', 0.36);
@@ -1338,8 +1369,11 @@ window.plethoraBit = {
       run.newBest = score > save.best;
       save.best = Math.max(save.best, score); persist();
       try { ctx.platform.fail({ score, survived: Math.floor(D.t), reason: 'escaped' }); } catch (e) { }
-      if (scoreTrack) { try { scoreTrack.set(score); scoreTrack.submit('score', { label: score.toLocaleString() + ' pts' }).catch(() => { }); } catch (e) { } }
-      else if (ctx.memory && ctx.memory.record) { try { ctx.memory.record('score').submit(score, { label: score + ' pts' }).catch(() => { }); } catch (e) { } }
+      run.submitted = false;
+      try {
+        if (scoreTrack) { scoreTrack.set(score); scoreTrack.submit('score', { label: score.toLocaleString() + ' pts' }).catch(() => { }); run.submitted = true; }
+        else if (ctx.memory && ctx.memory.record) { ctx.memory.record('score').submit(score, { label: score.toLocaleString() + ' pts' }).catch(() => { }); run.submitted = true; }
+      } catch (e) { }
     }
     function showResults() {
       mode = 'results';
@@ -1348,6 +1382,32 @@ window.plethoraBit = {
       U.resStats.innerHTML = `<div><div class="rf-num">${U.fmt(D.t)}</div><div class="rf-lab">survived</div></div><div class="big"><div class="rf-num">${Math.floor(D.score).toLocaleString()}</div><div class="rf-lab">score</div></div><div><div class="rf-num">${Math.floor(save.best).toLocaleString()}</div><div class="rf-lab">best</div></div>`;
       U.panel(U.results);
       refreshBest();
+      // surviving the full 80 s is worth a Pulse; the result screen is the image
+      if (D.survived) { try { if (ctx.pulse && ctx.pulse.complete) ctx.pulse.complete({ timeMs: Math.round(D.t * 1000), timeLabel: U.fmt(D.t), score: Math.floor(D.score), text: 'Stayed in sync for ' + U.fmt(D.t) }); } catch (e) { } }
+      refreshBoard(run.attempt);
+    }
+    // top three and the viewer's own rank; replay never waits for this
+    let cachedBoard = null;
+    function renderBoard(b, status) {
+      const rows = b && b.rows ? b.rows.slice(0, 3) : [];
+      const esc = v => String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const lines = rows.map(r => `<div class="row"><b>${esc(r.rank)}</b><span>${esc(r.displayLabel || Math.floor(r.value).toLocaleString())}</span></div>`).join('');
+      U.board.innerHTML = lines + `<div class="${status && status.you ? 'you' : ''} rf-lab">${esc(status ? status.text : '')}</div>`;
+    }
+    async function refreshBoard(attempt) {
+      const reader = scoreTrack && scoreTrack.leaderboard ? o => scoreTrack.leaderboard('score', o) : ctx.memory && ctx.memory.record ? o => ctx.memory.record('score').leaderboard(o) : null;
+      if (!reader || !run.submitted) { U.board.innerHTML = ''; return; }
+      renderBoard(cachedBoard, { text: 'updating' });
+      try {
+        const b = await reader(Object.assign({ limit: 3 }, BOARD));
+        if (destroyed || !run || run.attempt !== attempt || mode !== 'results') return;
+        cachedBoard = b;
+        const failed = b && b.checkpointStatus && b.checkpointStatus.failed;
+        renderBoard(b, failed ? { text: 'some scores were not saved' } : b && b.viewerRank && b.viewerRank.rank ? { text: 'you are #' + b.viewerRank.rank, you: true } : { text: 'not ranked yet' });
+      } catch (e) {
+        if (destroyed || !run || run.attempt !== attempt || mode !== 'results') return;
+        renderBoard(cachedBoard, { text: 'board unavailable' });
+      }
     }
     function pause() { if (mode !== 'play') return; mode = 'paused'; U.panel(U.paused); }
     function resume() { if (mode !== 'paused') return; mode = 'play'; U.panel(null); audio.unlock(); }
@@ -1376,9 +1436,8 @@ window.plethoraBit = {
     for (const a of ACTIONS) ctx.listen(U.btn[a], 'pointerdown', e => { e.preventDefault(); e.stopPropagation(); act(a); });
     function toggleMute() { save.muted = !save.muted; audio.unlock(); audio.setMuted(save.muted); U.setMuted(save.muted); persist(); }
     ctx.listen(U.mute, 'pointerdown', e => { e.preventDefault(); e.stopPropagation(); toggleMute(); });
-    ctx.listen(U.startBtn, 'click', e => { e.stopPropagation(); begin(); });
-    ctx.listen(U.again, 'click', e => { e.stopPropagation(); begin(); });
-    ctx.listen(U.resume, 'click', e => { e.stopPropagation(); resume(); });
+    const activate = (el, fn) => { if (ctx.input && ctx.input.activate) ctx.input.activate(el, e => { if (e && e.stopPropagation) e.stopPropagation(); fn(); }); else ctx.listen(el, 'click', e => { e.stopPropagation(); fn(); }); };
+    activate(U.startBtn, begin); activate(U.again, begin); activate(U.resume, resume);
     ctx.listen(window, 'blur', () => pause());
     ctx.listen(document, 'visibilitychange', () => { if (document.hidden) pause(); });
     ctx.listen(canvas, 'contextmenu', e => e.preventDefault());
@@ -1398,7 +1457,7 @@ window.plethoraBit = {
       const portrait = aspect < 0.85;
       const dist = portrait ? 3.5 : 3.3, camY = portrait ? 1.62 : 1.55;
       camBase.set(portrait ? 0.14 : 0.24, camY, dist);
-      const feetY = 1 - 2 * (1 - (U.padH + 14) / h), topY = 1 - 2 * ((portrait ? 92 : 58) / h);
+      const feetY = 1 - 2 * (1 - (U.padH + 14) / h), topY = 1 - 2 * (((portrait ? 92 : 58) + (U.safeTop || 0)) / h);
       const aFeet = Math.atan2(-camY, dist - CAT_Z - 0.18 * CAT_SCALE), aTop = Math.atan2(2.3 - camY, dist);
       const halfW = portrait ? 0.98 : 1.25;
       let fov = 2 * Math.atan(Math.tan(Math.atan(halfW / dist)) / aspect), pitch = 0;
@@ -1412,7 +1471,7 @@ window.plethoraBit = {
       camera.fov = fov * 180 / Math.PI;
       camera.updateProjectionMatrix();
     }
-    ctx.onResize(({ width, height, safeArea }) => layout(width, height, safeArea || ctx.safeArea), { immediate: true });
+    ctx.onResize(({ width, height }) => layout(width, height, ctx.contentSafeArea ?? ctx.safeArea), { immediate: true });
 
     // ---------- loop ----------
     let clock = 0;
@@ -1481,13 +1540,13 @@ window.plethoraBit = {
       G.uTime.value = clock;
       G.uRippleT.value += dt; G.uRipple.value = Math.max(0, G.uRipple.value - dt * 0.55);
       G.uGlintT.value += dt; G.uGlint.value = Math.max(0, G.uGlint.value - dt * 1.2);
-      G.uDesync.value = damp(G.uDesync.value, fx.unease * fx.unease * 1.1, 2, dt);
+      G.uDesync.value = damp(G.uDesync.value, fx.unease * fx.unease * 1.1 * tn('mirror_distortion', 1), 2, dt);
       G.uDark.value = damp(G.uDark.value, mode === 'results' || (mode === 'over' && run.over > 4.3) ? 0.35 : fx.unease * 0.12, 2, dt);
       if (mode === 'play' || mode === 'over' || mode === 'paused') audio.ambience(fx.unease);
       if (mode === 'play') { run.creak -= dt; if (run.creak < 0) { audio.creak(); run.creak = 7 + Math.random() * 10; } }
       // camera: still, with a breath of drift; a short shake on deviations
       fx.shake = Math.max(0, fx.shake - dt * 1.6);
-      const s = fx.shake * fx.shake * 0.03;
+      const s = fx.shake * fx.shake * 0.03 * tn('camera_shake', 1);
       camera.position.set(camBase.x + Math.sin(clock * 0.31) * 0.012 + (Math.random() - 0.5) * s, camBase.y + Math.sin(clock * 0.23) * 0.008 + (Math.random() - 0.5) * s, camBase.z);
       camera.lookAt(camLook);
       if (window.__rfCam) { camera.position.fromArray(window.__rfCam.pos); camera.lookAt(new THREE.Vector3().fromArray(window.__rfCam.look)); }
