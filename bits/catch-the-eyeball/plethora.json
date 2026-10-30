@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "Catch the Eyeball",
+  "description": "A 30-second Halloween arcade in an abandoned specimen cabinet. Slide a glass jar to catch bouncing, blinking eyeballs: chase the golden ones, keep up with the ones that teleport or split, and never catch the pulsing possessed ones.",
+  "tags": ["arcade", "halloween", "pixel-art", "casual"],
+  "permissions": ["haptics", "audio", "storage"],
+  "dependencies": ["three@0.164.1"],
+  "onboarding": {
+    "kind": "one_line",
+    "version": 1,
+    "message": "Drag to slide the jar. Catch the eyes, avoid the pulsing ones."
+  },
+  "memory": {
+    "records": {
+      "score": {
+        "label": "High Score",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": ["daily", "weekly", "all_time"],
+        "scopes": ["following", "global"],
+        "dedupe": "best_per_user"
+      }
+    }
+  }
+}
