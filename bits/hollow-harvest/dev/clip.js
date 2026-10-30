@@ -1,4 +1,4 @@
-// Record ~22 s of real-time play (title, then a bot run) at phone size.  node dev/clip.js <outdir>
+// Record ~22 s of real-time play (title, then a bot run).  node dev/clip.js <outdir> [width height]
 const { chromium } = require('playwright');
 const path = require('path'), http = require('http'), fs = require('fs');
 const root = path.join(__dirname, '..'), out = process.argv[2] || '/tmp/hh-clip';
@@ -6,7 +6,10 @@ fs.mkdirSync(out, { recursive: true });
 const srv = http.createServer((q, r) => { const f = path.join(root, decodeURIComponent(q.url.split('?')[0])); fs.readFile(f, (e, d) => { if (e) { r.statusCode = 404; return r.end(); } r.setHeader('content-type', f.endsWith('.html') ? 'text/html' : 'text/javascript'); r.end(d); }); });
 srv.listen(0, async () => {
   const b = await chromium.launch();
-  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, recordVideo: { dir: out, size: { width: 780, height: 1688 } } });
+  // 9:16 at 1080x1920 by default (fills a vertical video frame); pass w h to change
+  const VW = +process.argv[3] || 1080, VH = +process.argv[4] || 1920;
+  // the recorder does not scale the page, so the viewport must be exactly the video size
+  const ctx = await b.newContext({ viewport: { width: VW, height: VH }, deviceScaleFactor: 1, recordVideo: { dir: out, size: { width: VW, height: VH } } });
   const pg = await ctx.newPage();
   await pg.goto(`http://localhost:${srv.address().port}/dev/index.html`);
   await pg.waitForTimeout(2200);
