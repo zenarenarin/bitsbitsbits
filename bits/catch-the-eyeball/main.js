@@ -1,3 +1,4 @@
+// Plethora Bit · docs and draft upload: https://agent.plethora.studio/v1/agent/start.md
 // CATCH THE EYEBALL — a 30-second Halloween arcade Bit for Plethora.
 // Built from src/ by build.js; edit the sources, not this file.
 (function () {
@@ -1387,7 +1388,7 @@ const SAVE_KEY = 'cte-save';
 
 const UI_CSS = `
 .cte{position:absolute;inset:0;font-family:Inter,"Helvetica Neue",Arial,system-ui,sans-serif;color:#eadfc8;pointer-events:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
-.cte-hud{position:absolute;left:0;right:0;top:0;display:flex;justify-content:space-between;align-items:flex-start;padding:calc(var(--sat) + 14px) 18px 0;font-weight:600;font-variant-numeric:tabular-nums;opacity:0;transition:opacity .3s}
+.cte-hud{position:absolute;left:0;right:0;top:0;display:flex;justify-content:space-between;align-items:flex-start;padding:calc(var(--sat) + 10px) calc(var(--sar) + 18px) 0 calc(var(--sal) + 18px);font-weight:600;font-variant-numeric:tabular-nums;opacity:0;transition:opacity .3s}
 .cte-hud.on{opacity:1}
 .cte-time,.cte-score{font-size:var(--hud);line-height:1;letter-spacing:.01em;text-shadow:0 1px 0 #0a0407}
 .cte-time.low{color:#d9878a}
@@ -1400,31 +1401,36 @@ const UI_CSS = `
 .cte-scrim.on{opacity:1}
 .cte-screen{position:absolute;left:0;right:0;top:0;bottom:0;display:flex;flex-direction:column;align-items:center;opacity:0;visibility:hidden;transition:opacity .35s,visibility 0s .35s}
 .cte-screen.on{opacity:1;visibility:visible;transition:opacity .35s}
-.cte-title{margin-top:calc(var(--sat) + 15vh);font-weight:800;font-size:clamp(30px,9.4vw,60px);letter-spacing:.05em;line-height:1;text-align:center}
+.cte-title{margin-top:calc(var(--sat) + 15vh);font-weight:700;font-size:clamp(30px,9.4vw,60px);letter-spacing:.05em;line-height:1;text-align:center}
 .cte-title i{display:block;font-style:normal;color:#d9878a}
 .cte-btn{pointer-events:auto;font:inherit;font-weight:700;font-size:14px;letter-spacing:.2em;padding:15px 44px 15px 47px;border-radius:999px;border:0;background:#eadfc8;color:#2a0c15;cursor:pointer;box-shadow:0 2px 0 #7d6a66;transition:transform .08s}
 .cte-btn:active{transform:translateY(2px);box-shadow:none}
 .cte-play{margin-top:9vh}
 .cte-best{font-size:11px;font-weight:600;letter-spacing:.18em;color:#a08d93;margin-top:16px;min-height:14px}
-.cte-res{margin-top:calc(var(--sat) + 12vh);display:flex;flex-direction:column;align-items:center}
+.cte-res{margin-top:calc(var(--sat) + 8vh);display:flex;flex-direction:column;align-items:center}
 .cte-lab{font-size:11px;font-weight:600;letter-spacing:.22em;color:#a08d93}
-.cte-big{font-size:clamp(56px,17vw,96px);font-weight:800;line-height:1;margin:6px 0 4px;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.cte-big{font-size:clamp(56px,17vw,96px);font-weight:700;line-height:1;margin:6px 0 4px;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
 .cte-new{font-size:11px;font-weight:700;letter-spacing:.2em;color:#2a0c15;background:#d9878a;border-radius:999px;padding:4px 10px 4px 12px;opacity:0;transform:scale(.6);transition:opacity .25s,transform .25s cubic-bezier(.3,1.6,.5,1)}
 .cte-new.on{opacity:1;transform:scale(1)}
-.cte-stats{display:flex;gap:28px;margin:20px 0 26px;font-variant-numeric:tabular-nums}
+.cte-stats{display:flex;gap:28px;margin:18px 0 18px;font-variant-numeric:tabular-nums}
 .cte-stats div{display:flex;flex-direction:column;align-items:center;gap:5px}
 .cte-stats b{font-size:20px;font-weight:700}
-.cte-mute{position:absolute;right:14px;bottom:calc(var(--sab) + 14px);width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;pointer-events:auto;cursor:pointer;color:#a08d93;opacity:0;visibility:hidden;transition:opacity .3s}
+.cte-mute{position:absolute;right:calc(var(--sar) + 14px);top:calc(var(--sat) + 10px);width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;pointer-events:auto;cursor:pointer;color:#a08d93;opacity:0;visibility:hidden;transition:opacity .3s}
 .cte-mute.on{opacity:1;visibility:visible}
 .cte-mute svg{width:20px;height:20px}
-.cte-msg{margin-top:40vh;padding:0 32px;text-align:center;font-size:14px;line-height:1.5;color:#a08d93}
+.cte-board{min-height:68px;margin-bottom:20px;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:12px;font-weight:600;letter-spacing:.06em;color:#a08d93;font-variant-numeric:tabular-nums}
+.cte-board div{display:flex;gap:14px;min-width:120px;justify-content:space-between}
+.cte-board .me{color:#eadfc8}
+.cte-board .lab{letter-spacing:.22em;font-size:10px;margin-bottom:2px}
+.cte-retry{margin-top:18px}
+.cte-msg{margin-top:32vh;padding:0 32px;text-align:center;font-size:14px;line-height:1.5;color:#a08d93}
 `;
 
 const ICON_SOUND = '<svg viewBox="0 0 20 20"><path d="M3 7.5h3l4-3.5v12l-4-3.5H3z" fill="currentColor"/><path d="M13 7c1 .8 1.5 1.8 1.5 3s-.5 2.2-1.5 3M15.2 4.8C16.9 6.2 17.8 8 17.8 10s-.9 3.8-2.6 5.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
 const ICON_MUTED = '<svg viewBox="0 0 20 20"><path d="M3 7.5h3l4-3.5v12l-4-3.5H3z" fill="currentColor"/><path d="M13.5 7.5l5 5M18.5 7.5l-5 5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
 
 window.plethoraBit = {
-  meta: { title: 'Catch the Eyeball', runtime: 'plethora-bit@2', tags: ['arcade', 'halloween', 'pixel-art', 'casual'], permissions: ['haptics', 'audio', 'storage'] },
+  meta: { title: 'Catch the Eyeball', runtime: 'plethora-bit@2', tags: ['arcade', 'halloween', 'pixel-art', 'casual'], permissions: ['haptics', 'audio', 'backgroundMusic', 'storage'] },
 
   async init(ctx) {
     const caps = ctx.capabilities || {};
@@ -1461,23 +1467,41 @@ window.plethoraBit = {
     const stats = el('div', 'cte-stats', '', rc);
     const s1 = el('div', '', '', stats); H.rBest = el('b', '', '0', s1); el('span', 'cte-lab', 'BEST', s1);
     const s2 = el('div', '', '', stats); H.rCaught = el('b', '', '0', s2); el('span', 'cte-lab', 'CAUGHT', s2);
+    H.board = el('div', 'cte-board', '', rc);
     H.again = el('button', 'cte-btn', 'PLAY AGAIN', rc);
     H.mute = el('div', 'cte-mute on', save.muted ? ICON_MUTED : ICON_SOUND);
     H.play.style.visibility = 'hidden';
     if (save.best > 0) H.best.textContent = 'BEST ' + save.best;
     if (ctx.markVisualReady) try { ctx.markVisualReady('title'); } catch (e) { }
-    for (const w of ['500', '600', '700', '800']) { try { ctx.loadFont('Inter', 'inter', '1.0.0', { weight: w, style: 'normal' }).catch(() => { }); } catch (e) { } }
+    for (const w of ['400', '600', '700']) { try { ctx.loadFont('Inter', 'inter', '1.0.0', { weight: w, style: 'normal' }).catch(() => { }); } catch (e) { } }
 
+    const stageMsg = {
+      library: 'The game engine could not be downloaded. Check your connection, then try again.',
+      renderer: 'This device could not start WebGL graphics.',
+      frame: 'The first frame could not be drawn. Please reopen the game.'
+    };
+    let readySent = false;
+    const sendReady = () => { if (!readySent) { readySent = true; try { ctx.platform.ready(); } catch (e) { } } };
     function bootFail(stage, err) {
       try { ctx.platform.error({ stage, message: String((err && err.message) || err) }); } catch (e) { }
-      H.play.remove();
-      el('div', 'cte-msg', stage === 'library' ? 'The game engine could not be downloaded. Check your connection and reopen.' : 'This device could not start WebGL graphics.', H.title);
-      try { ctx.platform.ready(); } catch (e) { }
+      H.play.style.display = 'none';
+      const m = el('div', 'cte-msg', stageMsg[stage], H.title);
+      sendReady();
+      return m;
     }
 
-    let THREE;
-    try { THREE = await ctx.importModule('three', '0.164.1'); } catch (e) { bootFail('library', e); return; }
-    if (destroyed) return;
+    let THREE = null;
+    while (!THREE) {
+      try { THREE = await ctx.importModule('three', '0.164.1'); }
+      catch (e) {
+        if (destroyed) return;
+        const m = bootFail('library', e);
+        const retry = el('button', 'cte-btn cte-retry', 'TRY AGAIN', m);
+        await new Promise(res => { if (ctx.input) ctx.input.activate(retry, res); else ctx.listen(retry, 'click', res); });
+        m.remove(); H.play.style.display = '';
+      }
+      if (destroyed) return;
+    }
     let renderer;
     try { renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' }); } catch (e) { bootFail('renderer', e); return; }
     renderer.setPixelRatio(1);
@@ -1513,7 +1537,8 @@ window.plethoraBit = {
     // ---------- layout: an integer number of device pixels per art pixel ----------
     let laidOut = false;
     const world = { W: 200, H: 300, PW: 90, FLOOR: FLOOR_H, U: 1, cap: 3, k: 1, left: 0, top: 0 };
-    function layout(cssW, cssH, safe) {
+    function layout(cssW, cssH) {
+      const sa = ctx.contentSafeArea || ctx.safeArea || {};
       laidOut = true;
       cssW = Math.max(1, cssW); cssH = Math.max(1, cssH);
       const dpr = Math.min(3, ctx.nativeDpr || ctx.dpr || window.devicePixelRatio || 1);
@@ -1525,16 +1550,18 @@ window.plethoraBit = {
       world.W = W; world.H = Hh; world.k = k;
       world.left = (cssW - W * k) / 2; world.top = cssH - Hh * k;
       world.PW = Math.min(W / 2 - 2, 160);
-      world.U = (Hh - FLOOR_H) / 344;
+      // the jar is the one control, so its floor sits above the content-safe bottom edge;
+      // the stone below it is passive scenery that runs to the screen edge
+      world.FLOOR = FLOOR_H + Math.round((sa.bottom || 0) / k);
+      world.U = (Hh - world.FLOOR) / 344;
       renderer.setSize(W, Hh, false);
       canvas.style.width = (W * k) + 'px'; canvas.style.height = (Hh * k) + 'px';
       canvas.style.left = world.left + 'px'; canvas.style.top = world.top + 'px';
       camera.left = -W / 2; camera.right = W / 2; camera.top = Hh; camera.bottom = 0; camera.updateProjectionMatrix();
-      const sa = safe || {};
       ui.style.setProperty('--hud', Math.round(clamp(13 * k, 21, 32)) + 'px');
-      ui.style.setProperty('--sat', (sa.top || 0) + 'px'); ui.style.setProperty('--sab', (sa.bottom || 0) + 'px');
+      for (const [v, n] of [['--sat', sa.top], ['--sab', sa.bottom], ['--sal', sa.left], ['--sar', sa.right]]) ui.style.setProperty(v, (n || 0) + 'px');
       // repaint the room at the new size
-      const room = paintRoom(W, Hh, world.PW, FLOOR_H);
+      const room = paintRoom(W, Hh, world.PW, world.FLOOR);
       if (bg.material.map) bg.material.map.dispose();
       const t = new THREE.CanvasTexture(room.canvas);
       t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
@@ -1560,6 +1587,8 @@ window.plethoraBit = {
       kb: 0, pointerX: null, now: 0, lastTick: -1, stats: { miss: 0, split: 0, boom: 0, boomJar: 0 }
     };
     let popI = 0;
+    const scoreTrack = ctx.game && ctx.game.score ? ctx.game.score() : null;
+    let attempt = 0;
 
     function worldToCss(x, y) { return [world.left + (x + world.W / 2) * world.k, world.top + (world.H - y) * world.k]; }
     function popup(text, color, x, y) {
@@ -1577,7 +1606,7 @@ window.plethoraBit = {
       H.score.textContent = String(v);
       H.score.classList.remove('bump'); void H.score.offsetWidth; H.score.classList.add('bump');
       setTimeout(() => H.score.classList.remove('bump'), 120);
-      try { ctx.platform.setScore(v); } catch (e) { }
+      if (scoreTrack) try { scoreTrack.set(v); } catch (e) { } else try { ctx.platform.setScore(v); } catch (e) { }
     }
 
     hooks.onCatch = e => {
@@ -1705,10 +1734,53 @@ window.plethoraBit = {
       if (Math.random() < 0.5) G.gold.push(25 + Math.random() * 3);
       H.score.textContent = '0'; H.mult.classList.remove('on'); H.time.textContent = String(ROUND); H.time.classList.remove('low');
       jar.target = 0; jar.showHint(3);
-      G.pointerX = null;
+      G.pointerX = null; G.pulsed = false; G.tension = 0;
+      attempt++;
       show(null);
-      try { ctx.platform.start(); } catch (e) { }
-      try { ctx.platform.setScore(0); } catch (e) { }
+      try { ctx.platform.start({ attempt }); } catch (e) { }
+      if (scoreTrack) try { scoreTrack.reset(); } catch (e) { } else try { ctx.platform.setScore(0); } catch (e) { }
+      startMusic();
+    }
+
+    // ---------- music: a quiet spooky bed that tightens toward the end ----------
+    let music = null;
+    function startMusic() {
+      if (!caps.backgroundMusic || !ctx.music) return;
+      try {
+        ctx.music.unlock().catch(() => { });
+        if (!music) music = ctx.music.play({ preset: 'spooky', volume: save.muted ? 0 : 0.2, intensity: 0.25, tempo: 84, fadeInMs: 1800 });
+        else { music.setIntensity(0.25, { fadeMs: 600 }); music.setVolume(save.muted ? 0 : 0.2, { fadeMs: 300 }); }
+      } catch (e) { music = null; }
+    }
+    function musicIntensity(v) { if (music) try { music.setIntensity(v, { fadeMs: 1200 }); } catch (e) { } }
+    function musicSting(name) { if (music && !save.muted) try { ctx.music.sting(name).catch(() => { }); } catch (e) { } }
+
+    // ---------- result-screen leaderboard: top three and the viewer's place ----------
+    const BOARD = { scope: 'global', period: 'all_time' };
+    let boardRows = null;
+    function renderBoard(board, status) {
+      const rows = board && Array.isArray(board.rows) ? board.rows.slice(0, 3) : (boardRows || []);
+      if (board) boardRows = rows;
+      let html = '<div class="lab">' + (status || 'TOP SCORES') + '</div>';
+      for (const r of rows) html += '<div><span>#' + (r.rank | 0) + '</span><span>' + Math.round(+r.value || 0) + '</span></div>';
+      if (board && board.viewerRank && board.viewerRank.rank) html += '<div class="me"><span>YOU #' + (board.viewerRank.rank | 0) + '</span><span>' + Math.round(+board.viewerRank.value || G.score) + '</span></div>';
+      if (!rows.length && !status) html = '';
+      H.board.innerHTML = html;
+    }
+    function submitScore() {
+      const mine = attempt, final = G.score;
+      renderBoard(null, boardRows && boardRows.length ? 'UPDATING' : 'LOADING');
+      let p = null;
+      try {
+        if (scoreTrack && scoreTrack.submit) p = scoreTrack.submit('score', { label: final + ' pts' });
+        else if (ctx.memory && ctx.memory.record) p = ctx.memory.record('score').submit(final, { label: final + ' pts' });
+      } catch (e) { p = null; }
+      if (!p) { H.board.innerHTML = ''; return; }
+      const read = () => scoreTrack && scoreTrack.leaderboard ? scoreTrack.leaderboard('score', Object.assign({ limit: 3 }, BOARD)) : ctx.memory.record('score').leaderboard(Object.assign({ limit: 3 }, BOARD));
+      Promise.resolve(p).catch(() => null).then(() => read()).then(board => {
+        if (destroyed || mine !== attempt) return;
+        renderBoard(board, null);
+      }).catch(() => { if (!destroyed && mine === attempt) renderBoard(null, 'LEADERBOARD UNAVAILABLE'); });
     }
     function finish() {
       G.mode = 'result'; G.resultT = 0;
@@ -1722,8 +1794,9 @@ window.plethoraBit = {
       show('result');
       audio.over();
       haptic('success');
+      musicIntensity(0.15); musicSting(G.newBest ? 'win' : 'success');
       try { ctx.platform.complete({ score: G.score, caught: G.caught }); } catch (e) { }
-      try { const r = ctx.memory && ctx.memory.record ? ctx.memory.record('score') : null; if (r) r.submit(G.score, { label: G.score + ' pts' }).catch(() => { }); } catch (e) { }
+      submitScore();
     }
 
     function step(dt) {
@@ -1734,6 +1807,8 @@ window.plethoraBit = {
         const sec = Math.ceil(left);
         H.time.textContent = left <= 5 ? left.toFixed(1) : String(sec);
         H.time.classList.toggle('low', left <= 5);
+        if (G.tension === 0 && left <= 12) { G.tension = 1; musicIntensity(0.55); }
+        if (G.tension === 1 && left <= 5) { G.tension = 2; musicIntensity(0.8); }
         if (left <= 5 && sec !== G.lastTick) { G.lastTick = sec; if (sec > 0) audio.tick(sec <= 3); }
         if (G.t >= ROUND) { G.mode = 'ending'; G.endT = 0; H.time.textContent = '0.0'; }
         else updateSpawns(dt);
@@ -1755,6 +1830,10 @@ window.plethoraBit = {
         const k = Math.min(1, G.resultT / 0.9);
         H.final.textContent = String(Math.round(G.score * easeOut(k)));
         if (k >= 1 && G.newBest && !H.newBest.classList.contains('on')) { H.newBest.classList.add('on'); haptic('light'); }
+        if (k >= 1 && !G.pulsed && G.resultT > 1.3) {
+          G.pulsed = true;
+          try { if (ctx.pulse && ctx.pulse.complete) ctx.pulse.complete({ score: G.score, durationMs: ROUND * 1000, text: 'Caught ' + G.caught + (G.caught === 1 ? ' eyeball' : ' eyeballs') + ' · ' + G.score + ' pts' }); } catch (e) { }
+        }
       }
 
       // jar control: autopilot on the title, else keyboard or pointer
@@ -1782,18 +1861,23 @@ window.plethoraBit = {
 
     // ---------- input ----------
     const toWorldX = clientX => { const r = canvas.getBoundingClientRect(); return ((clientX - r.left) / r.width) * world.W - world.W / 2; };
-    let dragging = false;
-    ctx.listen(canvas, 'pointerdown', e => {
-      dragging = true; G.kb = 0;
-      try { canvas.setPointerCapture(e.pointerId); } catch (er) { }
-      if (G.mode === 'play') G.pointerX = toWorldX(e.clientX);
-    });
-    ctx.listen(canvas, 'pointermove', e => {
-      if (G.mode !== 'play' && G.mode !== 'ending') return;
-      if (dragging || e.pointerType === 'mouse') { G.pointerX = toWorldX(e.clientX); G.kb = 0; }
-    });
-    const up = () => { dragging = false; };
-    ctx.listen(canvas, 'pointerup', up); ctx.listen(canvas, 'pointercancel', up);
+    const playing = () => G.mode === 'play' || G.mode === 'ending';
+    // touch, pen and mouse drags anywhere on the playfield move the jar
+    const input = ctx.input ? ctx.input.track(canvas, { multitouch: false }) : null;
+    function readInput() {
+      if (!input || !playing()) return;
+      const p = input.primary || input;
+      if (p.down) { G.pointerX = (p.x / Math.max(1, canvas.clientWidth)) * world.W - world.W / 2; G.kb = 0; }
+    }
+    if (!input) {
+      let dragging = false;
+      ctx.listen(canvas, 'pointerdown', e => { dragging = true; G.kb = 0; if (playing()) G.pointerX = toWorldX(e.clientX); });
+      ctx.listen(canvas, 'pointermove', e => { if (dragging && playing()) G.pointerX = toWorldX(e.clientX); });
+      const up = () => { dragging = false; };
+      ctx.listen(canvas, 'pointerup', up); ctx.listen(canvas, 'pointercancel', up);
+    }
+    // a desktop mouse also steers by hovering, without holding a button
+    ctx.listen(canvas, 'pointermove', e => { if (e.pointerType === 'mouse' && playing()) { G.pointerX = toWorldX(e.clientX); G.kb = 0; } });
     const keys = new Set();
     const kbDir = () => (keys.has('right') ? 1 : 0) - (keys.has('left') ? 1 : 0);
     const keyName = k => (k === 'ArrowLeft' || k === 'a' || k === 'A') ? 'left' : (k === 'ArrowRight' || k === 'd' || k === 'D') ? 'right' : null;
@@ -1805,32 +1889,37 @@ window.plethoraBit = {
     });
     ctx.listen(window, 'keyup', e => { const n = keyName(e.key); if (n) { keys.delete(n); G.kb = kbDir(); } });
     ctx.listen(window, 'blur', () => { keys.clear(); G.kb = 0; });
-    ctx.listen(H.play, 'click', begin);
-    ctx.listen(H.again, 'click', () => { if (G.resultT > 0.4) begin(); });
+    const activate = (node, fn) => { if (ctx.input) ctx.input.activate(node, fn); else ctx.listen(node, 'click', fn); };
+    activate(H.play, begin);
+    activate(H.again, () => { if (G.resultT > 0.4) begin(); });
     function toggleMute() {
       save.muted = !save.muted; persist();
       audio.setMuted(save.muted);
       H.mute.innerHTML = save.muted ? ICON_MUTED : ICON_SOUND;
+      if (music) try { music.setVolume(save.muted ? 0 : 0.2, { fadeMs: 200 }); } catch (e) { }
     }
-    ctx.listen(H.mute, 'click', () => { audio.unlock(); toggleMute(); });
+    H.mute.setAttribute('role', 'button'); H.mute.setAttribute('tabindex', '0'); H.mute.setAttribute('aria-label', 'Sound');
+    activate(H.mute, () => { audio.unlock(); toggleMute(); });
 
     // ---------- run ----------
-    ctx.onResize(({ width, height, safeArea }) => layout(width, height, safeArea || ctx.safeArea), { immediate: true });
-    if (!laidOut) layout(ctx.width, ctx.height, ctx.safeArea);
+    ctx.onResize(({ width, height }) => layout(width, height), { immediate: true });
+    if (!laidOut) layout(ctx.width, ctx.height);
     jar.x = 0; jar.target = 0;
-    try { renderer.render(scene, camera); } catch (e) { bootFail('renderer', e); return; }
+    try { renderer.render(scene, camera); } catch (e) { bootFail('frame', e); return; }
     H.play.style.visibility = '';
-    try { ctx.platform.ready(); } catch (e) { }
+    sendReady();
 
-    let last = performance.now();
-    ctx.onFrame(() => {
+    const frame = dtMs => {
       if (destroyed || G.manual) return;
-      const now = performance.now();
-      const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
-      last = now;
-      step(dt);
-      renderer.render(scene, camera);
-    });
+      readInput();
+      step(Math.min(0.05, Math.max(0, dtMs / 1000)));
+    };
+    const draw = () => { if (!destroyed) renderer.render(scene, camera); };
+    if (ctx.game && ctx.game.loop) ctx.game.loop({ input: input || undefined, maxDeltaMs: 50, update: frame, render: draw });
+    else {
+      let last = performance.now();
+      ctx.onFrame(() => { const now = performance.now(); frame(now - last); last = now; draw(); });
+    }
 
     if (window.__CTE_DEV) {
       window.__cte = {

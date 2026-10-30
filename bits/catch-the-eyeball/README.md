@@ -1,6 +1,6 @@
 # Catch the Eyeball
 
-A 30-second Halloween arcade Bit for Plethora (`plethora-bit@2`, three.js 0.164.1). You slide a glass specimen jar along the floor of an abandoned specimen cabinet and catch the eyeballs that blink open in the dark, bounce around the room and keep staring at your jar.
+A 30-second Halloween arcade Bit for Plethora (`plethora-bit@2`, SDK 1.7.0, built against agent context `plethora-agent-context-2026-10-22.1`; three.js 0.164.1). It is a full-screen Bit (`"display": "fullscreen"`): the room runs edge to edge, while the HUD, buttons and the jar's floor are laid out inside `ctx.contentSafeArea`, clear of the camera cutout and Plethora's logo button. You slide a glass specimen jar along the floor of an abandoned specimen cabinet and catch the eyeballs that blink open in the dark, bounce around the room and keep staring at your jar.
 
 ## Controls
 
@@ -58,6 +58,10 @@ At 0 s spawning stops, eyes already dropping in can still land for 0.9 s, then e
   - Jar movement, the catch zone, and the rim and wall bumpers.
   - Pickled contents: up to 10 visible, the oldest dissolves when full, and they stay below the mouth.
 - `src/06_game.js`: layout, room, input, the round, difficulty, scoring, the HUD and screens, and the Plethora lifecycle.
+  - Runs on `ctx.game.loop`; drags come from `ctx.input.track`, and buttons use `ctx.input.activate`.
+  - The score is a `ctx.game.score` track, submitted once per round to the `score` record. The result screen then shows the global top three and your rank.
+  - A `ctx.music` "spooky" bed rises over the last 12 seconds, with a sting on the result.
+  - Each finished round posts a Pulse with `ctx.pulse.complete`.
 
 `node build.js` concatenates `src/` into `main.js`. Edit the sources, not `main.js`.
 

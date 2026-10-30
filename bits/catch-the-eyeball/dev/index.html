@@ -23,7 +23,10 @@ const ctx = {
   get height() { return host.clientHeight; },
   dpr: Math.min(2, window.devicePixelRatio || 1),
   nativeDpr: window.devicePixelRatio || 1,
-  safeArea: { top: 0, bottom: 0, left: 0, right: 0 },
+  safeArea: { top: 47, bottom: 34, left: 0, right: 0 },
+  contentSafeArea: { top: 47, bottom: 108, left: 0, right: 0 },
+  logoArea: null,
+  pulse: { complete(o) { window.__pulse = o; } },
   capabilities: { audio: true, backgroundMusic: true, haptics: true, storage: true }, memory: { record: () => ({ submit: async () => ({ ok: true }) }) },
   container: host,
   createCanvas2D(opts) { const c = document.createElement('canvas'); c.style.cssText = 'position:absolute;inset:0;pointer-events:none'; host.appendChild(c); return c; },
@@ -38,11 +41,24 @@ const ctx = {
   async importModule(name, version) { if (location.search.includes('failthree') && !window.__failedOnce) { window.__failedOnce = true; throw new Error('simulated download failure'); } return await import('./vendor/three.module.js'); },
   async loadFont() { return null; },
   storage: { get: k => (k in store ? JSON.parse(store[k]) : null), set: (k, v) => { store[k] = JSON.stringify(v); } },
-  music: { unlock: async () => {}, play: () => ({}), sting: () => Promise.resolve() },
+  music: { unlock: async () => {}, play: o => { window.__music = o; return { setIntensity(v) { window.__musicIntensity = v; }, setVolume() {} }; }, sting: n => { window.__sting = n; return Promise.resolve(); } },
+  input: {
+    track(target) {
+      const t = { x: 0, y: 0, down: false, primary: null };
+      t.primary = t;
+      const pos = e => { const r = target.getBoundingClientRect(); t.x = e.clientX - r.left; t.y = e.clientY - r.top; };
+      target.addEventListener('pointerdown', e => { t.down = true; pos(e); try { target.setPointerCapture(e.pointerId); } catch (er) {} });
+      target.addEventListener('pointermove', e => { if (t.down) pos(e); });
+      for (const ev of ['pointerup', 'pointercancel']) target.addEventListener(ev, () => { t.down = false; });
+      t.frameDone = () => {};
+      return t;
+    },
+    activate(node, fn) { node.addEventListener('click', fn); }
+  },
   platform: { error(p) { window.__platformError = p; }, ready() { window.__ready = true; }, start() {}, interact() {}, milestone() {}, fail(p) { window.__failed = p; }, complete() {}, haptic() {}, setScore() {}, emit() {} },
   game: {
-    loop(o) { let last = performance.now(); const f = t => { o.update && o.update(Math.min(100, t - last)); last = t; requestAnimationFrame(f); }; requestAnimationFrame(f); return {}; },
-    score() { let v = 0; return { set: x => { v = x; }, reset: () => { v = 0; }, submit: async () => ({ ok: true }), get value() { return v; } }; }
+    loop(o) { let last = performance.now(); const f = t => { o.update && o.update(Math.min(o.maxDeltaMs || 80, t - last)); o.render && o.render(0); last = t; requestAnimationFrame(f); }; requestAnimationFrame(f); return {}; },
+    score() { let v = 0; return { set: x => { v = x; window.__score = x; }, reset: () => { v = 0; }, submit: async (ch, o) => { window.__submitted = (window.__submitted || 0) + 1; return { ok: true }; }, leaderboard: async () => ({ rows: [{ rank: 1, value: 2410 }, { rank: 2, value: 1980 }, { rank: 3, value: 1500 }], viewerRank: { rank: 7, value: window.__score } }), get value() { return v; } }; }
   }
 };
 window.__ctx = ctx;
