@@ -1,7 +1,8 @@
 // Procedural textures, materials and low-poly geometry for the forest.
-function createAssets(THREE) {
+// makeCanvas comes from the runtime's own canvas factory: Bits never create raw canvas elements.
+function createAssets(THREE, makeCanvas) {
   const tex = (w, h, draw, repeat) => {
-    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const c = makeCanvas(); c.width = w; c.height = h;
     const g = c.getContext('2d'); draw(g, w, h);
     const t = new THREE.CanvasTexture(c);
     t.colorSpace = THREE.SRGBColorSpace;

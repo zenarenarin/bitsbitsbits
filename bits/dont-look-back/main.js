@@ -1,3 +1,4 @@
+// Plethora Bit · docs and draft upload: https://agent.plethora.studio/v1/agent/start.md
 // DON'T LOOK BACK — an endless 3D survival game for Plethora.
 // Built from src/ by build.js; edit the sources, not this file.
 (function () {
@@ -74,9 +75,10 @@ const difficultyAt = s => s < 2200 ? s / 2200 : Math.min(1.3, 1 + (s - 2200) / 4
 
 // ---- 01_assets.js ----
 // Procedural textures, materials and low-poly geometry for the forest.
-function createAssets(THREE) {
+// makeCanvas comes from the runtime's own canvas factory: Bits never create raw canvas elements.
+function createAssets(THREE, makeCanvas) {
   const tex = (w, h, draw, repeat) => {
-    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const c = makeCanvas(); c.width = w; c.height = h;
     const g = c.getContext('2d'); draw(g, w, h);
     const t = new THREE.CanvasTexture(c);
     t.colorSpace = THREE.SRGBColorSpace;
@@ -1040,7 +1042,8 @@ window.plethoraBit = {
     ctx.onDestroy(() => { destroyed = true; try { renderer.dispose(); } catch (e) { } });
 
     // ---------- scene ----------
-    const A = createAssets(THREE);
+    // hidden scratch canvases for the procedural textures
+    const A = createAssets(THREE, () => { const c = ctx.createCanvas2D({ layer: 'background', input: 'passthrough' }); c.style.display = 'none'; return c; });
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(62, ctx.width / ctx.height, 0.1, 320);
     scene.add(camera);
@@ -1599,8 +1602,13 @@ window.plethoraBit = {
       // capture, fade to black, its eyes, then the result
       ctx.timeout(() => { if (mode === 'caught') H.fade.style.opacity = 1; }, 1400);
       ctx.timeout(() => { if (mode === 'caught') { H.eyes.style.opacity = 1; haptic('error'); } }, 2000);
-      ctx.timeout(() => { if (mode === 'caught') { mode = 'over'; H.over.classList.add('on'); requestAnimationFrame(() => H.over.classList.add('show')); } }, 2900);
+      ctx.timeout(() => { if (mode === 'caught') { mode = 'over'; H.over.classList.add('on'); ctx.timeout(() => H.over.classList.add('show'), 30); reportResult(); } }, 2900);
       ctx.timeout(() => { if (mode === 'over') H.eyes.style.opacity = 0.25; }, 3600);
+    }
+    // once per finished run, at the result screen
+    function reportResult() {
+      const dist = Math.floor(run.s);
+      try { if (ctx.pulse && ctx.pulse.complete) ctx.pulse.complete({ score: dist, timeMs: Math.round(run.time * 1000), text: `I ran ${dist} m before it caught me.` }); } catch (e) { }
     }
     function showTitle() {
       newRun(); title = true; mode = 'title';
@@ -1666,8 +1674,10 @@ window.plethoraBit = {
     ctx.listen(window, 'blur', () => { input.keys.clear(); input.hold = false; input.ptr = null; if (mode === 'play') pauseGame(); });
     ctx.listen(document, 'visibilitychange', () => { if (document.hidden && mode === 'play') pauseGame(); });
 
-    function layout(w, h, sa) {
-      const top = (sa && sa.top) || 0, bot = (sa && sa.bottom) || 0;
+    function layout(w, h) {
+      // clear of the camera cutout, the home indicator and Plethora's logo button
+      const sa = ctx.contentSafeArea || ctx.safeArea || {};
+      const top = sa.top || 0, bot = sa.bottom || 0;
       H.top.style.paddingTop = (16 + top) + 'px';
       H.bottom.style.paddingBottom = (28 + bot) + 'px';
       safeBot = bot;
@@ -1677,7 +1687,7 @@ window.plethoraBit = {
       // keep a portrait-like framing on wide screens
       camera.updateProjectionMatrix();
     }
-    ctx.onResize(({ width, height, safeArea }) => layout(width, height, safeArea || ctx.safeArea), { immediate: true });
+    ctx.onResize(({ width, height }) => layout(width, height), { immediate: true });
 
     // ---------- loop ----------
     let acc = 0;
