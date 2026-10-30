@@ -54,19 +54,27 @@ window.plethoraBit = {
     };
 
     // ---------- canvas ----------
-    const canvas = ctx.createCanvas({ touchAction: 'none' });
+    const canvas = ctx.createCanvas2D({ touchAction: 'none', alpha: false, layer: 'content' });
     canvas.style.imageRendering = 'pixelated';
     const g = canvas.getContext('2d', { alpha: false });
-    const buf = document.createElement('canvas');
+    // Off-screen drawing goes onto hidden SDK surfaces, never raw canvases. The host may
+    // resize a surface, so every user checks its size and redraws when it changed.
+    function surface(w, h) {
+      const c = ctx.createCanvas2D({ input: 'passthrough', layer: 'background' });
+      c.style.display = 'none'; c.width = w; c.height = h;
+      return c;
+    }
+    const buf = surface(128, 280);
     const b = buf.getContext('2d');
+    let devW = 1, devH = 1;
     let W = 128, H = 280, SC = 1, offX = 0, offY = 0, dpr = 1, L = computeLayout(W, H), safeT = 0, safeB = 0;
-    const vign = [];
+    const vign = [], vignCv = [];
     function buildVignettes() {
       vign.length = 0;
       const bayer = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
       const ink = hexRgb(FIX.ink);
       for (let l = 1; l <= 3; l++) {
-        const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+        const cv = vignCv[l - 1] || (vignCv[l - 1] = surface(W, H)); cv.width = W; cv.height = H;
         const c2 = cv.getContext('2d'), id = c2.createImageData(W, H);
         for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
           const dx = (x - W / 2) / (W / 2), dy = (y - H / 2) / (H / 2), d = Math.sqrt(dx * dx * 1.1 + dy * dy * 0.9);
@@ -80,20 +88,22 @@ window.plethoraBit = {
       const cw = Math.max(1, ctx.width || window.innerWidth), ch = Math.max(1, ctx.height || window.innerHeight);
       dpr = Math.min(3, ctx.nativeDpr || window.devicePixelRatio || 1);
       const dw = Math.max(1, Math.round(cw * dpr)), dh = Math.max(1, Math.round(ch * dpr));
+      devW = dw; devH = dh;
       canvas.width = dw; canvas.height = dh; canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
       SC = Math.max(1, Math.min(Math.floor(dw / 128), Math.floor(dh / 228)));
       W = Math.min(Math.ceil(dw / SC), 180); H = Math.min(Math.ceil(dh / SC), 330);
       offX = Math.floor((dw - W * SC) / 2); offY = Math.floor((dh - H * SC) / 2);
       buf.width = W; buf.height = H;
       L = computeLayout(W, H);
-      const sa = ctx.safeArea || {};
+      // text and controls stay clear of the island, the home indicator and Plethora's logo button
+      const sa = ctx.contentSafeArea || ctx.safeArea || {};
       safeT = Math.max(0, Math.ceil(((sa.top || 0) * dpr - Math.max(0, offY)) / SC));
       safeB = Math.max(0, Math.ceil(((sa.bottom || 0) * dpr - Math.max(0, offY)) / SC));
       scene.skyKey = '';
       buildVignettes();
     }
 
-    const scene = createScene();
+    const scene = createScene(surface);
     const world = createWorld(1);
     const audio = createAudio(caps.audio !== false);
     ctx.onDestroy && ctx.onDestroy(() => audio.close());
@@ -149,7 +159,8 @@ window.plethoraBit = {
       return s;
     }
     function safeTime(spot) { return spot.safe * lerp(1, TUNE.safeShrink, diff()); }
-    function showHint(key, msg, dur) { if (save.hints[key]) return; save.hints[key] = 1; persist(); run.hint = msg; run.hintT = dur || 3.2; }
+    // hints are remembered in memory here and written with the next save (pause or the end of a run), never from the step loop
+    function showHint(key, msg, dur) { if (save.hints[key]) return; save.hints[key] = 1; run.hint = msg; run.hintT = dur || 3.2; }
     function note(ev) { if (run.log.length < 400) run.log.push([+run.t.toFixed(2), ev]); }
 
     // The states the brief names, derived from the simulation so they can never disagree with it.
@@ -193,7 +204,8 @@ window.plethoraBit = {
       const from = mode;
       if (!setMode(MODES.PAUSED)) return;
       pausedFrom = from; input.pointers.clear(); input.key = false; audio.suspend();
-      if (Math.floor(run.score) > save.best) { save.best = Math.floor(run.score); run.record = true; persist(); }
+      if (Math.floor(run.score) > save.best) { save.best = Math.floor(run.score); run.record = true; }
+      persist();
     }
     function resume() { if (mode === MODES.PAUSED && setMode(pausedFrom)) audio.resume(); }
     function toTitle() { if (setMode(MODES.MENU)) { run = newRun(); audio.resume(); } }
@@ -743,6 +755,8 @@ window.plethoraBit = {
 
     const CR = { v: null, c: null, extra: null }, CEXTRA = { reach: 0, rx: 0, ry: 0 }, CWAKE = {};
     function render(dt) {
+      if (buf.width !== W || buf.height !== H) { buf.width = W; buf.height = H; }
+      if (!vign[0] || vign[0].width !== W || vign[0].height !== H) buildVignettes();
       setTarget(b);
       buttons = [];
       const t = clock;
@@ -840,6 +854,7 @@ window.plethoraBit = {
 
     // ---------- blit: whole pixels only ----------
     function blit() {
+      if (canvas.width !== devW || canvas.height !== devH) { canvas.width = devW; canvas.height = devH; }
       g.imageSmoothingEnabled = false;
       g.fillStyle = '#0b0807'; g.fillRect(0, 0, canvas.width, canvas.height);
       const unstable = mode === MODES.PLAYING && run.threat > 0.65 && run.act !== 'hide';

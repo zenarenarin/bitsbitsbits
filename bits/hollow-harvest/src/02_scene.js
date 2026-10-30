@@ -16,9 +16,10 @@ function computeLayout(W, H) {
   };
 }
 
-function createScene() {
+// surface(w, h) hands back a hidden SDK canvas for off-screen drawing.
+function createScene(surface) {
   const S = { skyKey: '', sky: null, clouds: [], cloudKey: '', windmill: 0, windmillSpin: 1, figure: 0, figureX: 0, sway: [] };
-  const skyCv = document.createElement('canvas');
+  const skyCv = surface(1, 1);
   const sky = skyCv.getContext('2d');
 
   // ---- sky: flat bands joined by ordered-dither seams, a striped sun ----
@@ -80,7 +81,7 @@ function createScene() {
         tierX += (r() * shrink) | 0; tierW -= shrink;
         tierW = Math.min(tierW, w - tierX);
       }
-      shapes.push({ w, h, m, cv: document.createElement('canvas') });
+      shapes.push({ w, h, m, cv: surface(w, h) });
     }
   })();
   function paintClouds(p) {
@@ -100,9 +101,10 @@ function createScene() {
   for (let i = 0; i < 9; i++) cloudSlots.push({ s: i % shapes.length, x: i * 47 + hash(i) * 30, y: 0.05 + hash(i + 9) * 0.27, par: 0.02 + hash(i + 3) * 0.03 });
 
   S.drawSky = function (L, p, stageF, camPx, t) {
-    if (S.skyKey !== p.key + L.W + 'x' + L.H) { buildSky(L, p, stageF); S.skyKey = p.key + L.W + 'x' + L.H; }
+    // rebuild if the palette or size changed, or if the host resized the surface under us
+    if (S.skyKey !== p.key + L.W + 'x' + L.H || skyCv.width !== L.W || skyCv.height !== L.yHor + 2) { buildSky(L, p, stageF); S.skyKey = p.key + L.W + 'x' + L.H; }
     G.drawImage(skyCv, 0, 0);
-    if (S.cloudKey !== p.key) { paintClouds(p); S.cloudKey = p.key; }
+    if (S.cloudKey !== p.key || shapes[0].cv.width !== shapes[0].w || shapes[0].cv.height !== shapes[0].h) { paintClouds(p); S.cloudKey = p.key; }
     const wrap = L.W + 160;
     for (const c of cloudSlots) {
       const sh = shapes[c.s];
