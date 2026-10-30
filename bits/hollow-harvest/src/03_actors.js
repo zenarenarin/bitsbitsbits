@@ -26,9 +26,11 @@ const PL_MAP = compileMap([
 ]);
 const PL_COL = { o: '#1a1410', h: '#3d2420', H: '#74403a', d: '#22140f', e: '#f6e2b6', b: FIX.green, B: FIX.greenDark, c: '#dcbb7c', C: '#a8834f' };
 const PL_COL_BLINK = Object.assign({}, PL_COL, { e: '#22140f' });
+// in cover the traveller is in shade: the same sprite, colours stepped down
+const PL_COL_SHADE = { o: '#120d0b', h: '#2a1816', H: '#4a2a26', d: '#160d0a', e: '#c9b48a', b: '#3a422c', B: '#272d1e', c: '#8a7350', C: '#6a5236' };
 const PL_TROUSER = '#5e3a30', PL_TROUSER_BK = '#3a2420', PL_BOOT = '#1a1410';
 
-// s.mode: idle | run | walk | tired | crouch | duck | air | fall | lifted
+// s.mode: idle | run | walk | tired | kneel | crouch | duck | air | fall | lifted   s.shade: in cover
 function drawPlayer(x, yF, s) {
   const m = s.mode, q = Math.floor(((s.ph % TAU) + TAU) % TAU / (TAU / 8)), ph = q * TAU / 8;
   let lean = 0, stride = 0, bend = 0.15, armSwing = 0, armBend = 0.4, crouch = false, headX = 0;
@@ -36,13 +38,17 @@ function drawPlayer(x, yF, s) {
   else if (m === 'walk') { lean = 0.05; stride = 0.45; bend = 0.5; armSwing = 0.45; }
   else if (m === 'tired') { lean = 0.36; stride = 0.32; bend = 0.4; armSwing = 0.15; headX = 1; }
   else if (m === 'crouch' || m === 'duck') { crouch = true; lean = m === 'duck' ? 0.2 : 0.08; stride = m === 'duck' ? 0.3 : 0; }
+  else if (m === 'kneel') { lean = 0.14; stride = 0; bend = 0.9; }
   else if (m === 'air') { lean = 0.2; stride = 0.6; bend = 1.4; armSwing = 0.6; armBend = 1.0; }
   else if (m === 'lifted') { lean = -0.1; }
   const legs = [];
   for (let i = 0; i < 2; i++) {
     const p2 = ph + i * Math.PI;
     let kx, ky, fx, fy;
-    if (crouch) {
+    if (m === 'kneel') {
+      // halfway down: knees forward, body lowered three pixels
+      kx = i ? -1 : 3; ky = 2; fx = i ? -2 : 1; fy = 5;
+    } else if (crouch) {
       const sw = Math.sin(p2) * stride;
       kx = 3 + (i ? -3 : 0) + Math.round(sw * 2); ky = 2; fx = 1 + (i ? -3 : 0) + Math.round(sw * 3); fy = 5;
     } else if (m === 'lifted') {
@@ -57,9 +63,9 @@ function drawPlayer(x, yF, s) {
     legs.push({ kx, ky, fx, fy, back: i === 1 });
   }
   const footMax = Math.max(legs[0].fy, legs[1].fy);
-  const hipY = Math.round(yF - (crouch ? 6 : footMax) - (s.lift || 0));
-  const skip = crouch ? (r => r === 14 || r === 15) : null;
-  const hipLocal = crouch ? 15 : 17, top = hipY - hipLocal;
+  const hipY = Math.round(yF - (crouch ? 6 : m === 'kneel' ? 5 : footMax) - (s.lift || 0));
+  const skip = crouch ? (r => r === 14 || r === 15) : m === 'kneel' ? (r => r === 15) : null;
+  const hipLocal = crouch ? 15 : m === 'kneel' ? 16 : 17, top = hipY - hipLocal;
   const shift = r => Math.round((17 - r) * lean) + (r <= 9 ? headX : 0);
   const hipX = x + 8 + shift(17);
   const shoulderY = top + 11, shX = x + 8 + shift(11);
@@ -78,11 +84,16 @@ function drawPlayer(x, yF, s) {
     line(hipX, hipY, kx, ky, col, 2); line(kx, ky, fx, fy, col, 2);
     R(fx - 1, fy, 3, 2, PL_BOOT); R(fx + 2, fy + 1, 1, 1, PL_BOOT);
   };
-  arm(-1, PL_COL.C);
-  leg(legs[1], PL_TROUSER_BK);
-  drawMap(PL_MAP, x, top, s.blink ? PL_COL_BLINK : PL_COL, shift, skip);
-  leg(legs[0], PL_TROUSER);
-  arm(1, PL_COL.c);
+  arm(-1, s.shade ? PL_COL_SHADE.C : PL_COL.C);
+  leg(legs[1], s.shade ? '#24140f' : PL_TROUSER_BK);
+  const cols = s.shade ? PL_COL_SHADE : s.blink ? PL_COL_BLINK : PL_COL;
+  // exhausted: the head hangs and bobs with each heavy breath
+  const droop = m === 'tired' ? (Math.floor(s.t * 2.2) % 2) : 0;
+  drawMap(PL_MAP, x, top + droop, cols, shift, skip);
+  // a thin rim of evening light on the hood keeps the silhouette readable against the dark crop
+  if (!s.shade) for (let r = 2; r <= 8; r += 2) R(x + 1 + shift(r) - (r < 3 ? 0 : 1) + (r === 2 ? 1 : 0), top + droop + r, 1, 1, '#b8735a');
+  leg(legs[0], s.shade ? '#3a241e' : PL_TROUSER);
+  arm(1, s.shade ? PL_COL_SHADE.c : PL_COL.c);
   return { top, hipY };
 }
 

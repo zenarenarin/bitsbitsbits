@@ -214,7 +214,8 @@ function createScene(surface) {
       R(x + 1, top + 6, 2, 1, p.midCorn); R(x + 3, top + 7, 1, 1, p.midCorn);
     }
   };
-  S.drawBackRow = function (L, p, camPx, t, stir) {
+  // stir: an event wave of corn moving with no wind; push: { x, amt } the creature wading through (screen x)
+  S.drawBackRow = function (L, p, camPx, t, stir, push) {
     const off = camPx * 0.85, sp = 6;
     const base = L.yFeet - 5;
     R(0, L.yBack + 14, L.W, base - L.yBack - 12, p.backLeaf);
@@ -228,9 +229,12 @@ function createScene(surface) {
       const hh = hash(i + 5000);
       if (hh < 0.12) continue; // a gap between the stalks
       const x = Math.round(i * sp - off + ((hh * 3) | 0));
-      const top = L.yBack - 4 + ((hash(i + 77) * 8) | 0);
+      // heights vary in clumps of four stalks, with the odd taller one standing out
+      const clump = Math.floor(i / 4), lift = ((hash(clump + 313) * 7) | 0) - 3 + (hash(i + 919) > 0.93 ? -5 : 0);
+      const top = L.yBack - 4 + ((hash(i + 77) * 6) | 0) + lift;
       let ex = 0;
       if (stir && stir.t > 0 && Math.abs(i * sp - stir.x * PPM * 0.85) < 40) ex = Math.sin(t * 9 + i) * 2.2 * Math.min(1, stir.t);
+      if (push && push.amt > 0 && Math.abs(x - push.x) < 20) ex += Math.sin(t * 7 + i * 1.3) * 2 * push.amt * (1 - Math.abs(x - push.x) / 20);
       const sw = S.swayAt(i * 6, t, ex);
       R(x, top + 4, 1, base - top - 4, p.backStalk);
       R(x + sw, top, 1, 4, p.backStalk);
@@ -261,7 +265,8 @@ function createScene(surface) {
       if (hh < 0.12) { R(x + 1, L.yFeet, 2, 1, p.backLeafLit); }
     }
   };
-  S.drawFront = function (L, p, camPx, t) {
+  // push: the traveller brushing past; strands near them lean away for a moment
+  S.drawFront = function (L, p, camPx, t, push) {
     const y0 = L.yFront;
     R(0, y0 + 2, L.W, L.H - y0, p.frontDark);
     // vertical grass strands like the reference foreground: olive, a few with red tips
@@ -269,8 +274,12 @@ function createScene(surface) {
       const wx = Math.floor(x + camPx * 1.0), hh = hash(wx + 300);
       const h = 2 + ((hh * 6) | 0);
       R(x, y0 + 2 - h, 1, h + 2, hh > 0.5 ? p.frontLeaf : p.frontDark);
-      if (hh > 0.86) R(x, y0 + 2 - h, 1, 1, p.frontLeafLit);
-      else if (hh < 0.08) R(x, y0 + 2 - h, 1, 1, p.backLeaf);
+      // the tip leans away from the traveller as they brush past
+      let tx = x;
+      if (push && push.amt > 0 && h > 4 && Math.abs(x - push.x) < 9) tx += x < push.x ? -1 : 1;
+      if (hh > 0.86) R(tx, y0 + 2 - h, 1, 1, p.frontLeafLit);
+      else if (hh < 0.08) R(tx, y0 + 2 - h, 1, 1, p.backLeaf);
+      else if (tx !== x) { R(x, y0 + 2 - h, 1, 1, p.frontDark); R(tx, y0 + 2 - h, 1, 1, p.frontLeaf); }
     }
     for (let x = 0; x < L.W; x++) {
       const wx = Math.floor(x + camPx * 1.15), hh = hash(wx + 900);

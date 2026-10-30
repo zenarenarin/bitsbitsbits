@@ -19,15 +19,16 @@ const OBSTACLES = {
   wire: { k: 'snag', w: 1.3, band: [13, 19], major: true },
   harrow: { k: 'snag', w: 1.6, band: [12, 18], major: true }
 };
-// Hiding places. safe: seconds you can stay before it comes to check.
+// Hiding places. conceal: how well it hides you when the creature checks it (0..1).
+// comfort: seconds before staying put starts to make a check more likely to find you.
 // radius: how far either side of the object you can let go and still slip in.
 // at: where the traveller settles, as a fraction of the width.
 const HIDE_SPOTS = {
-  corn: { safe: 3, radius: -0.2, at: -1, label: 'CORN' },
-  hay: { safe: 4, radius: 0.8, w: 3.0, at: 0.55, label: 'HAYSTACK' },
-  cart: { safe: 5, radius: 0.8, w: 3.4, at: 0.45, label: 'CART' },
-  tree: { safe: 6, radius: 0.9, w: 2.4, at: 0.5, label: 'HOLLOW TREE' },
-  shed: { safe: 7, radius: 1.0, w: 4.2, at: 0.36, label: 'SHED' }
+  corn: { conceal: 0.75, comfort: 5, radius: -0.2, at: -1, label: 'CORN' },
+  hay: { conceal: 0.5, comfort: 4, radius: 0.8, w: 3.0, at: 0.55, label: 'HAYSTACK' },
+  cart: { conceal: 0.55, comfort: 4.5, radius: 0.8, w: 3.4, at: 0.45, label: 'CART' },
+  tree: { conceal: 0.8, comfort: 6, radius: 0.9, w: 2.4, at: 0.5, label: 'HOLLOW TREE' },
+  shed: { conceal: 0.85, comfort: 7, radius: 1.0, w: 4.2, at: 0.36, label: 'SHED' }
 };
 const SECTION_TEMPLATES = [
   { id: 'harvest', min: 0, w: 3, L: 46, items: [['low', 12, 'pumpkin'], ['hide', 27, 1]], props: [['scarecrow', 18], ['pumpkins', 6]] },
@@ -39,6 +40,8 @@ const SECTION_TEMPLATES = [
   { id: 'woodpile', min: 0.12, w: 2, L: 46, items: [['low', 9, 'log'], ['hide', 20, 0.9], ['low', 33, 'log']], props: [['fence', 26]] },
   { id: 'machinery', min: 0.3, w: 2, L: 50, items: [['snag', 10, 'harrow'], ['hole', 22, 2.0], ['hide', 35, 0.9]], props: [['cart', 4], ['lantern', 30]] },
   { id: 'scarecrows', min: 0.2, w: 2, L: 48, items: [['low', 10, 'root'], ['hole', 20, 1.7], ['hide', 32, 0.9]], props: [['scarecrow', 6], ['scarecrow', 16], ['scarecrow', 26]] },
+  { id: 'open', min: 0.1, w: 2, L: 44, items: [['low', 12, 'log'], ['low', 26, 'pumpkin'], ['hide', 38, 0.9]], props: [['scarecrow', 20]] },
+  { id: 'shelter', min: 0, w: 1, L: 44, items: [['hide', 8, 0.8], ['hide', 22, 0.8], ['low', 34, 'root']], props: [['lantern', 16]] },
   { id: 'gauntlet', min: 0.55, w: 2, L: 56, items: [['hole', 8, 1.9], ['low', 16, 'log'], ['snag', 25, 'wire'], ['hole', 34, 2.2], ['hide', 45, 0.8]], props: [['post', 20]] }
 ];
 
@@ -75,7 +78,7 @@ function createWorld(seed) {
     if (x - W.lastHide > hideLimit(d)) x = W.lastHide + hideLimit(d) * 0.8;
     const pad = Math.max(0, spec.radius) + 0.5;
     if (x < lastObs + 2.5 + pad) x = lastObs + 2.5 + pad;
-    add({ k: 'hide', type, safe: spec.safe, radius: spec.radius, at: spec.at, x0: x, x1: x + len, rustle: 0, glint: 0 });
+    add({ k: 'hide', type, conceal: spec.conceal, comfort: spec.comfort, radius: spec.radius, at: spec.at, x0: x, x1: x + len, rustle: 0, glint: 0 });
     W.lastHide = x + len; W.lastType = type;
     // obstacles may follow a hiding place closely, but never inside it or its reach
     lastObs = type === 'corn' ? x + len - 3.5 : x + len + pad - 5.5;
@@ -88,7 +91,11 @@ function createWorld(seed) {
     if (kind === 'pumpkins') {
       const n = 2 + ((W.rng() * 3) | 0);
       for (let i = 0; i < n; i++) prop({ k: 'pumpkin', x: x + W.rng() * 8, layer: W.rng() < 0.55 ? 'back' : 'front', lit: 0, size: W.rng() < 0.3 ? 1 : 0 });
-    } else prop({ k: kind, x: x + (W.rng() - 0.5) * 3, look: 0, lit: 0 });
+    } else {
+      let px = x + (W.rng() - 0.5) * 3;
+      for (const f of W.feats) if (f.k === 'hide' && f.type !== 'corn' && px > f.x0 - 4 && px < f.x1 + 4) px = f.x1 + 5;
+      prop({ k: kind, x: px, look: 0, lit: 0 });
+    }
   }
   function intro() {
     // the first two hiding places teach the two kinds of cover: the corn, then a real object

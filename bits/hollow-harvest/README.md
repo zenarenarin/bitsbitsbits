@@ -17,62 +17,69 @@ Menu buttons act on release over the same button, so a finger still down from th
 
 ## The loop: run, hide, recover, run again
 
-You manage three things: the creature's distance, your breath, and where the next cover is.
+Three systems feed each other: movement and stamina, the creature's **awareness**, and concealment. The creature's awareness (what it knows) and its distance (where it is) are separate numbers.
 
-### Movement and breath (`TUNE` in `src/05_game.js`)
+### Movement and stamina (`TUNE` in `src/05_game.js`)
 
-- **Hold, run**:
-  - Speed is 6.2 m/s, rising to 8.4 with difficulty.
-  - Breath (0–100) drains about 9 per second, more later.
-  - Below 30 breath you slow down gradually.
-- **Release in the open, walk** at 2 m/s. Breath barely recovers (0.8/s) and the creature closes faster.
-- **Release in cover, hide**: you stop, crouch behind or inside the cover, and recover about 26 breath per second. This is the only real way to get breath back.
-- **Exhausted** (breath 0): you run at 60% speed with heavy breathing and puffs, and the creature pushes a little harder. You're never stopped, so you can still reach cover. It lasts until breath is back to 25.
-- **Score** is distance actually covered. It doesn't count while hidden (including the short glide into cover) or after death. The personal best is saved in Plethora storage with a `localStorage` fallback, also on pause, and submitted to the `score` leaderboard.
+| | Speed | Noise | Stamina |
+|---|---|---|---|
+| **Hold: run** | 6.2 m/s, rising to 7.8 | loud | −8.5/s (more later) |
+| **Release in the open: walk** | 2 m/s | quiet | +1/s, barely |
+| **Release in cover: hide** | still | silent | +22/s (a few seconds to refill) |
+| **Exhausted** (stamina 0, until 25) | 60% run speed | loudest | heavy breathing, bent posture |
 
-### Cover (`HIDE_SPOTS` in `src/01_world.js`)
+- Running always makes real progress. It doesn't bring the creature closer by itself; it makes you **heard**.
+- You're never stopped, even when exhausted, so you can still reach cover.
+- Score is ground actually covered; it doesn't grow while hidden or after death.
 
-| Cover | Safe time | Reach either side | Hidden as |
-|---|---:|---:|---|
-| Dense corn | 3 s | inside the clump | crouched among the stalks |
-| Haystack | 4 s | 0.8 m | crouched behind the stack |
-| Abandoned cart | 5 s | 0.8 m | crouched behind the tarp, hood showing |
-| Hollow tree | 6 s | 0.9 m | inside; only your eyes show |
-| Small shed | 7 s | 1.0 m | inside the doorway; only your eyes show |
+### Awareness (0–100, never shown as a number)
 
-- Safe times shrink by up to 25% as the run goes on. The long, safe kinds get rarer and corn gets more common.
-- **Before you hide**:
-  - Cover within reach glints along its top edge.
-  - A **HIDE** tag appears, with a row of pips showing how many seconds of safety it offers.
-  - Letting go glides you onto the cover's hiding point.
-- **While hidden**:
-  - The pips count down.
-  - When they run out you are **exposed**: an alarm sounds, the pips flash, the cover shakes, the heartbeat quickens and a haptic fires.
-- **Safe time is a property of the place, not a reset.** The hiding clock winds down slowly after you leave, so ducking in and out buys nothing.
-- **Fair placement**:
-  - Cover is never more than 40–50 m apart.
-  - No obstacle is placed inside a hiding place or within its reach.
-  - The first two hiding places are always corn, then a haystack.
+- **Rises with noise** (running 14/s, exhausted 20/s, walking 3/s), scaled by how close the creature is (×0.5 far to ×1.8 near). Also raised by:
+  - standing exposed near it;
+  - collisions (+15 minor, +25 major);
+  - running through crows (+20);
+  - bolting from cover next to it (+30).
+- **Falls** in the open when you're quiet, and faster in cover (6/s plus 10/s × the cover's concealment). It falls more slowly while the creature is searching nearby.
+- **Overstaying** cover past its comfort time makes it creep up again: camping draws the creature in.
+- **Bands:** UNAWARE (0–25), SUSPICIOUS (26–50), HUNTING (51–75), DETECTED (76–100). Players read them from the creature's behaviour, the sound and the screen, not from a number.
+- **Last known position:** the creature keeps the last place it heard you, refreshed each time it hears you. The less aware it is, the less precise that position, up to 5 m off. Sneaking (walking) into cover leaves it a stale, vague position, so its search may miss you.
 
 ### The creature (`updateCreature`)
 
-Its distance is real (metres internally) and is read on a 0–100 pursuit scale: 100 means 40 m away and 0 means caught. It moves continuously and never jumps onto you.
+It has a real position on the path and only ever moves toward a target at a speed. It never teleports.
 
-| State | Internal modes | When | What you see and hear |
-|---|---|---|---|
-| **FOLLOWING** | `wake`, `hunt` at pursuit 65 or more, `withdraw`, `linger` | far, or giving up | a head above the far corn sinking in and out, distant steps |
-| **HUNTING** | `hunt`, `reacquire` below 65 | it has your trail | shoulders and arms above the middle rows, its shadow on the path, louder steps; DANGER below 35; screen shear below about 15 |
-| **SEARCHING** | `approach`, `sweep`, `check` | you hid | it walks to where it lost you, slows, looks around, sweeps right over your hiding place reaching into the crop |
+| State | Mode | Behaviour |
+|---|---|---|
+| FOLLOWING | `follow` | keeps 32 m back (closing to 14 m as the run goes on), barely moving, sometimes sinking into the crop |
+| INVESTIGATING | `investigate` | from SUSPICIOUS: walks to the last known position (4.8 m/s, 6.6 m/s when hunting); gives up if awareness drops below 20 |
+| SEARCHING | `search` | at that spot: slows, looks around, and checks cover around it one reach at a time |
+| CHASING | `chase` | DETECTED and in sight: comes straight on at 8 m/s; a short low sting plays when it first spots you |
+| LOSING INTEREST | `lose` | search over: turns and walks away (a soft "safe" cue) |
+| RETURNING | `ret` | drifts back into the field behind you |
 
-- **Hunting**: it closes at its speed minus yours. Running holds it off for a while; walking, stumbling or being winded lets it gain.
-- **When you hide**, it loses your trail and approaches.
-  - It sweeps through the spot to 1.6 m, right over you. It can't detect you while your safe time lasts.
-  - Then it turns and withdraws. A low "safe" chord plays, there's a light haptic, and pursuit pressure drops.
-- **Stay too long**: when you're exposed it comes back, or turns back, and **checks** the spot. It reaches straight for you for 0.8–1.1 s, and if you're still there it finds you.
-- **Bolting**:
-  - Mid-sweep or mid-check: startles it briefly (it pulls its arm out of the crop), then the chase resumes very close.
-  - As it walks away: it doesn't notice you until it stops.
-  - Leaving cover right beside it, or hiding in front of it within 3 m: it saw you.
+**Discovery.** A check only matters if it's aimed at your cover (within 1.6 m).
+- **Warning:** before it resolves, its hand visibly reaches in for 0.9 s, the cover shakes, an alarm sounds and **MOVE NOW** appears.
+- **Chance:** (1 − concealment) × (0.3 + 0.7 × awareness) × (1 + 0.6 per second overstayed).
+- **Breaking cover:** right under it, it sees you; within 8 m, it hears you and turns.
+
+### Cover (`HIDE_SPOTS` in `src/01_world.js`)
+
+| Cover | Concealment | Comfort | Reach | Hidden as |
+|---|---:|---:|---:|---|
+| Dense corn | 0.75 | 5 s | inside the clump | crouched among the stalks, in shade, extra stalks closing in front |
+| Haystack | 0.50 | 4 s | 0.8 m | behind the stack, in shade |
+| Abandoned cart | 0.55 | 4.5 s | 0.8 m | crouched behind the tarp |
+| Hollow tree | 0.80 | 6 s | 0.9 m | inside; only the eyes show |
+| Small shed | 0.85 | 7 s | 1.0 m | inside the doorway; only the eyes show |
+
+- **Before you hide:** cover in reach glints, and a small outlined **HIDE** sits beside the object with pips showing its comfort time.
+- **Hiding:** you slow, half-kneel and settle onto the cover's hiding point. A brief **HIDDEN** label appears.
+- **While hidden:** the pips count down, and turn red when you overstay or a check is aimed at you.
+- **Measured on the rendered frame:** about 17% of the coat shows in corn, and none behind a haystack or cart or inside a tree or shed.
+- **Placement:**
+  - Cover is never more than 40–50 m apart.
+  - No obstacle is placed inside a hiding place's reach, and farm debris is never stacked on cover.
+  - Some sections are sheltered (two hiding places), others exposed.
 
 ### Obstacles (`OBSTACLES`)
 
@@ -81,15 +88,15 @@ Its distance is real (metres internally) and is read on a 0–100 pursuit scale:
   - The traveller's body is tested against that band each step while they overlap. Vaulting raises the body, ducking lowers it.
   - Each obstacle can collide at most once.
 - **Committing**: a step before an obstacle, the traveller commits based on how they are moving.
-  - Running with breath: vault low obstacles and leap pits.
+  - Running with stamina: vault low obstacles and leap pits.
   - Walking: step over low obstacles and duck under snags.
-- **Collisions** carry a stamina cost and also let the creature close in. A collision alone never brings it into catch range.
+- **Collisions** cost stamina and time, and the crash is **heard**: awareness jumps and its last known position snaps to you. The creature is never moved by a collision.
 
 | Collision | Penalty |
 |---|---|
-| Low (pumpkin, root, fallen board, fallen log), running winded | trip 0.55 s, −8 breath, creature +1.5 m |
-| Snag (barbed wire, harrow tines at chest height), running | snagged 0.85 s, −12 breath, creature +2.5 m, then duck through |
-| Pit, walking or winded | fall 1.1 s, −12 breath, creature +3 m, climb out |
+| Low (pumpkin, root, fallen board, fallen log), running winded | trip 0.55 s, −8 stamina, awareness +15 |
+| Snag (barbed wire, harrow tines at chest height), running | snagged 0.85 s, −12 stamina, awareness +25, then duck through |
+| Pit, walking or winded | fall 1.1 s, −12 stamina, awareness +25, climb out |
 
 One-line hints appear the first time you meet a pit, a snag or crows.
 
@@ -107,16 +114,22 @@ One-line hints appear the first time you meet a pit, a snag or crows.
   - a cloud shadow darkening the field.
 - **Gameplay (crows)**: crows peck on the path. Run through them and they burst up cawing, and the creature gains 3 m (and turns back if it was leaving). Walk past and they only hop aside.
 
-### Difficulty
+### Difficulty and pacing
 
-- It stays flat for 15 s, then ramps over 70 s. Run speed and creature speed rise.
-- **More demanding decisions**:
-  - safe times shrink;
-  - corn (the shortest cover) gets more common;
-  - sections get longer, so cover is further apart;
-  - harder section templates unlock: wire, machinery, woodpile, gauntlet;
-  - crows get more frequent;
-  - breath drains faster and recovers a little slower.
+- **Driven by ground covered**, ramping between 80 m and 500 m.
+- **The field also closes in with time**, so creeping or camping doesn't stall it.
+- **Opening:**
+  - The creature starts 38 m back and unaware.
+  - The first two hiding places are corn, then a haystack.
+  - Continuous running gets you investigated after about 15 s and caught after about 24 s.
+- **Later, it's not just speed:**
+  - the creature follows closer;
+  - background awareness rises faster;
+  - comfort times shrink by 25%;
+  - long-lasting cover gets rarer;
+  - cover gets further apart;
+  - harder sections unlock;
+  - crows get more frequent.
 
 ### Game states
 
@@ -129,7 +142,13 @@ One-line hints appear the first time you meet a pit, a snag or crows.
 
 ## Rendering and performance
 
-- **Rendering**: the whole picture is drawn with integer `fillRect`s into a low-resolution buffer (about 130×280 on a phone). That buffer is blitted with `imageSmoothingEnabled = false` at the largest whole-number scale that fits. There's no anti-aliasing, no gradients (ordered-dither seams only) and no post-processing that blurs.
+- **Rendering**: the whole picture is drawn with integer `fillRect`s into a low-resolution buffer (about 130×280 on a phone). That buffer is blitted with `imageSmoothingEnabled = false` at the largest whole-number scale that covers the screen. Other screen shapes show more field instead of bars, and the artwork is never stretched unevenly (checked by `dev/fill.js`). There's no anti-aliasing and no gradients (ordered-dither seams only).
+- **Danger** is shown by hard-edged burgundy bands at the frame edges and a faint tint, never over the centre. A 1 px stride bob plays while sprinting, and the camera is still in cover.
+- **The creature's approach** is one continuous mapping from distance to size (39 px tall at 40 m, about 119 px at its closest) and position. A stepped crop line hides it below the stalk tops at its depth, and the corn sways around it as it wades through. `dev/approach.js` checks for jumps.
+- **HUD:**
+  - DISTANCE in the large font, BEST under it, and the pause icon top right.
+  - A STAMINA bar that shows full, spending, critical (flashing) and recovering (warm, with a moving glint).
+  - One short outlined label at a time, in a lane in the sky under the HUD: HIDE NEARBY, THEY'RE CLOSE, EXHAUSTED, STAY STILL, KEEP MOVING, MOVE NOW, HIDDEN.
 - **Allocation**: world features, particles and flyers come from fixed pools, and the creature's draw options are reused, so play doesn't allocate per frame.
 - **Measured** (`dev/perf.js`) at phone size with a bot playing in real time:
   - Unthrottled: about 1 ms to draw and 0.03 ms to simulate per frame.
@@ -148,12 +167,14 @@ python3 -m http.server 8765           # from this folder, then open http://local
 ## Checks
 
 ```sh
-node dev/scenarios.js           # the Stage 2 acceptance scenarios A-F plus states, input, crows, difficulty, persistence (41 checks)
+node dev/scenarios.js           # mechanics scenarios A-I, obstacles, concealment measured on screen, states, input, persistence (44 checks)
+node dev/approach.js <outdir>   # the creature's approach is continuous (size, position, crop line), plus a contact sheet
+node dev/look.js <outdir>       # frozen screenshots: HUD, each hiding interaction while it searches, a check on you, chase, exhaustion
+node dev/fill.js <outdir>       # the picture covers the whole screen on phone, tablet, desktop and landscape shapes
 node dev/gen.js                 # 20 km x 20 seeds: every cover type appears, cover gaps, obstacle spacing, nothing in cover's reach
-node dev/bot.js [runs]          # policies through the real step function: hold forever, never hold, a sensible player
+node dev/bot.js [runs]          # strategies through the real step function: hold forever, walk only, camp, a sensible player
 node dev/perf.js [throttle]     # frame cost while a bot plays in real time (CPU throttle, default 4x)
 node dev/persist.js             # personal best survives a reload
-node dev/spots.js <outdir>      # every kind of cover: within reach, and hidden while it searches
 node dev/shots.js <outdir>      # phone screenshots: title, run, hide, search, close, caught, game over
 node dev/stages.js <outdir>     # each stage, real touch hold/release, pause, desktop and small-phone layouts
 node dev/trace.js               # one bot run, state every half second, with the event log

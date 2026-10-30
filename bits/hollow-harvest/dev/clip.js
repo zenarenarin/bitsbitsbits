@@ -15,17 +15,15 @@ srv.listen(0, async () => {
   await pg.waitForTimeout(2200);
   await pg.evaluate(() => {
     __hh.reset(); __hh.begin();
-    // a player who runs, hides late when it is close, waits for it to turn away, then goes
-    let leaving = false;
+    // a player who runs, hides when it comes looking or breath is low, and goes once it turns away
     const loop = () => {
-      const r = __hh.run, c = r.c, w = __hh.world;
-      if ((__hh.mode !== 'PLAYING' && __hh.mode !== 'STARTING')) return;
-      const ob = w.nextObstacle(r.dist), ahead = ob ? ob.x0 - r.dist : 99;
+      const r = __hh.run, w = __hh.world;
+      if (__hh.mode !== 'PLAYING' && __hh.mode !== 'STARTING') return;
+      const cs = __hh.creatureState(), gap = __hh.gapNow(), ob = w.nextObstacle(r.dist), ahead = ob ? ob.x0 - r.dist : 99;
       let hold = true;
-      if (leaving) { if (!r.inZone || c.gap > 14) leaving = false; }
-      else if (r.act === 'hide') hold = leaving = r.exposed || ((c.mode === 'withdraw' || c.mode === 'linger') && r.stamina > 85);
+      if (r.act === 'hide') hold = (cs === 'LOSING_INTEREST' || cs === 'RETURNING' || (cs === 'FOLLOWING' && gap > 18)) && (r.stamina > 70 || r.overtime);
       else if (ob && ob.k === 'snag' && ahead < 2.2 && ahead > -0.5) hold = false;
-      else if (r.inZone && (c.gap < 9 || r.stamina < 50) && c.gap > 3.2) hold = false;
+      else if (r.inZone && !(cs === 'CHASING' && gap < 4) && (r.stamina < 55 || cs === 'INVESTIGATING' || cs === 'CHASING' || cs === 'SEARCHING')) hold = false;
       __hh.hold(hold);
       requestAnimationFrame(loop);
     };

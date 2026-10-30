@@ -18,12 +18,12 @@ srv.listen(0, async () => {
   await pg.waitForTimeout(200);
   await pg.screenshot({ path: out + '/2_run.png' });
   // run to the first hiding place and let go inside it
-  const r = await pg.evaluate(() => { const z = __hh.world.feats.find(f => f.k === 'hide' && f.type !== 'corn' && f.x0 > __hh.run.dist); while (__hh.run.dist < z.x0 + 1) __hh.advance(1 / 60, true); __hh.run.c.gap = 9; __hh.advance(0.6, false); return { act: __hh.run.act, gap: __hh.run.c.gap, mode: __hh.run.c.mode }; });
+  const r = await pg.evaluate(() => { const z = __hh.world.feats.find(f => f.k === 'hide' && f.type !== 'corn' && f.x0 > __hh.run.dist); while (__hh.run.dist < z.x0 + 1) __hh.advance(1 / 60, true); const r = __hh.run; r.a = 45; r.lkp = r.dist + 1; r.c.mode = 'investigate'; r.c.x = r.dist - 9; __hh.advance(0.6, false); return { act: __hh.run.act, gap: __hh.run.c.gap, mode: __hh.run.c.mode }; });
   console.log('hide', r);
   await pg.evaluate(() => __hh.hold(false));
   await pg.waitForTimeout(100);
   await pg.screenshot({ path: out + '/3_hide.png' });
-  const r2 = await pg.evaluate(() => { let n = 0; while (__hh.run.c.mode !== 'sweep' && n++ < 1000) __hh.advance(1 / 60, false); return { act: __hh.run.act, gap: __hh.run.c.gap, mode: __hh.run.c.mode }; });
+  const r2 = await pg.evaluate(() => { let n = 0; while (__hh.run.c.mode !== 'search' && n++ < 1000) __hh.advance(1 / 60, false); return { act: __hh.run.act, gap: __hh.run.c.gap, mode: __hh.run.c.mode }; });
   console.log('search', r2);
   await pg.waitForTimeout(100);
   await pg.screenshot({ path: out + '/4_search.png' });

@@ -62,7 +62,7 @@ function createAudio(enabled) {
     const cv = Math.max(0, Math.sin(cBreathPh * Math.PI)) * s.prox * s.prox * 0.09;
     ramp(cBreathG.gain, s.playing ? cv : 0, 0.08);
     ramp(droneG.gain, (0.03 + s.prox * 0.03) * live, 0.4);
-    ramp(distG.gain, s.playing ? s.prox * s.prox * 0.05 : 0, 0.3);
+    ramp(distG.gain, s.playing ? s.prox * s.prox * (s.hidden ? 0.015 : 0.035) : 0, 0.3);
     ramp(distLP.frequency, 200 + s.prox * 500, 0.3);
   };
   function blip(f0, f1, dur, type, vol, delay, dest) {
@@ -104,6 +104,10 @@ function createAudio(enabled) {
   A.alarm = function () { blip(70, 52, 0.5, 'sawtooth', 0.05); burst(260, 3, 0.5, 0.18); };
   // crows bursting up from the path
   A.scatter = function (loud) { for (let i = 0; i < 6; i++) burst(2400 + Math.random() * 1600, 2, 0.06, loud ? 0.08 : 0.03, i * 0.035, amb); if (loud) A.caw(); };
+  // the creature's joints creak as it moves through the crop
+  A.joint = function (v) { if (v < 0.05) return; blip(180 + Math.random() * 60, 110, 0.35, 'sawtooth', 0.012 * v, 0, amb); burst(700, 6, 0.25, 0.05 * v, 0.05); };
+  // it has seen you: one low, short stab
+  A.spotted = function () { blip(98, 49, 0.45, 'sawtooth', 0.07); blip(73, 37, 0.5, 'square', 0.04, 0.02); burst(220, 1.5, 0.4, 0.25); };
   A.ui = function () { blip(440, 660, 0.06, 'square', 0.03); };
   A.suspend = function () { try { if (ac && ac.state === 'running') ac.suspend(); } catch (e) { } };
   A.resume = function () { try { if (ac && ac.state === 'suspended') ac.resume(); } catch (e) { } };

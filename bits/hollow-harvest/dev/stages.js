@@ -12,7 +12,7 @@ srv.listen(0, async () => {
   pg.on('pageerror', e => errs.push(String(e)));
   await pg.goto(url); await pg.waitForTimeout(500);
   for (const d of [200, 330, 520]) {
-    await pg.evaluate((d) => { __hh.reset(); __hh.begin(); __hh.advance(0.2, true); const r = __hh.run; r.t = 60; r.dist = d; r.c.gap = 16; r.c.mode = 'hunt'; __hh.world.reset(5); __hh.world.genX = d; __hh.world.update(d, 0.5, 2); __hh.advance(1, true); }, d);
+    await pg.evaluate((d) => { __hh.reset(); __hh.begin(); __hh.advance(0.2, true); const r = __hh.run; r.t = 60; r.dist = d; r.c.mode = 'investigate'; r.a = 45; r.lkp = d; __hh.world.reset(5); __hh.world.genX = d; __hh.world.update(d, 0.5, 2); r.c.x = d - 16; r.lkp = d; __hh.advance(1, true); }, d);
     await pg.waitForTimeout(300);
     await pg.screenshot({ path: `${out}/stage_${d}.png` });
   }

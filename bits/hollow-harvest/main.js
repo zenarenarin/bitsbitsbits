@@ -250,15 +250,16 @@ const OBSTACLES = {
   wire: { k: 'snag', w: 1.3, band: [13, 19], major: true },
   harrow: { k: 'snag', w: 1.6, band: [12, 18], major: true }
 };
-// Hiding places. safe: seconds you can stay before it comes to check.
+// Hiding places. conceal: how well it hides you when the creature checks it (0..1).
+// comfort: seconds before staying put starts to make a check more likely to find you.
 // radius: how far either side of the object you can let go and still slip in.
 // at: where the traveller settles, as a fraction of the width.
 const HIDE_SPOTS = {
-  corn: { safe: 3, radius: -0.2, at: -1, label: 'CORN' },
-  hay: { safe: 4, radius: 0.8, w: 3.0, at: 0.55, label: 'HAYSTACK' },
-  cart: { safe: 5, radius: 0.8, w: 3.4, at: 0.45, label: 'CART' },
-  tree: { safe: 6, radius: 0.9, w: 2.4, at: 0.5, label: 'HOLLOW TREE' },
-  shed: { safe: 7, radius: 1.0, w: 4.2, at: 0.36, label: 'SHED' }
+  corn: { conceal: 0.75, comfort: 5, radius: -0.2, at: -1, label: 'CORN' },
+  hay: { conceal: 0.5, comfort: 4, radius: 0.8, w: 3.0, at: 0.55, label: 'HAYSTACK' },
+  cart: { conceal: 0.55, comfort: 4.5, radius: 0.8, w: 3.4, at: 0.45, label: 'CART' },
+  tree: { conceal: 0.8, comfort: 6, radius: 0.9, w: 2.4, at: 0.5, label: 'HOLLOW TREE' },
+  shed: { conceal: 0.85, comfort: 7, radius: 1.0, w: 4.2, at: 0.36, label: 'SHED' }
 };
 const SECTION_TEMPLATES = [
   { id: 'harvest', min: 0, w: 3, L: 46, items: [['low', 12, 'pumpkin'], ['hide', 27, 1]], props: [['scarecrow', 18], ['pumpkins', 6]] },
@@ -270,6 +271,8 @@ const SECTION_TEMPLATES = [
   { id: 'woodpile', min: 0.12, w: 2, L: 46, items: [['low', 9, 'log'], ['hide', 20, 0.9], ['low', 33, 'log']], props: [['fence', 26]] },
   { id: 'machinery', min: 0.3, w: 2, L: 50, items: [['snag', 10, 'harrow'], ['hole', 22, 2.0], ['hide', 35, 0.9]], props: [['cart', 4], ['lantern', 30]] },
   { id: 'scarecrows', min: 0.2, w: 2, L: 48, items: [['low', 10, 'root'], ['hole', 20, 1.7], ['hide', 32, 0.9]], props: [['scarecrow', 6], ['scarecrow', 16], ['scarecrow', 26]] },
+  { id: 'open', min: 0.1, w: 2, L: 44, items: [['low', 12, 'log'], ['low', 26, 'pumpkin'], ['hide', 38, 0.9]], props: [['scarecrow', 20]] },
+  { id: 'shelter', min: 0, w: 1, L: 44, items: [['hide', 8, 0.8], ['hide', 22, 0.8], ['low', 34, 'root']], props: [['lantern', 16]] },
   { id: 'gauntlet', min: 0.55, w: 2, L: 56, items: [['hole', 8, 1.9], ['low', 16, 'log'], ['snag', 25, 'wire'], ['hole', 34, 2.2], ['hide', 45, 0.8]], props: [['post', 20]] }
 ];
 
@@ -306,7 +309,7 @@ function createWorld(seed) {
     if (x - W.lastHide > hideLimit(d)) x = W.lastHide + hideLimit(d) * 0.8;
     const pad = Math.max(0, spec.radius) + 0.5;
     if (x < lastObs + 2.5 + pad) x = lastObs + 2.5 + pad;
-    add({ k: 'hide', type, safe: spec.safe, radius: spec.radius, at: spec.at, x0: x, x1: x + len, rustle: 0, glint: 0 });
+    add({ k: 'hide', type, conceal: spec.conceal, comfort: spec.comfort, radius: spec.radius, at: spec.at, x0: x, x1: x + len, rustle: 0, glint: 0 });
     W.lastHide = x + len; W.lastType = type;
     // obstacles may follow a hiding place closely, but never inside it or its reach
     lastObs = type === 'corn' ? x + len - 3.5 : x + len + pad - 5.5;
@@ -319,7 +322,11 @@ function createWorld(seed) {
     if (kind === 'pumpkins') {
       const n = 2 + ((W.rng() * 3) | 0);
       for (let i = 0; i < n; i++) prop({ k: 'pumpkin', x: x + W.rng() * 8, layer: W.rng() < 0.55 ? 'back' : 'front', lit: 0, size: W.rng() < 0.3 ? 1 : 0 });
-    } else prop({ k: kind, x: x + (W.rng() - 0.5) * 3, look: 0, lit: 0 });
+    } else {
+      let px = x + (W.rng() - 0.5) * 3;
+      for (const f of W.feats) if (f.k === 'hide' && f.type !== 'corn' && px > f.x0 - 4 && px < f.x1 + 4) px = f.x1 + 5;
+      prop({ k: kind, x: px, look: 0, lit: 0 });
+    }
   }
   function intro() {
     // the first two hiding places teach the two kinds of cover: the corn, then a real object
@@ -606,7 +613,8 @@ function createScene(surface) {
       R(x + 1, top + 6, 2, 1, p.midCorn); R(x + 3, top + 7, 1, 1, p.midCorn);
     }
   };
-  S.drawBackRow = function (L, p, camPx, t, stir) {
+  // stir: an event wave of corn moving with no wind; push: { x, amt } the creature wading through (screen x)
+  S.drawBackRow = function (L, p, camPx, t, stir, push) {
     const off = camPx * 0.85, sp = 6;
     const base = L.yFeet - 5;
     R(0, L.yBack + 14, L.W, base - L.yBack - 12, p.backLeaf);
@@ -620,9 +628,12 @@ function createScene(surface) {
       const hh = hash(i + 5000);
       if (hh < 0.12) continue; // a gap between the stalks
       const x = Math.round(i * sp - off + ((hh * 3) | 0));
-      const top = L.yBack - 4 + ((hash(i + 77) * 8) | 0);
+      // heights vary in clumps of four stalks, with the odd taller one standing out
+      const clump = Math.floor(i / 4), lift = ((hash(clump + 313) * 7) | 0) - 3 + (hash(i + 919) > 0.93 ? -5 : 0);
+      const top = L.yBack - 4 + ((hash(i + 77) * 6) | 0) + lift;
       let ex = 0;
       if (stir && stir.t > 0 && Math.abs(i * sp - stir.x * PPM * 0.85) < 40) ex = Math.sin(t * 9 + i) * 2.2 * Math.min(1, stir.t);
+      if (push && push.amt > 0 && Math.abs(x - push.x) < 20) ex += Math.sin(t * 7 + i * 1.3) * 2 * push.amt * (1 - Math.abs(x - push.x) / 20);
       const sw = S.swayAt(i * 6, t, ex);
       R(x, top + 4, 1, base - top - 4, p.backStalk);
       R(x + sw, top, 1, 4, p.backStalk);
@@ -653,7 +664,8 @@ function createScene(surface) {
       if (hh < 0.12) { R(x + 1, L.yFeet, 2, 1, p.backLeafLit); }
     }
   };
-  S.drawFront = function (L, p, camPx, t) {
+  // push: the traveller brushing past; strands near them lean away for a moment
+  S.drawFront = function (L, p, camPx, t, push) {
     const y0 = L.yFront;
     R(0, y0 + 2, L.W, L.H - y0, p.frontDark);
     // vertical grass strands like the reference foreground: olive, a few with red tips
@@ -661,8 +673,12 @@ function createScene(surface) {
       const wx = Math.floor(x + camPx * 1.0), hh = hash(wx + 300);
       const h = 2 + ((hh * 6) | 0);
       R(x, y0 + 2 - h, 1, h + 2, hh > 0.5 ? p.frontLeaf : p.frontDark);
-      if (hh > 0.86) R(x, y0 + 2 - h, 1, 1, p.frontLeafLit);
-      else if (hh < 0.08) R(x, y0 + 2 - h, 1, 1, p.backLeaf);
+      // the tip leans away from the traveller as they brush past
+      let tx = x;
+      if (push && push.amt > 0 && h > 4 && Math.abs(x - push.x) < 9) tx += x < push.x ? -1 : 1;
+      if (hh > 0.86) R(tx, y0 + 2 - h, 1, 1, p.frontLeafLit);
+      else if (hh < 0.08) R(tx, y0 + 2 - h, 1, 1, p.backLeaf);
+      else if (tx !== x) { R(x, y0 + 2 - h, 1, 1, p.frontDark); R(tx, y0 + 2 - h, 1, 1, p.frontLeaf); }
     }
     for (let x = 0; x < L.W; x++) {
       const wx = Math.floor(x + camPx * 1.15), hh = hash(wx + 900);
@@ -724,9 +740,11 @@ const PL_MAP = compileMap([
 ]);
 const PL_COL = { o: '#1a1410', h: '#3d2420', H: '#74403a', d: '#22140f', e: '#f6e2b6', b: FIX.green, B: FIX.greenDark, c: '#dcbb7c', C: '#a8834f' };
 const PL_COL_BLINK = Object.assign({}, PL_COL, { e: '#22140f' });
+// in cover the traveller is in shade: the same sprite, colours stepped down
+const PL_COL_SHADE = { o: '#120d0b', h: '#2a1816', H: '#4a2a26', d: '#160d0a', e: '#c9b48a', b: '#3a422c', B: '#272d1e', c: '#8a7350', C: '#6a5236' };
 const PL_TROUSER = '#5e3a30', PL_TROUSER_BK = '#3a2420', PL_BOOT = '#1a1410';
 
-// s.mode: idle | run | walk | tired | crouch | duck | air | fall | lifted
+// s.mode: idle | run | walk | tired | kneel | crouch | duck | air | fall | lifted   s.shade: in cover
 function drawPlayer(x, yF, s) {
   const m = s.mode, q = Math.floor(((s.ph % TAU) + TAU) % TAU / (TAU / 8)), ph = q * TAU / 8;
   let lean = 0, stride = 0, bend = 0.15, armSwing = 0, armBend = 0.4, crouch = false, headX = 0;
@@ -734,13 +752,17 @@ function drawPlayer(x, yF, s) {
   else if (m === 'walk') { lean = 0.05; stride = 0.45; bend = 0.5; armSwing = 0.45; }
   else if (m === 'tired') { lean = 0.36; stride = 0.32; bend = 0.4; armSwing = 0.15; headX = 1; }
   else if (m === 'crouch' || m === 'duck') { crouch = true; lean = m === 'duck' ? 0.2 : 0.08; stride = m === 'duck' ? 0.3 : 0; }
+  else if (m === 'kneel') { lean = 0.14; stride = 0; bend = 0.9; }
   else if (m === 'air') { lean = 0.2; stride = 0.6; bend = 1.4; armSwing = 0.6; armBend = 1.0; }
   else if (m === 'lifted') { lean = -0.1; }
   const legs = [];
   for (let i = 0; i < 2; i++) {
     const p2 = ph + i * Math.PI;
     let kx, ky, fx, fy;
-    if (crouch) {
+    if (m === 'kneel') {
+      // halfway down: knees forward, body lowered three pixels
+      kx = i ? -1 : 3; ky = 2; fx = i ? -2 : 1; fy = 5;
+    } else if (crouch) {
       const sw = Math.sin(p2) * stride;
       kx = 3 + (i ? -3 : 0) + Math.round(sw * 2); ky = 2; fx = 1 + (i ? -3 : 0) + Math.round(sw * 3); fy = 5;
     } else if (m === 'lifted') {
@@ -755,9 +777,9 @@ function drawPlayer(x, yF, s) {
     legs.push({ kx, ky, fx, fy, back: i === 1 });
   }
   const footMax = Math.max(legs[0].fy, legs[1].fy);
-  const hipY = Math.round(yF - (crouch ? 6 : footMax) - (s.lift || 0));
-  const skip = crouch ? (r => r === 14 || r === 15) : null;
-  const hipLocal = crouch ? 15 : 17, top = hipY - hipLocal;
+  const hipY = Math.round(yF - (crouch ? 6 : m === 'kneel' ? 5 : footMax) - (s.lift || 0));
+  const skip = crouch ? (r => r === 14 || r === 15) : m === 'kneel' ? (r => r === 15) : null;
+  const hipLocal = crouch ? 15 : m === 'kneel' ? 16 : 17, top = hipY - hipLocal;
   const shift = r => Math.round((17 - r) * lean) + (r <= 9 ? headX : 0);
   const hipX = x + 8 + shift(17);
   const shoulderY = top + 11, shX = x + 8 + shift(11);
@@ -776,11 +798,16 @@ function drawPlayer(x, yF, s) {
     line(hipX, hipY, kx, ky, col, 2); line(kx, ky, fx, fy, col, 2);
     R(fx - 1, fy, 3, 2, PL_BOOT); R(fx + 2, fy + 1, 1, 1, PL_BOOT);
   };
-  arm(-1, PL_COL.C);
-  leg(legs[1], PL_TROUSER_BK);
-  drawMap(PL_MAP, x, top, s.blink ? PL_COL_BLINK : PL_COL, shift, skip);
-  leg(legs[0], PL_TROUSER);
-  arm(1, PL_COL.c);
+  arm(-1, s.shade ? PL_COL_SHADE.C : PL_COL.C);
+  leg(legs[1], s.shade ? '#24140f' : PL_TROUSER_BK);
+  const cols = s.shade ? PL_COL_SHADE : s.blink ? PL_COL_BLINK : PL_COL;
+  // exhausted: the head hangs and bobs with each heavy breath
+  const droop = m === 'tired' ? (Math.floor(s.t * 2.2) % 2) : 0;
+  drawMap(PL_MAP, x, top + droop, cols, shift, skip);
+  // a thin rim of evening light on the hood keeps the silhouette readable against the dark crop
+  if (!s.shade) for (let r = 2; r <= 8; r += 2) R(x + 1 + shift(r) - (r < 3 ? 0 : 1) + (r === 2 ? 1 : 0), top + droop + r, 1, 1, '#b8735a');
+  leg(legs[0], s.shade ? '#3a241e' : PL_TROUSER);
+  arm(1, s.shade ? PL_COL_SHADE.c : PL_COL.c);
   return { top, hipY };
 }
 
@@ -1126,7 +1153,7 @@ function createAudio(enabled) {
     const cv = Math.max(0, Math.sin(cBreathPh * Math.PI)) * s.prox * s.prox * 0.09;
     ramp(cBreathG.gain, s.playing ? cv : 0, 0.08);
     ramp(droneG.gain, (0.03 + s.prox * 0.03) * live, 0.4);
-    ramp(distG.gain, s.playing ? s.prox * s.prox * 0.05 : 0, 0.3);
+    ramp(distG.gain, s.playing ? s.prox * s.prox * (s.hidden ? 0.015 : 0.035) : 0, 0.3);
     ramp(distLP.frequency, 200 + s.prox * 500, 0.3);
   };
   function blip(f0, f1, dur, type, vol, delay, dest) {
@@ -1168,6 +1195,10 @@ function createAudio(enabled) {
   A.alarm = function () { blip(70, 52, 0.5, 'sawtooth', 0.05); burst(260, 3, 0.5, 0.18); };
   // crows bursting up from the path
   A.scatter = function (loud) { for (let i = 0; i < 6; i++) burst(2400 + Math.random() * 1600, 2, 0.06, loud ? 0.08 : 0.03, i * 0.035, amb); if (loud) A.caw(); };
+  // the creature's joints creak as it moves through the crop
+  A.joint = function (v) { if (v < 0.05) return; blip(180 + Math.random() * 60, 110, 0.35, 'sawtooth', 0.012 * v, 0, amb); burst(700, 6, 0.25, 0.05 * v, 0.05); };
+  // it has seen you: one low, short stab
+  A.spotted = function () { blip(98, 49, 0.45, 'sawtooth', 0.07); blip(73, 37, 0.5, 'square', 0.04, 0.02); burst(220, 1.5, 0.4, 0.25); };
   A.ui = function () { blip(440, 660, 0.06, 'square', 0.03); };
   A.suspend = function () { try { if (ac && ac.state === 'running') ac.suspend(); } catch (e) { } };
   A.resume = function () { try { if (ac && ac.state === 'suspended') ac.resume(); } catch (e) { } };
@@ -1177,28 +1208,33 @@ function createAudio(enabled) {
 
 // ---- 05_game.js ----
 // =====================================================================
-// The game: run and hide, stamina, the pursuit, screens, the Plethora
-// lifecycle and the pixel-perfect blit.
+// The game: movement and stamina, the creature's awareness and pursuit,
+// concealment, screens, the Plethora lifecycle and the pixel-perfect blit.
 // =====================================================================
 const SAVE_KEY = 'hollow-harvest-v1';
 // Every gameplay number lives here. Speeds are metres per second, stamina
-// is 0..100, pursuit distance is metres internally and 0..100 for reading
-// (100 = gapScale metres away, 0 = caught).
+// and awareness are 0..100. The creature's distance is metres along the
+// path (gap = how far behind you it is); pursuit() reads it as 0..100.
 const TUNE = {
   // movement
-  runBase: 6.2, runGain: 2.2, walk: 2.0, accel: 18, decel: 16, tiredRun: 0.6, tiredWalk: 0.85,
-  // stamina (0..100)
-  drain: 8.8, drainGain: 3.0, recoverHide: 26, recoverHideLoss: 6, recoverWalk: 0.8, low: 30, rested: 25,
-  // pursuit
-  gapScale: 40, startGap: 34, maxGap: 44, huntBase: 6.75, huntGain: 2.3, tiredHunt: 0.3,
-  followAt: 65, dangerAt: 35, immediateAt: 15,
-  seenGap: 3.0, catchGap: 1.2, sweepAt: 6.0, passBy: 1.6, sweepSpeed: 3.0, checkGap: 2.5,
-  withdrawSpeed: 6.5, withdrawTime: 2.6, safeShrink: 0.75,
-  // collisions: [stumble seconds, stamina lost, metres the creature gains]
-  hitLow: [0.55, 8, 1.5], hitSnag: [0.85, 12, 2.5], hitPit: [1.1, 12, 3.0],
+  runBase: 6.2, runGain: 1.6, walk: 2.0, accel: 18, decel: 16, tiredRun: 0.6, tiredWalk: 0.85,
+  // stamina
+  drain: 8.5, drainGain: 2.5, recoverHide: 22, recoverHideLoss: 5, recoverWalk: 1.0, low: 30, rested: 25,
+  // noise and awareness (per second unless noted)
+  noiseRun: 14, noiseTired: 20, noiseWalk: 3, presence: 0.6, presenceGain: 2.6, decayOpen: 4,
+  exposedNear: 6, nearGap: 10, decayHide: 6, decayHideConceal: 10, searchingDecayFactor: 0.35,
+  hitMinor: 15, hitMajor: 25, crowsAware: 20, bolt: 30,
+  suspicious: 26, hunting: 51, detected: 76,
+  // the creature
+  startGap: 38, maxGap: 44, followGapStart: 32, followGapEnd: 14, sightGap: 26,
+  followSpeed: 3.5, investigateSpeed: 4.8, huntSpeed: 6.6, chaseSpeed: 8.0, speedGain: 0.18, retreatSpeed: 3.2,
+  seenGap: 3.0, catchGap: 1.2, searchBase: 2.0, searchPerAware: 3.0, checkReach: 0.9, checkHit: 1.6, checkWalk: 1.8,
+  gapScale: 40,
+  // collisions: [stumble seconds, stamina lost, awareness gained]
+  hitLow: [0.55, 8, 15], hitSnag: [0.85, 12, 25], hitPit: [1.1, 12, 25],
   vaultCost: 3, leapCost: 5, minClearStamina: 8,
-  // difficulty ramps from 0 to 1 over this window of run time
-  easyFor: 15, rampOver: 70
+  // difficulty follows ground covered, not the clock
+  diffStart: 80, diffSpan: 420, closeInOver: 150, overstay: 3
 };
 const MODES = { MENU: 'MENU', STARTING: 'STARTING', PLAYING: 'PLAYING', PAUSED: 'PAUSED', CAUGHT: 'CAUGHT', GAME_OVER: 'GAME_OVER' };
 const TRANSITIONS = {
@@ -1209,6 +1245,8 @@ const TRANSITIONS = {
   CAUGHT: ['GAME_OVER'],
   GAME_OVER: ['STARTING', 'MENU']
 };
+const CREATURE_STATES = { wake: 'FOLLOWING', follow: 'FOLLOWING', investigate: 'INVESTIGATING', search: 'SEARCHING', chase: 'CHASING', lose: 'LOSING_INTEREST', ret: 'RETURNING' };
+const CHECK_OFFSETS = [0, 2, -2, 3.5, -3.5, 5, -5, 1, -1];
 
 window.plethoraBit = {
   meta: { title: 'Hollow Harvest', runtime: 'plethora-bit@2', tags: ['arcade', 'halloween', 'pixel-art', 'endless', 'survival'], permissions: ['haptics', 'audio', 'storage'] },
@@ -1232,6 +1270,8 @@ window.plethoraBit = {
     };
 
     // ---------- canvas ----------
+    // The picture is drawn at a low logical resolution (about 130 px wide on a phone) and blitted at
+    // the largest whole-number scale that covers the screen; any extra width or height shows more field.
     const canvas = ctx.createCanvas2D({ touchAction: 'none', alpha: false, layer: 'content' });
     canvas.style.imageRendering = 'pixelated';
     const g = canvas.getContext('2d', { alpha: false });
@@ -1246,22 +1286,6 @@ window.plethoraBit = {
     const b = buf.getContext('2d');
     let devW = 1, devH = 1;
     let W = 128, H = 280, SC = 1, offX = 0, offY = 0, dpr = 1, L = computeLayout(W, H), safeT = 0, safeB = 0;
-    const vign = [], vignCv = [];
-    function buildVignettes() {
-      vign.length = 0;
-      const bayer = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-      const ink = hexRgb(FIX.ink);
-      for (let l = 1; l <= 3; l++) {
-        const cv = vignCv[l - 1] || (vignCv[l - 1] = surface(W, H)); cv.width = W; cv.height = H;
-        const c2 = cv.getContext('2d'), id = c2.createImageData(W, H);
-        for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-          const dx = (x - W / 2) / (W / 2), dy = (y - H / 2) / (H / 2), d = Math.sqrt(dx * dx * 1.1 + dy * dy * 0.9);
-          const v = clamp((d - (1.12 - l * 0.17)) * 2.2, 0, 1);
-          if (bayer[(y & 3) * 4 + (x & 3)] / 16 < v) { const i = (y * W + x) * 4; id.data[i] = ink[0]; id.data[i + 1] = ink[1]; id.data[i + 2] = ink[2]; id.data[i + 3] = 255; }
-        }
-        c2.putImageData(id, 0, 0); vign.push(cv);
-      }
-    }
     function layout() {
       const cw = Math.max(1, ctx.width || window.innerWidth), ch = Math.max(1, ctx.height || window.innerHeight);
       dpr = Math.min(3, ctx.nativeDpr || window.devicePixelRatio || 1);
@@ -1279,7 +1303,6 @@ window.plethoraBit = {
       safeT = Math.max(0, Math.ceil(((sa.top || 0) * dpr - Math.max(0, offY)) / SC));
       safeB = Math.max(0, Math.ceil(((sa.bottom || 0) * dpr - Math.max(0, offY)) / SC));
       scene.skyKey = '';
-      buildVignettes();
     }
 
     const scene = createScene(surface);
@@ -1311,10 +1334,12 @@ window.plethoraBit = {
       return {
         t: 0, dist: 0, score: 0, speed: 0, stamina: 100, tired: false, idleT: 0,
         act: 'stand', actT: 0, actDur: 0, airH: 0, airMax: 0, ph: 0, stepPh: 0, after: null,
-        hideT: 0, spot: null, exposed: false, settle: null, inZone: null,
-        c: { gap: TUNE.startGap, mode: 'wake', timer: 0, phase: 0, facing: 1, reach: 0, scan: 0, eyes: 1, sink: 0, alerted: false },
+        hideT: 0, hiddenFor: 0, spot: null, settle: null, inZone: null, overtime: false, kneel: 0, targeted: false,
+        a: 0, lkp: 0, hearAcc: 0,
+        c: { x: -TUNE.startGap, gap: TUNE.startGap, mode: 'wake', timer: 0, phase: 0, facing: 1, reach: 0, scan: 0, eyes: 1, sink: 0,
+          startle: 0, checkX: 0, checkIdx: 0, reachT: 0, jointT: 3, spotted: false },
         stageShown: 0, stageToast: 0, hint: '', hintT: 0, ev: { next: 6, cd: {} }, caw: 4, creak: 8, stir: { x: 0, t: 0 }, shade: 0,
-        heartT: 0, record: false, cause: '', jitter: [], jitterT: 0, threat: 0, hits: 0, escapes: 0, log: []
+        heartT: 0, record: false, cause: '', threat: 0, hits: 0, escapes: 0, finds: 0, checksOnYou: 0, peakA: 0, log: []
       };
     }
     run = newRun();
@@ -1328,17 +1353,17 @@ window.plethoraBit = {
     }
     const sim = () => mode === MODES.STARTING || mode === MODES.PLAYING;
 
-    function diff() { return clamp((run.t - TUNE.easyFor) / TUNE.rampOver, 0, 1); }
-    function pursuit() { return clamp(run.c.gap / TUNE.gapScale * 100, 0, 100); }
-    function huntSpeed() { return TUNE.huntBase + TUNE.huntGain * diff() + (run.tired ? TUNE.tiredHunt : 0); }
+    function diff() { return clamp((run.score - TUNE.diffStart) / TUNE.diffSpan, 0, 1); }
+    // the field slowly closes in even if you creep: pressure follows ground covered or time spent, whichever is further on
+    function pressure() { return Math.max(diff(), clamp(run.t / TUNE.closeInOver, 0, 1)); }
+    function gapNow() { return run.dist - run.c.x; }
+    function pursuit() { return clamp(gapNow() / TUNE.gapScale * 100, 0, 100); }
     function runSpeed() {
       let s = TUNE.runBase + TUNE.runGain * diff();
       if (run.tired) s *= TUNE.tiredRun;
       else if (run.stamina < TUNE.low) s *= lerp(0.65, 1, run.stamina / TUNE.low);
       return s;
     }
-    function safeTime(spot) { return spot.safe * lerp(1, TUNE.safeShrink, diff()); }
-    // hints are remembered in memory here and written with the next save (pause or the end of a run), never from the step loop
     function showHint(key, msg, dur) { if (save.hints[key]) return; save.hints[key] = 1; run.hint = msg; run.hintT = dur || 3.2; }
     function note(ev) { if (run.log.length < 400) run.log.push([+run.t.toFixed(2), ev]); }
 
@@ -1351,11 +1376,10 @@ window.plethoraBit = {
       if (run.act === 'walk' || run.act === 'duck' || run.act === 'climb') return 'WALKING';
       return 'RUNNING';
     }
-    function creatureState() {
-      const m = run.c.mode;
-      if (m === 'approach' || m === 'sweep' || m === 'check') return 'SEARCHING';
-      if (m === 'withdraw' || m === 'linger' || m === 'wake' || pursuit() >= TUNE.followAt) return 'FOLLOWING';
-      return 'HUNTING';
+    function creatureState() { return CREATURE_STATES[run.c.mode] || 'FOLLOWING'; }
+    function awarenessLevel(a) {
+      a = a === undefined ? run.a : a;
+      return a >= TUNE.detected ? 'DETECTED' : a >= TUNE.hunting ? 'HUNTING' : a >= TUNE.suspicious ? 'SUSPICIOUS' : 'UNAWARE';
     }
 
     // ---------- run lifecycle ----------
@@ -1389,73 +1413,145 @@ window.plethoraBit = {
     function resume() { if (mode === MODES.PAUSED && setMode(pausedFrom)) audio.resume(); }
     function toTitle() { if (setMode(MODES.MENU)) { run = newRun(); audio.resume(); } }
 
-    // ---------- the creature ----------
-    // wake    : asleep in the far corn until the run starts
-    // hunt    : it has you; it closes at its speed minus yours
-    // reacquire: a beat while it picks your trail back up
-    // approach: you hid; it walks to where it lost you
-    // sweep   : it walks through the spot and past you, looking
-    // check   : your safe time ran out; it reaches into your hiding place
-    // withdraw: it gave up and walks away (its back is to you)
-    // linger  : it waits out in the corn, then comes back to look again
-    function updateCreature(dt) {
-      const c = run.c, d = diff(), hidden = run.act === 'hide', hunt = huntSpeed();
-      c.timer -= dt;
-      if (c.mode === 'wake') {
-        if (mode === MODES.PLAYING && run.t > 1.5) { c.mode = hidden ? 'approach' : 'hunt'; note('wake'); }
-      } else if (!hidden) {
-        if (c.mode === 'approach') c.mode = 'hunt';
-        else if (c.mode === 'sweep' || c.mode === 'check') {
-          if (Math.abs(c.gap) <= TUNE.catchGap + 0.3) { caught('seen'); return; }
-          c.mode = 'reacquire'; c.timer = 0.8; c.gap = Math.max(c.gap, TUNE.catchGap + 1.3); note('bolt');
-        } else if (c.mode === 'withdraw') {
-          // its back is to you: it walks on, and only picks up your trail when it stops
-          c.gap = Math.min(TUNE.maxGap, c.gap + (TUNE.withdrawSpeed - run.speed * 0.5) * dt);
-          if (c.timer <= 0) { c.mode = 'reacquire'; c.timer = 0.7; }
-        } else if (c.mode === 'linger') { c.mode = 'reacquire'; c.timer = 0.7; }
-        if (c.mode === 'reacquire') { c.gap += (run.speed - hunt * 0.6) * dt; if (c.timer <= 0) c.mode = 'hunt'; }
-        if (c.mode === 'hunt') c.gap -= (hunt - run.speed) * dt;
+    // ---------- noise and awareness ----------
+    // Awareness is what the creature knows, not where it is. Noise raises it, more so the nearer it
+    // is; cover lets it fall. It also keeps a last known position, refreshed each time it hears you,
+    // and less precise the less aware it is.
+    function noise() {
+      const a = run.act;
+      if (a === 'hide' || a === 'stand') return 0;
+      if (a === 'walk' || a === 'duck' || a === 'climb') return TUNE.noiseWalk;
+      return run.tired ? TUNE.noiseTired : TUNE.noiseRun;
+    }
+    function hearing(gap) { return lerp(0.5, 1.8, clamp((40 - gap) / 36, 0, 1)); }
+    function spike(amount, why) {
+      run.a = clamp(run.a + amount, 0, 100); run.lkp = run.dist; run.hearAcc = 0; note('heard:' + why);
+    }
+    function updateAwareness(dt) {
+      const c = run.c, gap = gapNow(), hidden = run.act === 'hide', d = diff();
+      if (c.mode === 'wake') return;
+      let da = 0;
+      if (!hidden) {
+        da += noise() * hearing(gap) + TUNE.presence + TUNE.presenceGain * pressure() - TUNE.decayOpen;
+        // standing out in the open close to it is noticed whatever the noise
+        if (gap < TUNE.nearGap) da += TUNE.exposedNear * (1 - gap / TUNE.nearGap) * 2;
       } else {
-        if (c.mode === 'hunt' || c.mode === 'reacquire') { c.mode = 'approach'; note('lost-you'); }
-        if (run.exposed && !c.alerted) {
-          c.alerted = true;
-          if (c.mode === 'withdraw' || c.mode === 'linger') { c.mode = 'approach'; note('comes-back'); }
-        }
-        if (c.mode === 'approach') {
-          c.gap -= (2.4 + Math.max(0, c.gap) * 0.15) * (c.alerted ? 1.4 : 1) * dt;
-          if (c.gap <= TUNE.sweepAt) { c.mode = c.alerted ? 'check' : 'sweep'; c.timer = lerp(1.1, 0.8, d); audio.rustle(1.2); note(c.mode); }
-        } else if (c.mode === 'sweep') {
-          c.gap -= (TUNE.sweepSpeed + d * 0.4) * dt;
-          if (run.exposed) { c.mode = 'check'; c.timer = lerp(1.1, 0.8, d); note('check'); }
-          else if (c.gap <= TUNE.passBy) {
-            c.mode = 'withdraw'; c.timer = TUNE.withdrawTime; run.escapes++; note('passed');
-            audio.safe(); haptic('light'); showHint('escape', 'IT PASSED YOU BY', 2.4);
-          }
-        } else if (c.mode === 'check') {
-          c.gap = lerp(c.gap, TUNE.checkGap, Math.min(1, dt * 3));
-          if (c.timer <= 0) { c.reach = 1; caught('found'); return; }
-        } else if (c.mode === 'withdraw') {
-          c.gap = Math.min(TUNE.maxGap, c.gap + TUNE.withdrawSpeed * dt);
-          if (c.timer <= 0) { c.mode = 'linger'; c.timer = 1.5 + Math.random() * 1.5; }
-        } else if (c.mode === 'linger') {
-          if (c.timer <= 0) { c.mode = 'approach'; note('returns'); }
+        const near = (c.mode === 'search' || c.mode === 'investigate') && Math.abs(gap) < 10;
+        da -= (TUNE.decayHide + TUNE.decayHideConceal * run.spot.conceal) * (near ? TUNE.searchingDecayFactor : 1);
+        // stay too long and it starts to sense something in that patch of field
+        if (run.overtime) da = Math.max(da, 0) + TUNE.overstay * (1.5 - run.spot.conceal);
+      }
+      if (c.mode === 'lose') da -= 6;
+      run.a = clamp(run.a + da * dt, 0, 100);
+      // in plain sight while it chases you, it does not lose track
+      if (!hidden && c.mode === 'chase' && gap < TUNE.sightGap) run.a = Math.max(run.a, 80);
+      run.peakA = Math.max(run.peakA, run.a);
+      if (!hidden) {
+        if (run.a >= TUNE.detected && gap < TUNE.sightGap) { run.lkp = run.dist; run.hearAcc = 0; }
+        else {
+          run.hearAcc += noise() * hearing(gap) * dt * 0.25;
+          if (run.hearAcc >= 1) { run.hearAcc = 0; run.lkp = run.dist - (1 - run.a / 100) * 5 * Math.random(); }
         }
       }
-      if (!hidden) c.alerted = false;
-      c.gap = Math.min(TUNE.maxGap, c.gap);
-      // presentation: it slows to look when searching, turns away when it leaves
-      c.facing = c.mode === 'withdraw' || c.mode === 'linger' ? -1 : 1;
-      const moving = c.mode === 'hunt' || c.mode === 'approach' || c.mode === 'withdraw' || c.mode === 'reacquire';
-      const prevPh = c.phase;
-      c.phase += dt * (moving ? 2.3 : c.mode === 'sweep' ? 1.2 : c.mode === 'check' ? 0.6 : 0.35);
-      if (Math.floor(prevPh / Math.PI) !== Math.floor(c.phase / Math.PI) && (moving || c.mode === 'sweep')) audio.creatureStep(clamp(1 - Math.abs(c.gap) / 32, 0, 1));
-      const reachTo = c.mode === 'check' ? 1 : c.mode === 'sweep' ? 0.5 + 0.5 * Math.sin(run.t * 1.9) : 0;
-      c.reach = lerp(c.reach, reachTo, Math.min(1, dt * 4));
-      c.scan = c.mode === 'sweep' ? Math.round(Math.sin(run.t * 1.3) * 2) / 2 : c.mode === 'check' ? 0 : c.mode === 'linger' ? -1 : 0;
-      if (c.gap <= TUNE.catchGap && !hidden) caught('caught');
     }
-    // the creature never closes the last stretch because of a stumble alone
-    function pushCreature(m) { run.c.gap = Math.max(Math.min(run.c.gap, TUNE.catchGap + 1.5), run.c.gap - m); }
+
+    // ---------- the creature ----------
+    // A real position on the path (c.x, metres). It moves toward a target at a speed set by what it is doing:
+    // follow    : keeps its distance in the field behind you, barely moving
+    // investigate: walks to where it last heard you
+    // search    : slows and checks the cover around that spot, one reach at a time
+    // chase     : it has seen you and comes straight on
+    // lose      : gives up and walks away
+    // ret       : drifts back into the field behind you
+    function followGap() { return lerp(TUNE.followGapStart, TUNE.followGapEnd, pressure()); }
+    function moveCreature(target, speed, dt) {
+      const c = run.c, dx = target - c.x, step = speed * dt;
+      c.x += Math.abs(dx) <= step ? dx : Math.sign(dx) * step;
+      return Math.abs(target - c.x) < 0.05;
+    }
+    function startSearch() {
+      const c = run.c;
+      c.mode = 'search'; c.timer = TUNE.searchBase + TUNE.searchPerAware * run.a / 100 + diff(); c.checkIdx = 0; c.reachT = 0;
+      nextCheck(); audio.rustle(1.1); note('search');
+    }
+    function nextCheck() {
+      const c = run.c, off = CHECK_OFFSETS[c.checkIdx % CHECK_OFFSETS.length];
+      let x = run.lkp + off;
+      if (run.act === 'hide') x = Math.min(x, run.dist - 0.6);
+      c.checkX = x; c.checkIdx++; c.reachT = 0; run.targeted = false;
+    }
+    function discoveryChance() {
+      const s = run.spot, over = Math.max(0, run.hideT - s.comfort * (1 - 0.25 * diff()));
+      return clamp((1 - s.conceal) * (0.3 + 0.7 * run.a / 100) * (1 + over * 0.6), 0, 0.95);
+    }
+    function updateCreature(dt) {
+      const c = run.c, d = diff(), hidden = run.act === 'hide', speedUp = 1 + TUNE.speedGain * d;
+      c.timer -= dt;
+      if (c.startle > 0) { c.startle -= dt; }
+      else if (c.mode === 'wake') {
+        if (mode === MODES.PLAYING && run.t > 1.5) { c.mode = 'follow'; note('wake'); }
+      } else if (c.mode === 'follow' || c.mode === 'ret') {
+        const target = run.dist - followGap(), gap = gapNow();
+        const v = gap > followGap() ? TUNE.followSpeed * speedUp : Math.min(TUNE.followSpeed, run.speed * 0.9);
+        moveCreature(target, v, dt);
+        if (c.mode === 'ret' && gapNow() <= followGap() + 1) c.mode = 'follow';
+        if (run.a >= TUNE.suspicious) { c.mode = 'investigate'; note('investigate'); }
+      } else if (c.mode === 'investigate') {
+        const v = (run.a >= TUNE.hunting ? TUNE.huntSpeed : TUNE.investigateSpeed) * speedUp;
+        const arrived = moveCreature(Math.min(run.lkp, run.dist - (hidden ? 0.6 : 0)), v, dt);
+        if (!hidden && run.a >= TUNE.detected && gapNow() < TUNE.sightGap) {
+          c.mode = 'chase'; note('chase');
+          if (!c.spotted) { c.spotted = true; audio.spotted(); haptic('warning'); }
+        } else if (arrived || Math.abs(c.x - run.lkp) < 1.2) startSearch();
+        else if (run.a < 20) { c.mode = 'lose'; c.timer = 3; note('lose'); }
+      } else if (c.mode === 'chase') {
+        moveCreature(run.dist, TUNE.chaseSpeed * speedUp, dt);
+        if (hidden) { c.mode = 'investigate'; note('lost-sight'); }
+        else if (gapNow() > TUNE.sightGap + 4) { c.mode = 'investigate'; run.a = Math.min(run.a, 70); note('outran'); }
+      } else if (c.mode === 'search') {
+        if (!hidden && run.a >= TUNE.detected && gapNow() < TUNE.sightGap) { c.mode = 'chase'; note('chase'); if (!c.spotted) { c.spotted = true; audio.spotted(); } }
+        else if (c.reachT > 0) {
+          // reaching into a hiding place: the warning comes before the result
+          c.reachT += dt;
+          if (c.reachT >= TUNE.checkReach) {
+            if (run.targeted && hidden) {
+              run.checksOnYou++;
+              if (Math.random() < discoveryChance()) { run.finds++; c.reach = 1; caught('found'); return; }
+              note('check-missed');
+            }
+            if (c.timer <= 0) {
+              c.mode = 'lose'; c.timer = 3; run.a = Math.max(0, run.a - 10); note('lose');
+              if (hidden) { run.escapes++; audio.safe(); haptic('light'); showHint('escape', 'IT IS LEAVING', 2.4); }
+            } else nextCheck();
+          }
+        } else if (moveCreature(c.checkX, TUNE.checkWalk, dt)) {
+          c.reachT = 0.0001;
+          run.targeted = hidden && Math.abs(c.checkX - run.dist) < TUNE.checkHit;
+          if (run.targeted) { audio.alarm(); haptic('warning'); if (run.spot) run.spot.rustle = 1; note('check-you'); }
+          else audio.rustle(0.5);
+        }
+      } else if (c.mode === 'lose') {
+        moveCreature(c.x - 30, TUNE.retreatSpeed, dt);
+        if (c.timer <= 0) { c.mode = 'ret'; note('return'); }
+        if (run.a >= TUNE.suspicious) { c.mode = 'investigate'; note('investigate'); }
+      }
+      // it never falls further behind than the edge of the field you can see
+      c.x = Math.max(c.x, run.dist - TUNE.maxGap);
+      if (hidden) c.x = Math.min(c.x, run.dist - 0.6);
+      c.gap = gapNow();
+      // presentation: weight in the stride, slower when it searches, faster when it has you
+      c.facing = c.mode === 'lose' ? -1 : 1;
+      const rate = c.startle > 0 ? 0.2 : c.mode === 'chase' ? 3.2 : c.mode === 'investigate' ? (run.a >= TUNE.hunting ? 2.6 : 2.0) : c.mode === 'search' ? (c.reachT > 0 ? 0.4 : 1.1) : c.mode === 'wake' ? 0.3 : 1.5;
+      const prevPh = c.phase; c.phase += dt * rate;
+      const z = clamp((c.gap - 1) / 39, 0, 1);
+      if (Math.floor(prevPh / Math.PI) !== Math.floor(c.phase / Math.PI) && rate > 0.5) audio.creatureStep(clamp((1 - z) * (c.mode === 'chase' ? 1.2 : 0.9), 0, 1));
+      c.jointT -= dt;
+      if (c.jointT <= 0) { c.jointT = 3 + Math.random() * 3; if (rate > 0.5) audio.joint(1 - z); }
+      const reachTo = c.reachT > 0 ? 1 : c.mode === 'chase' ? 0.35 : c.mode === 'search' ? 0.25 : 0;
+      c.reach = lerp(c.reach, reachTo, Math.min(1, dt * 5));
+      c.scan = c.mode === 'search' ? Math.round(Math.sin(run.t * 1.3) * 2) / 2 : c.mode === 'lose' ? -1 : 0;
+      if (!hidden && c.gap <= TUNE.catchGap) caught('caught');
+    }
 
     // ---------- obstacles: hitboxes along the path plus a height band ----------
     function setAct(a, dur) { run.act = a; run.actT = 0; run.actDur = dur || 0; }
@@ -1475,7 +1571,7 @@ window.plethoraBit = {
     }
     // the traveller's body, in pixels above the path: [feet, head]
     function body() {
-      const top = run.act === 'duck' ? 11 : run.act === 'climb' ? 22 : 22;
+      const top = run.act === 'duck' ? 11 : 22;
       return [run.airH + (run.act === 'climb' ? 6 : 0), run.airH + top];
     }
     function collide(ob) {
@@ -1488,7 +1584,7 @@ window.plethoraBit = {
       ob.hit = true; run.hits++; note('hit:' + ob.v);
       const pen = ob.k === 'low' ? TUNE.hitLow : ob.k === 'snag' ? TUNE.hitSnag : TUNE.hitPit;
       run.stamina = Math.max(0, run.stamina - pen[1]);
-      pushCreature(pen[2]);
+      spike(pen[2], ob.v); // the crash is heard: awareness, not a jump in its position
       audio.thud(); haptic(ob.major ? 'heavy' : 'warning'); dust();
       if (ob.k === 'hole') { setAct('fall', pen[0]); run.after = { x: ob.x1 + 0.3 }; run.dist = (ob.x0 + ob.x1) / 2; }
       else if (ob.k === 'snag') { setAct('stumble', pen[0]); run.after = { duck: ob }; run.dist = ob.x0 - 0.15; }
@@ -1497,18 +1593,25 @@ window.plethoraBit = {
 
     // ---------- the traveller ----------
     function enterHide(zone) {
-      if (run.c.mode !== 'wake' && (run.c.mode === 'hunt' || run.c.mode === 'reacquire') && run.c.gap < TUNE.seenGap) { caught('seen'); return; }
-      run.act = 'hide'; run.spot = zone; run.exposed = run.hideT >= safeTime(zone);
+      const c = run.c;
+      if (c.mode === 'chase' && gapNow() < TUNE.seenGap) { caught('seen'); return; }
+      run.act = 'hide'; run.spot = zone; run.hiddenFor = 0; run.kneel = 0.14; run.overtime = run.hideT >= zone.comfort;
       zone.rustle = 1; audio.rustle(1); haptic('light'); note('hide:' + zone.type);
       save.hints.hide = 1;
       if (run.hint === 'LET GO TO HIDE') { run.hint = ''; run.hintT = 0; }
-      // slip into the object: settle on its hiding point if it is a thing, not corn
-      run.settle = zone.type === 'corn' ? null : zone.x0 + (zone.x1 - zone.x0) * zone.at;
+      // slow into the cover: a short glide onto the hiding point
+      const inZone = clamp(run.dist + run.speed * 0.12, zone.x0 + 0.3, zone.x1 - 0.3);
+      run.settle = zone.type === 'corn' ? inZone : zone.x0 + (zone.x1 - zone.x0) * zone.at;
+      for (let i = 0; i < 4; i++) spark(L.PX + (Math.random() - 0.5) * 10, L.yFeet - 8 - Math.random() * 10, (Math.random() - 0.5) * 16, -10, 0.5, 'tassel');
     }
     function leaveHide() {
-      audio.rustle(0.8); note('unhide');
+      const c = run.c, gap = gapNow();
+      audio.rustle(0.8); note('unhide'); run.kneel = 0.12;
       for (let i = 0; i < 5; i++) spark(L.PX + (Math.random() - 0.3) * 10, L.yFeet - 10 - Math.random() * 8, 10 + Math.random() * 20, -14, 0.6, 'tassel');
-      run.spot = null; run.settle = null; run.exposed = false;
+      // breaking cover right under it is being seen; nearby, it hears the corn and turns
+      if ((c.mode === 'search' || c.mode === 'investigate') && gap < 2) { caught('seen'); return; }
+      if ((c.mode === 'search' || c.mode === 'investigate') && gap < 8) { spike(TUNE.bolt, 'bolt'); c.startle = 0.6; }
+      run.spot = null; run.settle = null; run.overtime = false; run.targeted = false;
     }
 
     function stepSim(dt) {
@@ -1522,6 +1625,7 @@ window.plethoraBit = {
         if (mode === MODES.STARTING) { stepWorld(dt, d); return; }
         run.hint = ''; run.hintT = 0;
       }
+      if (run.kneel > 0) run.kneel -= dt;
       const zone = world.zoneAt(run.dist);
       run.inZone = zone;
       const locked = run.act === 'vault' || run.act === 'leap' || run.act === 'stumble' || run.act === 'fall' || run.act === 'climb' || run.act === 'duck';
@@ -1539,44 +1643,42 @@ window.plethoraBit = {
           else { run.act = hold ? 'run' : 'walk'; if (run.act === 'run' && run.speed < 2) run.speed = 2; }
         }
       } else if (hold) {
-        if (run.act === 'hide') leaveHide();
+        if (run.act === 'hide') { leaveHide(); if (!sim()) return; }
         run.act = 'run';
         const target = runSpeed();
         run.speed = run.speed < target ? Math.min(target, run.speed + TUNE.accel * dt) : Math.max(target, run.speed - TUNE.decel * dt);
       } else {
         if (zone && run.act !== 'hide') { enterHide(zone); if (!sim()) return; }
         if (run.act === 'hide') {
-          // a short glide into the object, then still
           if (run.settle !== null) {
-            const dx = run.settle - run.dist, step = 5 * dt;
+            const dx = run.settle - run.dist, step = Math.max(1.5, run.speed) * dt;
             run.dist += Math.abs(dx) <= step ? dx : Math.sign(dx) * step;
-            if (Math.abs(dx) <= step) run.settle = null;
-          }
-          run.speed = 0;
+            run.speed = Math.max(0, run.speed - 30 * dt);
+            if (Math.abs(dx) <= step) { run.settle = null; run.speed = 0; }
+          } else run.speed = 0;
         } else {
           run.act = 'walk';
           const target = TUNE.walk * (run.tired ? TUNE.tiredWalk : 1);
           run.speed = run.speed > target ? Math.max(target, run.speed - TUNE.decel * dt) : Math.min(target, run.speed + TUNE.accel * dt);
         }
       }
-      // stamina: only cover gives it back
+      // stamina: running spends it, walking barely holds it, cover restores it
       if (run.act === 'run') run.stamina -= (TUNE.drain + TUNE.drainGain * d) * dt;
       else if (run.act === 'hide') run.stamina += (TUNE.recoverHide - TUNE.recoverHideLoss * d) * dt;
       else if (run.act === 'walk' || run.act === 'duck' || run.act === 'climb') run.stamina += TUNE.recoverWalk * dt;
       run.stamina = clamp(run.stamina, 0, 100);
-      if (run.stamina <= 0.01 && !run.tired) { run.tired = true; haptic('warning'); note('exhausted'); showHint('tired', 'WINDED. GET TO COVER', 2.6); }
+      if (run.stamina <= 0.01 && !run.tired) { run.tired = true; haptic('warning'); note('exhausted'); }
       if (run.tired && run.stamina >= TUNE.rested) { run.tired = false; note('rested'); }
       // the hiding clock winds down slowly once you leave cover, so ducking out and back in buys nothing
       if (run.act === 'hide') {
-        run.hideT += dt;
-        const was = run.exposed; run.exposed = run.hideT >= safeTime(run.spot);
-        if (run.exposed && !was) { audio.alarm(); haptic('warning'); run.spot.rustle = 1; note('exposed'); showHint('exposed', 'IT IS COMING TO LOOK. GO.', 2.4); }
+        run.hideT += dt; run.hiddenFor += dt;
+        const was = run.overtime; run.overtime = run.hideT >= run.spot.comfort * (1 - 0.25 * d);
+        if (run.overtime && !was) { note('overtime'); showHint('overtime', 'STAYING TOO LONG', 2.4); }
       } else run.hideT = Math.max(0, run.hideT - dt * 0.8);
       // move; the score only counts ground actually covered
-      if (run.act !== 'hide') run.dist += run.speed * dt;
-      if (run.act !== 'hide') run.score = Math.max(run.score, run.dist);
+      if (run.act !== 'hide') { run.dist += run.speed * dt; run.score = Math.max(run.score, run.dist); }
       const prevStep = run.stepPh;
-      run.ph += dt * (run.act === 'run' ? 2.4 + run.speed * 1.05 : 3.4 + run.speed * 1.4);
+      run.ph += dt * (run.act === 'run' ? 2.4 + run.speed * 1.05 : run.tired ? 2.4 + run.speed * 1.2 : 3.4 + run.speed * 1.4);
       run.stepPh = Math.floor(run.ph / Math.PI);
       if (run.stepPh !== prevStep && run.speed > 0.5 && run.airH === 0) audio.step(run.act !== 'run');
       // obstacles: commit on approach, then test the hitbox while overlapping
@@ -1601,17 +1703,18 @@ window.plethoraBit = {
             const sx = (f.x0 - run.dist) * PPM + L.PX;
             for (let i = 0; i < f.n; i++) flyer(sx + i * 4, L.yFeet - 3, (loud ? -30 : 10) - Math.random() * 30, loud ? -60 - Math.random() * 30 : -25, 'crow');
             audio.scatter(loud); note(loud ? 'crows-loud' : 'crows-quiet');
-            if (loud) { pushCreature(3); const c = run.c; if (c.mode === 'withdraw' || c.mode === 'linger') { c.mode = 'reacquire'; c.timer = 0.4; } }
+            if (loud) spike(TUNE.crowsAware, 'crows');
           }
         }
       }
       if (run.hintT > 0) { run.hintT -= dt; if (run.hintT <= 0) run.hint = ''; }
       if (zone && run.act !== 'hide' && !save.hints.hide && run.hint !== 'LET GO TO HIDE') { run.hint = 'LET GO TO HIDE'; run.hintT = 2.5; }
+      updateAwareness(dt);
       updateCreature(dt);
       if (!sim()) return;
       // heart while it is near your hiding place
-      if (run.act === 'hide' && run.c.gap < 12) { run.heartT -= dt; if (run.heartT <= 0) { audio.heart(clamp(1 - Math.abs(run.c.gap) / 12, 0.3, 1)); run.heartT = run.exposed ? 0.4 : run.c.mode === 'sweep' ? 0.55 : 0.8; } }
-      if (run.spot && run.act === 'hide' && (run.c.mode === 'sweep' || run.c.mode === 'check' || run.exposed) && Math.random() < dt * (run.exposed ? 4 : 1.5)) run.spot.rustle = 1;
+      if (run.act === 'hide' && gapNow() < 12) { run.heartT -= dt; if (run.heartT <= 0) { audio.heart(clamp(1 - Math.abs(gapNow()) / 12, 0.3, 1)); run.heartT = run.targeted ? 0.38 : run.c.mode === 'search' ? 0.55 : 0.8; } }
+      if (run.spot && run.act === 'hide' && run.c.mode === 'search' && Math.random() < dt * (run.targeted ? 5 : 1.2)) run.spot.rustle = 1;
       if (run.tired && run.act !== 'hide' && Math.random() < dt * 3) spark(L.PX + 12, L.yFeet - 20, 6 + Math.random() * 6, -6, 0.7, 'cream', 'puff');
       stepWorld(dt, d);
     }
@@ -1648,7 +1751,7 @@ window.plethoraBit = {
       }
       else if (id === 'stir') { run.stir.x = run.dist + 2 + Math.random() * 6; run.stir.t = 2.2; audio.rustle(0.7); }
       else if (id === 'windmill') { scene.windmillStop = 6; audio.creak(); }
-      else if (id === 'figure') { if (run.c.gap >= 26) return false; scene.figure = 1.1; scene.figureX = L.W * (0.55 + Math.random() * 0.35); }
+      else if (id === 'figure') { if (gapNow() < 26) return false; scene.figure = 1.1; scene.figureX = L.W * (0.55 + Math.random() * 0.35); }
       else if (id === 'shade') run.shade = 5;
       return true;
     }
@@ -1661,8 +1764,8 @@ window.plethoraBit = {
       run.ev.next -= dt;
       if (run.ev.next > 0) return;
       run.ev.next = 5 + Math.random() * 4;
-      // nothing decorative while it is right on top of you
-      if (mode !== MODES.PLAYING || run.c.gap < 12 || run.c.mode === 'sweep' || run.c.mode === 'check') return;
+      // nothing decorative while it is close, searching or chasing
+      if (mode !== MODES.PLAYING || gapNow() < 12 || run.c.mode === 'search' || run.c.mode === 'chase') return;
       const ok = EVENTS.filter(e => run.t - (run.ev.cd[e.id] === undefined ? -99 : run.ev.cd[e.id]) > e.cd);
       let tot = 0; for (const e of ok) tot += e.w;
       let r = Math.random() * tot;
@@ -1678,7 +1781,7 @@ window.plethoraBit = {
     // Buttons act on release over the same button, so a held finger never
     // triggers two screens in a row.
     let buttons = [], armed = null;
-    const pauseRect = () => ({ x: W - 15, y: safeT + 2, w: 13, h: 13 });
+    const pauseRect = () => ({ x: W - 17, y: safeT + 3, w: 13, h: 13 });
     function toLogical(e) {
       const rect = canvas.getBoundingClientRect();
       return { x: ((e.clientX - rect.left) * dpr - offX) / SC, y: ((e.clientY - rect.top) * dpr - offY) / SC };
@@ -1728,32 +1831,39 @@ window.plethoraBit = {
     ctx.listen(window, 'blur', () => { input.key = false; input.pointers.clear(); armed = null; });
 
     // ---------- drawing ----------
-    const VIEW = { layer: 'far', k: 0.3, x: 0, gy: 0 };
-    function creatureView(c, t) {
-      const gap = c.gap, v = VIEW;
-      if (gap >= 26) {
-        const u = clamp((gap - 26) / 18, 0, 1);
-        // it sinks into the corn and rises again; nearer, it shows more often
-        const show = Math.sin(t * 0.55 + 1) > lerp(-0.4, 0.45, u) ? 1 : 0;
-        c.sink = lerp(c.sink || 0, show ? 0 : 14, 0.06);
-        v.layer = 'far'; v.k = 0.3; v.x = Math.round(lerp(W * 0.22, W * 0.07, u) + Math.sin(t * 0.3) * 3); v.gy = Math.round(L.yDist + 30 + c.sink);
-      } else if (gap >= 11) {
-        const u = (26 - gap) / 15;
-        v.layer = 'mid'; v.k = Math.round(lerp(0.45, 0.72, u) * 20) / 20; v.x = Math.round(lerp(W * 0.08, L.PX - 46, u) + Math.sin(t * 0.4) * 3); v.gy = Math.round(lerp(L.yMid + 40, L.yBack + 30, u));
-      } else {
-        const u = clamp((11 - gap) / 11, 0, 1);
-        v.layer = 'near'; v.k = Math.round(lerp(0.78, 1.0, u) * 20) / 20; v.x = Math.round(L.PX - 12 - gap * 3.6); v.gy = L.yFeet - 4;
-      }
+    // One continuous mapping from the creature's distance to where and how big it is drawn: as it
+    // closes it comes up out of the far field toward the path behind you, growing smoothly. The crop
+    // line at its depth hides everything below it, so it wades through the corn at every distance.
+    const VIEW = { k: 0.3, x: 0, gy: 0, crop: 0, z: 1 };
+    function creatureView(c, t, gapOverride) {
+      const gap = gapOverride !== undefined ? gapOverride : c.gap, v = VIEW;
+      const z = clamp((gap - 1) / 39, 0, 1);
+      // far away and unaware it sinks into the crop now and then; only its hat and eyes show
+      const lurk = (c.mode === 'follow' || c.mode === 'wake') && z > 0.55 && Math.sin(t * 0.55 + 1) < -0.2;
+      c.sink = lerp(c.sink || 0, lurk ? 10 : 0, 0.05);
+      v.z = z;
+      v.k = Math.round(lerp(0.85, 0.28, Math.pow(z, 0.7)) * 40) / 40;
+      v.gy = Math.round(lerp(L.yFeet - 5, L.yDist + 26, Math.pow(z, 0.8)) + c.sink);
+      v.x = Math.round(lerp(L.PX - 20, W * 0.12, Math.pow(z, 0.6)) + Math.sin(t * 0.3) * 2 * z);
+      v.crop = Math.round(z < 0.15 ? lerp(L.yFeet - 6, L.yBack - 2, z / 0.15) : lerp(L.yBack - 2, L.yDist + 1, (z - 0.15) / 0.85));
       return v;
     }
     const COPT = { facing: 1, phase: 0, t: 0, reach: 0, rx: 0, ry: 0, scan: 0, eyes: 1, tilt: 0 };
     function drawCreatureAt(v, c, p, t, extra) {
       COPT.facing = c.facing; COPT.phase = Math.floor(c.phase * 8 / TAU * 2) / (8 / TAU * 2); COPT.t = t; COPT.reach = c.reach;
-      // when it checks your hiding place, it reaches for exactly where you are
-      COPT.rx = c.mode === 'check' ? L.PX + 2 : L.PX + 6 + Math.sin(t * 0.9) * 12; COPT.ry = L.yFeet - 12;
-      COPT.scan = c.scan; COPT.eyes = c.eyes === undefined ? 1 : c.eyes; COPT.tilt = Math.round(Math.sin(t * 0.37) * 2) / 10;
+      // when it checks a hiding place it reaches for exactly that place
+      const tx = c.mode === 'search' && run ? (c.checkX - run.dist) * PPM + L.PX : L.PX + 4;
+      COPT.rx = tx; COPT.ry = L.yFeet - 10;
+      COPT.scan = c.scan; COPT.eyes = (t % 3.7) < 0.12 ? 0 : 1; COPT.tilt = Math.round(Math.sin(t * 0.37) * 2) / 10;
       if (extra) { COPT.reach = extra.reach; COPT.rx = extra.rx; COPT.ry = extra.ry; }
+      // clip to the crop line at its depth, stepped so the edge reads as stalk tops
+      const off = run && sim() ? run.dist * PPM * 0.85 : 0;
+      G.save(); G.beginPath(); G.moveTo(0, 0); G.lineTo(W, 0);
+      for (let x = W; x >= 0; x -= 3) { const y = v.crop + ((hash(Math.floor((x + off) / 3)) * 3) | 0); G.lineTo(x, y); G.lineTo(x - 3, y); }
+      G.closePath(); G.clip();
+      curFill = '';
       drawCreature(v.x, v.gy, v.k, COPT, p);
+      G.restore(); curFill = '';
     }
     function drawShadow(v, p, strength) {
       // its shadow reaches along the path before it does (the sun is behind it)
@@ -1762,9 +1872,10 @@ window.plethoraBit = {
       poly([x0 + len * 0.55, y0 + 3, x0 + len * 0.55 + 3, y0 + 3, x0 + len + 14, y0 - 2, x0 + len + 12, y0 - 1], FIX.ink, true);
     }
 
+    const PUSH = { x: 0, amt: 0 }, BRUSH = { x: 0, amt: 0 };
     function drawWorld(p, stageF, dist, t, dt, cr, pose) {
       const camPx = dist * PPM - L.PX;
-      const hidden = !!(run && run.act === 'hide' && sim()), spot = hidden ? run.spot : null, zone = run && sim() ? run.inZone : null;
+      const playing = !!(run && sim()), hidden = playing && run.act === 'hide', spot = hidden ? run.spot : null, zone = playing ? run.inZone : null;
       scene.drawSky(L, p, stageF, camPx, t);
       // birds drift high and slow
       for (let i = 0; i < 3; i++) {
@@ -1781,21 +1892,22 @@ window.plethoraBit = {
         else { R(x - 3, y + 1, 2, 1, FIX.ink); R(x + 2, y + 1, 2, 1, FIX.ink); }
       }
       scene.drawDistance(L, p, camPx, t, dt);
-      if (cr && cr.v.layer === 'far') drawCreatureAt(cr.v, cr.c, p, t);
       scene.drawDistCorn(L, p, camPx, t);
-      if (cr && cr.v.layer === 'mid') drawCreatureAt(cr.v, cr.c, p, t);
       scene.drawMidCorn(L, p, camPx, t);
       // back-row pumpkins sit low in the stalks
       for (const pr of world.props) if (pr.k === 'pumpkin' && pr.layer === 'back') { const x = Math.round((pr.x - dist) * PPM * 0.85 + L.PX); if (x > -10 && x < W + 10) drawPumpkin(x, L.yFeet - 5, 0, p, pr.lit || 0); }
-      scene.drawBackRow(L, p, camPx, t, run && run.stir);
+      // the corn moves around it as it wades through
+      PUSH.amt = 0;
+      if (cr) { PUSH.x = cr.v.x; PUSH.amt = cr.v.z < 0.45 && cr.c.mode !== 'wake' ? 1 - cr.v.z / 0.45 : 0; }
+      scene.drawBackRow(L, p, camPx, t, run && run.stir, PUSH);
       for (const pr of world.props) {
         if (pr.k === 'pumpkin') continue;
         const x = Math.round((pr.x - dist) * PPM * 0.85 + L.PX);
         if (x > -30 && x < W + 30) drawProp(pr, x, L, p, t);
       }
-      if (cr && cr.v.layer === 'near') drawCreatureAt(cr.v, cr.c, p, t, cr.extra);
+      if (cr) drawCreatureAt(cr.v, cr.c, p, t, cr.extra);
       scene.drawPath(L, p, camPx);
-      if (cr && cr.v.layer !== 'far') drawShadow(cr.v, p, cr.v.layer === 'near' ? 1 : 0.35);
+      if (cr && cr.v.z < 0.3) drawShadow(cr.v, p, 1 - cr.v.z / 0.3);
       const hopt = { near: false, hidden: false };
       for (const f of world.feats) {
         if (f.k === 'hide') {
@@ -1809,10 +1921,13 @@ window.plethoraBit = {
         if (f.k === 'crows') { if (!f.done) drawCrows(f, Math.round(sx), L, t); }
         else drawObstacle(f, Math.round(sx), Math.round(ex), L, p, t);
       }
-      // in a tree or a shed only your eyes show; everywhere else you crouch behind your cover
+      // In cover the traveller is drawn in shade and a step back into the crop; the cover is drawn over them.
+      // In a hollow tree or a shed only their eyes show in the dark opening.
       const inside = spot && (spot.type === 'tree' || spot.type === 'shed');
       if (pose && !inside) {
-        const info = drawPlayer(L.PX - 8, L.yFeet - Math.round(pose.air || 0), pose);
+        const back = hidden ? 2 : 0;
+        pose.shade = hidden;
+        const info = drawPlayer(L.PX - 8, L.yFeet - back - Math.round(pose.air || 0), pose);
         pose.top = info.top;
       } else if (pose) pose.top = L.yFeet - 30;
       if (spot && spot.type !== 'corn') {
@@ -1821,8 +1936,17 @@ window.plethoraBit = {
         const sh = spot.rustle > 0.5 ? Math.round(Math.sin(t * 40)) : 0;
         drawHideSpot(spot, sx + sh, ex + sh, L, p, t, hopt);
       }
-      scene.drawFront(L, p, camPx, t);
+      BRUSH.x = L.PX; BRUSH.amt = playing && run.act === 'run' && run.speed > 3 && Math.floor(run.ph / Math.PI) % 2 === 0 ? 1 : 0;
+      scene.drawFront(L, p, camPx, t, BRUSH);
       for (const f of world.feats) if (f.k === 'hide' && f.type === 'corn') scene.drawClump(L, p, camPx, f, t, f.rustle || 0, f === zone && !hidden);
+      // a few stalks close in front of a traveller hiding in the corn
+      if (spot && spot.type === 'corn') {
+        for (let k = -2; k <= 2; k++) {
+          const x = L.PX + k * 3 - 1, top = L.yFeet - 16 + Math.abs(k) * 2, sw = Math.round(Math.sin(t * 1.6 + k) * 0.6 + (spot.rustle || 0) * Math.sin(t * 22 + k));
+          R(x, top + 3, 2, L.yFront - top, p.frontLeaf); R(x + sw, top, 1, 4, p.frontLeaf); R(x + sw, top - 1, 1, 1, p.tassel);
+          R(x + (k & 1 ? 2 : -3) + sw, top + 6, 3, 1, p.frontLeafLit);
+        }
+      }
       for (const pr of world.props) if (pr.k === 'pumpkin' && pr.layer === 'front') { const x = Math.round((pr.x - dist) * PPM + L.PX); if (x > -10 && x < W + 10) drawPumpkin(x, L.yFront + 8, pr.size, p, pr.lit || 0); }
       // foreground blades at the bottom edge frame the picture
       const fo = camPx * 1.3;
@@ -1839,6 +1963,21 @@ window.plethoraBit = {
       }
     }
 
+    // Danger: hard-edged bands of deep burgundy at the frame edges and a faint shift of the whole
+    // picture toward it. Never dithered, never over the centre where the traveller is.
+    function drawDanger(level) {
+      if (level <= 0.02) return;
+      const t = Math.max(2, Math.round(Math.min(W, H) * 0.035)), alphas = [0.34, 0.2, 0.1];
+      G.globalAlpha = 0.07 * level; R(0, 0, W, H, FIX.blood);
+      for (let i = 0; i < 3; i++) {
+        const o = i * t;
+        G.globalAlpha = alphas[i] * level;
+        R(o, o, W - 2 * o, t, FIX.blood); R(o, H - o - t, W - 2 * o, t, FIX.blood);
+        R(o, o + t, t, H - 2 * o - 2 * t, FIX.blood); R(W - o - t, o + t, t, H - 2 * o - 2 * t, FIX.blood);
+      }
+      G.globalAlpha = 1;
+    }
+
     function drawButton(label, cx, y, fn, primary) {
       const w = textW(label, F5) + 12, x = Math.round(cx - w / 2), h = 13;
       const pressed = armed && armed.bt && armed.bt.label === label;
@@ -1850,74 +1989,87 @@ window.plethoraBit = {
       if (primary && Math.floor(clock * 2) % 2 === 0) { R(x - 5, y + 4, 1, 5, FIX.cream); R(x - 4, y + 5, 1, 3, FIX.cream); R(x - 3, y + 6, 1, 1, FIX.cream); }
       buttons.push({ x, y, w, h, fn, label });
     }
-    function tag(label, cx, y, c) {
-      const w = textW(label, F3) + 6, x = Math.round(cx - w / 2);
-      R(x, y, w, 9, FIX.ink); text(label, x + 3, y + 2, c || FIX.cream, F3);
-      return { x, w };
+    // outlined pixel text: readable over sky or field with no box behind it
+    function outlined(s, x, y, c, f, sc) {
+      f = f || F3; sc = sc || 1;
+      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1], [1, 1]]) text(s, x + dx, y + dy, FIX.ink, f, sc);
+      return text(s, x, y, c, f, sc);
     }
-    // a row of pips: one per second of safety
+    function outlinedC(s, cx, y, c, f, sc) { return outlined(s, Math.round(cx - textW(s, f || F3, sc || 1) / 2), y, c, f, sc); }
+    // a row of small pips: seconds of comfort left in this cover
     function pips(cx, y, total, left, warn) {
-      const n = Math.max(1, Math.round(total)), w = n * 3 + 3, x0 = Math.round(cx - w / 2);
-      R(x0, y - 2, w, 6, FIX.ink);
+      const n = Math.max(1, Math.round(total)), w = n * 3 - 1, x0 = Math.round(cx - w / 2);
       for (let i = 0; i < n; i++) {
-        const on = i < left, c = warn ? (Math.floor(clock * 6) % 2 ? FIX.ember : '#7a2a2a') : on ? FIX.cream : '#4a3a32';
-        R(x0 + 2 + i * 3, y, 2, 2, c);
+        const on = i < left, c = warn ? (Math.floor(clock * 6) % 2 ? FIX.ember : '#7a2a2a') : on ? FIX.cream : '#5a4a42';
+        R(x0 + i * 3 - 1, y - 1, 4, 4, FIX.ink); R(x0 + i * 3, y, 2, 2, c);
       }
+    }
+
+    // The one short message worth reading right now, if any, in a lane under the HUD.
+    function contextLabel() {
+      const c = run.c, gap = gapNow(), hidden = run.act === 'hide';
+      if (mode === MODES.STARTING) return run.hint ? [run.hint, FIX.cream] : null;
+      if (hidden && run.targeted && c.reachT > 0) return ['MOVE NOW', FIX.ember, true];
+      if (run.hint) return [run.hint, FIX.cream];
+      if (run.tired && !hidden) return ['EXHAUSTED', FIX.ember];
+      if (!hidden && c.mode === 'chase' && gap < 16) return ["THEY'RE CLOSE", FIX.ember, gap < 7];
+      if (hidden && run.hiddenFor < 1.0) return ['HIDDEN', '#d9c09a'];
+      if (hidden && (c.mode === 'search' || c.mode === 'investigate') && gap < 10) return ['STAY STILL', FIX.cream];
+      if (hidden && (c.mode === 'lose' || c.mode === 'ret') && run.stamina > 60) return ['KEEP MOVING', FIX.glow];
+      if (!hidden && (run.a >= TUNE.hunting || run.stamina < 35) && !run.inZone) {
+        const nh = world.nextHide(run.dist);
+        if (nh && nh.x0 - run.dist < 14) return ['HIDE NEARBY', FIX.glow];
+      }
+      return null;
     }
 
     function drawHUD(p) {
-      const y0 = safeT + 4;
-      text('DISTANCE', 4, y0, FIX.cream, F3, 1, FIX.ink);
-      text(Math.floor(run.score) + ' M', 4, y0 + 7, FIX.cream, F5, 1, FIX.ink);
-      text('BEST ' + Math.max(save.best, Math.floor(run.score)) + ' M', 4, y0 + 17, FIX.cream, F3, 1, FIX.ink);
+      const y0 = safeT + 4, muted = '#e0c69a';
+      // distance leads; best sits under it, smaller
+      outlined('DISTANCE', 5, y0, muted, F3);
+      outlined(Math.floor(run.score) + ' M', 5, y0 + 8, FIX.cream, F5, 2);
+      outlined('BEST', 5, y0 + 26, muted, F3);
+      outlined(Math.max(save.best, Math.floor(run.score)) + ' M', 5 + textW('BEST', F3) + 4, y0 + 25, FIX.cream, F5);
       const pr = pauseRect();
-      R(pr.x, pr.y, pr.w, pr.h, FIX.ink); R(pr.x + 4, pr.y + 3, 2, 7, FIX.cream); R(pr.x + 8, pr.y + 3, 2, 7, FIX.cream);
-      // danger: it is close and still has you
-      const c = run.c, P = pursuit(), chasing = c.mode === 'hunt' || c.mode === 'reacquire';
-      if (chasing && P < TUNE.dangerAt && run.act !== 'hide') {
-        const hot = P < TUNE.immediateAt + 3;
-        if (Math.floor(clock * (hot ? 6 : 3)) % 2 === 0 || !hot) {
-          const tg = tag('DANGER', W / 2, y0 + 1, hot ? FIX.ember : FIX.cream);
-          R(tg.x - 4, y0 + 4, 2, 2, FIX.glowHot); R(tg.x + tg.w + 2, y0 + 4, 2, 2, FIX.glowHot);
-        }
+      R(pr.x, pr.y, pr.w, pr.h, FIX.ink); R(pr.x + 1, pr.y + 1, pr.w - 2, 1, '#3a2a22');
+      R(pr.x + 4, pr.y + 3, 2, 7, FIX.cream); R(pr.x + 8, pr.y + 3, 2, 7, FIX.cream);
+      // the context lane, under the HUD block and in the sky: never over the path
+      const lab = contextLabel(), ly = y0 + 40;
+      if (lab && (!lab[2] || Math.floor(clock * 5) % 2 === 0)) outlinedC(lab[0], W / 2, ly, lab[1], F5);
+      if (run.stageToast > 0 && run.stageShown > 0 && !lab) {
+        const nm = STAGE_NAMES[Math.min(3, run.stageShown)];
+        if (run.stageToast > 0.4 || Math.floor(clock * 8) % 2) outlinedC(nm, W / 2, ly + 2, muted, F3);
       }
-      if (run.stageToast > 0 && run.stageShown > 0) {
-        const nm = STAGE_NAMES[Math.min(3, run.stageShown)], y = Math.round(H * 0.36);
-        if (run.stageToast > 0.4 || Math.floor(clock * 8) % 2) {
-          const w = textW(nm, F3);
-          text(nm, W / 2 - w / 2, y, FIX.cream, F3, 1, FIX.ink);
-          R(Math.round(W / 2 - w / 2 - 10), y + 2, 6, 1, FIX.cream); R(Math.round(W / 2 + w / 2 + 4), y + 2, 6, 1, FIX.cream);
-        }
-      }
-      if (run.hint) tag(run.hint, W / 2, Math.round(H * 0.42), FIX.cream);
-      // contextual: what this cover is worth, then how long it has left
+      // HIDE, beside the cover itself; its pips say how long it is comfortable
       const top = (run.pose && run.pose.top) || L.yFeet - 26;
       if (run.inZone && run.act !== 'hide' && mode === MODES.PLAYING) {
-        if (Math.floor(clock * 4) % 2 === 0 || pursuit() > TUNE.dangerAt) {
-          const ty = Math.min(top - 17, L.yFeet - HIDE_TOP[run.inZone.type] - 19);
-          tag('HIDE', L.PX, ty, FIX.glow);
-          const s = safeTime(run.inZone);
-          pips(L.PX, ty + 11, s, Math.round(s), false);
-        }
+        const ty = Math.min(top - 12, L.yFeet - HIDE_TOP[run.inZone.type] - 13);
+        if (Math.floor(clock * 4) % 3 !== 0) outlinedC('HIDE', L.PX, ty, FIX.glow, F3);
+        pips(L.PX, ty + 8, run.inZone.comfort, Math.round(run.inZone.comfort), false);
       }
       if (run.act === 'hide' && run.spot) {
-        const s = safeTime(run.spot), left = Math.max(0, Math.ceil(s - run.hideT));
-        pips(L.PX, top - 7, s, left, run.exposed);
+        const comfort = run.spot.comfort * (1 - 0.25 * diff()), left = Math.max(0, Math.ceil(comfort - run.hideT));
+        pips(L.PX, Math.min(top - 6, L.yFeet - HIDE_TOP[run.spot.type] - 7), comfort, left, run.overtime || run.targeted);
       }
-      // breath: the only meter
-      const bw = 40, bx = Math.round(W / 2 - bw / 2 + 12), by = H - 9 - safeB;
-      text('BREATH', bx - 27, by - 1, run.tired ? FIX.ember : FIX.cream, F3, 1, FIX.ink);
-      R(bx - 1, by - 1, bw + 2, 5, FIX.ink);
-      const low = run.stamina < TUNE.low, fc = run.tired ? (Math.floor(clock * 4) % 2 ? FIX.ember : '#7a2a2a') : low ? (Math.floor(clock * 3) % 2 ? FIX.ember : FIX.glow) : FIX.cream;
-      R(bx, by, Math.round(bw * run.stamina / 100), 3, fc);
-      R(bx + Math.round(bw * TUNE.rested / 100), by + 3, 1, 1, '#8a6a5a');
+      // stamina: full, spending, critical, recovering
+      const bw = 44, bh = 4, bx = Math.round(W / 2 - bw / 2 + 14), by = H - 11 - safeB;
+      const hidden = run.act === 'hide', rec = hidden && run.stamina < 99.5, crit = run.stamina < TUNE.low;
+      outlined('STAMINA', bx - textW('STAMINA', F3) - 4, by - 1, run.tired ? FIX.ember : muted, F3);
+      R(bx - 1, by - 1, bw + 2, bh + 2, FIX.ink);
+      R(bx, by, bw, bh, '#3a2a22');
+      const fc = run.tired ? (Math.floor(clock * 4) % 2 ? FIX.ember : '#7a2a2a') : rec ? FIX.glow : crit ? (Math.floor(clock * 2.5) % 2 ? FIX.ember : FIX.cream) : FIX.cream;
+      const fw = Math.round(bw * run.stamina / 100);
+      R(bx, by, fw, bh, fc); if (fw > 1) R(bx, by, fw, 1, rec ? FIX.glowHot : '#fff3d6');
+      if (rec) { const sx = bx + ((Math.floor(clock * 30) % Math.max(1, fw))); R(sx, by + 1, 1, bh - 1, FIX.glowHot); R(bx + fw + 1, by + 1, 1, 2, FIX.glow); }
+      R(bx + Math.round(bw * TUNE.rested / 100), by + bh, 1, 1, '#8a6a5a');
     }
 
-    const POSE = { mode: 'idle', ph: 0, t: 0, air: 0, blink: false, lift: 0, top: 0 };
+    const POSE = { mode: 'idle', ph: 0, t: 0, air: 0, blink: false, lift: 0, top: 0, shade: false };
     function playerPose() {
       const a = run.act;
       let m = 'idle';
       if (mode === MODES.STARTING) m = 'idle';
+      else if (run.kneel > 0 && (a === 'hide' || a === 'run')) m = 'kneel';
       else if (a === 'run') m = run.tired ? 'tired' : 'run';
       else if (a === 'walk') m = run.tired ? 'tired' : 'walk';
       else if (a === 'hide') m = 'crouch';
@@ -1928,23 +2080,23 @@ window.plethoraBit = {
       else if (a === 'fall') m = 'crouch';
       let air = run.airH || 0;
       if (a === 'fall') { const u = run.actT / run.actDur; air = u < 0.3 ? -u / 0.3 * 9 : -9 + (u - 0.3) / 0.7 * 9; }
-      POSE.mode = m; POSE.ph = run.ph; POSE.t = clock; POSE.air = air; POSE.blink = (clock % 3.1) < 0.12; POSE.lift = 0;
+      POSE.mode = m; POSE.ph = run.ph; POSE.t = clock; POSE.air = air; POSE.blink = (clock % 3.1) < 0.12; POSE.lift = 0; POSE.shade = false;
       return POSE;
     }
 
-    const CR = { v: null, c: null, extra: null }, CEXTRA = { reach: 0, rx: 0, ry: 0 }, CWAKE = {};
+    const CR = { v: null, c: null, extra: null }, CEXTRA = { reach: 0, rx: 0, ry: 0 };
+    const TITLE_C = { facing: 1, phase: 0.6, reach: 0, scan: 0, mode: 'follow', sink: 0, gap: 30 };
     function render(dt) {
       if (buf.width !== W || buf.height !== H) { buf.width = W; buf.height = H; }
-      if (!vign[0] || vign[0].width !== W || vign[0].height !== H) buildVignettes();
       setTarget(b);
       buttons = [];
       const t = clock;
       if (mode === MODES.MENU) {
         const p = paletteAt(0);
-        const c = { facing: 1, phase: 0.6, reach: 0, scan: Math.round(Math.sin(t * 0.4) * 2) / 2, eyes: (t % 4.3) < 0.15 ? 0 : 1 };
-        const v = { layer: 'far', k: 0.62, x: Math.round(W * 0.76), gy: Math.round(L.yDist + 16) };
-        drawWorld(p, 0, 0, t, dt, { v, c }, { mode: 'idle', ph: 0, t, blink: (t % 3.3) < 0.12 });
-        // title, set like a book cover
+        TITLE_C.scan = Math.round(Math.sin(t * 0.4) * 2) / 2;
+        // on the title it stands still, tall, far out in the field
+        const v = { k: 0.62, x: Math.round(W * 0.76), gy: Math.round(L.yDist + 16), crop: L.yDist + 1, z: 1 };
+        drawWorld(p, 0, 0, t, dt, { v, c: TITLE_C }, { mode: 'idle', ph: 0, t, blink: (t % 3.3) < 0.12 });
         const ty = safeT + Math.round(H * 0.07);
         textC('HOLLOW', W / 2, ty, FIX.cream, F5, 2, '#5a1a2a');
         textC('HARVEST', W / 2, ty + 18, FIX.cream, F5, 2, '#5a1a2a');
@@ -1960,20 +2112,22 @@ window.plethoraBit = {
       const stageF = stageAt(run.dist), p = paletteAt(stageF);
       const pose = playerPose(); run.pose = pose;
       CR.v = creatureView(run.c, t); CR.c = run.c; CR.extra = null;
-      if (run.c.mode === 'wake') { Object.assign(CWAKE, run.c); CWAKE.phase = 0.4; CR.c = CWAKE; }
       if (mode === MODES.CAUGHT) {
         const ct = modeT;
         if (ct >= 0.6) { renderCaughtClose(p, ct); return; }
+        // it closes the last step and lifts you; it was already right behind you
         const u = clamp(ct / 0.45, 0, 1);
-        CR.v.layer = 'near'; CR.v.k = 1.05; CR.v.x = Math.round(lerp(CR.v.x, L.PX - 16, u)); CR.v.gy = L.yFeet - 4;
+        creatureView(run.c, t, lerp(run.c.gap, 0.5, u));
         const top = pose.top || L.yFeet - 26;
         CEXTRA.reach = Math.min(1, u * 1.3); CEXTRA.rx = L.PX - 1; CEXTRA.ry = top + 6 - Math.max(0, ct - 0.3) * 40; CR.extra = CEXTRA;
-        run.c.facing = 1;
+        run.c.facing = 1; VIEW.crop = L.yFeet;
         pose.mode = ct > 0.3 ? 'lifted' : 'crouch'; pose.lift = Math.max(0, ct - 0.3) * 40; pose.air = 0;
         run.spot = null;
       }
+      // a one-pixel bob on the stride while sprinting; still when hidden
+      const bob = mode === MODES.PLAYING && run.act === 'run' && run.speed > 5 && !run.tired ? Math.floor(run.ph / Math.PI) & 1 : 0;
+      if (bob) { G.save(); G.translate(0, bob); curFill = ''; }
       drawWorld(p, stageF, run.dist, t, dt, CR, pose);
-      // particles
       for (const q of PARTS) {
         if (!q.on) continue;
         const c = FIX[q.c] || p[q.c] || q.c;
@@ -1981,16 +2135,13 @@ window.plethoraBit = {
         else if (q.kind === 'leaf') { const f = Math.floor(q.life * 6) & 1; R(Math.round(q.x), Math.round(q.y), f ? 2 : 1, f ? 1 : 2, c); }
         else R(Math.round(q.x), Math.round(q.y), 1, 1, c);
       }
-      // threat: the field darkens and the edges close in
-      const c = run.c, P = pursuit();
-      let threat = 0;
-      if (run.act !== 'hide') threat = clamp((TUNE.dangerAt - P) / (TUNE.dangerAt - 5), 0, 1) * (c.mode === 'hunt' || c.mode === 'reacquire' ? 1 : 0.4);
-      else threat = run.exposed ? 0.8 : c.mode === 'sweep' ? 0.55 : c.gap < 12 ? 0.3 : 0;
+      if (bob) { G.restore(); curFill = ''; }
+      // danger rises with how near it is and how much it knows; cover softens it
+      const c = run.c, gap = gapNow();
+      let threat = clamp((24 - gap) / 18, 0, 1) * clamp((run.a - 20) / 60, 0, 1);
+      if (run.act === 'hide') threat = run.targeted ? 0.8 : c.mode === 'search' && gap < 10 ? 0.45 : threat * 0.5;
       run.threat = threat;
-      if (threat > 0.05) { G.globalAlpha = 0.24 * threat; R(0, 0, W, H, FIX.ink); G.globalAlpha = 1; }
-      const vl = Math.max(stageF > 2.5 ? 1 : 0, threat > 0.75 ? 3 : threat > 0.45 ? 2 : threat > 0.12 ? 1 : 0);
-      if (vl > 0) G.drawImage(vign[vl - 1], 0, 0);
-      if (run.act === 'hide') { G.globalAlpha = 0.16; R(0, 0, W, H, FIX.ink); G.globalAlpha = 1; }
+      drawDanger(Math.max(threat, stageF > 2.5 ? 0.25 : 0));
       if (mode !== MODES.CAUGHT) drawHUD(p);
       if (mode === MODES.PAUSED) {
         G.globalAlpha = 0.7; R(0, 0, W, H, FIX.ink); G.globalAlpha = 1;
@@ -2006,7 +2157,7 @@ window.plethoraBit = {
         R(0, Math.round(H * 0.62), W, H, FIX.blood);
         const k = ct < 0.85 ? 1.8 : 2.5;
         drawCreature(Math.round(W * 0.42), Math.round(H * (ct < 0.85 ? 1.05 : 1.22)), k, { facing: 1, phase: 0.3, t: clock, reach: 0, scan: 0, eyes: 1, tilt: 0.1 }, p);
-        G.drawImage(vign[2], 0, 0);
+        drawDanger(1);
         return;
       }
       R(0, 0, W, H, FIX.blood);
@@ -2014,7 +2165,6 @@ window.plethoraBit = {
     }
     function renderOver() {
       R(0, 0, W, H, FIX.blood);
-      // faint dither band and a pair of eyes that do not leave
       for (let y = Math.round(H * 0.7); y < H; y++) for (let x = (y & 1); x < W; x += 2) if (((x >> 1) + y) % 3 === 0) R(x, y, 1, 1, FIX.bloodHi);
       if ((clock % 5) > 0.2) { const ex = Math.round(W * 0.5), ey = safeT + Math.round(H * 0.1); R(ex - 7, ey, 2, 2, FIX.ember); R(ex + 4, ey + 1, 2, 2, FIX.ember); }
       const msg = 'THE HARVEST IS OVER.', y1 = Math.round(H * 0.27);
@@ -2036,21 +2186,11 @@ window.plethoraBit = {
       if (canvas.width !== devW || canvas.height !== devH) { canvas.width = devW; canvas.height = devH; }
       g.imageSmoothingEnabled = false;
       g.fillStyle = '#0b0807'; g.fillRect(0, 0, canvas.width, canvas.height);
-      const unstable = mode === MODES.PLAYING && run.threat > 0.65 && run.act !== 'hide';
-      if (!unstable) { g.drawImage(buf, 0, 0, W, H, offX, offY, W * SC, H * SC); return; }
-      run.jitterT -= 1 / 60;
-      if (run.jitterT <= 0) {
-        run.jitterT = 0.07; run.jitter.length = 0;
-        for (let y = 0; y < H; y += 4) run.jitter.push(Math.random() < (run.threat - 0.6) * 0.5 ? (Math.random() < 0.5 ? -1 : 1) : 0);
-      }
-      for (let i = 0, y = 0; y < H; y += 4, i++) {
-        const h = Math.min(4, H - y), dx = run.jitter[i] || 0;
-        g.drawImage(buf, 0, y, W, h, offX + dx * SC, offY + y * SC, W * SC, h * SC);
-      }
+      g.drawImage(buf, 0, 0, W, H, offX, offY, W * SC, H * SC);
     }
 
     // ---------- loop ----------
-    let acc = 0;
+    let acc = 0, frozen = false;
     const DT = 1 / 60;
     const perf = { frames: 0, simMs: 0, drawMs: 0 };
     function updateFx(dt) {
@@ -2068,14 +2208,16 @@ window.plethoraBit = {
         if (q.kind === 'bat') q.y += Math.sin(q.ph * 0.3) * 0.3; else q.vy += 20 * dt;
         if (q.x < -90 || q.x > W + 90 || q.y < -20) q.on = false;
       }
-      if (Math.random() < dt * 1.4) spark(W * (0.3 + Math.random() * 0.8), L.yBack - 6 - Math.random() * 20, -8 - Math.random() * 8, 4, 4, Math.random() < 0.5 ? 'pumpkin' : 'backLeafLit', 'leaf');
+      // leaves shake loose more often as it closes in
+      const near = mode === MODES.PLAYING ? clamp((20 - gapNow()) / 16, 0, 1) : 0;
+      if (Math.random() < dt * (1.4 + near * 4)) spark(W * (0.1 + Math.random() * 0.9), L.yBack - 6 - Math.random() * 20, -8 - Math.random() * 8, 4, 4, Math.random() < 0.5 ? 'pumpkin' : 'backLeafLit', 'leaf');
     }
     function tick(dtMs) {
       if (destroyed) return;
       const dt = Math.min(0.1, Math.max(0, dtMs / 1000));
       clock += dt; modeT += dt;
       const t0 = performance.now();
-      if (sim()) {
+      if (sim() && !frozen) {
         acc += dt; let n = 0;
         while (acc >= DT && n < 6 && sim()) { stepSim(DT); acc -= DT; n++; }
         if (n === 6) acc = 0;
@@ -2083,10 +2225,11 @@ window.plethoraBit = {
       if (mode === MODES.CAUGHT && modeT > 1.75) setMode(MODES.GAME_OVER);
       if (mode !== MODES.PAUSED) updateFx(dt);
       const playing = mode === MODES.PLAYING;
+      const prox = playing ? clamp(1 - gapNow() / 26, 0, 1) * (0.4 + 0.6 * clamp(run.a / 76, 0, 1)) : mode === MODES.CAUGHT ? 1 : 0;
       audio.update({
         dt, playing, hidden: playing && run.act === 'hide',
         run: playing ? clamp(run.speed / 8, 0, 1) : 0,
-        prox: playing ? clamp(1 - Math.abs(run.c.gap) / 26, 0, 1) : mode === MODES.CAUGHT ? 1 : 0,
+        prox,
         tired: playing && run.tired ? 1 : playing ? clamp((TUNE.low - run.stamina) / TUNE.low, 0, 1) * 0.5 : 0,
         exert: playing && run.act === 'run' ? 1 - run.stamina / 100 : 0,
         rustle: playing && run.inZone ? run.inZone.rustle || 0 : 0
@@ -2108,9 +2251,11 @@ window.plethoraBit = {
     if (window.__HH_DEV) {
       window.__hh = {
         get run() { return run; }, get mode() { return mode; }, save: () => save, world, TUNE, MODES, begin, pause, resume, toTitle, setMode,
-        playerState, creatureState, pursuit, safeTime, perf,
+        playerState, creatureState, awarenessLevel, pursuit, gapNow, discoveryChance, creatureView: (gap) => Object.assign({}, creatureView(run.c, 0, gap)), perf,
         // tests only: drop whatever is happening and stand at the menu
         reset() { mode = MODES.MENU; modeT = 1; run = newRun(); input.pointers.clear(); input.key = false; },
+        // tests only: hold the simulation still while frames keep drawing
+        freeze(v) { frozen = !!v; },
         hold(v) { input.key = !!v; },
         advance(sec, hold) { if (hold !== undefined) input.key = !!hold; const n = Math.round(sec / DT); for (let i = 0; i < n && sim(); i++) stepSim(DT); },
         size: () => ({ W, H, SC, offX, offY })
