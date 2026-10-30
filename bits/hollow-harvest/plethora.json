@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "Hollow Harvest",
+  "description": "Halloween evening, an endless red field, and something impossibly tall walking behind the corn. Hold to run, let go to hide, and learn when to stop. A pixel-art survival arcade.",
+  "tags": ["arcade", "halloween", "pixel-art", "endless", "survival"],
+  "permissions": ["haptics", "audio", "storage"],
+  "onboarding": {
+    "kind": "one_line",
+    "version": 1,
+    "message": "Hold to run. Let go inside the tall corn to hide, and don't stay hidden too long."
+  },
+  "memory": {
+    "records": {
+      "score": {
+        "label": "Distance",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": ["daily", "weekly", "all_time"],
+        "scopes": ["following", "global"],
+        "dedupe": "best_per_user"
+      }
+    }
+  }
+}
