@@ -93,4 +93,5 @@ node dev/persist.js             # personal best survives a reload
 node dev/shots.js <outdir>      # phone screenshots: title, run, hide, search, close, caught, game over
 node dev/stages.js <outdir>     # each stage, real touch hold/release, pause, desktop and small-phone layouts
 node dev/trace.js               # one bot run, state every half second
+node dev/clip.js <outdir>       # ~22 s real-time video of the title and a bot run (Playwright, no audio)
 ```
