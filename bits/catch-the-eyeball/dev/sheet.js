@@ -9,7 +9,7 @@ const { chromium } = require('playwright');
     const a = window.__cte.art, Z = 8, kinds = Object.keys(a.big);
     const c = document.createElement('canvas'); c.width = 8 * 30 * Z; c.height = (kinds.length * 2 * 26 + 70) * Z;
     const g = c.getContext('2d'); g.imageSmoothingEnabled = false; g.fillStyle = '#1b1119'; g.fillRect(0, 0, c.width, c.height);
-    const put = (cv, x, y) => g.drawImage(cv, x * Z, y * Z, cv.width * Z, cv.height * Z);
+    const put = (px, x, y) => { const c2 = document.createElement('canvas'); c2.width = px.width; c2.height = px.height; c2.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(px.data), px.width, px.height), 0, 0); g.drawImage(c2, x * Z, y * Z, px.width * Z, px.height * Z); };
     kinds.forEach((k, row) => {
       for (const [set, yo] of [[a.big, 0], [a.small, 26]]) {
         const s = set[k], y = row * 52 + yo + 2, D = s.D, io = (D - s.irisSize) / 2;

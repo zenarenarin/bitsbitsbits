@@ -10,7 +10,11 @@ function createMats(THREE) {
   function tex(canvas) {
     let t = texCache.get(canvas);
     if (!t) {
-      t = new THREE.CanvasTexture(canvas);
+      // flip rows: sprites are authored top-down, texture rows start at the bottom
+      const { width: w, height: h, data } = canvas, flipped = new Uint8Array(data.length), row = w * 4;
+      for (let y = 0; y < h; y++) flipped.set(data.subarray(y * row, y * row + row), (h - 1 - y) * row);
+      t = new THREE.DataTexture(flipped, w, h, THREE.RGBAFormat);
+      t.needsUpdate = true;
       t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.generateMipmaps = false;
       t.colorSpace = THREE.SRGBColorSpace;
       texCache.set(canvas, t);
@@ -36,7 +40,7 @@ function createMats(THREE) {
     const m = mat(canvas);
     if (mesh.material !== m) { mesh.material = m; mesh.scale.set(canvas.width, canvas.height, 1); }
   }
-  return { tex, mat, sprite, setSprite, plane, dispose() { texCache.forEach(t => t.dispose()); matCache.forEach(m => m.dispose()); plane.dispose(); } };
+  return { tex, mat, sprite, setSprite, plane, forget(canvas) { const t = texCache.get(canvas); if (t) { t.dispose(); texCache.delete(canvas); } }, dispose() { texCache.forEach(t => t.dispose()); matCache.forEach(m => m.dispose()); plane.dispose(); } };
 }
 
 // Score values and per-behaviour tuning.

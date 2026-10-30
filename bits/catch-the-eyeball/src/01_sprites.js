@@ -12,10 +12,11 @@
 const rgbCache = new Map();
 function rgbOf(col) { let v = rgbCache.get(col); if (!v) { v = hexRgb(col); rgbCache.set(col, v); } return v; }
 
+// A sprite is a plain RGBA buffer { width, height, data }, rows top to bottom.
+// It becomes a GPU texture directly; no DOM canvas is involved.
 function Px(w, h) {
-  const c = document.createElement('canvas'); c.width = w; c.height = h;
-  const g = c.getContext('2d');
-  const img = g.createImageData(w, h); const d = img.data;
+  const d = new Uint8Array(w * h * 4);
+  const c = { width: w, height: h, data: d };
   const p = {
     w, h, canvas: c,
     set(x, y, col, a) {
@@ -32,7 +33,7 @@ function Px(w, h) {
       let e = dx + dy;
       for (;;) { p.set(x0, y0, col, a); if (x0 === x1 && y0 === y1) break; const e2 = 2 * e; if (e2 >= dy) { e += dy; x0 += sx; } if (e2 <= dx) { e += dx; y0 += sy; } }
     },
-    done() { g.putImageData(img, 0, 0); return c; }
+    done() { return c; }
   };
   return p;
 }

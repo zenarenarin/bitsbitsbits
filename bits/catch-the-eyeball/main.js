@@ -91,10 +91,11 @@ function hexRgb(h) {
 const rgbCache = new Map();
 function rgbOf(col) { let v = rgbCache.get(col); if (!v) { v = hexRgb(col); rgbCache.set(col, v); } return v; }
 
+// A sprite is a plain RGBA buffer { width, height, data }, rows top to bottom.
+// It becomes a GPU texture directly; no DOM canvas is involved.
 function Px(w, h) {
-  const c = document.createElement('canvas'); c.width = w; c.height = h;
-  const g = c.getContext('2d');
-  const img = g.createImageData(w, h); const d = img.data;
+  const d = new Uint8Array(w * h * 4);
+  const c = { width: w, height: h, data: d };
   const p = {
     w, h, canvas: c,
     set(x, y, col, a) {
@@ -111,7 +112,7 @@ function Px(w, h) {
       let e = dx + dy;
       for (;;) { p.set(x0, y0, col, a); if (x0 === x1 && y0 === y1) break; const e2 = 2 * e; if (e2 >= dy) { e += dy; x0 += sx; } if (e2 <= dx) { e += dx; y0 += sy; } }
     },
-    done() { g.putImageData(img, 0, 0); return c; }
+    done() { return c; }
   };
   return p;
 }
@@ -853,7 +854,11 @@ function createMats(THREE) {
   function tex(canvas) {
     let t = texCache.get(canvas);
     if (!t) {
-      t = new THREE.CanvasTexture(canvas);
+      // flip rows: sprites are authored top-down, texture rows start at the bottom
+      const { width: w, height: h, data } = canvas, flipped = new Uint8Array(data.length), row = w * 4;
+      for (let y = 0; y < h; y++) flipped.set(data.subarray(y * row, y * row + row), (h - 1 - y) * row);
+      t = new THREE.DataTexture(flipped, w, h, THREE.RGBAFormat);
+      t.needsUpdate = true;
       t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.generateMipmaps = false;
       t.colorSpace = THREE.SRGBColorSpace;
       texCache.set(canvas, t);
@@ -879,7 +884,7 @@ function createMats(THREE) {
     const m = mat(canvas);
     if (mesh.material !== m) { mesh.material = m; mesh.scale.set(canvas.width, canvas.height, 1); }
   }
-  return { tex, mat, sprite, setSprite, plane, dispose() { texCache.forEach(t => t.dispose()); matCache.forEach(m => m.dispose()); plane.dispose(); } };
+  return { tex, mat, sprite, setSprite, plane, forget(canvas) { const t = texCache.get(canvas); if (t) { t.dispose(); texCache.delete(canvas); } }, dispose() { texCache.forEach(t => t.dispose()); matCache.forEach(m => m.dispose()); plane.dispose(); } };
 }
 
 // Score values and per-behaviour tuning.
@@ -1533,6 +1538,7 @@ window.plethoraBit = {
     const bg = new THREE.Mesh(M.plane, new THREE.MeshBasicMaterial({ depthTest: false, depthWrite: false }));
     bg.renderOrder = 0; bg.frustumCulled = false; scene.add(bg);
     const candleViews = [];
+    let roomPx = null;
 
     // ---------- layout: an integer number of device pixels per art pixel ----------
     let laidOut = false;
@@ -1562,10 +1568,9 @@ window.plethoraBit = {
       for (const [v, n] of [['--sat', sa.top], ['--sab', sa.bottom], ['--sal', sa.left], ['--sar', sa.right]]) ui.style.setProperty(v, (n || 0) + 'px');
       // repaint the room at the new size
       const room = paintRoom(W, Hh, world.PW, world.FLOOR);
-      if (bg.material.map) bg.material.map.dispose();
-      const t = new THREE.CanvasTexture(room.canvas);
-      t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
-      bg.material.map = t; bg.material.needsUpdate = true;
+      if (roomPx) M.forget(roomPx);
+      roomPx = room.canvas;
+      bg.material.map = M.tex(roomPx); bg.material.needsUpdate = true;
       bg.scale.set(W, Hh, 1); bg.position.set(0, Hh / 2, 0);
       for (const c of candleViews) { scene.remove(c.flame, c.glow); c.glow.material.dispose(); }
       candleViews.length = 0;

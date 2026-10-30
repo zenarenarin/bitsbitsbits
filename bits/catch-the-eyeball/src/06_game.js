@@ -155,6 +155,7 @@ window.plethoraBit = {
     const bg = new THREE.Mesh(M.plane, new THREE.MeshBasicMaterial({ depthTest: false, depthWrite: false }));
     bg.renderOrder = 0; bg.frustumCulled = false; scene.add(bg);
     const candleViews = [];
+    let roomPx = null;
 
     // ---------- layout: an integer number of device pixels per art pixel ----------
     let laidOut = false;
@@ -184,10 +185,9 @@ window.plethoraBit = {
       for (const [v, n] of [['--sat', sa.top], ['--sab', sa.bottom], ['--sal', sa.left], ['--sar', sa.right]]) ui.style.setProperty(v, (n || 0) + 'px');
       // repaint the room at the new size
       const room = paintRoom(W, Hh, world.PW, world.FLOOR);
-      if (bg.material.map) bg.material.map.dispose();
-      const t = new THREE.CanvasTexture(room.canvas);
-      t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
-      bg.material.map = t; bg.material.needsUpdate = true;
+      if (roomPx) M.forget(roomPx);
+      roomPx = room.canvas;
+      bg.material.map = M.tex(roomPx); bg.material.needsUpdate = true;
       bg.scale.set(W, Hh, 1); bg.position.set(0, Hh / 2, 0);
       for (const c of candleViews) { scene.remove(c.flame, c.glow); c.glow.material.dispose(); }
       candleViews.length = 0;
