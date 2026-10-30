@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "DON'T LOOK BACK",
+  "description": "Something is following you through an endless haunted forest. You cannot fight it and you cannot turn around. Hold to run, let go beside cover to hide, and let it pass. How far can you get?",
+  "tags": ["arcade", "horror", "3d", "endless", "runner"],
+  "permissions": ["haptics", "audio", "storage"],
+  "dependencies": ["three@0.164.1"],
+  "onboarding": {
+    "kind": "one_line",
+    "version": 1,
+    "message": "Hold to run, slide to steer. Let go beside cover to hide until it passes."
+  },
+  "memory": {
+    "records": {
+      "score": {
+        "label": "Distance",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": ["daily", "weekly", "all_time"],
+        "scopes": ["following", "global"],
+        "dedupe": "best_per_user"
+      }
+    }
+  }
+}
