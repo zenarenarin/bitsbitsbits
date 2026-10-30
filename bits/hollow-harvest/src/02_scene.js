@@ -276,7 +276,8 @@ function createScene() {
     }
   };
   // a hiding place: a tall, dense clump of stalks in front of the path
-  S.drawClump = function (L, p, camPx, f, t, rustle) {
+  S.drawClump = function (L, p, camPx, f, t, rustle, near) {
+    const tas = near && Math.floor(t * 2.5) % 2 === 0 ? FIX.glow : p.tassel;
     const xa = Math.round(f.x0 * PPM - camPx), xb = Math.round(f.x1 * PPM - camPx);
     if (xb < -12 || xa > L.W + 12) return;
     const n = Math.max(3, Math.floor((xb - xa) / 3));
@@ -287,7 +288,7 @@ function createScene() {
       const sw = Math.round(Math.sin(t * 1.4 + k) * 0.6 + rustle * Math.sin(t * 22 + k * 1.7) * 1.5);
       R(x, top + 4, 2, L.yFront - top, p.frontLeaf);
       R(x + sw, top, 1, 5, p.frontLeaf); R(x + 1 + sw, top + 1, 1, 4, p.frontDark);
-      R(x + sw, top - 2, 1, 2, p.tassel); R(x - 1 + sw, top - 1, 1, 1, p.tassel);
+      R(x + sw, top - 2, 1, 2, tas); R(x - 1 + sw, top - 1, 1, 1, tas);
       const leaves = [top + 5, top + 10, top + 16];
       for (let j = 0; j < leaves.length; j++) {
         const y = leaves[j], dir = (k + j) & 1 ? 1 : -1, s2 = j === 0 ? sw : 0;

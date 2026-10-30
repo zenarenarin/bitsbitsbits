@@ -11,18 +11,18 @@ srv.listen(0, async () => {
   await pg.goto(`http://localhost:${srv.address().port}/dev/index.html`);
   await pg.waitForTimeout(2200);
   await pg.evaluate(() => {
-    __hh.begin();
+    __hh.reset(); __hh.begin();
     // a player who runs, hides late when it is close, waits for it to turn away, then goes
     let leaving = false;
     const loop = () => {
       const r = __hh.run, c = r.c, w = __hh.world;
-      if (__hh.mode !== 'play') return;
+      if ((__hh.mode !== 'PLAYING' && __hh.mode !== 'STARTING')) return;
       const ob = w.nextObstacle(r.dist), ahead = ob ? ob.x0 - r.dist : 99;
       let hold = true;
       if (leaving) { if (!r.inZone || c.gap > 14) leaving = false; }
-      else if (r.act === 'hide') hold = leaving = c.mode === 'leave' || c.mode === 'lost' || r.hideT > 4.6;
+      else if (r.act === 'hide') hold = leaving = r.exposed || ((c.mode === 'withdraw' || c.mode === 'linger') && r.stamina > 85);
       else if (ob && ob.k === 'snag' && ahead < 2.2 && ahead > -0.5) hold = false;
-      else if (r.inZone && (c.gap < 12 || r.stamina < 0.45) && c.gap > 3.2) hold = false;
+      else if (r.inZone && (c.gap < 9 || r.stamina < 50) && c.gap > 3.2) hold = false;
       __hh.hold(hold);
       requestAnimationFrame(loop);
     };

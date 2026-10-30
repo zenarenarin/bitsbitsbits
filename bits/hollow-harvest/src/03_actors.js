@@ -207,6 +207,12 @@ function drawObstacle(f, sx, ex, L, p, t) {
     line(sx, y, sx + w * 0.25, y - 4, p.woodDark, 2); line(sx + w * 0.25, y - 4, sx + w * 0.55, y - 2, p.woodDark, 2);
     line(sx + w * 0.55, y - 2, sx + w * 0.8, y - 5, p.woodDark, 2); line(sx + w * 0.8, y - 5, ex, y, p.woodDark, 2);
     line(sx + w * 0.25, y - 5, sx + w * 0.5, y - 3, p.wood, 1); line(sx + w * 0.75, y - 6, sx + w * 0.85, y - 6, p.wood, 1);
+  } else if (f.v === 'log') {
+    const w = ex - sx;
+    R(sx, y - 5, w, 5, p.woodDark); R(sx, y - 5, w, 1, p.wood); R(sx + 2, y - 3, w - 6, 1, FIX.ink);
+    for (let i = 3; i < w - 3; i += 4) R(sx + i, y - 4, 1, 1, p.wood);
+    ellipse(ex, y - 3, 2, 2, p.tassel); R(ex, y - 3, 1, 1, p.pumpkinDark);
+    line(sx + 4, y - 5, sx + 2, y - 9, p.woodDark, 1); R(sx + 2, y - 10, 1, 1, p.backLeafLit);
   } else if (f.v === 'board') {
     line(sx - 1, y, ex, y - 5, p.woodDark, 3); line(sx, y - 1, ex - 1, y - 5, p.wood, 1);
     line(sx + 2, y - 4, ex + 1, y + 1, p.woodDark, 2); R(Math.round(sx + 5), y - 3, 1, 1, WIRE);
@@ -265,5 +271,94 @@ function drawProp(pr, x, L, p, t) {
       for (let yy = -4; yy <= 4; yy++) for (let xx = -4; xx <= 4; xx++) if (((xx + yy) & 1) === 0 && xx * xx + yy * yy < 18 && xx * xx + yy * yy > 3) R(x + 3 + xx, base - 24 + yy, 1, 1, p.pumpkinLit);
       R(x + 2, base - 26, 3, 4, p.woodDark); R(x + 3, base - 25, 1, 2, fl);
     } else { line(x - 4, base - 30, x - 6, base - 22, WIRE, 1); }
+  }
+}
+
+// ---------- hiding places ----------
+// Each is drawn on the path plane. A traveller crouched in a haystack or
+// behind a cart is drawn first so the object covers them; in a hollow tree
+// or a shed only their eyes show in the dark opening.
+// how tall each object stands, for placing the HIDE tag above it
+const HIDE_TOP = { corn: 0, hay: 19, cart: 23, tree: 42, shed: 33 };
+function hideColors(p) {
+  if (!p._hay) { p._hay = mixHex(p.tassel, p.pumpkinDark, 0.45); p._hayDark = mixHex(p.pumpkinDark, p.woodDark, 0.4); }
+}
+function eyes(x, y, t, seed) {
+  if ((t + (seed % 7)) % 3.4 < 0.14) return;
+  R(x, y, 1, 1, FIX.cream); R(x + 2, y, 1, 1, FIX.cream);
+}
+// the top edge of a hiding place you can reach glints, in a slow dither
+function glintRow(x, y, w, t) {
+  if (Math.floor(t * 2.5) % 2) return;
+  for (let i = 0; i < w; i += 2) R(x + i, y, 1, 1, FIX.glow);
+}
+function drawHideSpot(f, sx, ex, L, p, t, o) {
+  const y = L.yFeet + 1, w = ex - sx, hl = o.near && !o.hidden;
+  hideColors(p);
+  if (f.type === 'hay') {
+    const cx = Math.round((sx + ex) / 2);
+    R(sx - 1, y - 1, w + 3, 2, p.groundDark);
+    ellipse(cx, y - 8, Math.round(w / 2), 10, p._hay, p.tassel);
+    R(sx, y - 6, w + 1, 6, p._hay);
+    for (let r = 0; r < 4; r++) for (let i = 0; i < 6; i++) {
+      const hh = hash2(f.seed + r, i), xx = sx + 2 + Math.round(hh * (w - 4)), yy = y - 3 - r * 4 - Math.round(hh * 2);
+      if (Math.abs(xx - cx) < w / 2 - 2 - Math.max(0, 12 - (y - yy)) * 0.2) { R(xx, yy, 2, 1, p._hayDark); R(xx + 2, yy - 1, 1, 1, p._hayDark); }
+    }
+    R(cx - 5, y - 17, 9, 1, p.tassel); R(cx - 7, y - 16, 4, 1, p.tassel);
+    R(sx, y - 1, w + 1, 1, p._hayDark);
+    line(ex - 3, y - 2, ex + 4, y - 20, p.woodDark, 1); R(ex + 3, y - 22, 3, 1, WIRE); R(ex + 3, y - 23, 1, 1, WIRE); R(ex + 5, y - 23, 1, 1, WIRE);
+    if (hl) glintRow(cx - 6, y - 19, 12, t);
+  } else if (f.type === 'cart') {
+    R(sx - 1, y - 1, w + 3, 2, p.groundDark);
+    // tarp hanging over the near side
+    poly([sx + 3, y - 18, ex - 4, y - 17, ex - 6, y - 5, ex - 9, y - 7, sx + 14, y - 4, sx + 9, y - 6, sx + 5, y - 3], p.backLeafLit);
+    R(sx + 3, y - 18, w - 7, 1, p.pumpkinLit); for (let i = sx + 6; i < ex - 6; i += 5) R(i, y - 16, 1, 9, p.backLeaf);
+    R(sx + 1, y - 21, w - 3, 3, p.wood); R(sx + 1, y - 21, w - 3, 1, p.tassel);
+    R(sx + 1, y - 18, 2, 10, p.woodDark); R(ex - 3, y - 19, 2, 9, p.woodDark);
+    for (let i = 5; i < w - 4; i += 5) R(sx + i, y - 21, 1, 3, p.woodDark);
+    line(ex - 2, y - 15, ex + 8, y - 1, p.woodDark, 1); line(ex - 2, y - 13, ex + 7, y, p.woodDark, 1);
+    const wx = sx + 7, wy = y - 6;
+    for (let a = 0; a < 16; a++) R(Math.round(wx + Math.cos(a * 0.39) * 6), Math.round(wy + Math.sin(a * 0.39) * 6), 1, 1, p.woodDark);
+    for (let a = 0; a < 4; a++) line(wx, wy, wx + Math.cos(a * 0.785 + 0.3) * 5, wy + Math.sin(a * 0.785 + 0.3) * 5, p.woodDark, 1);
+    R(wx, wy, 1, 1, p.wood);
+    ellipse(ex - 8, y - 1, 5, 1, p.woodDark); // the other wheel, fallen flat
+    if (hl) glintRow(sx + 2, y - 22, w - 5, t);
+  } else if (f.type === 'tree') {
+    const cx = Math.round((sx + ex) / 2), tw = Math.max(10, w - 6), top = y - 40;
+    poly([cx - tw / 2 - 4, y, cx + tw / 2 + 4, y, cx + tw / 2, y - 6, cx + tw / 2 - 1, top + 8, cx + 2, top + 3, cx + 1, top, cx - 2, top + 5, cx - tw / 2 + 1, top + 2, cx - tw / 2, y - 6], p.wood);
+    R(Math.round(cx + tw / 2 - 3), top + 8, 3, 32, p.woodDark);
+    // the sunlit edge, broken into bark plates
+    for (let yy = top + 4; yy < y - 4; yy += 3) R(Math.round(cx - tw / 2), yy, 1, 2, p.tassel);
+    for (let i = 0; i < 6; i++) R(Math.round(cx - tw / 2 + 2 + ((i * 5) % (tw - 4))), top + 8 + i * 5, 1, 4, p.woodDark);
+    line(cx + tw / 2 - 1, top + 12, cx + tw / 2 + 9, top + 2, p.woodDark, 2); line(cx + tw / 2 + 9, top + 2, cx + tw / 2 + 12, top - 2, p.woodDark, 1);
+    line(cx - tw / 2 + 1, top + 16, cx - tw / 2 - 6, top + 9, p.woodDark, 1);
+    ellipse(cx, y - 8, 4, 7, FIX.ink); R(cx - 4, y - 1, 9, 1, FIX.ink);
+    R(cx - 3, y - 15, 1, 2, p.wood);
+    if (o.hidden) eyes(cx - 1, y - 9, t, f.seed);
+    if (hl) glintRow(cx - 4, top + 1, 8, t);
+  } else if (f.type === 'shed') {
+    const roofL = y - 31, roofR = y - 26;
+    R(sx - 1, y - 1, w + 3, 2, p.groundDark);
+    R(sx + 1, y - 25, w - 2, 25, p.wood);
+    for (let i = sx + 4; i < ex - 1; i += 4) R(i, y - 25, 1, 25, p.woodDark);
+    poly([sx - 2, roofL, ex + 2, roofR, ex + 2, roofR + 3, sx - 2, roofL + 3], p.woodDark);
+    line(sx - 2, roofL, ex + 2, roofR, p.wood, 1);
+    R(ex - 9, roofR - 2, 3, 1, FIX.ink); // a missing shingle
+    const dx = Math.round(sx + w * 0.36) - 5;
+    R(dx, y - 19, 10, 19, FIX.ink);
+    poly([dx + 10, y - 19, dx + 14, y - 18, dx + 14, y - 1, dx + 10, y], p.wood);
+    R(dx + 13, y - 18, 1, 17, p.woodDark);
+    R(ex - 8, y - 19, 5, 5, FIX.ink); R(ex - 6, y - 19, 1, 5, p.woodDark); R(ex - 8, y - 17, 5, 1, p.woodDark);
+    if (o.hidden) eyes(dx + 4, y - 11, t, f.seed);
+    if (hl) glintRow(sx, roofL - 1, w, t);
+  }
+}
+// crows pecking on the path; they burst up if you run at them
+function drawCrows(f, sx, L, t) {
+  const y = L.yFeet - 1;
+  for (let i = 0; i < f.n; i++) {
+    const x = Math.round(sx + i * 4 + hash2(f.seed, i) * 3), peck = (t * 1.3 + hash2(i, f.seed) * 5) % 2 < 0.3;
+    R(x, y - 2, 3, 2, FIX.ink); R(x + 3, y - (peck ? 1 : 3), 1, 1, FIX.ink); R(x + 4, y - (peck ? 0 : 3), 1, 1, '#c98a4a');
+    R(x - 1, y - 3, 1, 1, FIX.ink);
   }
 }

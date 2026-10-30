@@ -12,12 +12,12 @@ srv.listen(0, async () => {
   pg.on('pageerror', e => errs.push(String(e)));
   await pg.goto(url); await pg.waitForTimeout(500);
   for (const d of [200, 330, 520]) {
-    await pg.evaluate((d) => { __hh.begin(); __hh.advance(0.2, true); const r = __hh.run; r.t = 60; r.dist = d; r.c.gap = 16; r.c.mode = 'hunt'; __hh.world.reset(5); __hh.world.genX = d; __hh.world.update(d, 0.5, 2); __hh.advance(1, true); __hh.hold(true); }, d);
+    await pg.evaluate((d) => { __hh.reset(); __hh.begin(); __hh.advance(0.2, true); const r = __hh.run; r.t = 60; r.dist = d; r.c.gap = 16; r.c.mode = 'hunt'; __hh.world.reset(5); __hh.world.genX = d; __hh.world.update(d, 0.5, 2); __hh.advance(1, true); }, d);
     await pg.waitForTimeout(300);
     await pg.screenshot({ path: `${out}/stage_${d}.png` });
   }
   // real touch: tap ENTER, then hold with a finger and release
-  await pg.evaluate(() => __hh.toTitle()); await pg.waitForTimeout(500);
+  await pg.evaluate(() => { __hh.hold(false); __hh.reset(); }); await pg.waitForTimeout(500);
   await pg.touchscreen.tap(195, 700); await pg.waitForTimeout(100);
   const m1 = await pg.evaluate(() => __hh.mode);
   const cdp = await pg.context().newCDPSession(pg);

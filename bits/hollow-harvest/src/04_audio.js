@@ -98,6 +98,12 @@ function createAudio(enabled) {
     if (!A.ok) return;
     blip(180, 30, 1.4, 'sawtooth', 0.12); blip(233, 36, 1.3, 'sawtooth', 0.09); burst(300, 0.8, 1.2, 0.5); blip(46, 28, 1.6, 'sine', 0.5);
   };
+  // it has turned away: a low, soft resolve under the wind
+  A.safe = function () { blip(196, 196, 0.9, 'sine', 0.05); blip(294, 294, 1.1, 'sine', 0.04, 0.18); burst(500, 0.6, 1.2, 0.06, 0, amb); };
+  // your hiding place is about to give you away
+  A.alarm = function () { blip(70, 52, 0.5, 'sawtooth', 0.05); burst(260, 3, 0.5, 0.18); };
+  // crows bursting up from the path
+  A.scatter = function (loud) { for (let i = 0; i < 6; i++) burst(2400 + Math.random() * 1600, 2, 0.06, loud ? 0.08 : 0.03, i * 0.035, amb); if (loud) A.caw(); };
   A.ui = function () { blip(440, 660, 0.06, 'square', 0.03); };
   A.suspend = function () { try { if (ac && ac.state === 'running') ac.suspend(); } catch (e) { } };
   A.resume = function () { try { if (ac && ac.state === 'suspended') ac.resume(); } catch (e) { } };
