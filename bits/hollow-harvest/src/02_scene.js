@@ -42,7 +42,7 @@ function createScene(surface) {
       }
     });
     // the sun sits low on the left and sinks over the run
-    const sr = Math.round(L.W * 0.15), sx = Math.round(L.W * 0.27);
+    const sr = Math.round(Math.min(L.W * 0.15, L.H * 0.075)), sx = Math.round(L.W * 0.27);
     const sy = Math.round(lerp(L.H * 0.33, L.H * 0.50, stageF / 3));
     // halo: a checker ring of the rim colour
     for (let y = -sr - 4; y <= sr + 4; y++) for (let x = -sr - 4; x <= sr + 4; x++) {

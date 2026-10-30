@@ -91,7 +91,8 @@ window.plethoraBit = {
       devW = dw; devH = dh;
       canvas.width = dw; canvas.height = dh; canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
       SC = Math.max(1, Math.min(Math.floor(dw / 128), Math.floor(dh / 228)));
-      W = Math.min(Math.ceil(dw / SC), 180); H = Math.min(Math.ceil(dh / SC), 330);
+      // fill the whole screen at any shape: the field simply shows more width or height
+      W = Math.ceil(dw / SC); H = Math.ceil(dh / SC);
       offX = Math.floor((dw - W * SC) / 2); offY = Math.floor((dh - H * SC) / 2);
       buf.width = W; buf.height = H;
       L = computeLayout(W, H);

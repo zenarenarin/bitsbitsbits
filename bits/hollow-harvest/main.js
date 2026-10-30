@@ -434,7 +434,7 @@ function createScene(surface) {
       }
     });
     // the sun sits low on the left and sinks over the run
-    const sr = Math.round(L.W * 0.15), sx = Math.round(L.W * 0.27);
+    const sr = Math.round(Math.min(L.W * 0.15, L.H * 0.075)), sx = Math.round(L.W * 0.27);
     const sy = Math.round(lerp(L.H * 0.33, L.H * 0.50, stageF / 3));
     // halo: a checker ring of the rim colour
     for (let y = -sr - 4; y <= sr + 4; y++) for (let x = -sr - 4; x <= sr + 4; x++) {
@@ -1269,7 +1269,8 @@ window.plethoraBit = {
       devW = dw; devH = dh;
       canvas.width = dw; canvas.height = dh; canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
       SC = Math.max(1, Math.min(Math.floor(dw / 128), Math.floor(dh / 228)));
-      W = Math.min(Math.ceil(dw / SC), 180); H = Math.min(Math.ceil(dh / SC), 330);
+      // fill the whole screen at any shape: the field simply shows more width or height
+      W = Math.ceil(dw / SC); H = Math.ceil(dh / SC);
       offX = Math.floor((dw - W * SC) / 2); offY = Math.floor((dh - H * SC) / 2);
       buf.width = W; buf.height = H;
       L = computeLayout(W, H);
