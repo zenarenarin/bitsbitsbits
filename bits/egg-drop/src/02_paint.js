@@ -15,9 +15,14 @@ function shade(h, amt) { const [r, g, b] = hexRgb(h); return amt >= 0 ? rgbHex(r
 function mixHex(a, b, t) { const A = hexRgb(a), B = hexRgb(b); return rgbHex(A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t); }
 function rgba(h, a) { const [r, g, b] = hexRgb(h); return `rgba(${r},${g},${b},${a})`; }
 
+// Offscreen paint buffers. OffscreenCanvas where the WebView has it;
+// otherwise a hidden runtime-made canvas (set by the game at init).
+let canvasFallback = null;
 function makeCanvas(w, h) {
-  const c = document.createElement('canvas');
-  c.width = Math.max(1, Math.ceil(w)); c.height = Math.max(1, Math.ceil(h));
+  w = Math.max(1, Math.ceil(w)); h = Math.max(1, Math.ceil(h));
+  if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(w, h);
+  const c = canvasFallback();
+  c.width = w; c.height = h;
   return c;
 }
 

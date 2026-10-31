@@ -384,9 +384,14 @@ function shade(h, amt) { const [r, g, b] = hexRgb(h); return amt >= 0 ? rgbHex(r
 function mixHex(a, b, t) { const A = hexRgb(a), B = hexRgb(b); return rgbHex(A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t); }
 function rgba(h, a) { const [r, g, b] = hexRgb(h); return `rgba(${r},${g},${b},${a})`; }
 
+// Offscreen paint buffers. OffscreenCanvas where the WebView has it;
+// otherwise a hidden runtime-made canvas (set by the game at init).
+let canvasFallback = null;
 function makeCanvas(w, h) {
-  const c = document.createElement('canvas');
-  c.width = Math.max(1, Math.ceil(w)); c.height = Math.max(1, Math.ceil(h));
+  w = Math.max(1, Math.ceil(w)); h = Math.max(1, Math.ceil(h));
+  if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(w, h);
+  const c = canvasFallback();
+  c.width = w; c.height = h;
   return c;
 }
 
@@ -1104,6 +1109,7 @@ async function eggDropInit(ctx) {
   const persist = () => { if (caps.storage && ctx.storage) { try { ctx.storage.set(SAVE_KEY, save); } catch (e) { } } };
 
   // ---- surfaces ----
+  canvasFallback = () => { const c = ctx.createCanvas2D({ layer: 'background', input: 'passthrough' }); c.style.display = 'none'; return c; };
   const canvas = ctx.createCanvas2D({ coordinateSpace: 'css', maxDpr: 2, alpha: false, touchAction: 'none', layer: 'content' });
   const g = canvas.getContext('2d');
   const ui = ctx.createRoot({ className: 'ed-ui', layer: 'overlay', input: 'passthrough' });
@@ -1187,7 +1193,10 @@ async function eggDropInit(ctx) {
     strokeFill(cg, r, { x: -20, y: -20, w: 370, h: 460 }, PAL.ivory, { angle: -0.4, width: 30, length: 110, count: 60, alpha: 0.35, spread: 0.06 });
     for (let i = 0; i < 4; i++) wash(cg, r, r() * 330, r() * 420, 90, PAL.butter, 0.12);
     grain(c, 0.06, r, true);
-    try { card.style.backgroundImage = `url(${c.toDataURL('image/jpeg', 0.82)})`; } catch (e) { }
+    try {
+      if (c.convertToBlob) c.convertToBlob({ type: 'image/jpeg', quality: 0.82 }).then(b => { if (!disposed) { const u = URL.createObjectURL(b); card.style.backgroundImage = `url(${u})`; ctx.onDestroy(() => URL.revokeObjectURL(u)); } }).catch(() => { });
+      else card.style.backgroundImage = `url(${c.toDataURL('image/jpeg', 0.82)})`;
+    } catch (e) { }
   })();
 
   // ---- audio ----
@@ -1462,7 +1471,8 @@ async function eggDropInit(ctx) {
       if (boardEl()) boardEl().innerHTML = cached ? renderBoard(cached, true) : '<span class="ed-dim">Board unavailable right now</span>';
     }
   }
-  function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+  const ESC = { 38: '&amp;', 60: '&lt;', 62: '&gt;', 34: '&quot;', 39: '&#39;' };
+  function esc(s) { let o = ''; for (const ch of String(s)) { const e = ESC[ch.charCodeAt(0)]; o += e || ch; } return o; }
   function renderBoard(b, stale) {
     const rows = (b && b.rows || []).slice(0, 3);
     if (!rows.length) return '<span class="ed-dim">No balances on this surface yet</span>';
@@ -1830,7 +1840,9 @@ window.plethoraBit = {
     tags: ['arcade', 'physics', 'balance'],
     permissions: ['haptics', 'audio', 'backgroundMusic', 'storage', 'motion']
   },
-  init: eggDropInit
+  async init(ctx) {
+    return eggDropInit(ctx);
+  }
 };
 
 })();
