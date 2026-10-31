@@ -459,9 +459,10 @@ window.plethoraBit = {
         k = 40;
       } else if (r.state === 'hide' || r.state === 'toHide') {
         // from up the trail, looking back: the cover, the wanderer curled behind it, and the way it will come
+        // a great tree would fill the frame from out there, so for trees the shot comes from the trail itself
         const sp = r.spot, hw = sp.halfW;
-        at(sp.s + 12, sp.hideU + sp.side * 1.6, 1.3, dpos);
-        at(sp.s - 6, sp.side * hw * 0.5, 1.9, dlook);
+        if (sp.kind === 'bigTree') { at(sp.s + 11, sp.side * hw * 0.2, 1.4, dpos); at(sp.s - 7, sp.side * hw * 0.55, 1.9, dlook); }
+        else { at(sp.s + 12, sp.hideU + sp.side * 1.6, 1.3, dpos); at(sp.s - 6, sp.side * hw * 0.5, 1.9, dlook); }
         k = 2.2;
       } else if (r.state === 'caught') {
         // finally, it turns you around
@@ -746,7 +747,7 @@ window.plethoraBit = {
     if (window.__DLB_DEV) {
       window.__dlb = {
         begin, showTitle, pauseGame, resumeGame, input, camera, scene, renderer, W,
-        jump(s) { W.reset((Math.random() * 1e9) | 0, s); run.s = s; run.stage = stageIndex(s); run.M.vs = s - run.M.gap; cam.init = false; frame(DT, true); },
+        startBats, jump(s) { W.reset((Math.random() * 1e9) | 0, s); run.s = s; run.stage = stageIndex(s) - 1; run.M.vs = s - run.M.gap; cam.init = false; frame(DT, true); },
         get run() { return run; }, get mode() { return mode; }, save: () => save,
         advance(sec, hold, settle) { if (hold != null) input.hold = hold; const n = Math.round(sec / DT); for (let i = 0; i < n && (mode === 'play' || mode === 'caught'); i++) { step(DT); if (settle === true) frame(DT, true); } if (!settle) frame(DT); },
         frame: n => { for (let i = 0; i < (n || 1); i++) frame(DT, i < (n || 1) - 1); }
