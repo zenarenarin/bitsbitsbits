@@ -20,6 +20,11 @@ window.plethoraBit = {
 
     const canvas = ctx.createCanvas2D({ coordinateSpace: 'css', maxDpr: 2, alpha: false, layer: 'content', touchAction: 'none' });
     const g = canvas.getContext('2d');
+    hiddenCanvasFactory = () => {
+      const c = ctx.createCanvas2D({ layer: 'background', input: 'passthrough' });
+      c.style.display = 'none';
+      return c;
+    };
     let W = ctx.width, H = ctx.height;
     const dprOf = () => Math.min(2, ctx.dpr || 1);
 

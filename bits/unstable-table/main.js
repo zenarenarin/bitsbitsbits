@@ -67,10 +67,16 @@ const PAL = {
 // coordinates as the physics. `B.px` converts screen pixels to units so brush
 // widths stay consistent at any resolution.
 
+// Offscreen paint buffers. OffscreenCanvas where the WebView has it;
+// otherwise a hidden canvas from the runtime's own factory (set in init).
+let hiddenCanvasFactory = null;
 function makeBuffer(w, h) {
-  const c = document.createElement('canvas');
-  c.width = Math.max(1, Math.ceil(w));
-  c.height = Math.max(1, Math.ceil(h));
+  const cw = Math.max(1, Math.ceil(w)), ch = Math.max(1, Math.ceil(h));
+  if (typeof OffscreenCanvas === 'function') {
+    try { const o = new OffscreenCanvas(cw, ch); if (o.getContext('2d')) return o; } catch (e) {}
+  }
+  const c = hiddenCanvasFactory();
+  c.width = cw; c.height = ch;
   return c;
 }
 
@@ -1640,6 +1646,11 @@ window.plethoraBit = {
 
     const canvas = ctx.createCanvas2D({ coordinateSpace: 'css', maxDpr: 2, alpha: false, layer: 'content', touchAction: 'none' });
     const g = canvas.getContext('2d');
+    hiddenCanvasFactory = () => {
+      const c = ctx.createCanvas2D({ layer: 'background', input: 'passthrough' });
+      c.style.display = 'none';
+      return c;
+    };
     let W = ctx.width, H = ctx.height;
     const dprOf = () => Math.min(2, ctx.dpr || 1);
 
