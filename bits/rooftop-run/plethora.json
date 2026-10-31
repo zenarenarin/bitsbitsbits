@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "Rooftop Run",
+  "description": "A cat crosses an endless sprawl of weathered city rooftops: steer, leap the gaps, duck under the pipes, keep your balance on the ledges. Phase 1 movement lab.",
+  "tags": ["3d", "endless", "platformer"],
+  "permissions": ["haptics"],
+  "dependencies": ["three@0.164.1"]
+}
