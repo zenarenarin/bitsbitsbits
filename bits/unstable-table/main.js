@@ -1201,47 +1201,6 @@ function createSim(planck, opts) {
   };
 }
 
-// ---- 03b_score.js ----
-// Scoring rules, kept as small pure functions so they are easy to read,
-// change and test (dev/score_test.js).
-//
-//   placement  = (base + balance bonus) x steady-hand multiplier
-//   base       = 100 for every object that settles on the table (once per object)
-//   balance    = from the table's actual angle once things have settled:
-//                within 2 deg +100, within 4 deg +70, within 6 deg +40, beyond: 0
-//   multiplier = consecutive stable placements: x1, x1.25, x1.5, x1.75, then x2;
-//                the streak resets when the table enters the critical zone
-//   perfect    = +150 for bringing the table back within 2 deg after it had
-//                become unstable (at most once per placed object)
-
-const SCORING = {
-  base: 100,
-  balanceBands: [[2, 100], [4, 70], [6, 40]], // [max degrees, bonus]
-  multipliers: [1, 1.25, 1.5, 1.75, 2],        // by streak length 1, 2, 3, 4, 5+
-  perfect: 150,
-  perfectWithin: 2,     // degrees
-  unstableHold: 0.4,    // seconds unstable before a recovery can count
-  perfectHold: 0.5,     // seconds held within 2 deg (and nearly still) to award
-  settleWait: 2.5       // max seconds to wait for the table to stop swinging before scoring
-};
-
-function balanceBonus(angleDeg) {
-  const a = Math.abs(angleDeg);
-  for (const [max, bonus] of SCORING.balanceBands) if (a <= max) return bonus;
-  return 0;
-}
-
-function streakMultiplier(streak) {
-  const m = SCORING.multipliers;
-  return m[clamp(streak, 1, m.length) - 1];
-}
-
-// The full breakdown for one placement; `streak` includes this placement.
-function placementScore(angleDeg, streak) {
-  const base = SCORING.base, bonus = balanceBonus(angleDeg), mult = streakMultiplier(streak);
-  return { base, bonus, mult, total: Math.round((base + bonus) * mult) };
-}
-
 // ---- 04_scene.js ----
 // Painted scene pieces: sprites for every object, the table, its stand and
 // ballast, the stage floor, and the backdrop.
@@ -1768,15 +1727,16 @@ window.plethoraBit = {
       const a = ctx.contentSafeArea || ctx.safeArea || { top: 0, bottom: 0, left: 0, right: 0 };
       L.top = a.top + 10; L.left = Math.max(16, a.left + 12); L.right = W - Math.max(16, a.right + 12);
       L.bottom = H - Math.max(a.bottom, 16) - 6;
-      L.hudH = 112; L.hudBottom = L.top + L.hudH;
+      L.hudH = 74; L.hudBottom = L.top + L.hudH;
+      L.viewTop = L.top + 112; // the scene is framed below this line (keeps the table zoomed out a little)
       L.trayH = clamp(H * 0.15, 104, 130);
       L.trayTop = L.bottom - L.trayH;
-      L.s0 = Math.min((W - 28) / (PHYS.halfLen * 2 + 0.45), (L.trayTop - L.hudBottom) / (-PHYS.floorY + 0.3 + 2.5));
+      L.s0 = Math.min((W - 28) / (PHYS.halfLen * 2 + 0.45), (L.trayTop - L.viewTop) / (-PHYS.floorY + 0.3 + 2.5));
       L.pivotX = W / 2;
       L.pivotY = L.trayTop - 0.3 * L.s0 + PHYS.floorY * L.s0; // a strip of stage floor shows above the tray
       if (!cam.s) cam.s = L.s0;
-      L.gauge = { x: W / 2, y: L.top + 52, r: clamp(W * 0.105, 34, 46) };
-      L.mute = { x: L.right - 16, y: L.top + 84, r: 15 };
+      L.gauge = { x: W / 2, y: L.top + 46, r: Math.min(40, W * 0.1) };
+      L.mute = { x: L.right - 16, y: L.top + 62, r: 16 };
     }
     const cam = { s: 0 };
     const W2S = (x, y) => [L.pivotX + x * cam.s, L.pivotY - y * cam.s];
@@ -1812,13 +1772,11 @@ window.plethoraBit = {
       run = {
         state: 'playing', t: 0, seed, rnd: mulberry(seed),
         recs: [], tray: [], held: null, recent: [],
-        placed: 0, points: 0, shown: 0, bump: 0, mult: 1, streak: 0, bestStreak: 0, multPop: 0,
-        pending: [], log: [], prevBest: best.score || 0, recordAt: -1,
-        perfectToken: false, armed: false, unstableT: 0, perfectT: 0,
-        arriveT: 0, emptyT: 0, overT: 0, critAt: -1, inCrit: false, zone: 0,
-        cause: '', collapseT: 0, result: null, pulsed: false, newBest: false, recoveries: 0
+        placed: 0, points: 0, mult: 1, streak: 0, bestStreak: 0,
+        arriveT: 0, emptyT: 0, overT: 0, eqT: 0, critAt: -1, inCrit: false, zone: 0,
+        cause: '', collapseT: 0, result: null, pulsed: false, newBest: false, heavyPlaced: 0, recoveries: 0
       };
-      popups.length = 0; puffs.length = 0; flashes.length = 0; notice = null;
+      popups.length = 0; puffs.length = 0; flashes.length = 0;
       cam.s = L.s0;
       scoreTrack.reset();
       prevTable = 0;
@@ -1919,65 +1877,24 @@ window.plethoraBit = {
       return rec;
     }
 
-    // ---- scoring (rules in src/03b_score.js) ----
-    // A centred notice below the HUD; a new one replaces the old so they never stack.
-    let notice = null;
-    function showNotice(lines, color) { notice = { lines, color: color || PAL.cream, t: 0 }; }
-    function addPoints(p, kind, extra) {
-      run.points += p;
-      scoreTrack.set(run.points);
-      run.bump = 1;
-      run.log.push(Object.assign({ kind, points: p, t: +run.t.toFixed(2) }, extra || {}));
-      if (run.prevBest > 0 && run.points > run.prevBest && run.recordAt < 0) { run.recordAt = run.t; audio.chime(true); haptic('success'); }
-    }
-    // An object has come to rest: score it once the table stops swinging.
-    function onSettled(rec) {
-      rec.pending = true;
-      run.pending.push({ rec, t: run.t });
-    }
-    function scorePending() {
-      while (run.pending.length) {
-        const p = run.pending[0];
-        const still = Math.abs(sim.angVel()) < 0.03;
-        if (!still && run.t - p.t < SCORING.settleWait) return;
-        run.pending.shift();
-        scorePlacement(p.rec);
-      }
-    }
-    function scorePlacement(rec) {
-      rec.pending = false;
-      rec.counted = true;
+    // ---- scoring ----
+    function popup(text, x, y, color) { popups.push({ text, x, y, t: 0, color: color || PAL.cream }); }
+    function addPoints(p) { run.points += p; scoreTrack.set(run.points); }
+    function onPlaced(rec) {
       run.placed++;
       run.streak++;
       run.bestStreak = Math.max(run.bestStreak, run.streak);
-      const prevMult = run.mult;
-      const angleDeg = sim.angle() / DEG;
-      const sc = placementScore(angleDeg, run.streak);
-      run.mult = sc.mult;
-      if (run.mult > prevMult) run.multPop = 1;
-      run.perfectToken = true;
-      addPoints(sc.total, 'placement', { id: rec.def.id, angle: +angleDeg.toFixed(2), base: sc.base, bonus: sc.bonus, mult: sc.mult });
-      // feedback near the object: base, balance bonus and multiplier on separate lines
-      const p = rec.body.getPosition();
-      const [sx, sy] = W2S(p.x, p.y + rec.def.box[3]);
-      const lines = [{ text: '+' + sc.base, size: 21, color: PAL.cream }];
-      if (sc.bonus) lines.push({ text: '+' + sc.bonus + ' balance', size: 15, color: PAL.mustard });
-      if (sc.mult > 1) lines.push({ text: '×' + fmtMult(sc.mult) + ' steady hand', size: 15, color: PAL.creamDeep });
-      placePopup(lines, sx, sy);
-      haptic(sc.bonus >= 70 ? 'medium' : 'light');
-      if (sc.bonus === 100) audio.chime(true);
+      run.mult = Math.min(3, 1 + 0.5 * Math.floor(run.streak / 3));
+      let pts = 100 * run.mult;
+      const [sx, sy] = W2S(rec.body.getPosition().x, rec.body.getPosition().y + rec.def.box[3]);
+      if (rec.def.weight === 'heavy') { pts += 60 * run.mult; run.heavyPlaced++; popup('heavy  +' + Math.round(160 * run.mult), sx, sy - 6, PAL.mustard); haptic('medium'); }
+      else { popup('+' + Math.round(pts), sx, sy - 6); haptic('light'); }
+      if (run.streak > 0 && run.streak % 3 === 0 && run.mult > 1) { popup('steady hand  ×' + run.mult, W / 2, L.hudBottom + 62, PAL.mustard); audio.chime(true); }
+      addPoints(Math.round(pts));
       try { ctx.platform.interact({ kind: 'placed', id: rec.def.id }); } catch (e) {}
       if (run.placed % 10 === 0) try { ctx.platform.milestone('placed_' + run.placed); } catch (e) {}
       if (!seenHint) { seenHint = true; save('seenHint', true); }
     }
-    function placePopup(lines, x, y) {
-      x = clamp(x, 70, W - 70);
-      y = clamp(y - 28, L.hudBottom + 40, L.trayTop - 40);
-      // keep clear of a group that is still on screen
-      for (const q of popups) if (q.t < 1.4 && Math.abs(q.x - x) < 110 && Math.abs(q.y - y) < 60) y = q.y - 62;
-      popups.push({ lines, x, y: Math.max(L.hudBottom + 30, y), t: 0 });
-    }
-    const fmtMult = m => String(m);
 
     // ---- failure ----
     function fail(cause) {
@@ -1985,7 +1902,7 @@ window.plethoraBit = {
       run.state = 'collapse';
       run.cause = cause;
       run.collapseT = 0;
-      popups.length = 0; notice = null;
+      popups.length = 0;
       if (run.held) cancelHeld(true);
       haptic('error');
       sting('lose');
@@ -1996,8 +1913,7 @@ window.plethoraBit = {
       run.state = 'over';
       const res = { score: run.points, placed: run.placed, streak: run.bestStreak, board: { status: 'saving', rows: [], rank: null } };
       run.result = res;
-      run.prevBest = best.score || 0;
-      run.newBest = res.score > run.prevBest;
+      run.newBest = res.score > (best.score || 0);
       best = { score: Math.max(best.score || 0, res.score), placed: Math.max(best.placed || 0, res.placed), streak: Math.max(best.streak || 0, res.streak) };
       save('best', best);
       if (run.newBest && res.score > 0) { sting('success'); }
@@ -2094,8 +2010,6 @@ window.plethoraBit = {
         const p = rec.body.getPosition();
         const [bx, by] = W2S(p.x, p.y);
         sim.lift(rec.body);
-        if (rec.pending) { rec.pending = false; run.pending = run.pending.filter(p => p.rec !== rec); }
-        rec.settleT = 0;
         startHold(rec.def, rec, x, y, bx, by, 1, null);
         return;
       }
@@ -2212,10 +2126,10 @@ window.plethoraBit = {
         if (sim.touchesGround(r.body) || r.body.getPosition().y < sim.P.floorY + 0.15) {
           fail(`The ${r.def.name.toLowerCase()} fell off the table.`); return;
         }
-        if (!r.counted && !r.pending) {
+        if (!r.counted) {
           const v = r.body.getLinearVelocity().length(), w = Math.abs(r.body.getAngularVelocity());
           if (v < 0.08 && w < 0.25 && sim.touchesTableOrStack(r.body)) r.settleT += dt; else r.settleT = 0;
-          if (r.settleT > 0.45) onSettled(r);
+          if (r.settleT > 0.45) { r.counted = true; onPlaced(r); }
         }
       }
       // the table's angle
@@ -2227,15 +2141,30 @@ window.plethoraBit = {
       const zone = aa < BAL ? 0 : aa < CRIT ? 1 : 2;
       if (zone === 2 && !run.inCrit) {
         run.inCrit = true; run.critAt = run.t;
-        if (run.streak > 0) showNotice([{ text: 'STREAK LOST', size: 17 }], PAL.vermilion);
+        if (run.streak > 0) popup('streak lost', W / 2, L.hudBottom + 62, PAL.vermilion);
         run.streak = 0; run.mult = 1;
         haptic('warning'); sting('danger');
       }
-      if (run.inCrit && zone === 0) run.inCrit = false;
-      scorePending();
-      perfectBalance(dt, aa);
+      if (run.inCrit && zone === 0) {
+        run.inCrit = false;
+        if (run.t - run.critAt < 6) {
+          run.recoveries++;
+          addPoints(75); popup('recovered  +75', W / 2, L.hudBottom + 62, PAL.mustard); audio.chime(true); haptic('success');
+        }
+      }
       if (zone !== run.zone) { run.zone = zone; musicIntensity([0.25, 0.45, 0.75][zone]); }
       if (aa > CRIT * 0.92 && Math.abs(a - lastCreakAngle) > 0.03) { lastCreakAngle = a; audio.creak((aa - CRIT) / (SAFE - CRIT)); }
+
+      // equilibrium bonus: a loaded table held nearly level
+      const loaded = run.recs.filter(r => r.body.isActive() && r.counted).length;
+      if (loaded >= 2 && aa < 1.5 * DEG && Math.abs(sim.angVel()) < 0.05) {
+        run.eqT += dt;
+        if (run.eqT > 4) {
+          run.eqT = 0;
+          const pts = 20 + 10 * Math.min(loaded, 8);
+          addPoints(pts); popup('equilibrium  +' + pts, W / 2, L.hudBottom + 62, PAL.cream); audio.chime(true);
+        }
+      } else run.eqT = Math.max(0, run.eqT - dt * 2);
 
       // arrivals
       if (run.tray.length === 0 && !(run.held && !run.held.rec)) {
@@ -2247,24 +2176,6 @@ window.plethoraBit = {
       }
     }
 
-    // Perfect Balance: the table became unstable, then was brought back
-    // within 2 degrees and held there. Once per placed object, so lifting and
-    // replacing pieces cannot farm it, and never while holding something.
-    function perfectBalance(dt, aa) {
-      if (aa >= BAL) { run.unstableT += dt; if (run.unstableT >= SCORING.unstableHold) run.armed = true; }
-      else run.unstableT = 0;
-      const level = aa <= SCORING.perfectWithin * DEG && Math.abs(sim.angVel()) < 0.03 && !run.held;
-      if (run.armed && run.perfectToken && level) {
-        run.perfectT += dt;
-        if (run.perfectT >= SCORING.perfectHold) {
-          run.armed = false; run.perfectToken = false; run.perfectT = 0; run.recoveries++;
-          addPoints(SCORING.perfect, 'perfect', { angle: +(sim.angle() / DEG).toFixed(2) });
-          showNotice([{ text: 'PERFECT BALANCE', size: 20 }, { text: '+' + SCORING.perfect, size: 26 }], PAL.mustard);
-          audio.chime(true); haptic('success');
-        }
-      } else run.perfectT = 0;
-    }
-
     // ---- rendering ----
     let lastFrame = performance.now();
     function render(alpha) {
@@ -2272,7 +2183,6 @@ window.plethoraBit = {
       const now = performance.now();
       const fdt = Math.min(0.05, (now - lastFrame) / 1000);
       lastFrame = now;
-      hudDt = fdt;
       updateCamera(fdt);
       updateHeld(fdt);
 
@@ -2325,7 +2235,7 @@ window.plethoraBit = {
         const p = r.body.getPosition();
         top = Math.max(top, p.y + (r.def.box[3] - r.def.box[1]));
       }
-      const avail = L.pivotY - L.hudBottom - 34;
+      const avail = L.pivotY - L.viewTop - 34;
       const target = clamp(Math.min(L.s0, avail / Math.max(0.5, top + 0.6)), L.s0 * 0.55, L.s0);
       cam.s += (target - cam.s) * Math.min(1, dt * 1.6);
     }
@@ -2443,73 +2353,32 @@ window.plethoraBit = {
       g.restore();
     }
 
-    // Small-caps labels: tracked out by hand (canvas letterSpacing is not
-    // available in every WebView).
-    function spaced(text, x, y, size, color, align, track = 0.14) {
-      g.font = F(size); g.fillStyle = color;
-      const sp = size * track;
-      let w = 0; for (const ch of text) w += g.measureText(ch).width + sp; w -= sp;
-      let cx = align === 'center' ? x - w / 2 : align === 'right' ? x - w : x;
-      const old = g.textAlign; g.textAlign = 'left';
-      for (const ch of text) { g.fillText(ch, cx, y); cx += g.measureText(ch).width + sp; }
-      g.textAlign = old;
-      return w;
-    }
-    function fitFont(text, size, maxW, italic) {
-      g.font = F(size, italic);
-      const w = g.measureText(text).width;
-      return w > maxW ? Math.max(14, size * maxW / w) : size;
-    }
-
-    // HUD: score (primary) top left, the balance gauge top centre with the
-    // steady-hand plate under it, the personal best top right.
-    let hudDt = 0;
     function drawHUD() {
-      const dt = hudDt;
       g.save();
       g.textBaseline = 'alphabetic';
-      const G = L.gauge;
-      // score, counting up smoothly
-      const diff = run.points - run.shown;
-      run.shown = Math.abs(diff) < 1 ? run.points : run.shown + diff * Math.min(1, dt * 7);
-      run.bump = Math.max(0, run.bump - dt * 2.5);
-      const scoreTxt = Math.round(run.shown).toLocaleString();
-      const maxW = G.x - G.r - 18 - L.left;
-      g.shadowColor = 'rgba(25,4,9,0.75)'; g.shadowBlur = 6;
-      spaced('SCORE', L.left + 1, L.top + 13, 12.5, rgba(PAL.creamDeep, 0.85), 'left');
-      const fs = fitFont(scoreTxt, 42, maxW);
-      g.save();
-      const k = 1 + 0.08 * Math.sin(Math.min(1, run.bump) * Math.PI);
-      g.translate(L.left, L.top + 52); g.scale(k, k);
-      g.font = F(fs); g.textAlign = 'left'; g.fillStyle = PAL.cream;
-      g.fillText(scoreTxt, 0, 0);
-      g.restore();
-      spaced(`${run.placed} ${run.placed === 1 ? 'OBJECT' : 'OBJECTS'}`, L.left + 1, L.top + 76, 13, rgba(PAL.cream, 0.82), 'left');
-      // personal best
-      const record = run.recordAt >= 0;
-      spaced('BEST', L.right, L.top + 13, 12.5, rgba(PAL.creamDeep, 0.85), 'right');
-      const bestVal = Math.max(run.prevBest, Math.round(run.shown));
-      const bfs = fitFont(bestVal.toLocaleString(), 22, W - (G.x + G.r + 18) - (W - L.right));
-      g.font = F(bfs); g.textAlign = 'right'; g.fillStyle = record ? PAL.mustard : rgba(PAL.cream, 0.9);
-      g.fillText(bestVal.toLocaleString(), L.right, L.top + 38);
-      g.shadowBlur = 0;
-      if (record) {
-        const age = run.t - run.recordAt;
-        g.shadowColor = 'rgba(25,4,9,0.75)'; g.shadowBlur = 5;
-        spaced('NEW RECORD', L.right, L.top + 55, 11.5, PAL.vermilion, 'right');
-        g.shadowBlur = 0;
-        if (age < 1.2) { // a few flecks of gold paint around the number
-          const rnd = mulberry(77);
-          for (let i = 0; i < 7; i++) {
-            const a = rnd() * TAU, d = 14 + age * 30 * (0.6 + rnd() * 0.6);
-            g.fillStyle = rgba(i % 2 ? PAL.mustard : PAL.cream, 1 - age / 1.2);
-            g.beginPath(); g.ellipse(L.right - 26 + Math.cos(a) * d, L.top + 30 + Math.sin(a) * d * 0.6, 2.2, 1.4, a, 0, TAU); g.fill();
-          }
-        }
+      const shadow = () => { g.shadowColor = 'rgba(25,4,9,0.7)'; g.shadowBlur = 5; };
+      shadow();
+      // placed count and score
+      g.textAlign = 'left'; g.fillStyle = PAL.cream;
+      g.font = F(40); g.fillText(String(run.placed), L.left, L.top + 34);
+      const nw = g.measureText(String(run.placed)).width;
+      g.font = F(15, true); g.fillStyle = rgba(PAL.cream, 0.8);
+      g.fillText(run.placed === 1 ? 'object' : 'objects', L.left + nw + 6, L.top + 33);
+      g.font = F(16); g.fillStyle = PAL.mustard;
+      g.fillText(run.points.toLocaleString(), L.left, L.top + 58);
+      if (run.mult > 1) {
+        const sw = g.measureText(run.points.toLocaleString()).width;
+        g.font = F(14, true); g.fillStyle = PAL.vermilion;
+        g.fillText('×' + run.mult, L.left + sw + 8, L.top + 58);
       }
+      // best and mute on the right
+      g.textAlign = 'right'; g.font = F(13, true); g.fillStyle = rgba(PAL.cream, 0.7);
+      g.fillText('best', L.right, L.top + 14);
+      g.font = F(17); g.fillStyle = PAL.cream;
+      g.fillText(Math.max(best.score || 0, run.points).toLocaleString(), L.right, L.top + 34);
+      g.shadowBlur = 0;
       drawMute();
-      drawGauge(dt);
-      drawSteadyHand(dt);
+      drawGauge();
       g.restore();
     }
 
@@ -2517,7 +2386,7 @@ window.plethoraBit = {
       const m = L.mute;
       g.save();
       g.translate(m.x, m.y);
-      g.fillStyle = rgba(PAL.burgundyDeep, 0.55); g.strokeStyle = rgba(PAL.brass, 0.7); g.lineWidth = 1.4;
+      g.fillStyle = rgba(PAL.burgundyDeep, 0.55); g.strokeStyle = rgba(PAL.cream, 0.45); g.lineWidth = 1.2;
       g.beginPath(); g.arc(0, 0, m.r, 0, TAU); g.fill(); g.stroke();
       g.fillStyle = PAL.cream;
       g.beginPath(); g.moveTo(-7, -3); g.lineTo(-3, -3); g.lineTo(2, -7); g.lineTo(2, 7); g.lineTo(-3, 3); g.lineTo(-7, 3); g.closePath(); g.fill();
@@ -2527,144 +2396,68 @@ window.plethoraBit = {
       g.restore();
     }
 
-    // The balance gauge: an antique brass half dial on a cream face. The
-    // needle follows the table's actual angle (lightly smoothed); the band
-    // for the current state is drawn full strength, the others faded; a
-    // vermilion ring fills while the table is past its safe angle.
-    const ZONES = [
-      { name: 'BALANCED', fill: PAL.olive, text: PAL.cream },
-      { name: 'UNSTABLE', fill: PAL.ochre, text: PAL.ink },
-      { name: 'CRITICAL', fill: PAL.vermilion, text: PAL.cream }
-    ];
-    let gaugeAng = 0;
-    function drawGauge(dt) {
+    // The balance gauge: an ornamental half dial. The needle shows the
+    // table's actual angle; the coloured bands are the balanced, unstable and
+    // critical ranges; a ring fills while the table is past its safe angle.
+    function drawGauge() {
       const G = L.gauge, r = G.r;
       const span = 72 * DEG; // dial half-range drawn for the safe angle
-      const toDial = ang => clamp(-ang / SAFE, -1.22, 1.22) * span; // right side down => needle right
-      const ang = sim.angle();
-      gaugeAng += (ang - gaugeAng) * Math.min(1, dt * 16);
-      const aa = Math.abs(ang);
-      const zone = aa < BAL ? 0 : aa < CRIT ? 1 : 2;
+      const toDial = ang => clamp(-ang / SAFE, -1.25, 1.25) * span; // right side down => needle right
       g.save();
       g.translate(G.x, G.y);
-      const top = -Math.PI;
-      // brass frame: dark bevel, body, highlight on the upper left
-      g.lineCap = 'butt';
-      g.fillStyle = PAL.cream;
-      g.beginPath(); g.arc(0, 0, r + 6, top, 0); g.lineTo(r + 6, 6); g.lineTo(-r - 6, 6); g.closePath(); g.fill();
-      g.fillStyle = rgba(PAL.creamDeep, 0.6);
-      g.beginPath(); g.arc(0, 0, r * 0.45, top, 0); g.closePath(); g.fill();
-      g.strokeStyle = PAL.brassDark; g.lineWidth = 7;
-      g.beginPath(); g.arc(0, 0, r + 9, top - 0.02, 0.02); g.lineTo(r + 9, 9); g.lineTo(-r - 9, 9); g.closePath(); g.stroke();
-      g.strokeStyle = PAL.brass; g.lineWidth = 4;
-      g.beginPath(); g.arc(0, 0, r + 9, top - 0.02, 0.02); g.lineTo(r + 9, 9); g.lineTo(-r - 9, 9); g.closePath(); g.stroke();
-      g.strokeStyle = rgba(PAL.brassLight, 0.9); g.lineWidth = 1.5;
-      g.beginPath(); g.arc(0, 0, r + 10, Math.PI * 1.08, Math.PI * 1.42); g.stroke();
-      // zone bands
-      const b = BAL / SAFE * span, c = CRIT / SAFE * span, e = span * 1.22;
-      const band = (a0, a1, z) => {
-        g.strokeStyle = rgba(ZONES[z].fill, zone === z ? 1 : 0.5);
-        g.lineWidth = zone === z ? 8 : 6;
-        g.beginPath(); g.arc(0, 0, r - 3, -Math.PI / 2 + a0, -Math.PI / 2 + a1); g.stroke();
-      };
-      band(-b, b, 0); band(b, c, 1); band(-c, -b, 1); band(c, e, 2); band(-e, -c, 2);
-      // ticks every quarter of the safe range, longer at the safe-angle marks
-      g.strokeStyle = PAL.ink; g.lineCap = 'round';
+      // plate
+      g.fillStyle = rgba(PAL.burgundyDeep, 0.65);
+      g.beginPath(); g.arc(0, 0, r + 8, Math.PI, 0); g.lineTo(r + 8, 6); g.lineTo(-r - 8, 6); g.closePath(); g.fill();
+      g.strokeStyle = rgba(PAL.brass, 0.9); g.lineWidth = 2;
+      g.beginPath(); g.arc(0, 0, r + 8, Math.PI, 0); g.stroke();
+      // bands
+      const band = (a0, a1, col) => { g.strokeStyle = col; g.lineWidth = 7; g.beginPath(); g.arc(0, 0, r - 2, -Math.PI / 2 + a0, -Math.PI / 2 + a1); g.stroke(); };
+      const b = BAL / SAFE * span, c = CRIT / SAFE * span;
+      band(-b, b, PAL.olive);
+      band(b, c, PAL.ochre); band(-c, -b, PAL.ochre);
+      band(c, span * 1.25, PAL.vermilion); band(-span * 1.25, -c, PAL.vermilion);
+      // ticks
+      g.strokeStyle = rgba(PAL.cream, 0.6); g.lineWidth = 1;
       for (let i = -4; i <= 4; i++) {
-        const a = -Math.PI / 2 + i / 4 * span, long = Math.abs(i) === 4 || i === 0;
-        g.lineWidth = long ? 2 : 1.2;
-        g.beginPath(); g.moveTo(Math.cos(a) * (r - (long ? 14 : 11)), Math.sin(a) * (r - (long ? 14 : 11))); g.lineTo(Math.cos(a) * (r - 8), Math.sin(a) * (r - 8)); g.stroke();
+        const a = -Math.PI / 2 + i / 4 * span;
+        g.beginPath(); g.moveTo(Math.cos(a) * (r + 3), Math.sin(a) * (r + 3)); g.lineTo(Math.cos(a) * (r + 7), Math.sin(a) * (r + 7)); g.stroke();
       }
-      // grace ring while past the safe angle
+      // safe-angle marks
+      g.strokeStyle = PAL.cream; g.lineWidth = 2;
+      for (const sgn of [-1, 1]) { const a = -Math.PI / 2 + sgn * span; g.beginPath(); g.moveTo(Math.cos(a) * (r - 8), Math.sin(a) * (r - 8)); g.lineTo(Math.cos(a) * (r + 8), Math.sin(a) * (r + 8)); g.stroke(); }
+      // grace ring
       if (run.overT > 0) {
-        g.strokeStyle = PAL.vermilion; g.lineWidth = 3.5;
-        g.beginPath(); g.arc(0, 0, r + 15, top, top + Math.PI * clamp(run.overT / GRACE, 0, 1)); g.stroke();
+        g.strokeStyle = PAL.vermilion; g.lineWidth = 3;
+        g.beginPath(); g.arc(0, 0, r + 12, Math.PI, Math.PI + Math.PI * clamp(run.overT / GRACE, 0, 1)); g.stroke();
       }
-      // needle: tapered ink blade with a brass hub; the tip takes the state colour
-      const na = -Math.PI / 2 + toDial(gaugeAng);
-      g.save(); g.rotate(na + Math.PI / 2);
-      g.fillStyle = 'rgba(30,10,8,0.25)';
-      g.beginPath(); g.moveTo(-3.2 + 1.5, 2); g.lineTo(1.5, -(r - 5) + 2); g.lineTo(3.2 + 1.5, 2); g.closePath(); g.fill();
-      g.fillStyle = PAL.ink;
-      g.beginPath(); g.moveTo(-3.4, 4); g.lineTo(0, -(r - 5)); g.lineTo(3.4, 4); g.closePath(); g.fill();
-      g.fillStyle = ZONES[zone].fill;
-      g.beginPath(); g.moveTo(-1.6, -(r - 18)); g.lineTo(0, -(r - 5)); g.lineTo(1.6, -(r - 18)); g.closePath(); g.fill();
-      g.restore();
-      g.fillStyle = PAL.brass; g.beginPath(); g.arc(0, 0, 5.5, 0, TAU); g.fill();
-      g.strokeStyle = PAL.brassDark; g.lineWidth = 1.4; g.stroke();
-      g.fillStyle = PAL.brassLight; g.beginPath(); g.arc(-1.5, -1.5, 1.6, 0, TAU); g.fill();
-      // state plate
-      const Z = ZONES[zone];
-      const pulse = zone === 2 ? 0.75 + 0.25 * Math.sin(run.t * 9) : 1;
-      g.font = F(12.5);
-      const pw = 96, ph = 21, py = 15;
-      g.globalAlpha = pulse;
-      g.fillStyle = Z.fill; roundRect(-pw / 2, py, pw, ph, 10.5); g.fill();
-      g.strokeStyle = rgba(PAL.brassDark, 0.9); g.lineWidth = 1.2; g.stroke();
-      g.globalAlpha = 1;
-      spaced(Z.name, 0, py + 15, 12.5, Z.text, 'center', 0.16);
+      // needle
+      const ang = sim.angle();
+      const zone = Math.abs(ang) < BAL ? 0 : Math.abs(ang) < CRIT ? 1 : 2;
+      const na = -Math.PI / 2 + toDial(ang);
+      g.strokeStyle = PAL.ink; g.lineWidth = 4.5; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(0, 0); g.lineTo(Math.cos(na) * (r - 4), Math.sin(na) * (r - 4)); g.stroke();
+      g.strokeStyle = zone === 2 ? PAL.vermilion : zone === 1 ? PAL.mustard : PAL.cream; g.lineWidth = 2.5;
+      g.beginPath(); g.moveTo(0, 0); g.lineTo(Math.cos(na) * (r - 4), Math.sin(na) * (r - 4)); g.stroke();
+      g.fillStyle = PAL.brass; g.beginPath(); g.arc(0, 0, 5, 0, TAU); g.fill();
+      g.strokeStyle = PAL.brassDark; g.lineWidth = 1.2; g.stroke();
+      g.font = F(12, true); g.textAlign = 'center'; g.fillStyle = rgba(PAL.cream, 0.8);
+      g.fillText(['balanced', 'unstable', 'critical'][zone], 0, 22);
       g.restore();
     }
 
-    // "STEADY HAND x1.5" under the gauge while a multiplier is active.
-    function drawSteadyHand(dt) {
-      run.multPop = Math.max(0, run.multPop - dt * 2.2);
-      if (run.mult <= 1 || run.state !== 'playing') return;
-      const G = L.gauge;
-      const y = G.y + 50;
-      const k = 1 + 0.18 * Math.sin(Math.min(1, run.multPop) * Math.PI);
-      g.save();
-      g.translate(G.x, y); g.scale(k, k);
-      const txt = 'STEADY HAND  ×' + fmtMult(run.mult);
-      g.globalAlpha = 0; // measure first
-      const tw = spaced(txt, 0, 1, 12.5, PAL.mustard, 'center', 0.1);
-      g.globalAlpha = 1;
-      g.fillStyle = rgba(PAL.burgundyDeep, 0.7);
-      roundRect(-tw / 2 - 12, -15, tw + 24, 22, 11); g.fill();
-      g.strokeStyle = rgba(PAL.mustard, 0.6); g.lineWidth = 1; g.stroke();
-      spaced(txt, 0, 1, 12.5, PAL.mustard, 'center', 0.1);
-      g.restore();
-    }
-
-    // Placement feedback groups (lines fade in one after another and rise)
-    // and the single centred notice.
     function drawPopups(dt) {
       for (const p of popups) {
         p.t += dt;
-        const life = 1.9;
-        if (p.t >= life) continue;
-        p.lines.forEach((ln, i) => {
-          const t = p.t - i * 0.22;
-          if (t <= 0) return;
-          const k = t / (life - i * 0.22);
-          g.save();
-          g.globalAlpha = Math.min(1, t * 8) * (1 - Math.max(0, (k - 0.65) / 0.35));
-          g.font = F(ln.size, i > 0); g.textAlign = 'center'; g.lineJoin = 'round';
-          const ty = p.y + i * 19 - k * 22;
-          g.strokeStyle = 'rgba(30,6,12,0.8)'; g.lineWidth = 3.5; g.strokeText(ln.text, p.x, ty);
-          g.fillStyle = ln.color; g.fillText(ln.text, p.x, ty);
-          g.restore();
-        });
-      }
-      while (popups.length && popups[0].t > 1.9) popups.shift();
-      if (notice) {
-        notice.t += dt;
-        const n = notice, life = 2.0;
-        if (n.t > life) { notice = null; return; }
-        const a = Math.min(1, n.t * 6) * (1 - Math.max(0, (n.t - 1.5) / 0.5));
-        const k = 1 + 0.15 * Math.max(0, 1 - n.t * 5);
+        const k = p.t / 1.6;
+        if (k >= 1) continue;
         g.save();
-        g.globalAlpha = a;
-        g.translate(W / 2, L.hudBottom + 30); g.scale(k, k);
-        g.shadowColor = 'rgba(25,4,9,0.9)'; g.shadowBlur = 8;
-        let y = 0;
-        n.lines.forEach((ln, i) => {
-          if (i === 0) spaced(ln.text, 0, y, ln.size, n.color, 'center', 0.12);
-          else { g.font = F(ln.size); g.textAlign = 'center'; g.fillStyle = PAL.cream; g.fillText(ln.text, 0, y); }
-          y += ln.size + 8;
-        });
+        g.globalAlpha = k < 0.1 ? k * 10 : 1 - Math.max(0, (k - 0.6) / 0.4);
+        g.font = F(18, true); g.textAlign = 'center'; g.fillStyle = p.color;
+        g.shadowColor = 'rgba(25,4,9,0.85)'; g.shadowBlur = 6;
+        g.fillText(p.text, p.x, p.y - k * 26);
         g.restore();
       }
+      while (popups.length && popups[0].t > 1.6) popups.shift();
     }
 
     function drawCause() {
@@ -2672,90 +2465,54 @@ window.plethoraBit = {
       g.save(); g.globalAlpha = k;
       g.font = F(19, true); g.textAlign = 'center'; g.fillStyle = PAL.cream;
       g.shadowColor = 'rgba(25,4,9,0.9)'; g.shadowBlur = 8;
-      g.fillText(run.cause, W / 2, L.hudBottom + 30, W - 32);
+      g.fillText(run.cause, W / 2, L.hudBottom + 34);
       g.restore();
     }
 
-    // Result: a small parchment certificate in the headroom above the table
-    // (the collapsed still life stays in view below it) and Play again in the
-    // tray zone. The score counts up, then a wax seal marks a new best.
+    // Result: a painted card in the headroom above the table (the collapsed
+    // still life stays in view below it) and Play again in the tray zone.
     function drawResult() {
       const res = run.result;
-      const t = run.t - run.overAt;
-      const k = clamp(t / 0.5, 0, 1), e = 1 - Math.pow(1 - k, 3);
-      const cw = Math.min(L.right - L.left, 360), ch = 252;
-      const cx = W / 2 - cw / 2, cy = L.top - (1 - e) * 26;
+      const k = clamp((run.t - run.overAt) / 0.45, 0, 1), e = 1 - Math.pow(1 - k, 3);
+      const cw = Math.min(L.right - L.left, 360), ch = 214;
+      const cx = W / 2 - cw / 2, cy = L.top + (1 - e) * -30;
       g.save();
       g.globalAlpha = e;
       if (!A.card || A.card.w !== cw || A.card.h !== ch) A.card = paintCard(cw, ch);
       g.drawImage(A.card.c, cx - 6, cy - 6, cw + 12, ch + 12);
-      g.textAlign = 'center'; g.textBaseline = 'alphabetic';
-      spaced('THE UNSTABLE TABLE', W / 2, cy + 30, 12, PAL.burgundy, 'center', 0.22);
-      g.font = F(fitFont(run.cause, 14.5, cw - 36, true), true); g.fillStyle = PAL.umber;
-      g.fillText(run.cause, W / 2, cy + 50);
-      // final score, counting up
-      const ct = clamp((t - 0.25) / 0.9, 0, 1), ce = 1 - Math.pow(1 - ct, 3);
-      g.font = F(56); g.fillStyle = PAL.ink;
-      g.fillText(Math.round(res.score * ce).toLocaleString(), W / 2, cy + 110);
-      g.font = F(14, true); g.fillStyle = PAL.wine;
-      if (run.newBest && res.score > 0) {
-        if (run.prevBest > 0) g.fillText('previous best ' + run.prevBest.toLocaleString(), W / 2, cy + 132);
-      } else g.fillText('best ' + best.score.toLocaleString(), W / 2, cy + 132);
-      // divider
-      g.strokeStyle = rgba(PAL.ochre, 0.8); g.lineWidth = 1.2;
-      g.beginPath(); g.moveTo(cx + 40, cy + 146); g.lineTo(W / 2 - 8, cy + 146); g.moveTo(W / 2 + 8, cy + 146); g.lineTo(cx + cw - 40, cy + 146); g.stroke();
-      g.fillStyle = PAL.ochre; g.beginPath(); g.ellipse(W / 2, cy + 146, 3, 3, 0, 0, TAU); g.fill();
-      // objects placed and best streak
-      const stats = [['OBJECTS PLACED', res.placed], ['BEST STREAK', res.streak]];
-      for (let i = 0; i < 2; i++) {
-        const sx = cx + cw * (i === 0 ? 0.3 : 0.7);
-        g.font = F(26); g.fillStyle = PAL.ink; g.textAlign = 'center'; g.fillText(String(stats[i][1]), sx, cy + 180);
-        spaced(stats[i][0], sx, cy + 197, 11.5, PAL.wine, 'center', 0.14);
+      g.textAlign = 'center';
+      g.fillStyle = PAL.burgundy; g.font = F(15, true);
+      g.fillText(run.cause, W / 2, cy + 30, cw - 24);
+      g.font = F(46); g.fillStyle = PAL.ink;
+      g.fillText(res.score.toLocaleString(), W / 2, cy + 78);
+      if (run.newBest && res.score > 0) { g.font = F(14, true); g.fillStyle = PAL.vermilion; g.fillText('a new best', W / 2, cy + 98); }
+      const stats = [['placed', res.placed], ['best streak', res.streak], ['best', best.score.toLocaleString()]];
+      for (let i = 0; i < 3; i++) {
+        const sx = cx + cw * (i + 0.5) / 3;
+        g.font = F(22); g.fillStyle = PAL.ink; g.fillText(String(stats[i][1]), sx, cy + 132);
+        g.font = F(12, true); g.fillStyle = PAL.wine; g.fillText(stats[i][0], sx, cy + 148);
       }
       // compact leaderboard: top three and the viewer's rank when known
-      g.font = F(13, true); g.fillStyle = PAL.umber; g.textAlign = 'center';
+      g.font = F(13, true); g.fillStyle = PAL.umber;
       const bd = res.board;
       let line = '';
       if (bd.status === 'saving') line = 'saving to the leaderboard…';
       else if (bd.status === 'unavailable') line = 'leaderboard unavailable right now';
       else line = bd.rows.map(r => `${r.rank}. ${shortName(r)} ${Number(r.value).toLocaleString()}`).join('   ') || 'no scores yet';
-      if (bd.status === 'ok' && bd.rank) line += `   ·   you #${bd.rank}`;
-      g.fillText(line, W / 2, cy + 228, cw - 28);
-      // wax seal for a new best
-      if (run.newBest && res.score > 0 && t > 1.1) {
-        const st = clamp((t - 1.1) / 0.28, 0, 1);
-        const sc = lerp(1.7, 1, 1 - Math.pow(1 - st, 2));
-        g.save();
-        g.globalAlpha = e * st;
-        g.translate(cx + cw - 50, cy + 92); g.rotate(-0.18); g.scale(sc, sc);
-        g.fillStyle = PAL.tomato;
-        g.beginPath();
-        for (let i = 0; i <= 24; i++) { const a = i / 24 * TAU, rr = 31 + (i % 2 ? 2.5 : 0); i ? g.lineTo(Math.cos(a) * rr, Math.sin(a) * rr) : g.moveTo(rr, 0); }
-        g.fill();
-        g.fillStyle = PAL.vermilion; g.beginPath(); g.arc(0, 0, 25, 0, TAU); g.fill();
-        g.strokeStyle = rgba(PAL.cream, 0.7); g.lineWidth = 1.2; g.beginPath(); g.arc(0, 0, 21, 0, TAU); g.stroke();
-        spaced('NEW', 0, -2, 12, PAL.cream, 'center', 0.12);
-        spaced('BEST', 0, 12, 12, PAL.cream, 'center', 0.12);
-        g.restore();
-      }
-      g.restore();
-      // Play again, in the tray zone, fading in after the certificate
-      const bk = clamp((t - 0.45) / 0.35, 0, 1);
-      const bw = Math.min(260, W - 70), bh = 58;
+      g.fillText(line, W / 2, cy + 176, cw - 24);
+      if (bd.status === 'ok' && bd.rank) { g.fillStyle = PAL.burgundy; g.fillText('you are #' + bd.rank, W / 2, cy + 196); }
+      // replay, in the tray zone
+      const bw = Math.min(230, W - 80), bh = 52;
       const b = { x: W / 2 - bw / 2, y: L.trayTop + (L.bottom - L.trayTop - bh) / 2 + 4, w: bw, h: bh };
       L.replayBtn = b;
-      const breathe = 1 + 0.015 * Math.sin(t * 2.4);
-      g.save();
-      g.globalAlpha = bk;
-      g.translate(W / 2, b.y + bh / 2); g.scale(breathe, breathe); g.translate(-W / 2, -(b.y + bh / 2));
-      g.fillStyle = 'rgba(30,6,12,0.4)'; roundRect(b.x + 3, b.y + 5, b.w, b.h, 29); g.fill();
-      g.fillStyle = PAL.vermilion; roundRect(b.x, b.y, b.w, b.h, 29); g.fill();
-      g.strokeStyle = PAL.brassDark; g.lineWidth = 2; g.stroke();
-      g.strokeStyle = rgba(PAL.cream, 0.45); g.lineWidth = 1.5; roundRect(b.x + 5, b.y + 5, b.w - 10, b.h - 10, 24); g.stroke();
-      g.fillStyle = PAL.cream; g.font = F(23); g.textAlign = 'center';
-      g.fillText('Play again', W / 2, b.y + 37);
+      g.fillStyle = 'rgba(30,6,12,0.35)'; roundRect(b.x + 3, b.y + 5, b.w, b.h, 26); g.fill();
+      g.fillStyle = PAL.vermilion; roundRect(b.x, b.y, b.w, b.h, 26); g.fill();
+      g.strokeStyle = rgba(PAL.ink, 0.6); g.lineWidth = 1.5; g.stroke();
+      g.strokeStyle = rgba(PAL.cream, 0.35); g.lineWidth = 2; roundRect(b.x + 5, b.y + 5, b.w - 10, b.h - 10, 21); g.stroke();
+      g.fillStyle = PAL.cream; g.font = F(20);
+      g.fillText('Play again', W / 2, b.y + 33);
       g.restore();
-      if (!run.pulsed && t > 1.6) {
+      if (!run.pulsed && k >= 1 && run.t - run.overAt > 0.8) {
         run.pulsed = true;
         if (res.placed >= 3) try { ctx.pulse.complete({ score: res.score, text: `Balanced ${res.placed} curiosities on The Unstable Table`, mode: 'endless' }); } catch (e) {}
       }
@@ -2801,7 +2558,6 @@ window.plethoraBit = {
         place(id, x, yAbove = 0.01) { const def = OBJECT_BY_ID[id]; const b = sim.addObject(def, x, sim.surfaceY(x) + yAbove); return makeRec(def, b, false); },
         angleDeg: () => sim.angle() / DEG,
         restart: () => newRun(),
-        score: (a, n) => placementScore(a, n),
         step(n) { for (let i = 0; i < n; i++) fixedUpdate(1000 / 60); }
       };
     }

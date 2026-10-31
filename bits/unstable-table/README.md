@@ -14,27 +14,17 @@ A Plethora Bit (`plethora-bit@2`, planck.js 1.5.0, Canvas2D). It is a painted go
 - **Object tiers:** later objects are tall, top-heavy, round, slippery or heavy brass.
 - **Fairness:** every arrival is checked so that it could be placed near the pivot without reaching the critical zone. When it could not, a different object is drawn.
 
-## Scoring (`src/03b_score.js`)
+## Scoring
 
-The rules are small pure functions, tested in `dev/score_test.js`.
-
-**Placement score** = (base + balance bonus) × steady-hand multiplier
-
-| Part | Value |
+| Event | Points |
 |---|---|
-| Base | 100 for each object that settles on the table, once per object |
-| Balance bonus | Read from the table's actual angle once it stops swinging (or after 2.5 s). Within 2° +100, within 4° +70, within 6° +40, beyond that nothing |
-| Steady hand | Consecutive stable placements: ×1, ×1.25, ×1.5, ×1.75, then ×2. The streak resets when the table enters the critical zone |
-| Perfect Balance | +150 when the table was unstable for at least 0.4 s and is then held within 2° and still for 0.5 s |
+| Object settles on the table | +100 × multiplier |
+| Heavy object settles | +160 × multiplier |
+| Steady hand | multiplier rises by 0.5 every 3 placements without entering the critical zone, up to ×3 |
+| Equilibrium (2+ objects, table held within 1.5° for 4 s) | +20 + 10 per object, for up to 8 objects |
+| Recovered (back to balanced within 6 s of going critical) | +75 |
 
-**Limits on Perfect Balance:**
-- It can be earned at most once per placed object.
-- It is never awarded while an object is held.
-- It needs a new unstable spell before it can be earned again.
-
-**Repositioning never scores.** A lifted object keeps its "already scored" flag. An object lifted before it was scored is scored only once it settles again.
-
-Every award is written to `run.log`. `dev/session_test.js` checks across full sessions that the score is exactly the sum of that log, and it lifts and re-drops pieces through real input to try to farm points. The score goes to the `score` leaderboard. The result certificate shows the top three and your rank.
+The headline number is objects placed. The score goes to the `score` leaderboard. The result card shows the top three and your rank.
 
 ## Physics (`src/03_phys.js`)
 
@@ -80,9 +70,6 @@ python3 -m http.server 8765        # then open http://localhost:8765/dev/index.h
 node dev/phys_test.js              # torque, counterbalance, leverage, settling, sliding, falling, determinism, lift/drop
 node dev/play_test.js [outdir]     # drives the real Bit: drag, reposition, invalid drop, failure, result, replay
 node dev/touch.js [outdir]         # real touch events at several phone sizes, legacy safe frame, sim cost
-node dev/score_test.js             # scoring rules
-node dev/session_test.js [runs]    # complete bot sessions: score = sum of events; repositioning cannot farm points
-node dev/clip.js out.mp4           # records a gameplay clip (needs ffmpeg)
 node dev/bot.js [runs]             # a counterbalancing bot, to chart difficulty
 node dev/gallery.js out.png        # every object sprite
 ```
