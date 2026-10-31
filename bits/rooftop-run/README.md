@@ -10,26 +10,39 @@ This is the **revised Phase 1**: the original movement lab's foundations, rebuil
 
 ## The slice
 
-A full run takes about 17–25 s.
+A run takes 18–20 s. The route branches, and the road you take decides your charge.
 
-| | Structure | What it asks of you |
+| Act | Structure | What it asks of you |
 |---|---|---|
-| A | Terrace (start) | Nothing yet: the cat gathers speed |
-| B | Tiled roof, ridge across the route | Run up and over. Uphill costs speed, downhill gives it back. Chimneys stand on the ridge |
-| — | Alley (1.4 m) | Jump from the eave onto the next ridge |
-| C | Long roof, ridge along the route | The slopes pull you toward the eaves. Steer around a chimney onto the slope and back. **Fragment 1** sits low on the slope past the chimney |
-| — | Broken roof section (1.8 m) | Jump it, or fall through |
-| D | The great pipe | Pipe curvature rolls you outward. **Two steam vents**: hold back while they hiss, then go |
-| — | Junction (valve platform) | Route choice: stay on the great pipe through the steam, or drop left onto the narrow pipe |
-| D′ | The narrow pipe | No steam, but precision balance. **Fragment 2** |
-| E–F | Junction platform → suspended catwalk | **Squeeze** under a low pipe. An **unstable section** creaks and drops if you stall. **Fragment 3** hangs above the walkway: jump for it |
-| G | Lean-to tin roof | A downhill run-up |
-| — | Gap (3 m, 1.5 m drop) | The last jump |
-| H | Relay terrace | Reach the relay: the signal climbs to the tower, then the result |
+| 1 · Roofs | Terrace → tiled roof (up and over) → alley jump → ridge run → broken section | Slopes pull toward the eaves; uphill slows, downhill speeds; chimneys to go around; two jumps. **Fragment 1** low on the slope |
+| 2 · Junction | The great pipe runs into a **junction tank**. A green lamp marks the high road, a violet one the low road | **Choose** |
+| — high road | Thin pipe **climbing** 1.2 m → scaffold → swaying **rope bridge** → **leap** off the scaffold edge → long drop | Balance (careful pace, strong roll-off), the bridge carries you sideways, a leap of faith. **Fragments 2, 3, 4** |
+| — centre | The wide pipe through **two steam vents** | Timing: hold back while they hiss, then go |
+| — low road | Drop to a sunken catwalk → **crawl** under a duct → **hop** a pipe → climb a ramp | Safe and steady. No fragments |
+| | All three merge on the machine platform | A dead relay wakes as you pass |
+| 3 · Catwalk | A narrow suspended walkway: **1.9 m broken gap**, a squeeze, a section that gives way if you stall | **Fragment 5** hangs overhead: jump for it |
+| 4 · Relay | Lean-to tin roof → 3 m drop → the relay terrace | Reach the relay: the signal climbs to the tower |
 
-The fragments sit on the harder lines: the low slope, the narrow pipe, and the jump above the catwalk. They charge the collar core, shown as three diamonds in the HUD.
+**Fragment counts by route:**
+- **High road:** 5/5, the only full charge.
+- **Centre:** 2/5. It's a test of timing.
+- **Low road:** 2/5, the safe way.
 
-The result card shows fragments and time and offers to run again. A full charge in a new best time is called out.
+**The broken signal line** is the environmental story. A dead cable sags from relay to relay along the whole route, and sparking snapped ends hang where each fragment fell. Three **waypoint relays** wake as the core passes, turning from red to green, and each cable segment lights up after them. The line visibly comes back to life on the way to the tower.
+
+## Surfaces and how they move
+
+| Surface | Response |
+|---|---|
+| Wide pipe | Full pace; the curvature rolls you outward gently and the cat steadies itself |
+| Thin pipe (< 0.4 m) | **Balance**: pace capped at 3.6 m/s, stronger roll-off, reduced steering. The cat goes low with a narrow stance and the tail held out as a counterweight |
+| Inclined pipe | Climbing costs speed; the camera follows the height |
+| Tiled roof | Sideways slopes pull toward the eaves; the cat rolls with the pitch |
+| Rope bridge | Sways about 0.14 m and **carries the cat sideways**; the cat leans against it and the tail swings |
+| Narrow catwalk | Reduced steering, self-centring; broken gaps need a jump |
+| Low structures | **Crawl** at 3 m/s, belly low, ears flat |
+| Steam | A visible hiss and red lamp first, then a burst you cannot jump over: time it with the brake |
+| Unstable walkway | Creaks, then drops if you stall on it |
 
 ## Controls
 
@@ -88,27 +101,26 @@ Every gameplay number is in `01_tuning.js`, including the new steam timings, pac
 
 ```sh
 node build.js
-node dev/test_move.js          # 23 slice checks through the real controller and hazards
+node dev/test_move.js          # 26 slice checks through the real controller and hazards, all three routes
 node dev/smoke.js <outdir>     # emulated phone, landscape + portrait: real touch input, autopilot to the relay, screenshots
 node dev/clip.js <outdir>      # frame-exact gameplay recording (then ffmpeg)
 node dev/closeup.js <outdir>   # close-up stills of the cat
 ```
 
-**What `test_move.js` proves:**
-- **Roofs:** you can climb over the first one (slower uphill than down). An idle stick drifts toward the eave but never off the roof. Chimneys bump you, and you can steer around them.
-- **Gaps:** the alley jump window is 464 ms (tap). The broken roof and the alley both need a jump.
-- **Pipes:** you can run onto the great pipe and along it with the stick idle. A committed push falls. A 120 ms flick doesn't throw you off the narrow pipe.
-- **Steam:** running blind into a burst scalds you. Timing the vents with the brake gets through cleanly from 8 of 8 start phases.
-- **Route choice:** the junction leads onto the narrow pipe.
-- **Catwalk:** the squeeze works. The unstable section holds at pace and drops if you stop. The overhead fragment needs a jump.
-- **Last jump:** the final gap window is 313 ms.
-- **Full run:** a full run with all three fragments reaches the relay in 17 s.
+**What `test_move.js` proves (26 checks):**
+- **Act 1:** the roofs, the alley window (464 ms), slope drift and the broken section.
+- **Junction:** a full-pace run onto the tank. On the centre pipe the cat stays on from an off-centre start, a blind run into steam scalds, and timing the steam works from 8 of 8 start phases.
+- **High road:** the thin pipe is a balance surface (settled pace ≤ 3.6 m/s) that climbs 1.2 m. The bridge carries the cat 0.14 m sideways, yet an idle stick still crosses at every phase, while a committed push falls.
+- **Low road:** the crawl runs at 3.0 m/s, the hop pipe blocks without a jump, and the ramp returns to the platform.
+- **Act 3:** the catwalk gap needs a jump (330 ms window), the squeeze works, and the unstable section holds at pace but drops if you stop.
+- **Final gap:** 313 ms window.
+- **Full runs:** high road 5/5 in 18.6 s, centre 2/5 in 19.3 s, low road 2/5 in 18.2 s. All three wake every waypoint and reach the relay.
 
-Draw calls: about 105 per frame including shadows. Static architecture is merged per material.
+Draw calls: about 131 per frame including shadows (up from 105; the extra cost is the new structures and sprites). Static architecture is merged per material.
 
 ## Functional placeholders, and what is intended as final
 
-- **Placeholder: the cat's geometry.** It is still procedural primitives, though articulated, rim-lit, and responding to pipes, slopes, steam and waiting. A rigged character is Phase 2; the rig interface (`root`, `update`, `setShadows`, `dispose`) lets it drop in. **Plethora's library registry still has no glTF loader.** That is the blocker for an imported skinned cat (a model built in code or an inline GLB parser are the options).
+- **Placeholder: the cat's geometry.** It is still procedural primitives, refined (a waist, shoulder blades, haunches, cheek ruffs, a 12-segment tail) and responding to each surface (balance stance, bridge lean, crawl, jump stretch and landing squash). A rigged character is Phase 2; the rig interface (`root`, `update`, `setShadows`, `dispose`) lets it drop in. **Plethora's library registry still has no glTF loader.** That is the blocker for an imported skinned cat (a model built in code or an inline GLB parser are the options).
 - **Placeholder: the art pass.** Procedural textures are the right materials but at prototype density. There's no ambient occlusion and no baked lighting.
 - **Placeholder: the remaining hazards.** Fans are scenery, not hazards. There are no electrified sections or falling debris yet.
 - **Placeholder: audio.** There is none. Phase 5 adds the hiss, creak, collect and relay sounds and a score.

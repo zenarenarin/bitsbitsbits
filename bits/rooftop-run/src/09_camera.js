@@ -29,12 +29,22 @@ function createFollowCamera(THREE, camera, world) {
     return o;
   }
 
+  // terrain under a probe, ignoring the overhead things the camera fades (ducts, low pipes)
+  function groundAhead(x, z, fromY) {
+    let y = fromY;
+    for (let i = 0; i < 3; i++) {
+      const g = world.groundAt(x, z, y, 0.3, 0.3);
+      if (!g.box || g.box.cam !== 'fade') return g;
+      y = g.box.y0 - 0.01;
+    }
+    return { y: -Infinity, box: null };
+  }
   // ground heights ahead of the cat; a missing or much lower probe is a gap
   function probe(cat) {
     let sum = 0, wsum = 0, gap = 0;
     for (let i = 0; i < T.terrainProbe.length; i++) {
       const d = T.terrainProbe[i], z = cat.pos[2] - d;
-      const g = world.groundAt(cat.pos[0], z, cat.pos[1] + 1.5, 0.3, 0.3);
+      const g = groundAhead(cat.pos[0], z, cat.pos[1] + 1.1);
       const w = 1 / (1 + i);
       if (g.box && !g.box.far && g.y > cat.pos[1] - 3) { sum += g.y * w; wsum += w; if (g.y < st.refY - 0.6 && d < 10) gap = Math.max(gap, 0.5); }
       else if (d <= 10) gap = Math.max(gap, 1 - (d - T.terrainProbe[0]) / 10);
@@ -48,7 +58,9 @@ function createFollowCamera(THREE, camera, world) {
     // 1. ground reference
     if (!st.init) { st.refY = cat.pos[1]; st.aheadY = cat.pos[1]; st.laneX = cat.pos[0]; }
     const refTarget = grounded ? cat.pos[1] : Math.min(st.refY, cat.pos[1]);
-    st.refY = damp(st.refY, refTarget, grounded ? T.heightK : T.airHeightK, dt);
+    // follow a real drop promptly (falling fast, or landed below the reference); ignore jump arcs
+    const dropping = !grounded && cat.vel[1] < -3, below = grounded && cat.pos[1] < st.refY - 0.3;
+    st.refY = damp(st.refY, refTarget, below ? T.heightK * 2 : grounded ? T.heightK : dropping ? T.heightK : T.airHeightK, dt);
     // 2. terrain ahead
     const p = probe(cat);
     st.aheadY = damp(st.aheadY, p.y, 2.5, dt);

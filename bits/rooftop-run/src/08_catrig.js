@@ -56,8 +56,10 @@ function createCatRig(THREE, A) {
   const SPINE_Y = 0.215;
   const body = grp(root, 0, SPINE_Y, 0);
   const pelvis = grp(body), chest = grp(body);
-  add(pelvis, ellipsoid(0.062, 0.072, 0.165, COL.back, COL.belly, COL.side), A.M.fur, 0, -0.004, 0.08);
-  add(chest, ellipsoid(0.068, 0.082, 0.155, COL.back, COL.belly, COL.side), A.M.fur, 0, 0.004, -0.075);
+  add(pelvis, ellipsoid(0.06, 0.07, 0.15, COL.back, COL.belly, COL.side), A.M.fur, 0, 0, 0.09);
+  add(pelvis, ellipsoid(0.052, 0.06, 0.1, COL.back, COL.belly, COL.side), A.M.fur, 0, 0.004, 0.0);     // the waist
+  add(chest, ellipsoid(0.066, 0.088, 0.14, COL.back, COL.belly, COL.side), A.M.fur, 0, -0.004, -0.085);
+  for (const sx of [-1, 1]) add(chest, ellipsoid(0.026, 0.03, 0.05, COL.back, COL.side, null, 8), A.M.fur, sx * 0.04, 0.05, -0.13); // shoulder blades
   add(chest, ellipsoid(0.042, 0.05, 0.075, COL.back, COL.belly, COL.side), A.M.fur, 0, 0.042, -0.195).rotation.x = 0.75;
   // collar and the power core
   const collar = new THREE.TorusGeometry(0.044, 0.0065, 6, 18); collar.rotateX(Math.PI / 2 - 0.75);
@@ -66,7 +68,8 @@ function createCatRig(THREE, A) {
   const coreGlow = new THREE.Sprite(A.M.coreGlow); coreGlow.scale.setScalar(0.1); coreGlow.position.copy(core.position); chest.add(coreGlow);
   // head
   const head = grp(chest, 0, 0.078, -0.235);
-  add(head, ellipsoid(0.058, 0.052, 0.06, COL.back, COL.belly, COL.side, 14), A.M.fur, 0, 0.01, -0.028);
+  add(head, ellipsoid(0.062, 0.054, 0.062, COL.back, COL.belly, COL.side, 14), A.M.fur, 0, 0.01, -0.028);
+  for (const sx of [-1, 1]) add(head, ellipsoid(0.03, 0.03, 0.035, COL.side, COL.belly, null, 8), A.M.fur, sx * 0.042, -0.012, -0.04);
   add(head, ellipsoid(0.027, 0.021, 0.03, COL.side, COL.belly, null, 10), A.M.fur, 0, -0.012, -0.072);
   add(head, new THREE.SphereGeometry(0.007, 6, 4), A.M.nose, 0, 0.002, -0.1);
   const eyes = [];
@@ -77,7 +80,7 @@ function createCatRig(THREE, A) {
   const ears = [];
   for (const sx of [-1, 1]) {
     const pivot = grp(head, sx * 0.03, 0.046, -0.016);
-    const g = new THREE.ConeGeometry(0.028, 0.07, 4, 1); g.translate(0, 0.035, 0); g.rotateY(Math.PI / 4); g.scale(1, 1, 0.45);
+    const g = new THREE.ConeGeometry(0.03, 0.074, 4, 1); g.translate(0, 0.037, 0); g.rotateY(Math.PI / 4); g.scale(1, 1, 0.45);
     add(pivot, shade(g, COL.back, COL.side), A.M.fur);
     const inner = new THREE.ConeGeometry(0.017, 0.045, 3, 1); inner.translate(0, 0.024, 0); inner.scale(1, 1, 0.25);
     add(pivot, shade(inner, COL.ear, COL.ear), A.M.furPlain, 0, 0.004, -0.008);
@@ -90,13 +93,13 @@ function createCatRig(THREE, A) {
     const L1 = hind ? 0.1 : 0.112, L2 = hind ? 0.097 : 0.11, L3 = hind ? 0.078 : 0;
     const pivot = grp(parent, x, y, z);
     const up = grp(pivot); add(up, bone(hind ? 0.03 : 0.023, L1 + 0.01, COL.side, COL.side), A.M.fur);
-    if (hind) add(up, ellipsoid(0.036, 0.058, 0.052, COL.back, COL.side, null, 10), A.M.fur, 0, -0.022, 0.004);
+    if (hind) add(up, ellipsoid(0.04, 0.064, 0.058, COL.back, COL.side, null, 10), A.M.fur, 0, -0.024, 0.006);
     const lo = grp(up, 0, -L1, 0); add(lo, bone(hind ? 0.018 : 0.016, L2 + 0.006, COL.side, COL.side), A.M.fur);
     let hock = null, paw;
     if (hind) { hock = grp(lo, 0, -L2, 0); add(hock, bone(0.014, L3, COL.side, COL.side), A.M.fur); paw = grp(hock, 0, -L3, 0); }
     else paw = grp(lo, 0, -L2, 0);
     add(paw, ellipsoid(0.017, 0.011, 0.025, COL.paw, COL.paw, null, 8), A.M.fur, 0, 0.004, -0.008);
-    return { pivot, up, lo, hock, paw, L1, L2, L3, hind, x, side: sign(x) };
+    return { pivot, up, lo, hock, paw, L1, L2, L3, hind, x, side: sign(x), x0: x };
   }
   const legs = {
     fl: leg(chest, -0.038, -0.035, -0.15, false), fr: leg(chest, 0.038, -0.035, -0.15, false),
@@ -105,11 +108,11 @@ function createCatRig(THREE, A) {
   const OFFSET = { hl: 0, hr: 0.09, fl: 0.5, fr: 0.6 };   // rotary gallop
 
   // ---- tail: a long chain of springs ----
-  const TAIL_N = 10, TAIL_L = 0.036;
+  const TAIL_N = 12, TAIL_L = 0.033;
   const tail = [];
   let tp = grp(pelvis, 0, 0.025, 0.235);
   for (let i = 0; i < TAIL_N; i++) {
-    const r = lerp(0.016, 0.009, i / TAIL_N);
+    const r = lerp(0.016, 0.007, i / TAIL_N);
     const g = new THREE.CylinderGeometry(r * 0.9, r, TAIL_L + 0.006, 7, 1); g.rotateX(Math.PI / 2); g.translate(0, 0, TAIL_L / 2);
     add(tp, shade(g, COL.back, COL.side), A.M.fur);
     tail.push({ g: tp, p: mkSpring(0), y: mkSpring(0), f: lerp(6, 2.4, i / (TAIL_N - 1)) });
@@ -119,7 +122,8 @@ function createCatRig(THREE, A) {
   const S = {
     phase: 0, yaw: mkSpring(0), lift: mkSpring(0), pitch: mkSpring(0), lean: mkSpring(0), flex: mkSpring(0),
     air: 0, crouch: 0, gather: 0, wait: 0, flinch: 0, narrow: 0, prevVy: 0, prevVx: 0, ay: 0, ax: 0, time: 0,
-    blink: 2, twitch: 3, twitchEar: 0, twitchSide: 0, run: 0, core: 0, flare: 0, look: 0
+    blink: 2, twitch: 3, twitchEar: 0, twitchSide: 0, run: 0, core: 0, flare: 0, look: 0,
+    balance: 0, crawl: 0, stretch: mkSpring(0), sway: 0
   };
 
   // two-bone IK in the pivot's y-z plane. bend: +1 joint behind (elbow), -1 joint ahead (knee)
@@ -155,8 +159,8 @@ function createCatRig(THREE, A) {
     S.ay = damp(S.ay, clamp((s.vy - S.prevVy) / dt, -60, 60), 18, dt); S.prevVy = s.vy;
     S.ax = damp(S.ax, clamp((s.vx - S.prevVx) / dt, -40, 40), 12, dt); S.prevVx = s.vx;
     for (const e of s.events) {
-      if (e.type === 'land') { S.lift.v -= clamp(e.impact, 0, 14) * 0.075; S.pitch.v -= clamp(e.impact, 0, 14) * 0.18; S.flex.v += clamp(e.impact, 0, 14) * 0.08; }
-      if (e.type === 'jump') { S.lift.v += 0.5; S.flex.v -= 1.4; }
+      if (e.type === 'land') { S.lift.v -= clamp(e.impact, 0, 14) * 0.075; S.pitch.v -= clamp(e.impact, 0, 14) * 0.18; S.flex.v += clamp(e.impact, 0, 14) * 0.08; S.stretch.v -= clamp(e.impact, 0, 14) * 0.06; }
+      if (e.type === 'jump') { S.lift.v += 0.5; S.flex.v -= 1.4; S.stretch.v += 1.2; }
       if (e.type === 'bump') { S.pitch.v -= 3; S.lift.v -= 0.4; }
       if (e.type === 'scald') { S.flinch = 1; S.pitch.v += 4; }
       if (e.type === 'fragment') S.flare = 1;
@@ -170,18 +174,21 @@ function createCatRig(THREE, A) {
     S.crouch = damp(S.crouch, s.crouch ? 1 : 0, 16, dt);
     S.gather = damp(S.gather, grounded ? s.edgeAhead : 0, 8, dt);
     S.narrow = damp(S.narrow, s.narrow, 6, dt);
+    S.balance = damp(S.balance, s.surf === 'balance' ? 1 : 0, 5, dt);     // thin pipe: low, narrow stance, tail out
+    S.crawl = damp(S.crawl, grounded && s.crouch ? 1 : 0, 10, dt);
+    S.sway = damp(S.sway, s.surf === 'bridge' ? s.sway : 0, 8, dt);
     S.wait = damp(S.wait, grounded && speed < 0.4 ? 1 : 0, 5, dt);       // held back: crouched, watching
     S.flinch = Math.max(0, S.flinch - dt * 1.6);
 
-    const stride = 0.5 + speed * 0.16;
+    const stride = (0.5 + speed * 0.16) * (1 - 0.35 * S.balance);
     if (grounded) S.phase = (S.phase + dt * speed / stride) % 1;
     else if (s.scr !== null) S.phase = (S.phase + dt * 6) % 1;
     const ph = S.phase * TAU;
-    const duty = lerp(0.62, 0.38, S.run);
+    const duty = lerp(lerp(0.62, 0.38, S.run), 0.7, S.balance);
 
     // body: height, pitch, lean, spine flex. On a pipe the cat goes low; on a slope it leans into it.
     const bob = grounded ? Math.abs(Math.sin(ph)) * 0.013 * S.run : 0;
-    spring(S.lift, -0.095 * S.crouch - 0.03 * S.gather - 0.04 * S.narrow - 0.05 * S.wait + bob, 3.4, 0.45, dt);
+    spring(S.lift, -0.095 * S.crouch - 0.03 * S.gather - 0.03 * S.narrow - 0.035 * S.balance - 0.05 * S.wait + bob * (1 - 0.6 * S.balance), 3.4, 0.45, dt);
     let pitchT = grounded ? Math.sin(ph) * 0.05 * S.run - 0.05 * S.crouch - Math.atan(s.slope[1]) * 0.7 : clamp(s.vy * 0.045, -0.35, 0.3);
     if (s.scr !== null) pitchT = 0.7 * (1 - s.scr);
     if (s.stumble > 0) pitchT -= 0.25 * clamp(s.stumble / 0.4, 0, 1);
@@ -189,9 +196,12 @@ function createCatRig(THREE, A) {
     spring(S.pitch, pitchT, 3.2, 0.5, dt);
     const teeter = s.teeter * Math.sin(S.time * 9) * 0.18;
     const slopeRoll = grounded ? Math.atan(s.slope[0]) * 0.75 : 0;
-    spring(S.lean, clamp(-s.vx * 0.07, -0.3, 0.3) + teeter + slopeRoll, 3, 0.6, dt);
+    spring(S.lean, clamp(-s.vx * 0.07, -0.3, 0.3) + teeter + slopeRoll * (1 - 0.7 * S.balance) + S.sway * 1.6, 3, 0.6, dt);
     const flexT = grounded ? Math.sin(ph + Math.PI / 2) * 0.13 * S.run + 0.06 * S.gather + 0.05 * S.wait : lerp(-0.14, 0.08, clamp(-s.vy / 6 + 0.5, 0, 1));
     spring(S.flex, flexT, 4.5, 0.55, dt);
+    // in the air the body stretches long; a landing squashes it
+    spring(S.stretch, grounded ? 0 : (s.vy > 0 ? 0.12 : 0.06), 3.5, 0.45, dt);
+    body.scale.set(1 - S.stretch.x * 0.3, 1 - S.stretch.x * 0.4, 1 + S.stretch.x);
     body.position.y = SPINE_Y + S.lift.x;
     body.rotation.set(S.pitch.x, 0, S.lean.x);
     pelvis.rotation.x = S.flex.x; chest.rotation.x = -S.flex.x;
@@ -201,6 +211,7 @@ function createCatRig(THREE, A) {
     const falling = clamp(-s.vy / 5 + 0.5, 0, 1);
     for (const key in legs) {
       const Lg = legs[key];
+      Lg.pivot.position.x = Lg.x0 * (1 - 0.65 * S.balance) * (1 + 0.25 * S.crawl);
       Lg.pivot.getWorldPosition(_v); root.worldToLocal(_v);
       const h = _v.y;
       let gz, gy;
@@ -219,16 +230,16 @@ function createCatRig(THREE, A) {
     }
 
     // head: level against the body, looking where the cat is going; up at the hazard while waiting
-    let look = -0.08 - 0.22 * S.gather - 0.18 * S.narrow + 0.3 * S.wait;
+    let look = -0.08 - 0.22 * S.gather - 0.12 * S.narrow - 0.12 * S.balance + 0.3 * S.wait;
     if (!grounded) look = lerp(0.12, -0.38, falling);
     head.rotation.x = -(S.pitch.x - S.flex.x) * 0.85 + look - 0.15 * S.crouch;
     head.position.y = 0.078 - 0.05 * S.crouch - 0.012 * S.narrow;
-    head.rotation.y = clamp(-s.vx * 0.12 - s.assistX * 0.15 + Math.sin(S.time * 0.9) * 0.25 * S.wait, -0.5, 0.5);
+    head.rotation.y = clamp((-s.vx * 0.12 - s.assistX * 0.15) * (1 - 0.6 * S.balance) + Math.sin(S.time * 0.9) * 0.25 * S.wait, -0.5, 0.5);
     head.rotation.z = -S.lean.x * 0.6;
     // ears: flatten with speed, when ducking and from steam; forward when watching
     S.twitch -= dt; if (S.twitch < 0) { S.twitch = 2 + Math.random() * 3; S.twitchEar = 0.18; S.twitchSide = Math.random() < 0.5 ? 0 : 1; }
     S.twitchEar = Math.max(0, S.twitchEar - dt);
-    ears.forEach((e, i) => { e.g.rotation.x = -(0.15 * S.run + 0.9 * S.crouch + 0.3 * S.air * (1 - falling) + 1.1 * S.flinch) + 0.15 * S.wait + (S.twitchEar > 0 && i === S.twitchSide ? 0.35 : 0); });
+    ears.forEach((e, i) => { e.g.rotation.x = -(0.15 * S.run + 0.9 * S.crouch + 0.3 * S.air * (1 - falling) + 1.1 * S.flinch + 0.3 * S.crawl) + 0.15 * S.wait + (S.twitchEar > 0 && i === S.twitchSide ? 0.35 : 0); });
     S.blink -= dt; if (S.blink < 0) S.blink = 2.5 + Math.random() * 3;
     const ey = S.blink < 0.1 || S.flinch > 0.5 ? 0.15 : 1; for (const e of eyes) e.scale.y = ey;
 
@@ -241,13 +252,14 @@ function createCatRig(THREE, A) {
 
     // tail: streams back at speed, out straight and level on pipes for balance, low and
     // twitching while waiting, bristling up from steam
-    const upBase = lerp(-0.85, -0.1, S.run) - 0.35 * s.teeter + 0.05 * S.narrow + 0.5 * S.wait - 0.9 * S.flinch;
+    const upBase = lerp(lerp(-0.85, -0.1, S.run), -0.25, S.balance) - 0.35 * s.teeter + 0.05 * S.narrow + 0.5 * S.wait - 0.9 * S.flinch + 0.25 * S.crawl;
     for (let i = 0; i < TAIL_N; i++) {
       const t = tail[i], k = i / (TAIL_N - 1);
       const curl = lerp(0.07, -0.16, k) * lerp(1.6, 1, S.run) * (1 - 0.8 * S.narrow) + (S.wait * (k > 0.6 ? -0.25 : 0.1));
       const pT = (i === 0 ? upBase : curl) + clamp(S.ay * 0.004, -0.25, 0.25) * (0.4 + k) - S.crouch * (i === 0 ? -0.5 : 0.05);
-      const swish = Math.sin(S.time * (7 - 3 * S.wait) - i * 0.6) * (0.04 + 0.16 * s.teeter + 0.12 * S.narrow + 0.1 * S.wait) * (0.3 + k);
-      const yT = (i === 0 ? 0 : clamp(S.ax * 0.01, -0.2, 0.2)) + swish - S.lean.x * 0.7 * (i < 4 ? 1 : 0);
+      const swish = Math.sin(S.time * (7 - 3 * S.wait - 3.5 * S.balance) - i * 0.6) * (0.04 + 0.16 * s.teeter + 0.1 * S.narrow + 0.22 * S.balance + 0.1 * S.wait) * (0.3 + k);
+      // on a thin pipe or a swaying bridge the tail swings against the body's lean: a counterweight
+      const yT = (i === 0 ? 0 : clamp(S.ax * 0.01, -0.2, 0.2)) + swish - S.lean.x * (0.7 + 1.4 * Math.max(S.balance, Math.abs(S.sway) * 5)) * (i < 5 ? 1 : 0.4);
       t.g.rotation.x = spring(t.p, pT, t.f, 0.4, dt);
       t.g.rotation.y = spring(t.y, yT, t.f, 0.35, dt);
     }

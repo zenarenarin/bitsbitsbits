@@ -55,17 +55,17 @@ const shots = process.argv.includes('--no-shots') ? false : true;
       };
       r.restart();
     });
-    const beats = [[-8.5, 'roof'], [-19, 'ridge'], [-33, 'pipe'], [-40, 'narrow-pipe'], [-51.6, 'squeeze'], [-55.4, 'unstable'], [-66.5, 'tin-roof'], [-200, 'relay']];
+    const beats = [[-8.5, 'roof'], [-19, 'ridge'], [-35, 'junction'], [-40.5, 'climbing-pipe'], [-50, 'rope-bridge'], [-54.4, 'leap'], [-67.8, 'squeeze'], [-70.6, 'unstable'], [-200, 'relay']];
     for (const [z, name] of beats) {
       const st = await page.evaluate(z => window.__runTo(z), z);
       if (name === 'squeeze') check(`${label}: squeezes under the low pipe`, st.crouched === 1, st);
       if (shots) await page.screenshot({ path: `${out}/${label}-${name}.png` });
     }
     const fin = await page.evaluate(() => { const r = window.__rr; for (let i = 0; i < 160; i++) { r.sim(window.__pilot(r.cat, r.hazards)); r.frame(); } return { mode: r.mode, charge: r.hazards.charge, falls: window.__falls }; });
-    check(`${label}: autopilot reaches the relay with all fragments and no falls`, fin.mode === 'result' && fin.charge === 3 && fin.falls === 0, fin);
+    check(`${label}: autopilot (high road) reaches the relay with all five fragments and no falls`, fin.mode === 'result' && fin.charge === 5 && fin.falls === 0, fin);
     if (shots) await page.screenshot({ path: `${out}/${label}-result.png` });
     const calls = await page.evaluate(() => { const r = window.__rr; r.restart(); r.warp(2); r.frame(); return r.renderer.info.render.calls; });
-    check(`${label}: draw calls under 160`, calls < 160, calls);
+    check(`${label}: draw calls under 180`, calls < 180, calls);
     check(`${label}: no page errors`, errs.length === 0, errs.slice(0, 3));
     await bctx.close();
   }

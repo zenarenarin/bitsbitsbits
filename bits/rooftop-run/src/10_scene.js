@@ -28,7 +28,7 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
   const T = b => (b.far ? BF : B);
 
   // ---------------- architecture from shapes ----------------
-  const fades = new Map(), unstableViews = [];
+  const fades = new Map(), unstableViews = [], bridges = [];
   for (const b of world.boxes) {
     const pc = plasterOf(b), Bt = T(b), dark = b.far ? 0.72 : 1;
     switch (b.kind) {
@@ -73,7 +73,23 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
         B.box(b.x0, b.x1, b.y1 - 0.04, b.y1, b.z0, b.z1, { top: 'metal', side: 'metal', topCol: hex3('#7a6a5c'), sideCol: hex3('#5a4c40'), uvSide: 1 });
         break;
       case 'lowPipe': fades.set(b.id, lowPipe(b)); break;
-      case 'tinRoof': shedRoof(b); break;
+      case 'tinRoof': shedRoof(b, 'tin'); break;
+      case 'ramp': shedRoof(b, 'grate'); break;
+      case 'tank':
+        B.box(b.x0, b.x1, b.y0, b.y1, b.z0, b.z1, { top: 'metal', side: 'metal', topCol: hex3('#7d8a86'), sideCol: hex3('#45524f'), sideColLow: hex3('#1c2224'), fadeDepth: 3, uvTop: 1.5, uvSide: 1.5 });
+        for (const y of [b.y1 - 0.15, b.y1 - 1.1, b.y1 - 2.1]) B.box(b.x0 - 0.04, b.x1 + 0.04, y - 0.06, y, b.z0 - 0.04, b.z1 + 0.04, { top: 'metal', side: 'metal', topCol: hex3('#3a4442'), sideCol: hex3('#2c3432'), faces: { pz: true, nz: true, px: true, nx: true } });
+        break;
+      case 'scaffold': scaffold(b); break;
+      case 'bridge': bridges.push({ b, g: ropeBridge(b) }); break;
+      case 'duct': fades.set(b.id, fadeBox(b, '#55605f')); break;
+      case 'hopPipe':
+        B.geo('metal', G.cyl, xf((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, (b.z0 + b.z1) / 2, (b.y1 - b.y0) / 2, b.x1 - b.x0 + 0.8, (b.z1 - b.z0) / 2, 0, 0, Math.PI / 2), hex3('#7a5a46'), THREE);
+        break;
+      case 'machine':
+        B.box(b.x0, b.x1, b.y0, b.y1, b.z0, b.z1, { top: 'metal', side: 'metal', topCol: hex3('#4c5654'), sideCol: hex3('#3a4341'), uvSide: 1 });
+        for (let i = 0; i < 4; i++) B.box(b.x1 - 0.02, b.x1 + 0.01, b.y0 + 0.25 + i * 0.16, b.y0 + 0.3 + i * 0.16, b.z0 + 0.3, b.z1 - 0.3, { top: 'dark', side: 'dark', faces: { px: true } });
+        { const sp = new THREE.Sprite(M.glowRed); sp.position.set(b.x1 + 0.05, b.y1 - 0.15, b.z1 - 0.2); sp.scale.setScalar(0.25); root.add(sp); }
+        break;
     }
   }
   function cornice(Bt, b, pc) {
@@ -108,10 +124,10 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
       for (const x of [b.x0, b.x1]) Bt.box(x - 0.04, x + 0.04, b.ye - 0.1, b.ye + 0.01, b.z0, b.z1, { top: 'dark', side: 'dark' });
     }
   }
-  function shedRoof(b) {
+  function shedRoof(b, mat) {
     const tc = hex3('#c9bca8'), lc = mul3(tc, 0.75), w = b.x1 - b.x0, len = Math.hypot(b.z1 - b.z0, b.yNear - b.yFar);
     const n = [0, (b.z1 - b.z0) / len, (b.yNear - b.yFar) / len];
-    B.quad('tin', [b.x0, b.yFar, b.z0], [b.x0, b.yNear, b.z1], [b.x1, b.yNear, b.z1], [b.x1, b.yFar, b.z0], n, [[0, 0], [len, 0], [len, w], [0, w]], [lc, tc, tc, lc]);
+    B.quad(mat, [b.x0, b.yFar, b.z0], [b.x0, b.yNear, b.z1], [b.x1, b.yNear, b.z1], [b.x1, b.yFar, b.z0], n, [[0, 0], [len, 0], [len, w], [0, w]], [lc, tc, tc, lc]);
     const pc = plasterOf(b);
     for (const [x, s] of [[b.x0 + 0.05, -1], [b.x1 - 0.05, 1]]) B.quad('wall', [x, b.y0, b.z1], [x, b.y0, b.z0], [x, b.yFar, b.z0], [x, b.yNear, b.z1], [s, 0, 0], [[0, 0], [1, 0], [1, 0.3], [0, 0.3]], [pc, pc, pc, pc]);
     B.box(b.x0, b.x1, b.yFar - 0.12, b.yFar, b.z0 - 0.05, b.z0 + 0.03, { top: 'dark', side: 'dark' });
@@ -119,13 +135,17 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
   // pipes: oxidised steel with flanges, and supports down into the alley
   function pipe(b) {
     const len = b.z1 - b.z0, zc = (b.z0 + b.z1) / 2, c = b.narrow ? hex3('#6f4f3e') : hex3('#4f6366');
-    const g = keep(new THREE.CylinderGeometry(b.r, b.r, len, b.narrow ? 14 : 22, 1, true));
-    const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (b.r * TAU), uv.getY(i) * len / 1.5);
-    B.geo('metal', g, xf(b.cx, b.cy, zc, 1, 1, 1, Math.PI / 2, 0, 0), c, THREE);
-    for (let z = b.z1 - 1.2; z > b.z0 + 0.4; z -= 2.4) B.geo('metal', G.cyl, xf(b.cx, b.cy, z, b.r * 1.13, 0.09, b.r * 1.13, Math.PI / 2, 0, 0), mul3(c, 0.7), THREE);
+    // inclined pipes run from cy at the near end to cyFar at the far end
+    const yAt = z => world.pipeY(b, z), dir = new THREE.Vector3(0, yAt(b.z0) - yAt(b.z1), -len), L = dir.length(); dir.normalize();
+    const along = (z, sx, sy, sz) => { _q.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir); return _m.compose(_p.set(b.cx, yAt(z), z), _q, _s.set(sx, sy, sz)); };
+    const g = keep(new THREE.CylinderGeometry(b.r, b.r, L, b.narrow ? 14 : 22, 1, true));
+    const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (b.r * TAU), uv.getY(i) * L / 1.5);
+    B.geo('metal', g, along(zc, 1, 1, 1), c, THREE);
+    for (let z = b.z1 - 1.2; z > b.z0 + 0.4; z -= 2.4) B.geo('metal', G.cyl, along(z, b.r * 1.13, 0.09, b.r * 1.13), mul3(c, 0.7), THREE);
     for (let z = b.z1 - 3; z > b.z0 + 1; z -= 6) {
-      B.geo('metal', G.box, xf(b.cx, (b.cy - b.r + STREET_Y) / 2, z, 0.12, b.cy - b.r - STREET_Y, 0.12), hex3('#3a4244'), THREE);
-      B.geo('metal', G.box, xf(b.cx, b.cy - b.r - 0.05, z, b.r * 2.2, 0.1, 0.14), hex3('#3a4244'), THREE);
+      const y = yAt(z);
+      B.geo('metal', G.box, xf(b.cx, (y - b.r + STREET_Y) / 2, z, 0.12, y - b.r - STREET_Y, 0.12), hex3('#3a4244'), THREE);
+      B.geo('metal', G.box, xf(b.cx, y - b.r - 0.05, z, b.r * 2.2, 0.1, 0.14), hex3('#3a4244'), THREE);
     }
   }
   function catwalk(Bt, b) {
@@ -134,6 +154,37 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
       Bt.geo('metal', G.box, xf((b.x0 + b.x1) / 2, b.y0 - 0.04, z, b.x1 - b.x0 + 0.1, 0.06, 0.08), hex3('#3a3a36'), THREE);
       for (const x of [b.x0 - 0.03, b.x1 + 0.03]) Bt.geo('cable', G.cyl8, xf(x, b.y1 + 2.2, z, 0.012, 4.4, 0.012), WHITE, THREE);
     }
+  }
+  // scaffolding: plank deck on a pole frame that runs down into the alley
+  function scaffold(b) {
+    for (let x = b.x0 + 0.08; x < b.x1; x += 0.24) B.box(x, Math.min(b.x1, x + 0.21), b.y0, b.y1, b.z0, b.z1, { top: 'plain', side: 'plain', topCol: mul3(hex3('#8a6a48'), 0.85 + ((x * 31) % 1) * 0.3), sideCol: hex3('#5a4430') });
+    for (const x of [b.x0 + 0.05, b.x1 - 0.05]) for (const z of [b.z0 + 0.05, b.z1 - 0.05]) B.geo('metal', G.cyl8, xf(x, (b.y1 + 0.9 + STREET_Y) / 2, z, 0.03, b.y1 + 0.9 - STREET_Y, 0.03), hex3('#6b6a62'), THREE);
+    for (let y = b.y0 - 1.5; y > STREET_Y; y -= 2) for (const z of [b.z0 + 0.05, b.z1 - 0.05]) B.geo('metal', G.cyl8, xf((b.x0 + b.x1) / 2, y, z, 0.025, b.x1 - b.x0, 0.025, 0, 0, Math.PI / 2), hex3('#6b6a62'), THREE);
+    B.geo('metal', G.cyl8, xf((b.x0 + b.x1) / 2, b.y1 + 0.85, b.z0 + 0.05, 0.025, b.x1 - b.x0, 0.025, 0, 0, Math.PI / 2), hex3('#6b6a62'), THREE);
+  }
+  // rope bridge: slatted planks on two ropes, hung from anchors; moves with the sway
+  function ropeBridge(b) {
+    const T2 = new Batch(), w = b.x1 - b.x0, cx = (b.x0 + b.x1) / 2;
+    for (let z = b.z1 - 0.1; z > b.z0; z -= 0.27) T2.box(b.x0 - 0.04, b.x1 + 0.04, b.y0, b.y1, z - 0.2, z, { top: 'plain', side: 'plain', topCol: mul3(hex3('#7d5f40'), 0.8 + ((z * 7.3) % 1 + 1) % 1 * 0.35), sideCol: hex3('#4a3828') });
+    const len = b.z1 - b.z0;
+    for (const x of [b.x0 - 0.05, b.x1 + 0.05]) {
+      for (const y of [b.y1 - 0.03, b.y1 + 0.45]) T2.geo('cable', G.cyl8, xf(x, y, (b.z0 + b.z1) / 2, 0.012, len, 0.012, Math.PI / 2, 0, 0), WHITE, THREE);
+      for (let z = b.z1 - 0.5; z > b.z0; z -= 1) T2.geo('cable', G.cyl8, xf(x, b.y1 + 0.22, z, 0.008, 0.45, 0.008), WHITE, THREE);
+    }
+    void w; void cx;
+    const g = T2.build(THREE, { plain: M.plain, cable: M.cable }, { cast: true, receive: true });
+    root.add(g);
+    // anchors on each end stay put
+    for (const z of [b.z0, b.z1]) for (const x of [b.x0 - 0.12, b.x1 + 0.12]) B.geo('metal', G.box, xf(x, b.y1 + 0.3, z, 0.06, 0.7, 0.06), hex3('#4a4a44'), THREE);
+    return g;
+  }
+  // a fading obstruction the camera must see past (ducts, low pipes)
+  function fadeBox(b, col) {
+    const g = new THREE.Group(), mat = own(new THREE.MeshLambertMaterial({ color: col, transparent: true, opacity: 1 }));
+    const m = new THREE.Mesh(G.box, mat); m.scale.set(b.x1 - b.x0, b.y1 - b.y0, b.z1 - b.z0); m.position.set((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, (b.z0 + b.z1) / 2); m.castShadow = true; g.add(m);
+    for (const x of [b.x0 + 0.15, b.x1 - 0.15]) { const s2 = new THREE.Mesh(G.box, mat); s2.scale.set(0.06, 0.6, (b.z1 - b.z0) + 0.06); s2.position.set(x, b.y1 + 0.2, (b.z0 + b.z1) / 2); g.add(s2); }
+    root.add(g);
+    return { g, mat, k: 1 };
   }
   function lowPipe(b) {
     const g = new THREE.Group(), mat = own(new THREE.MeshLambertMaterial({ color: '#6c7e80', transparent: true, opacity: 1 }));
@@ -177,7 +228,7 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
     e.g.attributes.position.needsUpdate = true; e.g.attributes.aLife.needsUpdate = true; e.g.attributes.aSize.needsUpdate = true;
   }
   // ---------------- lived-in detail and machinery ----------------
-  const lamps = [], fans = [], smokes = [];
+  const lamps = [], fans = [], smokes = [], signal = [], sparks = [];
   const glowMat = c => (c === 'green' ? M.glowGreen : c === 'violet' ? M.glowViolet : M.glowWarm);
   for (const d of slice.decor) {
     switch (d.kind) {
@@ -222,6 +273,58 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
         for (const x of [d.x0 + 2, d.x1 - 2]) BF.geo('cable', G.cyl8, xf(x, d.y + 3, d.z, 0.02, 6, 0.02), WHITE, THREE);
         break;
       }
+      case 'bowl':
+        B.geo('plain', G.cyl8, xf(d.x, d.y + 0.03, d.z, 0.09, 0.06, 0.09), hex3('#8a3a2c'), THREE);
+        B.geo('plain', G.cyl8, xf(d.x + 0.2, d.y + 0.02, d.z + 0.1, 0.07, 0.04, 0.07), hex3('#7a7f86'), THREE);
+        break;
+      case 'gauge':
+        B.geo('metal', G.cyl8, xf(d.x + 1.5, d.y + 0.25, d.z, 0.16, 0.06, 0.16, Math.PI / 2, 0, 0), hex3('#c9c1a8'), THREE);
+        B.geo('metal', G.cyl8, xf(d.x + 1.5, d.y + 0.1, d.z, 0.03, 0.2, 0.03), hex3('#3a3a36'), THREE);
+        break;
+      case 'brokenCatwalk':
+        for (const [z, s2] of [[d.z1, 1], [d.z0, -1]]) B.geo('grate', G.box, xf((d.x0 + d.x1) / 2, d.y - 0.35, z - s2 * 0.12, d.x1 - d.x0, 0.05, 0.75, s2 * 1.1, 0, 0.1 * s2), hex3('#9a846e'), THREE);
+        B.geo('cable', G.cyl8, xf(d.x1 + 0.05, d.y - 0.9, (d.z0 + d.z1) / 2, 0.01, 1.8, 0.01, 0.2, 0, 0), WHITE, THREE);
+        break;
+      case 'signalLine':
+        for (let i = 0; i + 1 < d.points.length; i++) {
+          const a = new THREE.Vector3(...d.points[i]), c = new THREE.Vector3(...d.points[i + 1]), mid = a.clone().lerp(c, 0.5); mid.y -= 0.6 + a.distanceTo(c) * 0.03;
+          const mat = own(new THREE.MeshBasicMaterial({ color: '#16191d' }));
+          const m = new THREE.Mesh(keep(new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(a, mid, c), 24, 0.025, 5, false)), mat);
+          root.add(m); signal.push({ m, mat, lit: 0 });
+        }
+        break;
+      case 'snapped': {
+        B.geo('cable', G.cyl8, xf(d.x, d.y - 0.35, d.z, 0.014, 0.7, 0.014, 0.25, 0, 0.15), WHITE, THREE);
+        const sp = new THREE.Sprite(M.glowGreen); sp.position.set(d.x + 0.05, d.y - 0.72, d.z + 0.08); sp.scale.setScalar(0.3); root.add(sp); sparks.push(sp);
+        break;
+      }
+      case 'struts':
+        for (let z = d.z1 - 0.4; z > d.z0; z -= 1.6) BF.geo('metal', G.box, xf(d.x + d.side * 0.35, d.y - 0.5, z, 0.06, 1.25, 0.06, 0, 0, d.side * 0.7), hex3('#4a4642'), THREE);
+        break;
+      case 'scaffoldFace':
+        for (let z = d.z1; z >= d.z0; z -= 1.6) BF.geo('metal', G.cyl8, xf(d.x, (d.y0 + d.y1) / 2, z, 0.03, d.y1 - d.y0, 0.03), hex3('#5f5e57'), THREE);
+        for (let y = d.y1 - 0.2; y > d.y0; y -= 2) {
+          BF.geo('metal', G.cyl8, xf(d.x, y, (d.z0 + d.z1) / 2, 0.025, d.z1 - d.z0, 0.025, Math.PI / 2, 0, 0), hex3('#5f5e57'), THREE);
+          BF.box(d.x - 0.25, d.x + 0.25, y - 0.05, y, d.z0, d.z1, { top: 'plain', side: 'plain', topCol: hex3('#6e553a'), sideCol: hex3('#4a3a2a') });
+        }
+        break;
+      case 'balcony': {
+        const s2 = d.side, x0 = Math.min(d.x, d.x + s2 * 0.9), x1 = Math.max(d.x, d.x + s2 * 0.9);
+        BF.box(x0, x1, d.y - 0.1, d.y, d.z - 0.9, d.z + 0.9, { top: 'concrete', side: 'plain', topCol: hex3('#6f6a62'), sideCol: hex3('#5a5650') });
+        BF.box(s2 > 0 ? x1 - 0.04 : x0, s2 > 0 ? x1 : x0 + 0.04, d.y, d.y + 0.8, d.z - 0.9, d.z + 0.9, { top: 'metal', side: 'metal', sideCol: hex3('#2c2e30'), topCol: hex3('#2c2e30') });
+        BF.box(x0 + 0.1, x1 - 0.1, d.y, d.y + 0.45, d.z - 0.7, d.z - 0.1, { top: 'metal', side: 'metal', sideCol: hex3('#a9aca6'), topCol: hex3('#b9bcb6') });
+        break;
+      }
+      case 'cable': {
+        const a = new THREE.Vector3(...d.a), c = new THREE.Vector3(...d.b), mid = a.clone().lerp(c, 0.5); mid.y -= d.sag || 0.6;
+        const g = new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(a, mid, c), 12, 0.014, 4, false);
+        BF.geo('cable', g, _m.identity(), WHITE, THREE); g.dispose();
+        break;
+      }
+      case 'skyBridge':
+        BF.box(d.x0, d.x1, d.y, d.y + 1.6, d.z - 0.8, d.z + 0.8, { top: 'metal', side: 'wall', topCol: hex3('#3a4241'), sideCol: hex3('#7f8478'), sideColLow: hex3('#5a5e56'), fadeDepth: 2, uvSide: 3, uvShift: d.z });
+        BF.box(d.x0, d.x1, d.y - 0.2, d.y, d.z - 0.9, d.z + 0.9, { top: 'metal', side: 'metal', topCol: hex3('#3a4241'), sideCol: hex3('#2a302f') });
+        break;
       case 'farBlock': {
         const k = clamp(1 - Math.abs(d.x) / 70, 0.45, 0.85), pc = mul3(PL[(Math.abs(d.x * 7 + d.z) | 0) % PL.length], k);
         BF.box(d.x - d.w / 2, d.x + d.w / 2, STREET_Y, d.top, d.z - d.d / 2, d.z + d.d / 2, { top: 'concrete', side: 'wall', topCol: mul3(pc, 0.6), sideCol: pc, sideColLow: lowCol, fadeDepth: 10, uvSide: 3, uvShift: d.z * 0.37 });
@@ -241,6 +344,8 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
     const hub = new THREE.Group(); hub.position.set(x - Math.sign(x) * 0.17, y, z); hub.rotation.y = ry;
     const mat = M.dark;
     for (let i = 0; i < 4; i++) { const bl = new THREE.Mesh(G.box, mat); bl.scale.set(0.16, 0.62, 0.03); bl.position.y = 0.3; const arm = new THREE.Group(); arm.rotation.z = i * Math.PI / 2; arm.add(bl); hub.add(arm); }
+    B.geo('metal', G.torus, xf(x - Math.sign(x) * 0.16, y, z, 0.7, 0.7, 1.4, 0, ry, 0), hex3('#59605e'), THREE);
+    for (let i = -2; i <= 2; i++) B.geo('metal', G.box, xf(x - Math.sign(x) * 0.2, y + i * 0.22, z, 0.02, 0.02, 1.3), hex3('#2a2e30'), THREE);   // a grille over it
     root.add(hub); fans.push(hub);
   }
 
@@ -259,6 +364,13 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
     const m = new THREE.Mesh(keep(new THREE.OctahedronGeometry(0.085, 0)), M.fragment); m.scale.set(0.8, 1.3, 0.8); g.add(m);
     const sp = new THREE.Sprite(M.glowGreen); sp.scale.setScalar(0.9); g.add(sp);
     root.add(g); return { f, g, m, sp, pop: 0 };
+  });
+  const wps = hazards.waypoints.map(w => {
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) B.geo('metal', G.box, xf(w.x + sx * 0.12, w.y + 1.4, w.z + sz * 0.12, 0.03, 2.8, 0.03, sz * 0.04, 0, -sx * 0.04), hex3('#3c4244'), THREE);
+    for (let i = 1; i < 6; i++) B.geo('metal', G.box, xf(w.x, w.y + i * 0.5, w.z, 0.26, 0.025, 0.26), hex3('#3c4244'), THREE);
+    B.geo('plain', G.dish, xf(w.x - 0.1, w.y + 2.3, w.z, 0.28, 0.28, 0.1, -0.3, -0.8, Math.PI / 2), hex3('#8a887e'), THREE);
+    const lamp = new THREE.Sprite(M.glowRed); lamp.position.set(w.x, w.y + 2.9, w.z); lamp.scale.setScalar(0.35); root.add(lamp);
+    return { w, lamp };
   });
   const R = hazards.relay;
   for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) B.geo('metal', G.box, xf(R.x + sx * 0.22, R.y + 1.5, R.z + sz * 0.22, 0.04, 3, 0.04, sz * 0.06, 0, -sx * 0.06), hex3('#3c4244'), THREE);
@@ -369,6 +481,18 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
     beaconMat.opacity = on ? 1 : 0.55;
     for (const [i, l] of towerLights.entries()) l.material.opacity = on ? 0.9 : 0.25 + 0.2 * Math.sin(time * 1.3 + i);
     for (const f of fans) f.rotation.z += dt * 5;
+    for (const br of bridges) br.g.position.x = br.b.dx || 0;
+    // the signal line: each segment lights as the relay at its end wakes
+    const woke = hazards.waypoints.map(w => w.active).concat([hazards.relay.active]);
+    signal.forEach((sg, i) => {
+      sg.lit = damp(sg.lit, woke[i] ? 1 : 0, 3, dt);
+      sg.mat.color.setRGB(lerp(0.086, 0.35, sg.lit), lerp(0.098, 0.95, sg.lit) * (0.85 + 0.15 * Math.sin(time * 6 - i)), lerp(0.114, 0.6, sg.lit));
+    });
+    for (const W of wps) {
+      W.lamp.material = W.w.active ? M.glowGreen : M.glowRed;
+      W.lamp.scale.setScalar(W.w.active ? 0.9 + 0.4 * Math.exp(-W.w.t * 2) * 3 + 0.1 * Math.sin(time * 5) : 0.3 + 0.08 * Math.sin(time * 1.7));
+    }
+    for (const [i, sp] of sparks.entries()) { const on = Math.sin(time * 23 + i * 7) > 0.55 || Math.sin(time * 3.1 + i) > 0.97; sp.visible = on; sp.scale.setScalar(0.18 + Math.random() * 0.25); }
     for (const l of lamps) if (l.flicker) l.sp.scale.setScalar(l.base * (0.9 + 0.1 * Math.sin(time * 13 + l.ph) * (Math.sin(time * 0.7 + l.ph) > 0.85 ? 3 : 1)));
     void H;
   }

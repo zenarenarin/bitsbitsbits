@@ -14,6 +14,8 @@ const TUNING = {
     lateral: 4.2, lateralAccel: 24, lateralAccelAir: 10, lateralDecel: 30,
     // narrow surfaces (ledges, pipes): below this width the cat steadies itself
     narrowWidth: 0.75, narrowLateral: 0.55, narrowCentering: 6,
+    // thin pipes are balance surfaces: careful pace, stronger roll-off. Squeezing is a crawl.
+    balanceWidth: 0.4, balanceSpeed: 3.6, balancePull: 1.6, crawlSpeed: 3.0,
     // slopes: sideways pull toward the eaves; uphill slows, downhill speeds
     slopePush: 1.6, slopeClimb: 0.45, slopeDescend: 0.25,
     // edge grip: steering off a side edge is resisted this long before the cat lets go
@@ -45,7 +47,9 @@ const TUNING = {
     steamKnockUp: 4.2, steamStumble: 0.6,
     // unstable catwalk: creaks once stood on, then gives way
     creakTime: 0.5, fallGravity: 16, resetTime: 3.5,
-    pickupRadius: 0.55, relayRadius: 1.3
+    // suspended rope bridges sway and carry the cat sideways
+    swayAmp: 0.14, swayRate: 1.7,
+    pickupRadius: 0.55, relayRadius: 1.3, waypointRadius: 3
   },
   input: {
     jumpMode: 'hold',            // 'hold' (variable height) or 'tap' (always full)
@@ -53,8 +57,8 @@ const TUNING = {
     jumpZone: 0.45               // right fraction of the screen that also jumps
   },
   camera: {
-    landscape: { fov: 54, back: 1.6, up: 0.78, lookAhead: 5.5, lookUp: -0.1, follow: 0.8 },
-    portrait: { fov: 62, back: 2.2, up: 1.15, lookAhead: 6, lookUp: -0.3, follow: 0.7 },
+    landscape: { fov: 52, back: 1.42, up: 0.7, lookAhead: 5.5, lookUp: -0.05, follow: 0.82 },
+    portrait: { fov: 60, back: 1.95, up: 1.02, lookAhead: 6, lookUp: -0.25, follow: 0.72 },
     speedBack: 0.05, speedFov: 1.2,
     posK: 7, heightK: 3.5, airHeightK: 1.6, lookK: 6,
     terrainProbe: [3, 6, 10, 14], gapLift: 0.3, gapBack: 0.25, arcFollow: 0.35,

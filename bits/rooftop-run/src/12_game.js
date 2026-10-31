@@ -174,6 +174,7 @@ window.plethoraBit = {
         else if (e.type === 'bump' || e.type === 'scramble') haptic('medium');
         else if (e.type === 'scald') haptic('warning');
         else if (e.type === 'give') haptic('heavy');
+        else if (e.type === 'waypoint') { haptic('light'); try { ctx.platform.milestone('waypoint', { z: Math.round(-e.w.z) }); } catch (er) { } }
         else if (e.type === 'fragment') { haptic('success'); try { ctx.platform.interact({ type: 'fragment', count: e.count }); ctx.platform.milestone('fragment', { count: e.count }); } catch (er) { } }
         else if (e.type === 'relay' && !finish) {
           finish = { t: 0, time: runT, frags: hazards.charge };
@@ -189,8 +190,9 @@ window.plethoraBit = {
       }
       cat.events.length = 0;
       // checkpoints only advance on sound footing
-      const next = slice.checkpoints[cpIdx + 1];
-      if (next && cat.grounded && !cat.ground.unstable && cat.pos[2] < next[2] && Math.abs(cat.pos[1] - next[1]) < 0.6) cpIdx++;
+      // checkpoints: routes branch, so take the furthest one reached on sound footing at its height
+      if (cat.grounded && !cat.ground.unstable && cat.ground.dx === undefined)
+        for (let i = cpIdx + 1; i < slice.checkpoints.length; i++) { const c = slice.checkpoints[i]; if (cat.pos[2] < c[2] && Math.abs(cat.pos[1] - c[1]) < 0.6 && Math.abs(cat.pos[0] - c[0]) < 2.2) cpIdx = i; }
       // the relay is reached: the signal climbs to the tower, then the result
       if (finish) {
         finish.t += dt;
@@ -203,12 +205,12 @@ window.plethoraBit = {
     }
 
     // ---------- render ----------
-    const rs = { pos: [0, 0, 0], fwd: 0, vx: 0, vy: 0, grounded: true, crouch: 0, teeter: 0, edgeAhead: 0, narrow: 0, scr: null, stumble: 0, assistX: 0, sinceJump: 9, slope: [0, 0], charge: 0, events: frameEvents };
+    const rs = { pos: [0, 0, 0], fwd: 0, vx: 0, vy: 0, grounded: true, crouch: 0, teeter: 0, edgeAhead: 0, narrow: 0, scr: null, stumble: 0, assistX: 0, sinceJump: 9, slope: [0, 0], charge: 0, surf: 'flat', sway: 0, events: frameEvents };
     const camCat = { pos: rs.pos, vel: [0, 0, 0], fwd: 0, grounded: true, ground: null, finale: 0 };
     function frame(dt) {
       const a = mode === 'play' || mode === 'result' ? clamp(acc / SIM_DT, 0, 1) : 1;
       for (let i = 0; i < 3; i++) rs.pos[i] = lerp(cat.prev[i], cat.pos[i], a);
-      Object.assign(rs, { fwd: mode === 'title' ? 0 : cat.fwd, vx: cat.vel[0], vy: cat.vel[1], grounded: cat.grounded, crouch: cat.crouch, teeter: cat.teeter, edgeAhead: cat.edgeAhead, narrow: cat.narrow, scr: cat.scr ? clamp(cat.scr.t, 0, 1) : null, stumble: cat.stumble, assistX: cat.assistX, sinceJump: cat.sinceJump, slope: cat.slope, charge: hazards.charge });
+      Object.assign(rs, { fwd: mode === 'title' ? 0 : cat.fwd, vx: cat.vel[0], vy: cat.vel[1], grounded: cat.grounded, crouch: cat.crouch, teeter: cat.teeter, edgeAhead: cat.edgeAhead, narrow: cat.narrow, scr: cat.scr ? clamp(cat.scr.t, 0, 1) : null, stumble: cat.stumble, assistX: cat.assistX, sinceJump: cat.sinceJump, slope: cat.slope, charge: hazards.charge, surf: cat.surf, sway: cat.grounded && cat.ground && cat.ground.dx !== undefined ? cat.ground.dx : 0 });
       rig.update(dt, rs);
       Object.assign(camCat, { vel: cat.vel, fwd: rs.fwd, grounded: cat.grounded, ground: cat.ground, finale: finish ? clamp(finish.t / 1.5, 0, 1) : 0 });
       cam.update(dt, camCat, ctx.height > ctx.width, frameEvents);

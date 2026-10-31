@@ -79,15 +79,22 @@ function createAssets(THREE, renderer, ctx) {
     }
   });
   // window light: drawn into the emissive map. Some panes lit warm, a few cold.
-  const windows = paint(256, (g, w, h) => {
+  // window light covers a 4 x 4 block of storey-tiles (repeat 0.25), so lit
+  // windows scatter irregularly: about a third lit, a few cold and blue
+  const windows = paint(512, (g, w, h) => {
     g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
-    for (const [x, y, ww, hh] of WIN) {
-      const gr = g.createLinearGradient(0, y * h, 0, (y + hh) * h);
-      gr.addColorStop(0, '#7a3e12'); gr.addColorStop(1, '#ffb15e');
-      g.fillStyle = gr; g.fillRect(x * w + 2, y * h + 2, ww * w - 4, hh * h - 4);
-      g.fillStyle = 'rgba(0,0,0,.65)'; g.fillRect(x * w + ww * w / 2 - 1, y * h, 2, hh * h);
+    const tw = w / 4, th = h / 4;
+    for (let ty = 0; ty < 4; ty++) for (let tx = 0; tx < 4; tx++) for (const [x, y, ww, hh] of WIN) {
+      const r = rng(); if (r > 0.36) continue;
+      const X = tx * tw + x * tw, Y = ty * th + y * th, W2 = ww * tw, H2 = hh * th;
+      const cold = r < 0.05, gr = g.createLinearGradient(0, Y, 0, Y + H2);
+      gr.addColorStop(0, cold ? '#1d3a4a' : '#6b3410'); gr.addColorStop(1, cold ? '#6fb6c9' : (r < 0.2 ? '#ffb15e' : '#d98a3c'));
+      g.fillStyle = gr; g.fillRect(X + 1, Y + 1, W2 - 2, H2 - 2);
+      g.fillStyle = 'rgba(0,0,0,.65)'; g.fillRect(X + W2 / 2 - 1, Y, 2, H2);
+      if (r > 0.25) { g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(X + 1, Y + 1, W2 * 0.45, H2 - 2); }   // a curtain half drawn
     }
   });
+  windows.repeat.set(0.25, 0.25);
   const metal = paint(256, (g, w, h) => {
     g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, h);
     speckle(g, w, h, 900, ['#c8cfcf', '#ffffff', '#8f9897'], 0.5, 2, 0.35);
@@ -144,7 +151,7 @@ function createAssets(THREE, renderer, ctx) {
   };
   const M = {
     tile: lam({ map: tiles, vertexColors: true }),
-    wall: lam({ map: plaster, vertexColors: true, emissiveMap: windows, emissive: new THREE.Color('#ffffff'), emissiveIntensity: 1 }),
+    wall: lam({ map: plaster, vertexColors: true, emissiveMap: windows, emissive: new THREE.Color('#ffffff'), emissiveIntensity: 0.9 }),
     metal: lam({ map: metal, vertexColors: true }),
     grate: lam({ map: grate, vertexColors: true }),
     brick: lam({ map: brick, vertexColors: true }),

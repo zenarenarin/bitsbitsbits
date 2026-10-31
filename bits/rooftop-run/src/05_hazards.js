@@ -1,7 +1,8 @@
 // =====================================================================
 // The city's moving parts, as pure simulation: steam vents on a fixed,
 // readable cycle; a catwalk section that creaks and gives way if you
-// stall on it; the energy fragments; the signal relay.
+// stall on it; rope bridges that sway; the energy fragments; the dead
+// waypoint relays that wake as the core passes; the signal relay.
 // The renderer reads the state; it never decides an outcome.
 // =====================================================================
 
@@ -12,12 +13,15 @@ class Hazards {
     this.unstable = slice.unstable.map(b => { b.dy = 0; return { b, state: 'stable', t: 0, vy: 0, shake: 0 }; });
     this.fragments = slice.fragments.map(f => Object.assign({ taken: false }, f));
     this.relay = Object.assign({ active: false, t: 0 }, slice.relay);
+    this.bridges = (slice.bridges || []).map((b, i) => { b.dx = 0; return { b, phase: i * 1.3 }; });
+    this.waypoints = (slice.waypoints || []).map(w => Object.assign({ active: false, t: 0 }, w));
     this.charge = 0;
   }
   // a fresh run: everything back where it was
   reset() {
     this.time = 0; this.charge = 0; this.relay.active = false; this.relay.t = 0;
     for (const f of this.fragments) f.taken = false;
+    for (const w of this.waypoints) { w.active = false; w.t = 0; }
     this.resetUnstable();
   }
   // after a fall: fallen walkways are back, so the route is always crossable
@@ -60,6 +64,13 @@ class Hazards {
       } else if (u.state === 'gone') {
         u.t += dt; if (u.t > H.resetTime) { u.state = 'stable'; u.b.dy = 0; u.b.gone = false; u.shake = 0; }
       }
+    }
+    // rope bridges: a slow, steady sway the player learns to lean against
+    for (const br of this.bridges) br.b.dx = H.swayAmp * Math.sin(this.time * H.swayRate + br.phase);
+    // waypoints: dead relays along the broken line wake as the core passes
+    for (const w of this.waypoints) {
+      if (w.active) { w.t += dt; continue; }
+      if (cat.pos[2] < w.z + 1 && Math.abs(cat.pos[2] - w.z) < H.waypointRadius) { w.active = true; out.push({ type: 'waypoint', w, charge: this.charge }); }
     }
     // fragments
     for (const f of this.fragments) {

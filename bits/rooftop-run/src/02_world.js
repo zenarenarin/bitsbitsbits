@@ -5,7 +5,9 @@
 //   gableZ  pitched roof, ridge running along z (slopes fall away in x)
 //   gableX  pitched roof, ridge running across (slopes fall away in z)
 //   shed    lean-to roof, height runs linearly from yNear (z1) to yFar (z0)
-//   pipeZ   a cylinder along z: centre (cx, cy), radius r
+//   pipeZ   a cylinder along z: centre (cx, cy), radius r; with cyFar it inclines
+//           (cy at the near end z1, cyFar at the far end z0)
+// Moving surfaces carry offsets: dy (a walkway giving way), dx (a bridge swaying).
 // Slopes and pipe curvature are real collision, not decoration: the cat
 // stands on the height function and feels its gradient.
 // Tags: kind (what the renderer builds), surface, walk, cam ('block' |
@@ -34,34 +36,38 @@ class World {
   }
 
   // ---- shape functions ----
+  pipeY(b, z) { return b.cyFar === undefined ? b.cy : lerp(b.cy, b.cyFar, (b.z1 - z) / (b.z1 - b.z0)); }
   topAt(b, x, z) {
+    x -= b.dx || 0;
     if (x < b.x0 || x > b.x1 || z < b.z0 || z > b.z1) return -Infinity;
     const dy = b.dy || 0;
     switch (b.shape) {
       case 'gableZ': { const hw = (b.x1 - b.x0) / 2; return dy + b.yr - (b.yr - b.ye) * Math.abs(x - (b.x0 + hw)) / hw; }
       case 'gableX': { const hl = (b.z1 - b.z0) / 2; return dy + b.yr - (b.yr - b.ye) * Math.abs(z - (b.z0 + hl)) / hl; }
       case 'shed': return dy + lerp(b.yNear, b.yFar, (b.z1 - z) / (b.z1 - b.z0));
-      case 'pipeZ': { const d = x - b.cx; return Math.abs(d) >= b.r ? -Infinity : dy + b.cy + Math.sqrt(b.r * b.r - d * d); }
+      case 'pipeZ': { const d = x - b.cx; return Math.abs(d) >= b.r ? -Infinity : dy + this.pipeY(b, z) + Math.sqrt(b.r * b.r - d * d); }
       default: return b.y1 + dy;
     }
   }
   bottomAt(b, x, z) {
-    if (b.shape === 'pipeZ') { const d = x - b.cx; return Math.abs(d) >= b.r ? Infinity : (b.dy || 0) + b.cy - Math.sqrt(b.r * b.r - d * d); }
-    return b.y0;
+    x -= b.dx || 0;
+    if (b.shape === 'pipeZ') { const d = x - b.cx; return Math.abs(d) >= b.r ? Infinity : (b.dy || 0) + this.pipeY(b, z) - Math.sqrt(b.r * b.r - d * d); }
+    return b.y0 + (b.dy || 0);
   }
   // slope of the top surface: [d top / dx, d top / dz]
   grad(b, x, z) {
+    x -= b.dx || 0;
     switch (b.shape) {
       case 'gableZ': { const hw = (b.x1 - b.x0) / 2; return [-(b.yr - b.ye) / hw * sign(x - (b.x0 + hw)), 0]; }
       case 'gableX': { const hl = (b.z1 - b.z0) / 2; return [0, -(b.yr - b.ye) / hl * sign(z - (b.z0 + hl))]; }
       case 'shed': return [0, (b.yNear - b.yFar) / (b.z1 - b.z0)];
-      case 'pipeZ': { const d = clamp(x - b.cx, -b.r * 0.97, b.r * 0.97); return [-d / Math.sqrt(b.r * b.r - d * d), 0]; }
+      case 'pipeZ': { const d = clamp(x - b.cx, -b.r * 0.97, b.r * 0.97); return [-d / Math.sqrt(b.r * b.r - d * d), b.cyFar === undefined ? 0 : (b.cy - b.cyFar) / (b.z1 - b.z0)]; }
       default: return [0, 0];
     }
   }
   // how wide the cat can comfortably stand across this shape
   walkWidth(b) { return b.shape === 'pipeZ' ? b.r * 1.3 : b.x1 - b.x0; }
-  centreX(b) { return b.shape === 'pipeZ' ? b.cx : (b.x0 + b.x1) / 2; }
+  centreX(b) { return (b.dx || 0) + (b.shape === 'pipeZ' ? b.cx : (b.x0 + b.x1) / 2); }
 
   // points sampled across a footprint for shaped tops
   samples(x, z, hx, hz) {
@@ -74,7 +80,8 @@ class World {
     hx = hx || 0; hz = hz || 0;
     let y = -Infinity, box = null;
     for (const b of this.near(z - hz, z + hz)) {
-      if (x + hx <= b.x0 || x - hx >= b.x1 || z + hz <= b.z0 || z - hz >= b.z1) continue;
+      const ox = b.dx || 0;
+      if (x + hx <= b.x0 + ox || x - hx >= b.x1 + ox || z + hz <= b.z0 || z - hz >= b.z1) continue;
       if (b.shape === 'box') { if (b.y1 + (b.dy || 0) <= fromY + 1e-4 && b.y1 + (b.dy || 0) > y) { y = b.y1 + (b.dy || 0); box = b; } continue; }
       for (const [sx, sz] of this.samples(x, z, hx * 0.5, hz * 0.5)) {
         const t = this.topAt(b, sx, sz);
@@ -87,7 +94,8 @@ class World {
   ceilingAt(x, z, fromY, hx, hz) {
     let y = Infinity, box = null;
     for (const b of this.near(z - hz, z + hz)) {
-      if (x + hx <= b.x0 || x - hx >= b.x1 || z + hz <= b.z0 || z - hz >= b.z1) continue;
+      const ox = b.dx || 0;
+      if (x + hx <= b.x0 + ox || x - hx >= b.x1 + ox || z + hz <= b.z0 || z - hz >= b.z1) continue;
       const u = b.shape === 'pipeZ' ? this.bottomAt(b, x, z) : b.y0 + (b.dy || 0);
       if (u >= fromY - 1e-4 && u < y) { y = u; box = b; }
     }
@@ -97,12 +105,12 @@ class World {
   solids(x0, x1, y0, y1, z0, z1) {
     const out = [];
     for (const b of this.near(z0, z1)) {
-      const dy = b.dy || 0;
-      if (x1 <= b.x0 || x0 >= b.x1 || z1 <= b.z0 || z0 >= b.z1 || y1 <= b.y0 + dy || y0 >= b.y1 + dy) continue;
+      const dy = b.dy || 0, ox = b.dx || 0, bx0 = b.x0 + ox, bx1 = b.x1 + ox;
+      if (x1 <= bx0 || x0 >= bx1 || z1 <= b.z0 || z0 >= b.z1 || y1 <= b.y0 + dy || y0 >= b.y1 + dy) continue;
       if (b.shape === 'box') { out.push({ b, top: b.y1 + dy }); continue; }
-      const cx = clamp((x0 + x1) / 2, b.x0, b.x1), cz = clamp((z0 + z1) / 2, b.z0, b.z1);
+      const cx = clamp((x0 + x1) / 2, bx0, bx1), cz = clamp((z0 + z1) / 2, b.z0, b.z1);
       let top = -Infinity;
-      for (const [sx, sz] of [[cx, cz], [clamp(x0, b.x0, b.x1), cz], [clamp(x1, b.x0, b.x1), cz], [cx, clamp(z0, b.z0, b.z1)], [cx, clamp(z1, b.z0, b.z1)]]) {
+      for (const [sx, sz] of [[cx, cz], [clamp(x0, bx0, bx1), cz], [clamp(x1, bx0, bx1), cz], [cx, clamp(z0, b.z0, b.z1)], [cx, clamp(z1, b.z0, b.z1)]]) {
         const t = this.topAt(b, sx, sz);
         if (t > y0 + 1e-3 && this.bottomAt(b, sx, sz) < y1 && t > top) top = t;
       }
@@ -112,7 +120,7 @@ class World {
   }
   overlaps(x0, x1, y0, y1, z0, z1) {
     const out = [];
-    for (const b of this.near(z0, z1)) if (x1 > b.x0 && x0 < b.x1 && y1 > b.y0 && y0 < b.y1 && z1 > b.z0 && z0 < b.z1) out.push(b);
+    for (const b of this.near(z0, z1)) { const ox = b.dx || 0; if (x1 > b.x0 + ox && x0 < b.x1 + ox && y1 > b.y0 && y0 < b.y1 && z1 > b.z0 && z0 < b.z1) out.push(b); }
     return out;
   }
   // ray against shapes; returns distance or Infinity
@@ -122,7 +130,7 @@ class World {
     for (const b of this.near(Math.min(zs[0], zs[1]), Math.max(zs[0], zs[1]))) {
       if (filter && !filter(b)) continue;
       let t0 = 0, t1 = best, ok = true;
-      const lo = [b.x0, b.y0, b.z0], hi = [b.x1, b.y1, b.z1];
+      const ox = b.dx || 0, lo = [b.x0 + ox, b.y0, b.z0], hi = [b.x1 + ox, b.y1, b.z1];
       for (let i = 0; i < 3 && ok; i++) {
         if (Math.abs(d[i]) < 1e-9) { if (o[i] < lo[i] || o[i] > hi[i]) ok = false; continue; }
         let a = (lo[i] - o[i]) / d[i], c = (hi[i] - o[i]) / d[i];
@@ -155,5 +163,6 @@ function shed(x0, x1, base, yNear, yFar, zFar, zNear, tags) {
   return Object.assign({ shape: 'shed', x0, x1, y0: base, y1: Math.max(yNear, yFar), yNear, yFar, z0: zFar, z1: zNear, surface: 'tin', cam: 'block', walk: true }, tags || {});
 }
 function pipeZ(cx, cy, r, zFar, zNear, tags) {
-  return Object.assign({ shape: 'pipeZ', cx, cy, r, x0: cx - r, x1: cx + r, y0: cy - r, y1: cy + r, z0: zFar, z1: zNear, surface: 'metal', cam: 'none', walk: true }, tags || {});
+  const cyFar = tags && tags.cyFar, lo = Math.min(cy, cyFar === undefined ? cy : cyFar), hi = Math.max(cy, cyFar === undefined ? cy : cyFar);
+  return Object.assign({ shape: 'pipeZ', cx, cy, r, x0: cx - r, x1: cx + r, y0: lo - r, y1: hi + r, z0: zFar, z1: zNear, surface: 'metal', cam: 'none', walk: true }, tags || {});
 }

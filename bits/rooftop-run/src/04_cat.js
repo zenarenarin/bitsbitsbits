@@ -22,7 +22,7 @@ class Cat {
     this.gripT = 0; this.teeter = 0; this.edgeAhead = 0; this.narrow = 0; this.pace = 0;
     this.slope = [0, 0];
     this.stumble = 0; this.landSlow = 0; this.airTime = 0; this.sinceLand = 9; this.sinceJump = 9; this.scalded = 0;
-    this.scr = null; this.assistX = 0; this.halt = false;
+    this.scr = null; this.assistX = 0; this.halt = false; this.surf = 'flat'; this._rideDx = null;
     this.lastGroundY = p[1]; this.fallFrom = p[1];
     this.events = [];
     this.stats = { lastJump: null };
@@ -36,8 +36,12 @@ class Cat {
     this.sinceLand += dt; this.sinceJump += dt;
     this.scalded = Math.max(0, this.scalded - dt);
     if (this.scr) { this.stepScramble(dt); return; }
-    // ride a surface that is moving (a catwalk giving way)
-    if (this.grounded && this.ground && this.ground.dy !== undefined) this.pos[1] = W.topAt(this.ground, this.pos[0], this.pos[2]) > -Infinity ? W.topAt(this.ground, this.pos[0], this.pos[2]) : this.pos[1];
+    // ride a surface that is moving: a catwalk giving way, a bridge swaying
+    if (this.grounded && this.ground) {
+      const g = this.ground;
+      if (g.dx !== undefined) { if (this._rideDx !== null && this._rideB === g) this.pos[0] += g.dx - this._rideDx; this._rideDx = g.dx; this._rideB = g; }
+      if (g.dy !== undefined) { const t = W.topAt(g, this.pos[0], this.pos[2]); if (t > -Infinity) this.pos[1] = t; }
+    } else this._rideDx = null;
 
     // ---- 1. pace: always moving forward; the stick's vertical axis sets how fast ----
     const pr = clamp(input.pace || 0, -1, 1), pd = C.paceDead;
@@ -45,6 +49,9 @@ class Cat {
     this.pace = damp(this.pace, p, 10, dt);
     let target = this.pace >= 0 ? lerp(C.cruise, C.sprint, this.pace) : lerp(C.cruise, C.walk, -this.pace);
     if (this.halt) target = 0;
+    // the surface sets the rhythm: careful steps on a thin pipe, a crawl when squeezing
+    if (this.grounded && this.surf === 'balance') target = Math.min(target, C.balanceSpeed);
+    if (this.grounded && this.crouch) target = Math.min(target, C.crawlSpeed);
     if (this.grounded) {
       // slopes: uphill costs speed, downhill gives a little
       const gz = this.slope[1];          // d height / d z: negative means rising ahead
@@ -64,7 +71,7 @@ class Cat {
     let steer = this.halt ? 0 : clamp(input.steer || 0, -1, 1);
     let tvx = steer * C.lateral * lerp(1, C.narrowLateral, this.narrow);
     // a sideways slope (roof pitch, pipe curvature) draws the cat downhill
-    if (box) tvx -= this.slope[0] * C.slopePush;
+    if (box) tvx -= this.slope[0] * C.slopePush * (this.surf === 'balance' ? C.balancePull : 1);
     // on a ledge or pipe, an idle stick lets the cat find the middle by itself
     if (box && this.narrow > 0.5 && Math.abs(steer) < 0.3) tvx += (W.centreX(box) - this.pos[0]) * C.narrowCentering * (1 - Math.abs(steer) / 0.3);
     if (box && TUNING.assist.enabled && this.narrow < 0.5) tvx += this.alignToNarrow(steer);
@@ -118,6 +125,7 @@ class Cat {
     this.moveY(this.vel[1] * dt);
     this.support();
     this.slope = this.grounded && this.ground ? W.grad(this.ground, this.pos[0], this.pos[2]) : [0, 0];
+    this.surf = this.surfaceOf(this.grounded ? this.ground : null);
 
     // ---- 9. reading the ground ahead (for the rig and the camera) ----
     this.edgeAhead = 0;
@@ -130,6 +138,17 @@ class Cat {
     }
     if (this.grounded && this.ground && this.ground.far) this.events.push({ type: 'fall', reason: 'astray' });
     if (this.pos[1] < this.lastGroundY - C.killDepth) this.events.push({ type: 'fall', reason: 'drop' });
+  }
+
+  // what kind of footing this is, for movement and for the rig's posture
+  surfaceOf(b) {
+    if (!b) return 'air';
+    const w = this.world.walkWidth(b);
+    if (b.shape === 'pipeZ') return w < TUNING.cat.balanceWidth ? 'balance' : 'pipe';
+    if (b.dx !== undefined) return 'bridge';
+    if (b.shape !== 'box') return 'roof';
+    if (w < TUNING.cat.narrowWidth) return 'ledge';
+    return 'flat';
   }
 
   doJump() {

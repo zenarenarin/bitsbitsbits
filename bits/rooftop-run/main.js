@@ -61,6 +61,8 @@ const TUNING = {
     lateral: 4.2, lateralAccel: 24, lateralAccelAir: 10, lateralDecel: 30,
     // narrow surfaces (ledges, pipes): below this width the cat steadies itself
     narrowWidth: 0.75, narrowLateral: 0.55, narrowCentering: 6,
+    // thin pipes are balance surfaces: careful pace, stronger roll-off. Squeezing is a crawl.
+    balanceWidth: 0.4, balanceSpeed: 3.6, balancePull: 1.6, crawlSpeed: 3.0,
     // slopes: sideways pull toward the eaves; uphill slows, downhill speeds
     slopePush: 1.6, slopeClimb: 0.45, slopeDescend: 0.25,
     // edge grip: steering off a side edge is resisted this long before the cat lets go
@@ -92,7 +94,9 @@ const TUNING = {
     steamKnockUp: 4.2, steamStumble: 0.6,
     // unstable catwalk: creaks once stood on, then gives way
     creakTime: 0.5, fallGravity: 16, resetTime: 3.5,
-    pickupRadius: 0.55, relayRadius: 1.3
+    // suspended rope bridges sway and carry the cat sideways
+    swayAmp: 0.14, swayRate: 1.7,
+    pickupRadius: 0.55, relayRadius: 1.3, waypointRadius: 3
   },
   input: {
     jumpMode: 'hold',            // 'hold' (variable height) or 'tap' (always full)
@@ -100,8 +104,8 @@ const TUNING = {
     jumpZone: 0.45               // right fraction of the screen that also jumps
   },
   camera: {
-    landscape: { fov: 54, back: 1.6, up: 0.78, lookAhead: 5.5, lookUp: -0.1, follow: 0.8 },
-    portrait: { fov: 62, back: 2.2, up: 1.15, lookAhead: 6, lookUp: -0.3, follow: 0.7 },
+    landscape: { fov: 52, back: 1.42, up: 0.7, lookAhead: 5.5, lookUp: -0.05, follow: 0.82 },
+    portrait: { fov: 60, back: 1.95, up: 1.02, lookAhead: 6, lookUp: -0.25, follow: 0.72 },
     speedBack: 0.05, speedFov: 1.2,
     posK: 7, heightK: 3.5, airHeightK: 1.6, lookK: 6,
     terrainProbe: [3, 6, 10, 14], gapLift: 0.3, gapBack: 0.25, arcFollow: 0.35,
@@ -117,7 +121,9 @@ const TUNING = {
 //   gableZ  pitched roof, ridge running along z (slopes fall away in x)
 //   gableX  pitched roof, ridge running across (slopes fall away in z)
 //   shed    lean-to roof, height runs linearly from yNear (z1) to yFar (z0)
-//   pipeZ   a cylinder along z: centre (cx, cy), radius r
+//   pipeZ   a cylinder along z: centre (cx, cy), radius r; with cyFar it inclines
+//           (cy at the near end z1, cyFar at the far end z0)
+// Moving surfaces carry offsets: dy (a walkway giving way), dx (a bridge swaying).
 // Slopes and pipe curvature are real collision, not decoration: the cat
 // stands on the height function and feels its gradient.
 // Tags: kind (what the renderer builds), surface, walk, cam ('block' |
@@ -146,34 +152,38 @@ class World {
   }
 
   // ---- shape functions ----
+  pipeY(b, z) { return b.cyFar === undefined ? b.cy : lerp(b.cy, b.cyFar, (b.z1 - z) / (b.z1 - b.z0)); }
   topAt(b, x, z) {
+    x -= b.dx || 0;
     if (x < b.x0 || x > b.x1 || z < b.z0 || z > b.z1) return -Infinity;
     const dy = b.dy || 0;
     switch (b.shape) {
       case 'gableZ': { const hw = (b.x1 - b.x0) / 2; return dy + b.yr - (b.yr - b.ye) * Math.abs(x - (b.x0 + hw)) / hw; }
       case 'gableX': { const hl = (b.z1 - b.z0) / 2; return dy + b.yr - (b.yr - b.ye) * Math.abs(z - (b.z0 + hl)) / hl; }
       case 'shed': return dy + lerp(b.yNear, b.yFar, (b.z1 - z) / (b.z1 - b.z0));
-      case 'pipeZ': { const d = x - b.cx; return Math.abs(d) >= b.r ? -Infinity : dy + b.cy + Math.sqrt(b.r * b.r - d * d); }
+      case 'pipeZ': { const d = x - b.cx; return Math.abs(d) >= b.r ? -Infinity : dy + this.pipeY(b, z) + Math.sqrt(b.r * b.r - d * d); }
       default: return b.y1 + dy;
     }
   }
   bottomAt(b, x, z) {
-    if (b.shape === 'pipeZ') { const d = x - b.cx; return Math.abs(d) >= b.r ? Infinity : (b.dy || 0) + b.cy - Math.sqrt(b.r * b.r - d * d); }
-    return b.y0;
+    x -= b.dx || 0;
+    if (b.shape === 'pipeZ') { const d = x - b.cx; return Math.abs(d) >= b.r ? Infinity : (b.dy || 0) + this.pipeY(b, z) - Math.sqrt(b.r * b.r - d * d); }
+    return b.y0 + (b.dy || 0);
   }
   // slope of the top surface: [d top / dx, d top / dz]
   grad(b, x, z) {
+    x -= b.dx || 0;
     switch (b.shape) {
       case 'gableZ': { const hw = (b.x1 - b.x0) / 2; return [-(b.yr - b.ye) / hw * sign(x - (b.x0 + hw)), 0]; }
       case 'gableX': { const hl = (b.z1 - b.z0) / 2; return [0, -(b.yr - b.ye) / hl * sign(z - (b.z0 + hl))]; }
       case 'shed': return [0, (b.yNear - b.yFar) / (b.z1 - b.z0)];
-      case 'pipeZ': { const d = clamp(x - b.cx, -b.r * 0.97, b.r * 0.97); return [-d / Math.sqrt(b.r * b.r - d * d), 0]; }
+      case 'pipeZ': { const d = clamp(x - b.cx, -b.r * 0.97, b.r * 0.97); return [-d / Math.sqrt(b.r * b.r - d * d), b.cyFar === undefined ? 0 : (b.cy - b.cyFar) / (b.z1 - b.z0)]; }
       default: return [0, 0];
     }
   }
   // how wide the cat can comfortably stand across this shape
   walkWidth(b) { return b.shape === 'pipeZ' ? b.r * 1.3 : b.x1 - b.x0; }
-  centreX(b) { return b.shape === 'pipeZ' ? b.cx : (b.x0 + b.x1) / 2; }
+  centreX(b) { return (b.dx || 0) + (b.shape === 'pipeZ' ? b.cx : (b.x0 + b.x1) / 2); }
 
   // points sampled across a footprint for shaped tops
   samples(x, z, hx, hz) {
@@ -186,7 +196,8 @@ class World {
     hx = hx || 0; hz = hz || 0;
     let y = -Infinity, box = null;
     for (const b of this.near(z - hz, z + hz)) {
-      if (x + hx <= b.x0 || x - hx >= b.x1 || z + hz <= b.z0 || z - hz >= b.z1) continue;
+      const ox = b.dx || 0;
+      if (x + hx <= b.x0 + ox || x - hx >= b.x1 + ox || z + hz <= b.z0 || z - hz >= b.z1) continue;
       if (b.shape === 'box') { if (b.y1 + (b.dy || 0) <= fromY + 1e-4 && b.y1 + (b.dy || 0) > y) { y = b.y1 + (b.dy || 0); box = b; } continue; }
       for (const [sx, sz] of this.samples(x, z, hx * 0.5, hz * 0.5)) {
         const t = this.topAt(b, sx, sz);
@@ -199,7 +210,8 @@ class World {
   ceilingAt(x, z, fromY, hx, hz) {
     let y = Infinity, box = null;
     for (const b of this.near(z - hz, z + hz)) {
-      if (x + hx <= b.x0 || x - hx >= b.x1 || z + hz <= b.z0 || z - hz >= b.z1) continue;
+      const ox = b.dx || 0;
+      if (x + hx <= b.x0 + ox || x - hx >= b.x1 + ox || z + hz <= b.z0 || z - hz >= b.z1) continue;
       const u = b.shape === 'pipeZ' ? this.bottomAt(b, x, z) : b.y0 + (b.dy || 0);
       if (u >= fromY - 1e-4 && u < y) { y = u; box = b; }
     }
@@ -209,12 +221,12 @@ class World {
   solids(x0, x1, y0, y1, z0, z1) {
     const out = [];
     for (const b of this.near(z0, z1)) {
-      const dy = b.dy || 0;
-      if (x1 <= b.x0 || x0 >= b.x1 || z1 <= b.z0 || z0 >= b.z1 || y1 <= b.y0 + dy || y0 >= b.y1 + dy) continue;
+      const dy = b.dy || 0, ox = b.dx || 0, bx0 = b.x0 + ox, bx1 = b.x1 + ox;
+      if (x1 <= bx0 || x0 >= bx1 || z1 <= b.z0 || z0 >= b.z1 || y1 <= b.y0 + dy || y0 >= b.y1 + dy) continue;
       if (b.shape === 'box') { out.push({ b, top: b.y1 + dy }); continue; }
-      const cx = clamp((x0 + x1) / 2, b.x0, b.x1), cz = clamp((z0 + z1) / 2, b.z0, b.z1);
+      const cx = clamp((x0 + x1) / 2, bx0, bx1), cz = clamp((z0 + z1) / 2, b.z0, b.z1);
       let top = -Infinity;
-      for (const [sx, sz] of [[cx, cz], [clamp(x0, b.x0, b.x1), cz], [clamp(x1, b.x0, b.x1), cz], [cx, clamp(z0, b.z0, b.z1)], [cx, clamp(z1, b.z0, b.z1)]]) {
+      for (const [sx, sz] of [[cx, cz], [clamp(x0, bx0, bx1), cz], [clamp(x1, bx0, bx1), cz], [cx, clamp(z0, b.z0, b.z1)], [cx, clamp(z1, b.z0, b.z1)]]) {
         const t = this.topAt(b, sx, sz);
         if (t > y0 + 1e-3 && this.bottomAt(b, sx, sz) < y1 && t > top) top = t;
       }
@@ -224,7 +236,7 @@ class World {
   }
   overlaps(x0, x1, y0, y1, z0, z1) {
     const out = [];
-    for (const b of this.near(z0, z1)) if (x1 > b.x0 && x0 < b.x1 && y1 > b.y0 && y0 < b.y1 && z1 > b.z0 && z0 < b.z1) out.push(b);
+    for (const b of this.near(z0, z1)) { const ox = b.dx || 0; if (x1 > b.x0 + ox && x0 < b.x1 + ox && y1 > b.y0 && y0 < b.y1 && z1 > b.z0 && z0 < b.z1) out.push(b); }
     return out;
   }
   // ray against shapes; returns distance or Infinity
@@ -234,7 +246,7 @@ class World {
     for (const b of this.near(Math.min(zs[0], zs[1]), Math.max(zs[0], zs[1]))) {
       if (filter && !filter(b)) continue;
       let t0 = 0, t1 = best, ok = true;
-      const lo = [b.x0, b.y0, b.z0], hi = [b.x1, b.y1, b.z1];
+      const ox = b.dx || 0, lo = [b.x0 + ox, b.y0, b.z0], hi = [b.x1 + ox, b.y1, b.z1];
       for (let i = 0; i < 3 && ok; i++) {
         if (Math.abs(d[i]) < 1e-9) { if (o[i] < lo[i] || o[i] > hi[i]) ok = false; continue; }
         let a = (lo[i] - o[i]) / d[i], c = (hi[i] - o[i]) / d[i];
@@ -267,37 +279,42 @@ function shed(x0, x1, base, yNear, yFar, zFar, zNear, tags) {
   return Object.assign({ shape: 'shed', x0, x1, y0: base, y1: Math.max(yNear, yFar), yNear, yFar, z0: zFar, z1: zNear, surface: 'tin', cam: 'block', walk: true }, tags || {});
 }
 function pipeZ(cx, cy, r, zFar, zNear, tags) {
-  return Object.assign({ shape: 'pipeZ', cx, cy, r, x0: cx - r, x1: cx + r, y0: cy - r, y1: cy + r, z0: zFar, z1: zNear, surface: 'metal', cam: 'none', walk: true }, tags || {});
+  const cyFar = tags && tags.cyFar, lo = Math.min(cy, cyFar === undefined ? cy : cyFar), hi = Math.max(cy, cyFar === undefined ? cy : cyFar);
+  return Object.assign({ shape: 'pipeZ', cx, cy, r, x0: cx - r, x1: cx + r, y0: lo - r, y1: hi + r, z0: zFar, z1: zNear, surface: 'metal', cam: 'none', walk: true }, tags || {});
 }
 
 // ---- 03_slice.js ----
 // =====================================================================
-// THE LAST SIGNAL — the vertical slice. One authored stretch of an old
-// tiled city overgrown by industry, from a small terrace to a signal relay,
-// with the great relay tower always on the horizon.
+// THE LAST SIGNAL — the vertical slice. An old tiled city consumed by
+// industry, from a small terrace to the signal relay, with the great relay
+// tower always on the horizon. Along the way runs the broken signal line:
+// dead waypoint relays that wake as the core passes them.
 //
-//   A  terrace (start)
-//   B  tiled roof, ridge across the route: up and over, chimneys on the ridge
-//   alley (1.4 m) -> C  long roof, ridge along the route: run the ridge,
-//      slopes pull toward the eaves, a chimney to go around, a broken
-//      section to jump
-//   D  the great pipe (steam vents) | junction | the narrow pipe (no steam,
-//      harder line, a fragment)
-//   E  junction platform -> F suspended catwalk: squeeze under a low pipe,
-//      an unstable section that gives way if you stall
-//   G  lean-to tin roof (downhill) -> gap (3 m, 1.5 m drop) -> H relay terrace
+//   ACT 1  ROOFS     A terrace -> B tiled roof (up and over) -> alley jump
+//                    -> C ridge run (slopes, chimney, broken section)
+//   ACT 2  JUNCTION  the great pipe into a junction tank, then a choice:
+//      high road  thin pipe climbing to a scaffold, a swaying rope bridge,
+//                 a leap and a drop. Balance and height. Three fragments.
+//      centre     the wide pipe through two steam vents. Timing.
+//      low road   down to a sunken catwalk, squeeze under a duct, hop a pipe,
+//                 climb a ramp. Safe and slower. No fragments.
+//                 All three merge on the machine platform (waypoint).
+//   ACT 3  CATWALK   a narrow suspended walkway: a broken gap, a squeeze, a
+//                    section that gives way if you stall, a fragment overhead
+//   ACT 4  RELAY     lean-to tin roof -> 3 m drop -> the relay terrace
 //
 // Pure data: shapes with a `kind` the renderer turns into architecture,
-// hazards, fragments, checkpoints. Nothing here knows about three.js.
+// hazards, fragments, waypoints, checkpoints. Nothing here knows three.js.
 // =====================================================================
 
 const STREET_Y = -16;
 
 function buildSlice(world) {
-  const decor = [], vents = [], fragments = [], unstable = [];
+  const decor = [], vents = [], fragments = [], unstable = [], bridges = [], waypoints = [];
   const add = b => world.add(b);
   const walls = (x0, x1, top, zFar, zNear, tags) => add(boxSpan(x0, x1, STREET_Y, top, zFar, zNear, Object.assign({ kind: 'building' }, tags)));
 
+  // ================= ACT 1: ROOFS =================
   // ---- A: the terrace ----
   walls(-1.7, 1.7, 0, -5, 3, { walk: true, kind: 'terrace' });
   add(boxSpan(-1.7, -1.45, 0, 0.42, -5, 3, { kind: 'parapet', walk: true }));
@@ -305,6 +322,7 @@ function buildSlice(world) {
   add(boxSpan(-1.45, 1.45, 0, 0.42, 2.75, 3, { kind: 'parapet', walk: true }));
   decor.push({ kind: 'pots', x: -1.15, y: 0, z: 0.5 }, { kind: 'pots', x: 1.2, y: 0, z: -2.5 });
   decor.push({ kind: 'lamp', x: 1.4, y: 1.6, z: -4.6, color: 'warm' });
+  decor.push({ kind: 'bowl', x: -1.0, y: 0, z: -1.2 });             // someone still feeds the strays here
 
   // ---- B: tiled roof, ridge across the route ----
   walls(-2.4, 2.4, -0.3, -13, -5, { plaster: 1 });
@@ -313,7 +331,6 @@ function buildSlice(world) {
   add(boxSpan(1.15, 1.75, 0.5, 2.0, -9.3, -8.7, { kind: 'chimney' }));
   decor.push({ kind: 'antenna', x: 2.1, y: 0.55, z: -10.5 });
 
-  // ---- alley (1.4 m) ----
   // ---- C: long roof, ridge along the route; a broken section near its end ----
   walls(-2.2, 2.6, -1.0, -26.0, -14.6, { plaster: 2 });
   walls(-2.2, 2.6, -1.0, -30.2, -27.8, { plaster: 2 });
@@ -323,87 +340,130 @@ function buildSlice(world) {
   add(boxSpan(-0.15, 0.55, 0.2, 1.45, -20.4, -19.6, { kind: 'chimney' }));
   add(boxSpan(1.5, 2.0, -0.3, 0.9, -23.6, -23.0, { kind: 'chimney' }));
   decor.push({ kind: 'lamp', x: -2.3, y: 0.2, z: -17, color: 'warm' });
-  fragments.push({ x: -0.75, y: 0.35, z: -22.4 });     // low on the left slope, past the chimney
+  fragments.push({ x: -0.75, y: 0.35, z: -22.4 });                 // where the line snapped over the slope
+  waypoints.push({ x: 2.3, y: -0.45, z: -29 });                    // first dead relay, on the far eave
 
-  // ---- D: the great pipe, and the narrow pipe beside it ----
-  const big = add(pipeZ(0.2, -0.05, 0.55, -46, -29.6, { kind: 'pipe' }));
-  vents.push({ x: 0.2, y: big.cy + big.r, z: -36.2, phase: 0 });
-  vents.push({ x: 0.2, y: big.cy + big.r, z: -41.6, phase: 1.1 });
-  add(boxSpan(-1.45, 0.45, -0.5, 0.1, -35.2, -32.5, { kind: 'valve', walk: true, surface: 'metal' }));
-  add(pipeZ(-1.2, -0.1, 0.2, -46, -32.5, { kind: 'pipe', narrow: true }));
-  fragments.push({ x: -1.2, y: 0.45, z: -40.2 });      // the narrow line's reward
-  decor.push({ kind: 'lamp', x: -2.6, y: 1.4, z: -38.5, color: 'green' });
-  decor.push({ kind: 'lamp', x: 2.4, y: 1.8, z: -43, color: 'violet' });
+  // ================= ACT 2: THE JUNCTION =================
+  add(pipeZ(0.2, -0.05, 0.55, -33.2, -29.6, { kind: 'pipe' }));
+  add(boxSpan(-1.6, 2.2, -2.5, 0.5, -36.6, -33.2, { kind: 'tank', walk: true, surface: 'metal' }));
+  decor.push({ kind: 'lamp', x: -1.5, y: 1.3, z: -36.8, color: 'green' });     // the high road
+  decor.push({ kind: 'lamp', x: 2.25, y: 0.1, z: -36.8, color: 'violet' });    // the low road
+  decor.push({ kind: 'gauge', x: 0.2, y: 0.5, z: -33.6 });
 
-  // ---- E: junction platform ----
-  add(boxSpan(-1.8, 1.0, -0.4, 0.1, -48.2, -46, { kind: 'grate', walk: true, surface: 'metal' }));
+  // high road: a thin pipe climbing to a scaffold, then a rope bridge, then a drop
+  add(pipeZ(-1.1, 0.3, 0.2, -44.6, -36.6, { kind: 'pipe', narrow: true, cyFar: 1.5 }));
+  fragments.push({ x: -1.1, y: 1.3, z: -40.6 });
+  add(boxSpan(-2.2, -0.3, 1.55, 1.7, -46.6, -44.6, { kind: 'scaffold', walk: true, surface: 'wood' }));
+  bridges.push(add(boxSpan(-1.5, -1.0, 1.62, 1.7, -53, -46.6, { kind: 'bridge', walk: true, surface: 'wood', cam: 'none' })));
+  fragments.push({ x: -1.25, y: 1.95, z: -50 });
+  add(boxSpan(-2.2, -0.4, 1.5, 1.7, -55, -53, { kind: 'scaffold', walk: true, surface: 'wood' }));
+  fragments.push({ x: -1.25, y: 2.45, z: -54.3 });                 // leap from the scaffold's edge for it
 
-  // ---- F: suspended catwalk ----
-  const cw = (zf, zn, extra) => add(boxSpan(-0.55, 0.25, 0.02, 0.1, zf, zn, Object.assign({ kind: 'catwalk', walk: true, surface: 'metal', cam: 'none' }, extra)));
-  cw(-54, -48.2);
-  unstable.push(cw(-56.5, -54, { unstable: true }));
-  cw(-62, -56.5);
-  add(boxSpan(0.25, 0.3, 0.1, 0.55, -62, -48.2, { kind: 'rail', cam: 'none' }));
-  add(boxSpan(-1.4, 1.2, 0.4, 0.66, -51.9, -51.1, { kind: 'lowPipe', cam: 'fade', walk: true }));
-  fragments.push({ x: -0.15, y: 1.05, z: -59.6 });      // above the walkway: jump for it
-  decor.push({ kind: 'lamp', x: 0.4, y: 1.3, z: -57.5, color: 'green' });
+  // centre: the wide pipe and two vents. Nothing to collect: a test of timing
+  const big = add(pipeZ(0.2, -0.05, 0.55, -55, -36.6, { kind: 'pipe' }));
+  vents.push({ x: 0.2, y: big.cy + big.r, z: -40, phase: 0 });
+  vents.push({ x: 0.2, y: big.cy + big.r, z: -45.4, phase: 1.1 });
 
-  // ---- G: lean-to tin roof, downhill ----
-  walls(-1.6, 1.6, -0.9, -68, -62, { plaster: 3 });
-  add(shed(-1.65, 1.65, -0.9, 0.1, -0.35, -68, -62, { kind: 'tinRoof' }));
+  // low road: a sunken catwalk, a squeeze under a duct, a pipe to hop, a ramp back up
+  add(boxSpan(1.5, 2.3, -1.08, -1.0, -50.5, -36.6, { kind: 'catwalk', walk: true, surface: 'metal', cam: 'none' }));
+  add(boxSpan(1.2, 2.6, -0.7, -0.3, -42, -40.6, { kind: 'duct', cam: 'fade', walk: true }));
+  add(boxSpan(1.3, 2.5, -1.0, -0.62, -45.6, -45, { kind: 'hopPipe', walk: true, cam: 'none' }));
+  add(shed(1.4, 2.4, -1.6, -1.0, 0.1, -55, -50.5, { kind: 'ramp', surface: 'metal' }));
+  decor.push({ kind: 'lamp', x: 2.5, y: -0.2, z: -47, color: 'warm' });
 
-  // ---- gap (3 m) ----
-  // ---- H: the relay terrace ----
+  // the machine platform: the three routes meet
+  add(boxSpan(-2.2, 2.6, -0.4, 0.1, -61, -55, { kind: 'grate', walk: true, surface: 'metal' }));
+  add(boxSpan(-2.2, -1.4, 0.1, 1.1, -60.5, -58.6, { kind: 'machine' }));
+  waypoints.push({ x: 2.2, y: 0.1, z: -59.5 });
+
+  // ================= ACT 3: THE CATWALK =================
+  const cw = (zf, zn, extra) => add(boxSpan(-0.4, 0.1, 0.02, 0.1, zf, zn, Object.assign({ kind: 'catwalk', walk: true, surface: 'metal', cam: 'none' }, extra)));
+  cw(-64.5, -61);
+  // broken gap (1.9 m)
+  cw(-69.4, -66.4);
+  add(boxSpan(-1.4, 1.2, 0.4, 0.66, -68.2, -67.4, { kind: 'lowPipe', cam: 'fade', walk: true }));
+  unstable.push(cw(-72, -69.4, { unstable: true }));
+  cw(-78, -72);
+  fragments.push({ x: -0.15, y: 1.05, z: -75 });
+  decor.push({ kind: 'brokenCatwalk', x0: -0.4, x1: 0.1, z0: -66.4, z1: -64.5, y: 0.1 });
+  decor.push({ kind: 'lamp', x: 0.4, y: 1.3, z: -73, color: 'green' });
+
+  // ================= ACT 4: THE RELAY =================
+  walls(-1.6, 1.6, -0.9, -84, -78, { plaster: 3 });
+  add(shed(-1.65, 1.65, -0.9, 0.1, -0.35, -84, -78, { kind: 'tinRoof' }));
+  waypoints.push({ x: 1.35, y: -0.2, z: -82.5 });
   const hY = -1.6;
-  walls(-3, 3, hY, -85, -71, { walk: true, kind: 'terrace', plaster: 4 });
-  add(boxSpan(-3, -2.75, hY, hY + 0.45, -85, -71, { kind: 'parapet', walk: true }));
-  add(boxSpan(2.75, 3, hY, hY + 0.45, -85, -71, { kind: 'parapet', walk: true }));
-  add(boxSpan(-2.75, 2.75, hY, hY + 0.45, -85, -84.75, { kind: 'parapet', walk: true }));
-  const relay = { x: 0, y: hY, z: -80 };
-  decor.push({ kind: 'lamp', x: -2.6, y: hY + 1.6, z: -74, color: 'warm' });
+  walls(-3, 3, hY, -101, -87, { walk: true, kind: 'terrace', plaster: 4 });
+  add(boxSpan(-3, -2.75, hY, hY + 0.45, -101, -87, { kind: 'parapet', walk: true }));
+  add(boxSpan(2.75, 3, hY, hY + 0.45, -101, -87, { kind: 'parapet', walk: true }));
+  add(boxSpan(-2.75, 2.75, hY, hY + 0.45, -101, -100.75, { kind: 'parapet', walk: true }));
+  const relay = { x: 0, y: hY, z: -96 };
+  decor.push({ kind: 'lamp', x: -2.6, y: hY + 1.6, z: -90, color: 'warm' });
 
-  // ---- the city around the route ----
+  // the dead signal line: sagging from relay to relay, snapped where fragments fell
+  decor.push({ kind: 'signalLine', points: [[-3.5, 3.2, 4], ...waypoints.map(w => [w.x, w.y + 2.9, w.z]), [relay.x, relay.y + 3.15, relay.z]] });
+  for (const f of fragments) decor.push({ kind: 'snapped', x: f.x + 0.35, y: f.y + 1.2, z: f.z + 0.4 });
+
   scenery(world, decor);
 
   return {
-    decor, vents, fragments, unstable, relay,
-    tower: { x: 26, z: -240, base: STREET_Y, height: 74 },
+    decor, vents, fragments, unstable, bridges, waypoints, relay,
+    tower: { x: 26, z: -255, base: STREET_Y, height: 74 },
     spawn: [0, 0, 1.5],
-    endZ: -84,
-    checkpoints: [[0, 0, 1.5], [0.2, 0.5, -15.6], [0.2, 0.5, -31], [-0.2, 0.1, -47.2], [-0.15, 0.1, -57.5], [0, 0.1, -62.6], [0, hY, -72.5]]
+    endZ: -100,
+    checkpoints: [[0, 0, 1.5], [0.2, 0.5, -15.6], [0.2, 0.5, -31], [-1.3, 1.7, -45.6], [1.9, -1.0, -38], [0, 0.1, -57], [-0.15, 0.1, -63], [-0.15, 0.1, -74], [0, 0.1, -78.6], [0, hY, -88.5]]
   };
 }
 
-// The neighbourhood: blocks on both sides of the route, close enough to
-// read as one dense city, with roofs at many heights and orientations, big
-// industrial pipes crossing high above the alleys, and distant layers that
-// rise toward the tower. Seeded, so the city is the same every visit.
+// The neighbourhood: blocks close on both sides of the route at very
+// different heights, extensions stacked on top and leaning over the
+// alleys, occasional towers, cables and bridges strung overhead, and far
+// layers climbing toward the tower. Seeded, so the city is the same every
+// visit. All of it is out of reach: landing there counts as a fall.
 function scenery(world, decor) {
   const rng = makeRng(1702);
-  const corridor = z => z > -5 ? 1.9 : z > -30 ? 3 : z > -62 ? 2.9 : z > -71 ? 2 : 3.3;
-  // near ring: blocks hugging the route on both sides
+  const corridor = z => z > -5 ? 1.9 : z > -30 ? 3 : z > -55 ? 3.2 : z > -78 ? 2.6 : z > -87 ? 2 : 3.3;
   for (const side of [-1, 1]) {
     let z = 6;
-    while (z > -100) {
-      const len = 4 + rng() * 6, zf = z - len;
-      const inner = Math.max(corridor(z), corridor(zf), corridor((z + zf) / 2)) + 0.4 + rng() * 1.6;
-      const w = 4 + rng() * 5;
+    while (z > -115) {
+      const len = 3.5 + rng() * 5.5, zf = z - len;
+      const inner = Math.max(corridor(z), corridor(zf), corridor((z + zf) / 2)) + 0.5 + rng() * 1.3;
+      const w = 3.5 + rng() * 5;
       const x0 = side < 0 ? -inner - w : inner, x1 = side < 0 ? -inner : inner + w;
-      const top = -3.5 + rng() * 5.5;
-      const roof = rng();
+      const tower = rng() < 0.14;
+      const top = tower ? 6 + rng() * 6 : -5 + rng() * 9;
       world.add(boxSpan(x0, x1, STREET_Y, top, zf, z, { kind: 'building', far: true, plaster: (rng() * 5) | 0 }));
-      if (roof < 0.45) world.add(gableZ(x0 - 0.15, x1 + 0.15, top, top + 0.3, top + 0.3 + (x1 - x0) * 0.32, zf - 0.15, z + 0.15, { kind: 'roof', far: true }));
-      else if (roof < 0.8) world.add(gableX(x0 - 0.15, x1 + 0.15, top, top + 0.3, top + 0.3 + len * 0.3, zf - 0.15, z + 0.15, { kind: 'roof', far: true }));
-      else { decor.push({ kind: 'tank', x: (x0 + x1) / 2, y: top, z: (z + zf) / 2, r: 0.7, h: 1.3 }); }
-      if (rng() < 0.5) decor.push({ kind: 'stack', x: lerp(x0, x1, 0.2 + rng() * 0.6), y: top, z: lerp(zf, z, 0.3 + rng() * 0.4), h: 1.5 + rng() * 2 });
-      z = zf - (rng() < 0.3 ? 1.2 : 0.15);
+      // an extension stacked on top, offset toward the route
+      let rt = top, rx0 = x0, rx1 = x1, rz0 = zf, rz1 = z;
+      if (!tower && rng() < 0.55) {
+        const ew = w * (0.4 + rng() * 0.35), eh = 1.8 + rng() * 1.6;
+        rx0 = side < 0 ? x1 - ew : x0; rx1 = side < 0 ? x1 : x0 + ew;
+        rz1 = z - rng() * len * 0.3; rz0 = rz1 - len * (0.4 + rng() * 0.4);
+        world.add(boxSpan(rx0, rx1, top, top + eh, rz0, rz1, { kind: 'building', far: true, plaster: (rng() * 5) | 0 }));
+        rt = top + eh;
+        if (rng() < 0.5) rng();
+      }
+      const roof = rng();
+      if (roof < 0.45) world.add(gableZ(rx0 - 0.15, rx1 + 0.15, rt, rt + 0.3, rt + 0.3 + (rx1 - rx0) * 0.32, rz0 - 0.15, rz1 + 0.15, { kind: 'roof', far: true }));
+      else if (roof < 0.75) world.add(gableX(rx0 - 0.15, rx1 + 0.15, rt, rt + 0.3, rt + 0.3 + (rz1 - rz0) * 0.3, rz0 - 0.15, rz1 + 0.15, { kind: 'roof', far: true }));
+      else decor.push({ kind: 'tank', x: (rx0 + rx1) / 2, y: rt, z: (rz0 + rz1) / 2, r: 0.7, h: 1.3 });
+      if (rng() < 0.45) decor.push({ kind: 'stack', x: lerp(x0, x1, 0.2 + rng() * 0.6), y: rt, z: lerp(zf, z, 0.3 + rng() * 0.4), h: 1.5 + rng() * 2.5 });
+      // scaffolding and boxed-in balconies on the faces that look onto the route
+      if (rng() < 0.4 && top > -2) decor.push({ kind: 'scaffoldFace', x: side < 0 ? x1 + 0.35 : x0 - 0.35, y0: Math.max(STREET_Y, top - 7), y1: top + 0.6, z0: zf + 0.3, z1: z - 0.3 });
+      if (rng() < 0.6) decor.push({ kind: 'balcony', x: side < 0 ? x1 : x0, y: top - 2 - rng() * 3, z: lerp(zf, z, 0.5), side: -side });
+      z = zf - (rng() < 0.35 ? 1.0 + rng() * 1.5 : 0.1);
     }
   }
-  // great pipes crossing high above the route, between the blocks
-  for (const [z, y, r] of [[-11.5, 5.4, 0.45], [-34, 6.2, 0.7], [-52, 4.8, 0.38], [-77, 5.8, 0.55]]) decor.push({ kind: 'crossPipe', x0: -12, x1: 12, y, z, r });
+  // cables and bridges strung across the route, well above the cat and the camera
+  for (let z = 2; z > -112; z -= 2.5 + rng() * 3) {
+    const n = 1 + (rng() * 3 | 0);
+    for (let i = 0; i < n; i++) decor.push({ kind: 'cable', a: [-4.5 - rng() * 2, 3.4 + rng() * 2.5, z + (rng() - 0.5) * 2], b: [4.5 + rng() * 2, 3.4 + rng() * 2.5, z + (rng() - 0.5) * 2], sag: 0.4 + rng() * 0.6 });
+  }
+  for (const [z, y] of [[-18, 5.2], [-48, 6.4], [-88, 5.6]]) decor.push({ kind: 'skyBridge', x0: -5, x1: 5, y, z });
+  for (const [z, y, r] of [[-11.5, 5.4, 0.45], [-34, 6.2, 0.7], [-66, 4.8, 0.38], [-94, 5.8, 0.55]]) decor.push({ kind: 'crossPipe', x0: -12, x1: 12, y, z, r });
   // far rings: rooflines climbing toward the tower
   for (let ring = 0; ring < 3; ring++) {
-    for (let z = 10; z > -230; z -= 7 + ring * 3) {
+    for (let z = 10; z > -245; z -= 7 + ring * 3) {
       for (const side of [-1, 1]) {
         if (rng() < 0.15) continue;
         const x = side * (16 + ring * 14 + rng() * 10), w = 6 + rng() * 6, d = 5 + rng() * 4;
@@ -439,7 +499,7 @@ class Cat {
     this.gripT = 0; this.teeter = 0; this.edgeAhead = 0; this.narrow = 0; this.pace = 0;
     this.slope = [0, 0];
     this.stumble = 0; this.landSlow = 0; this.airTime = 0; this.sinceLand = 9; this.sinceJump = 9; this.scalded = 0;
-    this.scr = null; this.assistX = 0; this.halt = false;
+    this.scr = null; this.assistX = 0; this.halt = false; this.surf = 'flat'; this._rideDx = null;
     this.lastGroundY = p[1]; this.fallFrom = p[1];
     this.events = [];
     this.stats = { lastJump: null };
@@ -453,8 +513,12 @@ class Cat {
     this.sinceLand += dt; this.sinceJump += dt;
     this.scalded = Math.max(0, this.scalded - dt);
     if (this.scr) { this.stepScramble(dt); return; }
-    // ride a surface that is moving (a catwalk giving way)
-    if (this.grounded && this.ground && this.ground.dy !== undefined) this.pos[1] = W.topAt(this.ground, this.pos[0], this.pos[2]) > -Infinity ? W.topAt(this.ground, this.pos[0], this.pos[2]) : this.pos[1];
+    // ride a surface that is moving: a catwalk giving way, a bridge swaying
+    if (this.grounded && this.ground) {
+      const g = this.ground;
+      if (g.dx !== undefined) { if (this._rideDx !== null && this._rideB === g) this.pos[0] += g.dx - this._rideDx; this._rideDx = g.dx; this._rideB = g; }
+      if (g.dy !== undefined) { const t = W.topAt(g, this.pos[0], this.pos[2]); if (t > -Infinity) this.pos[1] = t; }
+    } else this._rideDx = null;
 
     // ---- 1. pace: always moving forward; the stick's vertical axis sets how fast ----
     const pr = clamp(input.pace || 0, -1, 1), pd = C.paceDead;
@@ -462,6 +526,9 @@ class Cat {
     this.pace = damp(this.pace, p, 10, dt);
     let target = this.pace >= 0 ? lerp(C.cruise, C.sprint, this.pace) : lerp(C.cruise, C.walk, -this.pace);
     if (this.halt) target = 0;
+    // the surface sets the rhythm: careful steps on a thin pipe, a crawl when squeezing
+    if (this.grounded && this.surf === 'balance') target = Math.min(target, C.balanceSpeed);
+    if (this.grounded && this.crouch) target = Math.min(target, C.crawlSpeed);
     if (this.grounded) {
       // slopes: uphill costs speed, downhill gives a little
       const gz = this.slope[1];          // d height / d z: negative means rising ahead
@@ -481,7 +548,7 @@ class Cat {
     let steer = this.halt ? 0 : clamp(input.steer || 0, -1, 1);
     let tvx = steer * C.lateral * lerp(1, C.narrowLateral, this.narrow);
     // a sideways slope (roof pitch, pipe curvature) draws the cat downhill
-    if (box) tvx -= this.slope[0] * C.slopePush;
+    if (box) tvx -= this.slope[0] * C.slopePush * (this.surf === 'balance' ? C.balancePull : 1);
     // on a ledge or pipe, an idle stick lets the cat find the middle by itself
     if (box && this.narrow > 0.5 && Math.abs(steer) < 0.3) tvx += (W.centreX(box) - this.pos[0]) * C.narrowCentering * (1 - Math.abs(steer) / 0.3);
     if (box && TUNING.assist.enabled && this.narrow < 0.5) tvx += this.alignToNarrow(steer);
@@ -535,6 +602,7 @@ class Cat {
     this.moveY(this.vel[1] * dt);
     this.support();
     this.slope = this.grounded && this.ground ? W.grad(this.ground, this.pos[0], this.pos[2]) : [0, 0];
+    this.surf = this.surfaceOf(this.grounded ? this.ground : null);
 
     // ---- 9. reading the ground ahead (for the rig and the camera) ----
     this.edgeAhead = 0;
@@ -547,6 +615,17 @@ class Cat {
     }
     if (this.grounded && this.ground && this.ground.far) this.events.push({ type: 'fall', reason: 'astray' });
     if (this.pos[1] < this.lastGroundY - C.killDepth) this.events.push({ type: 'fall', reason: 'drop' });
+  }
+
+  // what kind of footing this is, for movement and for the rig's posture
+  surfaceOf(b) {
+    if (!b) return 'air';
+    const w = this.world.walkWidth(b);
+    if (b.shape === 'pipeZ') return w < TUNING.cat.balanceWidth ? 'balance' : 'pipe';
+    if (b.dx !== undefined) return 'bridge';
+    if (b.shape !== 'box') return 'roof';
+    if (w < TUNING.cat.narrowWidth) return 'ledge';
+    return 'flat';
   }
 
   doJump() {
@@ -781,7 +860,8 @@ class Cat {
 // =====================================================================
 // The city's moving parts, as pure simulation: steam vents on a fixed,
 // readable cycle; a catwalk section that creaks and gives way if you
-// stall on it; the energy fragments; the signal relay.
+// stall on it; rope bridges that sway; the energy fragments; the dead
+// waypoint relays that wake as the core passes; the signal relay.
 // The renderer reads the state; it never decides an outcome.
 // =====================================================================
 
@@ -792,12 +872,15 @@ class Hazards {
     this.unstable = slice.unstable.map(b => { b.dy = 0; return { b, state: 'stable', t: 0, vy: 0, shake: 0 }; });
     this.fragments = slice.fragments.map(f => Object.assign({ taken: false }, f));
     this.relay = Object.assign({ active: false, t: 0 }, slice.relay);
+    this.bridges = (slice.bridges || []).map((b, i) => { b.dx = 0; return { b, phase: i * 1.3 }; });
+    this.waypoints = (slice.waypoints || []).map(w => Object.assign({ active: false, t: 0 }, w));
     this.charge = 0;
   }
   // a fresh run: everything back where it was
   reset() {
     this.time = 0; this.charge = 0; this.relay.active = false; this.relay.t = 0;
     for (const f of this.fragments) f.taken = false;
+    for (const w of this.waypoints) { w.active = false; w.t = 0; }
     this.resetUnstable();
   }
   // after a fall: fallen walkways are back, so the route is always crossable
@@ -840,6 +923,13 @@ class Hazards {
       } else if (u.state === 'gone') {
         u.t += dt; if (u.t > H.resetTime) { u.state = 'stable'; u.b.dy = 0; u.b.gone = false; u.shake = 0; }
       }
+    }
+    // rope bridges: a slow, steady sway the player learns to lean against
+    for (const br of this.bridges) br.b.dx = H.swayAmp * Math.sin(this.time * H.swayRate + br.phase);
+    // waypoints: dead relays along the broken line wake as the core passes
+    for (const w of this.waypoints) {
+      if (w.active) { w.t += dt; continue; }
+      if (cat.pos[2] < w.z + 1 && Math.abs(cat.pos[2] - w.z) < H.waypointRadius) { w.active = true; out.push({ type: 'waypoint', w, charge: this.charge }); }
     }
     // fragments
     for (const f of this.fragments) {
@@ -1032,15 +1122,22 @@ function createAssets(THREE, renderer, ctx) {
     }
   });
   // window light: drawn into the emissive map. Some panes lit warm, a few cold.
-  const windows = paint(256, (g, w, h) => {
+  // window light covers a 4 x 4 block of storey-tiles (repeat 0.25), so lit
+  // windows scatter irregularly: about a third lit, a few cold and blue
+  const windows = paint(512, (g, w, h) => {
     g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
-    for (const [x, y, ww, hh] of WIN) {
-      const gr = g.createLinearGradient(0, y * h, 0, (y + hh) * h);
-      gr.addColorStop(0, '#7a3e12'); gr.addColorStop(1, '#ffb15e');
-      g.fillStyle = gr; g.fillRect(x * w + 2, y * h + 2, ww * w - 4, hh * h - 4);
-      g.fillStyle = 'rgba(0,0,0,.65)'; g.fillRect(x * w + ww * w / 2 - 1, y * h, 2, hh * h);
+    const tw = w / 4, th = h / 4;
+    for (let ty = 0; ty < 4; ty++) for (let tx = 0; tx < 4; tx++) for (const [x, y, ww, hh] of WIN) {
+      const r = rng(); if (r > 0.36) continue;
+      const X = tx * tw + x * tw, Y = ty * th + y * th, W2 = ww * tw, H2 = hh * th;
+      const cold = r < 0.05, gr = g.createLinearGradient(0, Y, 0, Y + H2);
+      gr.addColorStop(0, cold ? '#1d3a4a' : '#6b3410'); gr.addColorStop(1, cold ? '#6fb6c9' : (r < 0.2 ? '#ffb15e' : '#d98a3c'));
+      g.fillStyle = gr; g.fillRect(X + 1, Y + 1, W2 - 2, H2 - 2);
+      g.fillStyle = 'rgba(0,0,0,.65)'; g.fillRect(X + W2 / 2 - 1, Y, 2, H2);
+      if (r > 0.25) { g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(X + 1, Y + 1, W2 * 0.45, H2 - 2); }   // a curtain half drawn
     }
   });
+  windows.repeat.set(0.25, 0.25);
   const metal = paint(256, (g, w, h) => {
     g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, h);
     speckle(g, w, h, 900, ['#c8cfcf', '#ffffff', '#8f9897'], 0.5, 2, 0.35);
@@ -1097,7 +1194,7 @@ function createAssets(THREE, renderer, ctx) {
   };
   const M = {
     tile: lam({ map: tiles, vertexColors: true }),
-    wall: lam({ map: plaster, vertexColors: true, emissiveMap: windows, emissive: new THREE.Color('#ffffff'), emissiveIntensity: 1 }),
+    wall: lam({ map: plaster, vertexColors: true, emissiveMap: windows, emissive: new THREE.Color('#ffffff'), emissiveIntensity: 0.9 }),
     metal: lam({ map: metal, vertexColors: true }),
     grate: lam({ map: grate, vertexColors: true }),
     brick: lam({ map: brick, vertexColors: true }),
@@ -1270,8 +1367,10 @@ function createCatRig(THREE, A) {
   const SPINE_Y = 0.215;
   const body = grp(root, 0, SPINE_Y, 0);
   const pelvis = grp(body), chest = grp(body);
-  add(pelvis, ellipsoid(0.062, 0.072, 0.165, COL.back, COL.belly, COL.side), A.M.fur, 0, -0.004, 0.08);
-  add(chest, ellipsoid(0.068, 0.082, 0.155, COL.back, COL.belly, COL.side), A.M.fur, 0, 0.004, -0.075);
+  add(pelvis, ellipsoid(0.06, 0.07, 0.15, COL.back, COL.belly, COL.side), A.M.fur, 0, 0, 0.09);
+  add(pelvis, ellipsoid(0.052, 0.06, 0.1, COL.back, COL.belly, COL.side), A.M.fur, 0, 0.004, 0.0);     // the waist
+  add(chest, ellipsoid(0.066, 0.088, 0.14, COL.back, COL.belly, COL.side), A.M.fur, 0, -0.004, -0.085);
+  for (const sx of [-1, 1]) add(chest, ellipsoid(0.026, 0.03, 0.05, COL.back, COL.side, null, 8), A.M.fur, sx * 0.04, 0.05, -0.13); // shoulder blades
   add(chest, ellipsoid(0.042, 0.05, 0.075, COL.back, COL.belly, COL.side), A.M.fur, 0, 0.042, -0.195).rotation.x = 0.75;
   // collar and the power core
   const collar = new THREE.TorusGeometry(0.044, 0.0065, 6, 18); collar.rotateX(Math.PI / 2 - 0.75);
@@ -1280,7 +1379,8 @@ function createCatRig(THREE, A) {
   const coreGlow = new THREE.Sprite(A.M.coreGlow); coreGlow.scale.setScalar(0.1); coreGlow.position.copy(core.position); chest.add(coreGlow);
   // head
   const head = grp(chest, 0, 0.078, -0.235);
-  add(head, ellipsoid(0.058, 0.052, 0.06, COL.back, COL.belly, COL.side, 14), A.M.fur, 0, 0.01, -0.028);
+  add(head, ellipsoid(0.062, 0.054, 0.062, COL.back, COL.belly, COL.side, 14), A.M.fur, 0, 0.01, -0.028);
+  for (const sx of [-1, 1]) add(head, ellipsoid(0.03, 0.03, 0.035, COL.side, COL.belly, null, 8), A.M.fur, sx * 0.042, -0.012, -0.04);
   add(head, ellipsoid(0.027, 0.021, 0.03, COL.side, COL.belly, null, 10), A.M.fur, 0, -0.012, -0.072);
   add(head, new THREE.SphereGeometry(0.007, 6, 4), A.M.nose, 0, 0.002, -0.1);
   const eyes = [];
@@ -1291,7 +1391,7 @@ function createCatRig(THREE, A) {
   const ears = [];
   for (const sx of [-1, 1]) {
     const pivot = grp(head, sx * 0.03, 0.046, -0.016);
-    const g = new THREE.ConeGeometry(0.028, 0.07, 4, 1); g.translate(0, 0.035, 0); g.rotateY(Math.PI / 4); g.scale(1, 1, 0.45);
+    const g = new THREE.ConeGeometry(0.03, 0.074, 4, 1); g.translate(0, 0.037, 0); g.rotateY(Math.PI / 4); g.scale(1, 1, 0.45);
     add(pivot, shade(g, COL.back, COL.side), A.M.fur);
     const inner = new THREE.ConeGeometry(0.017, 0.045, 3, 1); inner.translate(0, 0.024, 0); inner.scale(1, 1, 0.25);
     add(pivot, shade(inner, COL.ear, COL.ear), A.M.furPlain, 0, 0.004, -0.008);
@@ -1304,13 +1404,13 @@ function createCatRig(THREE, A) {
     const L1 = hind ? 0.1 : 0.112, L2 = hind ? 0.097 : 0.11, L3 = hind ? 0.078 : 0;
     const pivot = grp(parent, x, y, z);
     const up = grp(pivot); add(up, bone(hind ? 0.03 : 0.023, L1 + 0.01, COL.side, COL.side), A.M.fur);
-    if (hind) add(up, ellipsoid(0.036, 0.058, 0.052, COL.back, COL.side, null, 10), A.M.fur, 0, -0.022, 0.004);
+    if (hind) add(up, ellipsoid(0.04, 0.064, 0.058, COL.back, COL.side, null, 10), A.M.fur, 0, -0.024, 0.006);
     const lo = grp(up, 0, -L1, 0); add(lo, bone(hind ? 0.018 : 0.016, L2 + 0.006, COL.side, COL.side), A.M.fur);
     let hock = null, paw;
     if (hind) { hock = grp(lo, 0, -L2, 0); add(hock, bone(0.014, L3, COL.side, COL.side), A.M.fur); paw = grp(hock, 0, -L3, 0); }
     else paw = grp(lo, 0, -L2, 0);
     add(paw, ellipsoid(0.017, 0.011, 0.025, COL.paw, COL.paw, null, 8), A.M.fur, 0, 0.004, -0.008);
-    return { pivot, up, lo, hock, paw, L1, L2, L3, hind, x, side: sign(x) };
+    return { pivot, up, lo, hock, paw, L1, L2, L3, hind, x, side: sign(x), x0: x };
   }
   const legs = {
     fl: leg(chest, -0.038, -0.035, -0.15, false), fr: leg(chest, 0.038, -0.035, -0.15, false),
@@ -1319,11 +1419,11 @@ function createCatRig(THREE, A) {
   const OFFSET = { hl: 0, hr: 0.09, fl: 0.5, fr: 0.6 };   // rotary gallop
 
   // ---- tail: a long chain of springs ----
-  const TAIL_N = 10, TAIL_L = 0.036;
+  const TAIL_N = 12, TAIL_L = 0.033;
   const tail = [];
   let tp = grp(pelvis, 0, 0.025, 0.235);
   for (let i = 0; i < TAIL_N; i++) {
-    const r = lerp(0.016, 0.009, i / TAIL_N);
+    const r = lerp(0.016, 0.007, i / TAIL_N);
     const g = new THREE.CylinderGeometry(r * 0.9, r, TAIL_L + 0.006, 7, 1); g.rotateX(Math.PI / 2); g.translate(0, 0, TAIL_L / 2);
     add(tp, shade(g, COL.back, COL.side), A.M.fur);
     tail.push({ g: tp, p: mkSpring(0), y: mkSpring(0), f: lerp(6, 2.4, i / (TAIL_N - 1)) });
@@ -1333,7 +1433,8 @@ function createCatRig(THREE, A) {
   const S = {
     phase: 0, yaw: mkSpring(0), lift: mkSpring(0), pitch: mkSpring(0), lean: mkSpring(0), flex: mkSpring(0),
     air: 0, crouch: 0, gather: 0, wait: 0, flinch: 0, narrow: 0, prevVy: 0, prevVx: 0, ay: 0, ax: 0, time: 0,
-    blink: 2, twitch: 3, twitchEar: 0, twitchSide: 0, run: 0, core: 0, flare: 0, look: 0
+    blink: 2, twitch: 3, twitchEar: 0, twitchSide: 0, run: 0, core: 0, flare: 0, look: 0,
+    balance: 0, crawl: 0, stretch: mkSpring(0), sway: 0
   };
 
   // two-bone IK in the pivot's y-z plane. bend: +1 joint behind (elbow), -1 joint ahead (knee)
@@ -1369,8 +1470,8 @@ function createCatRig(THREE, A) {
     S.ay = damp(S.ay, clamp((s.vy - S.prevVy) / dt, -60, 60), 18, dt); S.prevVy = s.vy;
     S.ax = damp(S.ax, clamp((s.vx - S.prevVx) / dt, -40, 40), 12, dt); S.prevVx = s.vx;
     for (const e of s.events) {
-      if (e.type === 'land') { S.lift.v -= clamp(e.impact, 0, 14) * 0.075; S.pitch.v -= clamp(e.impact, 0, 14) * 0.18; S.flex.v += clamp(e.impact, 0, 14) * 0.08; }
-      if (e.type === 'jump') { S.lift.v += 0.5; S.flex.v -= 1.4; }
+      if (e.type === 'land') { S.lift.v -= clamp(e.impact, 0, 14) * 0.075; S.pitch.v -= clamp(e.impact, 0, 14) * 0.18; S.flex.v += clamp(e.impact, 0, 14) * 0.08; S.stretch.v -= clamp(e.impact, 0, 14) * 0.06; }
+      if (e.type === 'jump') { S.lift.v += 0.5; S.flex.v -= 1.4; S.stretch.v += 1.2; }
       if (e.type === 'bump') { S.pitch.v -= 3; S.lift.v -= 0.4; }
       if (e.type === 'scald') { S.flinch = 1; S.pitch.v += 4; }
       if (e.type === 'fragment') S.flare = 1;
@@ -1384,18 +1485,21 @@ function createCatRig(THREE, A) {
     S.crouch = damp(S.crouch, s.crouch ? 1 : 0, 16, dt);
     S.gather = damp(S.gather, grounded ? s.edgeAhead : 0, 8, dt);
     S.narrow = damp(S.narrow, s.narrow, 6, dt);
+    S.balance = damp(S.balance, s.surf === 'balance' ? 1 : 0, 5, dt);     // thin pipe: low, narrow stance, tail out
+    S.crawl = damp(S.crawl, grounded && s.crouch ? 1 : 0, 10, dt);
+    S.sway = damp(S.sway, s.surf === 'bridge' ? s.sway : 0, 8, dt);
     S.wait = damp(S.wait, grounded && speed < 0.4 ? 1 : 0, 5, dt);       // held back: crouched, watching
     S.flinch = Math.max(0, S.flinch - dt * 1.6);
 
-    const stride = 0.5 + speed * 0.16;
+    const stride = (0.5 + speed * 0.16) * (1 - 0.35 * S.balance);
     if (grounded) S.phase = (S.phase + dt * speed / stride) % 1;
     else if (s.scr !== null) S.phase = (S.phase + dt * 6) % 1;
     const ph = S.phase * TAU;
-    const duty = lerp(0.62, 0.38, S.run);
+    const duty = lerp(lerp(0.62, 0.38, S.run), 0.7, S.balance);
 
     // body: height, pitch, lean, spine flex. On a pipe the cat goes low; on a slope it leans into it.
     const bob = grounded ? Math.abs(Math.sin(ph)) * 0.013 * S.run : 0;
-    spring(S.lift, -0.095 * S.crouch - 0.03 * S.gather - 0.04 * S.narrow - 0.05 * S.wait + bob, 3.4, 0.45, dt);
+    spring(S.lift, -0.095 * S.crouch - 0.03 * S.gather - 0.03 * S.narrow - 0.035 * S.balance - 0.05 * S.wait + bob * (1 - 0.6 * S.balance), 3.4, 0.45, dt);
     let pitchT = grounded ? Math.sin(ph) * 0.05 * S.run - 0.05 * S.crouch - Math.atan(s.slope[1]) * 0.7 : clamp(s.vy * 0.045, -0.35, 0.3);
     if (s.scr !== null) pitchT = 0.7 * (1 - s.scr);
     if (s.stumble > 0) pitchT -= 0.25 * clamp(s.stumble / 0.4, 0, 1);
@@ -1403,9 +1507,12 @@ function createCatRig(THREE, A) {
     spring(S.pitch, pitchT, 3.2, 0.5, dt);
     const teeter = s.teeter * Math.sin(S.time * 9) * 0.18;
     const slopeRoll = grounded ? Math.atan(s.slope[0]) * 0.75 : 0;
-    spring(S.lean, clamp(-s.vx * 0.07, -0.3, 0.3) + teeter + slopeRoll, 3, 0.6, dt);
+    spring(S.lean, clamp(-s.vx * 0.07, -0.3, 0.3) + teeter + slopeRoll * (1 - 0.7 * S.balance) + S.sway * 1.6, 3, 0.6, dt);
     const flexT = grounded ? Math.sin(ph + Math.PI / 2) * 0.13 * S.run + 0.06 * S.gather + 0.05 * S.wait : lerp(-0.14, 0.08, clamp(-s.vy / 6 + 0.5, 0, 1));
     spring(S.flex, flexT, 4.5, 0.55, dt);
+    // in the air the body stretches long; a landing squashes it
+    spring(S.stretch, grounded ? 0 : (s.vy > 0 ? 0.12 : 0.06), 3.5, 0.45, dt);
+    body.scale.set(1 - S.stretch.x * 0.3, 1 - S.stretch.x * 0.4, 1 + S.stretch.x);
     body.position.y = SPINE_Y + S.lift.x;
     body.rotation.set(S.pitch.x, 0, S.lean.x);
     pelvis.rotation.x = S.flex.x; chest.rotation.x = -S.flex.x;
@@ -1415,6 +1522,7 @@ function createCatRig(THREE, A) {
     const falling = clamp(-s.vy / 5 + 0.5, 0, 1);
     for (const key in legs) {
       const Lg = legs[key];
+      Lg.pivot.position.x = Lg.x0 * (1 - 0.65 * S.balance) * (1 + 0.25 * S.crawl);
       Lg.pivot.getWorldPosition(_v); root.worldToLocal(_v);
       const h = _v.y;
       let gz, gy;
@@ -1433,16 +1541,16 @@ function createCatRig(THREE, A) {
     }
 
     // head: level against the body, looking where the cat is going; up at the hazard while waiting
-    let look = -0.08 - 0.22 * S.gather - 0.18 * S.narrow + 0.3 * S.wait;
+    let look = -0.08 - 0.22 * S.gather - 0.12 * S.narrow - 0.12 * S.balance + 0.3 * S.wait;
     if (!grounded) look = lerp(0.12, -0.38, falling);
     head.rotation.x = -(S.pitch.x - S.flex.x) * 0.85 + look - 0.15 * S.crouch;
     head.position.y = 0.078 - 0.05 * S.crouch - 0.012 * S.narrow;
-    head.rotation.y = clamp(-s.vx * 0.12 - s.assistX * 0.15 + Math.sin(S.time * 0.9) * 0.25 * S.wait, -0.5, 0.5);
+    head.rotation.y = clamp((-s.vx * 0.12 - s.assistX * 0.15) * (1 - 0.6 * S.balance) + Math.sin(S.time * 0.9) * 0.25 * S.wait, -0.5, 0.5);
     head.rotation.z = -S.lean.x * 0.6;
     // ears: flatten with speed, when ducking and from steam; forward when watching
     S.twitch -= dt; if (S.twitch < 0) { S.twitch = 2 + Math.random() * 3; S.twitchEar = 0.18; S.twitchSide = Math.random() < 0.5 ? 0 : 1; }
     S.twitchEar = Math.max(0, S.twitchEar - dt);
-    ears.forEach((e, i) => { e.g.rotation.x = -(0.15 * S.run + 0.9 * S.crouch + 0.3 * S.air * (1 - falling) + 1.1 * S.flinch) + 0.15 * S.wait + (S.twitchEar > 0 && i === S.twitchSide ? 0.35 : 0); });
+    ears.forEach((e, i) => { e.g.rotation.x = -(0.15 * S.run + 0.9 * S.crouch + 0.3 * S.air * (1 - falling) + 1.1 * S.flinch + 0.3 * S.crawl) + 0.15 * S.wait + (S.twitchEar > 0 && i === S.twitchSide ? 0.35 : 0); });
     S.blink -= dt; if (S.blink < 0) S.blink = 2.5 + Math.random() * 3;
     const ey = S.blink < 0.1 || S.flinch > 0.5 ? 0.15 : 1; for (const e of eyes) e.scale.y = ey;
 
@@ -1455,13 +1563,14 @@ function createCatRig(THREE, A) {
 
     // tail: streams back at speed, out straight and level on pipes for balance, low and
     // twitching while waiting, bristling up from steam
-    const upBase = lerp(-0.85, -0.1, S.run) - 0.35 * s.teeter + 0.05 * S.narrow + 0.5 * S.wait - 0.9 * S.flinch;
+    const upBase = lerp(lerp(-0.85, -0.1, S.run), -0.25, S.balance) - 0.35 * s.teeter + 0.05 * S.narrow + 0.5 * S.wait - 0.9 * S.flinch + 0.25 * S.crawl;
     for (let i = 0; i < TAIL_N; i++) {
       const t = tail[i], k = i / (TAIL_N - 1);
       const curl = lerp(0.07, -0.16, k) * lerp(1.6, 1, S.run) * (1 - 0.8 * S.narrow) + (S.wait * (k > 0.6 ? -0.25 : 0.1));
       const pT = (i === 0 ? upBase : curl) + clamp(S.ay * 0.004, -0.25, 0.25) * (0.4 + k) - S.crouch * (i === 0 ? -0.5 : 0.05);
-      const swish = Math.sin(S.time * (7 - 3 * S.wait) - i * 0.6) * (0.04 + 0.16 * s.teeter + 0.12 * S.narrow + 0.1 * S.wait) * (0.3 + k);
-      const yT = (i === 0 ? 0 : clamp(S.ax * 0.01, -0.2, 0.2)) + swish - S.lean.x * 0.7 * (i < 4 ? 1 : 0);
+      const swish = Math.sin(S.time * (7 - 3 * S.wait - 3.5 * S.balance) - i * 0.6) * (0.04 + 0.16 * s.teeter + 0.1 * S.narrow + 0.22 * S.balance + 0.1 * S.wait) * (0.3 + k);
+      // on a thin pipe or a swaying bridge the tail swings against the body's lean: a counterweight
+      const yT = (i === 0 ? 0 : clamp(S.ax * 0.01, -0.2, 0.2)) + swish - S.lean.x * (0.7 + 1.4 * Math.max(S.balance, Math.abs(S.sway) * 5)) * (i < 5 ? 1 : 0.4);
       t.g.rotation.x = spring(t.p, pT, t.f, 0.4, dt);
       t.g.rotation.y = spring(t.y, yT, t.f, 0.35, dt);
     }
@@ -1504,12 +1613,22 @@ function createFollowCamera(THREE, camera, world) {
     return o;
   }
 
+  // terrain under a probe, ignoring the overhead things the camera fades (ducts, low pipes)
+  function groundAhead(x, z, fromY) {
+    let y = fromY;
+    for (let i = 0; i < 3; i++) {
+      const g = world.groundAt(x, z, y, 0.3, 0.3);
+      if (!g.box || g.box.cam !== 'fade') return g;
+      y = g.box.y0 - 0.01;
+    }
+    return { y: -Infinity, box: null };
+  }
   // ground heights ahead of the cat; a missing or much lower probe is a gap
   function probe(cat) {
     let sum = 0, wsum = 0, gap = 0;
     for (let i = 0; i < T.terrainProbe.length; i++) {
       const d = T.terrainProbe[i], z = cat.pos[2] - d;
-      const g = world.groundAt(cat.pos[0], z, cat.pos[1] + 1.5, 0.3, 0.3);
+      const g = groundAhead(cat.pos[0], z, cat.pos[1] + 1.1);
       const w = 1 / (1 + i);
       if (g.box && !g.box.far && g.y > cat.pos[1] - 3) { sum += g.y * w; wsum += w; if (g.y < st.refY - 0.6 && d < 10) gap = Math.max(gap, 0.5); }
       else if (d <= 10) gap = Math.max(gap, 1 - (d - T.terrainProbe[0]) / 10);
@@ -1523,7 +1642,9 @@ function createFollowCamera(THREE, camera, world) {
     // 1. ground reference
     if (!st.init) { st.refY = cat.pos[1]; st.aheadY = cat.pos[1]; st.laneX = cat.pos[0]; }
     const refTarget = grounded ? cat.pos[1] : Math.min(st.refY, cat.pos[1]);
-    st.refY = damp(st.refY, refTarget, grounded ? T.heightK : T.airHeightK, dt);
+    // follow a real drop promptly (falling fast, or landed below the reference); ignore jump arcs
+    const dropping = !grounded && cat.vel[1] < -3, below = grounded && cat.pos[1] < st.refY - 0.3;
+    st.refY = damp(st.refY, refTarget, below ? T.heightK * 2 : grounded ? T.heightK : dropping ? T.heightK : T.airHeightK, dt);
     // 2. terrain ahead
     const p = probe(cat);
     st.aheadY = damp(st.aheadY, p.y, 2.5, dt);
@@ -1607,7 +1728,7 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
   const T = b => (b.far ? BF : B);
 
   // ---------------- architecture from shapes ----------------
-  const fades = new Map(), unstableViews = [];
+  const fades = new Map(), unstableViews = [], bridges = [];
   for (const b of world.boxes) {
     const pc = plasterOf(b), Bt = T(b), dark = b.far ? 0.72 : 1;
     switch (b.kind) {
@@ -1652,7 +1773,23 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
         B.box(b.x0, b.x1, b.y1 - 0.04, b.y1, b.z0, b.z1, { top: 'metal', side: 'metal', topCol: hex3('#7a6a5c'), sideCol: hex3('#5a4c40'), uvSide: 1 });
         break;
       case 'lowPipe': fades.set(b.id, lowPipe(b)); break;
-      case 'tinRoof': shedRoof(b); break;
+      case 'tinRoof': shedRoof(b, 'tin'); break;
+      case 'ramp': shedRoof(b, 'grate'); break;
+      case 'tank':
+        B.box(b.x0, b.x1, b.y0, b.y1, b.z0, b.z1, { top: 'metal', side: 'metal', topCol: hex3('#7d8a86'), sideCol: hex3('#45524f'), sideColLow: hex3('#1c2224'), fadeDepth: 3, uvTop: 1.5, uvSide: 1.5 });
+        for (const y of [b.y1 - 0.15, b.y1 - 1.1, b.y1 - 2.1]) B.box(b.x0 - 0.04, b.x1 + 0.04, y - 0.06, y, b.z0 - 0.04, b.z1 + 0.04, { top: 'metal', side: 'metal', topCol: hex3('#3a4442'), sideCol: hex3('#2c3432'), faces: { pz: true, nz: true, px: true, nx: true } });
+        break;
+      case 'scaffold': scaffold(b); break;
+      case 'bridge': bridges.push({ b, g: ropeBridge(b) }); break;
+      case 'duct': fades.set(b.id, fadeBox(b, '#55605f')); break;
+      case 'hopPipe':
+        B.geo('metal', G.cyl, xf((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, (b.z0 + b.z1) / 2, (b.y1 - b.y0) / 2, b.x1 - b.x0 + 0.8, (b.z1 - b.z0) / 2, 0, 0, Math.PI / 2), hex3('#7a5a46'), THREE);
+        break;
+      case 'machine':
+        B.box(b.x0, b.x1, b.y0, b.y1, b.z0, b.z1, { top: 'metal', side: 'metal', topCol: hex3('#4c5654'), sideCol: hex3('#3a4341'), uvSide: 1 });
+        for (let i = 0; i < 4; i++) B.box(b.x1 - 0.02, b.x1 + 0.01, b.y0 + 0.25 + i * 0.16, b.y0 + 0.3 + i * 0.16, b.z0 + 0.3, b.z1 - 0.3, { top: 'dark', side: 'dark', faces: { px: true } });
+        { const sp = new THREE.Sprite(M.glowRed); sp.position.set(b.x1 + 0.05, b.y1 - 0.15, b.z1 - 0.2); sp.scale.setScalar(0.25); root.add(sp); }
+        break;
     }
   }
   function cornice(Bt, b, pc) {
@@ -1687,10 +1824,10 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
       for (const x of [b.x0, b.x1]) Bt.box(x - 0.04, x + 0.04, b.ye - 0.1, b.ye + 0.01, b.z0, b.z1, { top: 'dark', side: 'dark' });
     }
   }
-  function shedRoof(b) {
+  function shedRoof(b, mat) {
     const tc = hex3('#c9bca8'), lc = mul3(tc, 0.75), w = b.x1 - b.x0, len = Math.hypot(b.z1 - b.z0, b.yNear - b.yFar);
     const n = [0, (b.z1 - b.z0) / len, (b.yNear - b.yFar) / len];
-    B.quad('tin', [b.x0, b.yFar, b.z0], [b.x0, b.yNear, b.z1], [b.x1, b.yNear, b.z1], [b.x1, b.yFar, b.z0], n, [[0, 0], [len, 0], [len, w], [0, w]], [lc, tc, tc, lc]);
+    B.quad(mat, [b.x0, b.yFar, b.z0], [b.x0, b.yNear, b.z1], [b.x1, b.yNear, b.z1], [b.x1, b.yFar, b.z0], n, [[0, 0], [len, 0], [len, w], [0, w]], [lc, tc, tc, lc]);
     const pc = plasterOf(b);
     for (const [x, s] of [[b.x0 + 0.05, -1], [b.x1 - 0.05, 1]]) B.quad('wall', [x, b.y0, b.z1], [x, b.y0, b.z0], [x, b.yFar, b.z0], [x, b.yNear, b.z1], [s, 0, 0], [[0, 0], [1, 0], [1, 0.3], [0, 0.3]], [pc, pc, pc, pc]);
     B.box(b.x0, b.x1, b.yFar - 0.12, b.yFar, b.z0 - 0.05, b.z0 + 0.03, { top: 'dark', side: 'dark' });
@@ -1698,13 +1835,17 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
   // pipes: oxidised steel with flanges, and supports down into the alley
   function pipe(b) {
     const len = b.z1 - b.z0, zc = (b.z0 + b.z1) / 2, c = b.narrow ? hex3('#6f4f3e') : hex3('#4f6366');
-    const g = keep(new THREE.CylinderGeometry(b.r, b.r, len, b.narrow ? 14 : 22, 1, true));
-    const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (b.r * TAU), uv.getY(i) * len / 1.5);
-    B.geo('metal', g, xf(b.cx, b.cy, zc, 1, 1, 1, Math.PI / 2, 0, 0), c, THREE);
-    for (let z = b.z1 - 1.2; z > b.z0 + 0.4; z -= 2.4) B.geo('metal', G.cyl, xf(b.cx, b.cy, z, b.r * 1.13, 0.09, b.r * 1.13, Math.PI / 2, 0, 0), mul3(c, 0.7), THREE);
+    // inclined pipes run from cy at the near end to cyFar at the far end
+    const yAt = z => world.pipeY(b, z), dir = new THREE.Vector3(0, yAt(b.z0) - yAt(b.z1), -len), L = dir.length(); dir.normalize();
+    const along = (z, sx, sy, sz) => { _q.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir); return _m.compose(_p.set(b.cx, yAt(z), z), _q, _s.set(sx, sy, sz)); };
+    const g = keep(new THREE.CylinderGeometry(b.r, b.r, L, b.narrow ? 14 : 22, 1, true));
+    const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (b.r * TAU), uv.getY(i) * L / 1.5);
+    B.geo('metal', g, along(zc, 1, 1, 1), c, THREE);
+    for (let z = b.z1 - 1.2; z > b.z0 + 0.4; z -= 2.4) B.geo('metal', G.cyl, along(z, b.r * 1.13, 0.09, b.r * 1.13), mul3(c, 0.7), THREE);
     for (let z = b.z1 - 3; z > b.z0 + 1; z -= 6) {
-      B.geo('metal', G.box, xf(b.cx, (b.cy - b.r + STREET_Y) / 2, z, 0.12, b.cy - b.r - STREET_Y, 0.12), hex3('#3a4244'), THREE);
-      B.geo('metal', G.box, xf(b.cx, b.cy - b.r - 0.05, z, b.r * 2.2, 0.1, 0.14), hex3('#3a4244'), THREE);
+      const y = yAt(z);
+      B.geo('metal', G.box, xf(b.cx, (y - b.r + STREET_Y) / 2, z, 0.12, y - b.r - STREET_Y, 0.12), hex3('#3a4244'), THREE);
+      B.geo('metal', G.box, xf(b.cx, y - b.r - 0.05, z, b.r * 2.2, 0.1, 0.14), hex3('#3a4244'), THREE);
     }
   }
   function catwalk(Bt, b) {
@@ -1713,6 +1854,37 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
       Bt.geo('metal', G.box, xf((b.x0 + b.x1) / 2, b.y0 - 0.04, z, b.x1 - b.x0 + 0.1, 0.06, 0.08), hex3('#3a3a36'), THREE);
       for (const x of [b.x0 - 0.03, b.x1 + 0.03]) Bt.geo('cable', G.cyl8, xf(x, b.y1 + 2.2, z, 0.012, 4.4, 0.012), WHITE, THREE);
     }
+  }
+  // scaffolding: plank deck on a pole frame that runs down into the alley
+  function scaffold(b) {
+    for (let x = b.x0 + 0.08; x < b.x1; x += 0.24) B.box(x, Math.min(b.x1, x + 0.21), b.y0, b.y1, b.z0, b.z1, { top: 'plain', side: 'plain', topCol: mul3(hex3('#8a6a48'), 0.85 + ((x * 31) % 1) * 0.3), sideCol: hex3('#5a4430') });
+    for (const x of [b.x0 + 0.05, b.x1 - 0.05]) for (const z of [b.z0 + 0.05, b.z1 - 0.05]) B.geo('metal', G.cyl8, xf(x, (b.y1 + 0.9 + STREET_Y) / 2, z, 0.03, b.y1 + 0.9 - STREET_Y, 0.03), hex3('#6b6a62'), THREE);
+    for (let y = b.y0 - 1.5; y > STREET_Y; y -= 2) for (const z of [b.z0 + 0.05, b.z1 - 0.05]) B.geo('metal', G.cyl8, xf((b.x0 + b.x1) / 2, y, z, 0.025, b.x1 - b.x0, 0.025, 0, 0, Math.PI / 2), hex3('#6b6a62'), THREE);
+    B.geo('metal', G.cyl8, xf((b.x0 + b.x1) / 2, b.y1 + 0.85, b.z0 + 0.05, 0.025, b.x1 - b.x0, 0.025, 0, 0, Math.PI / 2), hex3('#6b6a62'), THREE);
+  }
+  // rope bridge: slatted planks on two ropes, hung from anchors; moves with the sway
+  function ropeBridge(b) {
+    const T2 = new Batch(), w = b.x1 - b.x0, cx = (b.x0 + b.x1) / 2;
+    for (let z = b.z1 - 0.1; z > b.z0; z -= 0.27) T2.box(b.x0 - 0.04, b.x1 + 0.04, b.y0, b.y1, z - 0.2, z, { top: 'plain', side: 'plain', topCol: mul3(hex3('#7d5f40'), 0.8 + ((z * 7.3) % 1 + 1) % 1 * 0.35), sideCol: hex3('#4a3828') });
+    const len = b.z1 - b.z0;
+    for (const x of [b.x0 - 0.05, b.x1 + 0.05]) {
+      for (const y of [b.y1 - 0.03, b.y1 + 0.45]) T2.geo('cable', G.cyl8, xf(x, y, (b.z0 + b.z1) / 2, 0.012, len, 0.012, Math.PI / 2, 0, 0), WHITE, THREE);
+      for (let z = b.z1 - 0.5; z > b.z0; z -= 1) T2.geo('cable', G.cyl8, xf(x, b.y1 + 0.22, z, 0.008, 0.45, 0.008), WHITE, THREE);
+    }
+    void w; void cx;
+    const g = T2.build(THREE, { plain: M.plain, cable: M.cable }, { cast: true, receive: true });
+    root.add(g);
+    // anchors on each end stay put
+    for (const z of [b.z0, b.z1]) for (const x of [b.x0 - 0.12, b.x1 + 0.12]) B.geo('metal', G.box, xf(x, b.y1 + 0.3, z, 0.06, 0.7, 0.06), hex3('#4a4a44'), THREE);
+    return g;
+  }
+  // a fading obstruction the camera must see past (ducts, low pipes)
+  function fadeBox(b, col) {
+    const g = new THREE.Group(), mat = own(new THREE.MeshLambertMaterial({ color: col, transparent: true, opacity: 1 }));
+    const m = new THREE.Mesh(G.box, mat); m.scale.set(b.x1 - b.x0, b.y1 - b.y0, b.z1 - b.z0); m.position.set((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, (b.z0 + b.z1) / 2); m.castShadow = true; g.add(m);
+    for (const x of [b.x0 + 0.15, b.x1 - 0.15]) { const s2 = new THREE.Mesh(G.box, mat); s2.scale.set(0.06, 0.6, (b.z1 - b.z0) + 0.06); s2.position.set(x, b.y1 + 0.2, (b.z0 + b.z1) / 2); g.add(s2); }
+    root.add(g);
+    return { g, mat, k: 1 };
   }
   function lowPipe(b) {
     const g = new THREE.Group(), mat = own(new THREE.MeshLambertMaterial({ color: '#6c7e80', transparent: true, opacity: 1 }));
@@ -1756,7 +1928,7 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
     e.g.attributes.position.needsUpdate = true; e.g.attributes.aLife.needsUpdate = true; e.g.attributes.aSize.needsUpdate = true;
   }
   // ---------------- lived-in detail and machinery ----------------
-  const lamps = [], fans = [], smokes = [];
+  const lamps = [], fans = [], smokes = [], signal = [], sparks = [];
   const glowMat = c => (c === 'green' ? M.glowGreen : c === 'violet' ? M.glowViolet : M.glowWarm);
   for (const d of slice.decor) {
     switch (d.kind) {
@@ -1801,6 +1973,58 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
         for (const x of [d.x0 + 2, d.x1 - 2]) BF.geo('cable', G.cyl8, xf(x, d.y + 3, d.z, 0.02, 6, 0.02), WHITE, THREE);
         break;
       }
+      case 'bowl':
+        B.geo('plain', G.cyl8, xf(d.x, d.y + 0.03, d.z, 0.09, 0.06, 0.09), hex3('#8a3a2c'), THREE);
+        B.geo('plain', G.cyl8, xf(d.x + 0.2, d.y + 0.02, d.z + 0.1, 0.07, 0.04, 0.07), hex3('#7a7f86'), THREE);
+        break;
+      case 'gauge':
+        B.geo('metal', G.cyl8, xf(d.x + 1.5, d.y + 0.25, d.z, 0.16, 0.06, 0.16, Math.PI / 2, 0, 0), hex3('#c9c1a8'), THREE);
+        B.geo('metal', G.cyl8, xf(d.x + 1.5, d.y + 0.1, d.z, 0.03, 0.2, 0.03), hex3('#3a3a36'), THREE);
+        break;
+      case 'brokenCatwalk':
+        for (const [z, s2] of [[d.z1, 1], [d.z0, -1]]) B.geo('grate', G.box, xf((d.x0 + d.x1) / 2, d.y - 0.35, z - s2 * 0.12, d.x1 - d.x0, 0.05, 0.75, s2 * 1.1, 0, 0.1 * s2), hex3('#9a846e'), THREE);
+        B.geo('cable', G.cyl8, xf(d.x1 + 0.05, d.y - 0.9, (d.z0 + d.z1) / 2, 0.01, 1.8, 0.01, 0.2, 0, 0), WHITE, THREE);
+        break;
+      case 'signalLine':
+        for (let i = 0; i + 1 < d.points.length; i++) {
+          const a = new THREE.Vector3(...d.points[i]), c = new THREE.Vector3(...d.points[i + 1]), mid = a.clone().lerp(c, 0.5); mid.y -= 0.6 + a.distanceTo(c) * 0.03;
+          const mat = own(new THREE.MeshBasicMaterial({ color: '#16191d' }));
+          const m = new THREE.Mesh(keep(new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(a, mid, c), 24, 0.025, 5, false)), mat);
+          root.add(m); signal.push({ m, mat, lit: 0 });
+        }
+        break;
+      case 'snapped': {
+        B.geo('cable', G.cyl8, xf(d.x, d.y - 0.35, d.z, 0.014, 0.7, 0.014, 0.25, 0, 0.15), WHITE, THREE);
+        const sp = new THREE.Sprite(M.glowGreen); sp.position.set(d.x + 0.05, d.y - 0.72, d.z + 0.08); sp.scale.setScalar(0.3); root.add(sp); sparks.push(sp);
+        break;
+      }
+      case 'struts':
+        for (let z = d.z1 - 0.4; z > d.z0; z -= 1.6) BF.geo('metal', G.box, xf(d.x + d.side * 0.35, d.y - 0.5, z, 0.06, 1.25, 0.06, 0, 0, d.side * 0.7), hex3('#4a4642'), THREE);
+        break;
+      case 'scaffoldFace':
+        for (let z = d.z1; z >= d.z0; z -= 1.6) BF.geo('metal', G.cyl8, xf(d.x, (d.y0 + d.y1) / 2, z, 0.03, d.y1 - d.y0, 0.03), hex3('#5f5e57'), THREE);
+        for (let y = d.y1 - 0.2; y > d.y0; y -= 2) {
+          BF.geo('metal', G.cyl8, xf(d.x, y, (d.z0 + d.z1) / 2, 0.025, d.z1 - d.z0, 0.025, Math.PI / 2, 0, 0), hex3('#5f5e57'), THREE);
+          BF.box(d.x - 0.25, d.x + 0.25, y - 0.05, y, d.z0, d.z1, { top: 'plain', side: 'plain', topCol: hex3('#6e553a'), sideCol: hex3('#4a3a2a') });
+        }
+        break;
+      case 'balcony': {
+        const s2 = d.side, x0 = Math.min(d.x, d.x + s2 * 0.9), x1 = Math.max(d.x, d.x + s2 * 0.9);
+        BF.box(x0, x1, d.y - 0.1, d.y, d.z - 0.9, d.z + 0.9, { top: 'concrete', side: 'plain', topCol: hex3('#6f6a62'), sideCol: hex3('#5a5650') });
+        BF.box(s2 > 0 ? x1 - 0.04 : x0, s2 > 0 ? x1 : x0 + 0.04, d.y, d.y + 0.8, d.z - 0.9, d.z + 0.9, { top: 'metal', side: 'metal', sideCol: hex3('#2c2e30'), topCol: hex3('#2c2e30') });
+        BF.box(x0 + 0.1, x1 - 0.1, d.y, d.y + 0.45, d.z - 0.7, d.z - 0.1, { top: 'metal', side: 'metal', sideCol: hex3('#a9aca6'), topCol: hex3('#b9bcb6') });
+        break;
+      }
+      case 'cable': {
+        const a = new THREE.Vector3(...d.a), c = new THREE.Vector3(...d.b), mid = a.clone().lerp(c, 0.5); mid.y -= d.sag || 0.6;
+        const g = new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(a, mid, c), 12, 0.014, 4, false);
+        BF.geo('cable', g, _m.identity(), WHITE, THREE); g.dispose();
+        break;
+      }
+      case 'skyBridge':
+        BF.box(d.x0, d.x1, d.y, d.y + 1.6, d.z - 0.8, d.z + 0.8, { top: 'metal', side: 'wall', topCol: hex3('#3a4241'), sideCol: hex3('#7f8478'), sideColLow: hex3('#5a5e56'), fadeDepth: 2, uvSide: 3, uvShift: d.z });
+        BF.box(d.x0, d.x1, d.y - 0.2, d.y, d.z - 0.9, d.z + 0.9, { top: 'metal', side: 'metal', topCol: hex3('#3a4241'), sideCol: hex3('#2a302f') });
+        break;
       case 'farBlock': {
         const k = clamp(1 - Math.abs(d.x) / 70, 0.45, 0.85), pc = mul3(PL[(Math.abs(d.x * 7 + d.z) | 0) % PL.length], k);
         BF.box(d.x - d.w / 2, d.x + d.w / 2, STREET_Y, d.top, d.z - d.d / 2, d.z + d.d / 2, { top: 'concrete', side: 'wall', topCol: mul3(pc, 0.6), sideCol: pc, sideColLow: lowCol, fadeDepth: 10, uvSide: 3, uvShift: d.z * 0.37 });
@@ -1820,6 +2044,8 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
     const hub = new THREE.Group(); hub.position.set(x - Math.sign(x) * 0.17, y, z); hub.rotation.y = ry;
     const mat = M.dark;
     for (let i = 0; i < 4; i++) { const bl = new THREE.Mesh(G.box, mat); bl.scale.set(0.16, 0.62, 0.03); bl.position.y = 0.3; const arm = new THREE.Group(); arm.rotation.z = i * Math.PI / 2; arm.add(bl); hub.add(arm); }
+    B.geo('metal', G.torus, xf(x - Math.sign(x) * 0.16, y, z, 0.7, 0.7, 1.4, 0, ry, 0), hex3('#59605e'), THREE);
+    for (let i = -2; i <= 2; i++) B.geo('metal', G.box, xf(x - Math.sign(x) * 0.2, y + i * 0.22, z, 0.02, 0.02, 1.3), hex3('#2a2e30'), THREE);   // a grille over it
     root.add(hub); fans.push(hub);
   }
 
@@ -1838,6 +2064,13 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
     const m = new THREE.Mesh(keep(new THREE.OctahedronGeometry(0.085, 0)), M.fragment); m.scale.set(0.8, 1.3, 0.8); g.add(m);
     const sp = new THREE.Sprite(M.glowGreen); sp.scale.setScalar(0.9); g.add(sp);
     root.add(g); return { f, g, m, sp, pop: 0 };
+  });
+  const wps = hazards.waypoints.map(w => {
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) B.geo('metal', G.box, xf(w.x + sx * 0.12, w.y + 1.4, w.z + sz * 0.12, 0.03, 2.8, 0.03, sz * 0.04, 0, -sx * 0.04), hex3('#3c4244'), THREE);
+    for (let i = 1; i < 6; i++) B.geo('metal', G.box, xf(w.x, w.y + i * 0.5, w.z, 0.26, 0.025, 0.26), hex3('#3c4244'), THREE);
+    B.geo('plain', G.dish, xf(w.x - 0.1, w.y + 2.3, w.z, 0.28, 0.28, 0.1, -0.3, -0.8, Math.PI / 2), hex3('#8a887e'), THREE);
+    const lamp = new THREE.Sprite(M.glowRed); lamp.position.set(w.x, w.y + 2.9, w.z); lamp.scale.setScalar(0.35); root.add(lamp);
+    return { w, lamp };
   });
   const R = hazards.relay;
   for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) B.geo('metal', G.box, xf(R.x + sx * 0.22, R.y + 1.5, R.z + sz * 0.22, 0.04, 3, 0.04, sz * 0.06, 0, -sx * 0.06), hex3('#3c4244'), THREE);
@@ -1948,6 +2181,18 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
     beaconMat.opacity = on ? 1 : 0.55;
     for (const [i, l] of towerLights.entries()) l.material.opacity = on ? 0.9 : 0.25 + 0.2 * Math.sin(time * 1.3 + i);
     for (const f of fans) f.rotation.z += dt * 5;
+    for (const br of bridges) br.g.position.x = br.b.dx || 0;
+    // the signal line: each segment lights as the relay at its end wakes
+    const woke = hazards.waypoints.map(w => w.active).concat([hazards.relay.active]);
+    signal.forEach((sg, i) => {
+      sg.lit = damp(sg.lit, woke[i] ? 1 : 0, 3, dt);
+      sg.mat.color.setRGB(lerp(0.086, 0.35, sg.lit), lerp(0.098, 0.95, sg.lit) * (0.85 + 0.15 * Math.sin(time * 6 - i)), lerp(0.114, 0.6, sg.lit));
+    });
+    for (const W of wps) {
+      W.lamp.material = W.w.active ? M.glowGreen : M.glowRed;
+      W.lamp.scale.setScalar(W.w.active ? 0.9 + 0.4 * Math.exp(-W.w.t * 2) * 3 + 0.1 * Math.sin(time * 5) : 0.3 + 0.08 * Math.sin(time * 1.7));
+    }
+    for (const [i, sp] of sparks.entries()) { const on = Math.sin(time * 23 + i * 7) > 0.55 || Math.sin(time * 3.1 + i) > 0.97; sp.visible = on; sp.scale.setScalar(0.18 + Math.random() * 0.25); }
     for (const l of lamps) if (l.flicker) l.sp.scale.setScalar(l.base * (0.9 + 0.1 * Math.sin(time * 13 + l.ph) * (Math.sin(time * 0.7 + l.ph) > 0.85 ? 3 : 1)));
     void H;
   }
@@ -2330,6 +2575,7 @@ window.plethoraBit = {
         else if (e.type === 'bump' || e.type === 'scramble') haptic('medium');
         else if (e.type === 'scald') haptic('warning');
         else if (e.type === 'give') haptic('heavy');
+        else if (e.type === 'waypoint') { haptic('light'); try { ctx.platform.milestone('waypoint', { z: Math.round(-e.w.z) }); } catch (er) { } }
         else if (e.type === 'fragment') { haptic('success'); try { ctx.platform.interact({ type: 'fragment', count: e.count }); ctx.platform.milestone('fragment', { count: e.count }); } catch (er) { } }
         else if (e.type === 'relay' && !finish) {
           finish = { t: 0, time: runT, frags: hazards.charge };
@@ -2345,8 +2591,9 @@ window.plethoraBit = {
       }
       cat.events.length = 0;
       // checkpoints only advance on sound footing
-      const next = slice.checkpoints[cpIdx + 1];
-      if (next && cat.grounded && !cat.ground.unstable && cat.pos[2] < next[2] && Math.abs(cat.pos[1] - next[1]) < 0.6) cpIdx++;
+      // checkpoints: routes branch, so take the furthest one reached on sound footing at its height
+      if (cat.grounded && !cat.ground.unstable && cat.ground.dx === undefined)
+        for (let i = cpIdx + 1; i < slice.checkpoints.length; i++) { const c = slice.checkpoints[i]; if (cat.pos[2] < c[2] && Math.abs(cat.pos[1] - c[1]) < 0.6 && Math.abs(cat.pos[0] - c[0]) < 2.2) cpIdx = i; }
       // the relay is reached: the signal climbs to the tower, then the result
       if (finish) {
         finish.t += dt;
@@ -2359,12 +2606,12 @@ window.plethoraBit = {
     }
 
     // ---------- render ----------
-    const rs = { pos: [0, 0, 0], fwd: 0, vx: 0, vy: 0, grounded: true, crouch: 0, teeter: 0, edgeAhead: 0, narrow: 0, scr: null, stumble: 0, assistX: 0, sinceJump: 9, slope: [0, 0], charge: 0, events: frameEvents };
+    const rs = { pos: [0, 0, 0], fwd: 0, vx: 0, vy: 0, grounded: true, crouch: 0, teeter: 0, edgeAhead: 0, narrow: 0, scr: null, stumble: 0, assistX: 0, sinceJump: 9, slope: [0, 0], charge: 0, surf: 'flat', sway: 0, events: frameEvents };
     const camCat = { pos: rs.pos, vel: [0, 0, 0], fwd: 0, grounded: true, ground: null, finale: 0 };
     function frame(dt) {
       const a = mode === 'play' || mode === 'result' ? clamp(acc / SIM_DT, 0, 1) : 1;
       for (let i = 0; i < 3; i++) rs.pos[i] = lerp(cat.prev[i], cat.pos[i], a);
-      Object.assign(rs, { fwd: mode === 'title' ? 0 : cat.fwd, vx: cat.vel[0], vy: cat.vel[1], grounded: cat.grounded, crouch: cat.crouch, teeter: cat.teeter, edgeAhead: cat.edgeAhead, narrow: cat.narrow, scr: cat.scr ? clamp(cat.scr.t, 0, 1) : null, stumble: cat.stumble, assistX: cat.assistX, sinceJump: cat.sinceJump, slope: cat.slope, charge: hazards.charge });
+      Object.assign(rs, { fwd: mode === 'title' ? 0 : cat.fwd, vx: cat.vel[0], vy: cat.vel[1], grounded: cat.grounded, crouch: cat.crouch, teeter: cat.teeter, edgeAhead: cat.edgeAhead, narrow: cat.narrow, scr: cat.scr ? clamp(cat.scr.t, 0, 1) : null, stumble: cat.stumble, assistX: cat.assistX, sinceJump: cat.sinceJump, slope: cat.slope, charge: hazards.charge, surf: cat.surf, sway: cat.grounded && cat.ground && cat.ground.dx !== undefined ? cat.ground.dx : 0 });
       rig.update(dt, rs);
       Object.assign(camCat, { vel: cat.vel, fwd: rs.fwd, grounded: cat.grounded, ground: cat.ground, finale: finish ? clamp(finish.t / 1.5, 0, 1) : 0 });
       cam.update(dt, camCat, ctx.height > ctx.width, frameEvents);
