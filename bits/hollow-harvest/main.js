@@ -1958,8 +1958,15 @@ window.plethoraBit = {
       }
       // a cloud shadow passing over the field
       if (run && run.shade > 0) {
-        const u = 1 - run.shade / 5, x0 = Math.round(lerp(W + 40, -W - 40, u));
-        G.globalAlpha = 0.28; R(x0, L.yHor, W + 30, H - L.yHor, FIX.ink); G.globalAlpha = 1;
+        // stepped like a cloud's edge, lighter at its ends, sliding across the crop
+        const u = 1 - run.shade / 5, w = Math.round(W * 0.8), x0 = Math.round(lerp(W + 40, -w - 40, u)), y0 = L.yDist;
+        G.globalAlpha = 0.2;
+        R(x0 + 12, y0, w - 24, L.yFront - y0, FIX.ink);
+        for (let k = 0; k < 3; k++) {
+          const inset = Math.round((L.yFront - y0) * (0.2 + k * 0.2));
+          R(x0 + k * 4, y0 + inset, 4, L.yFront - y0 - inset, FIX.ink); R(x0 + w - 4 - k * 4, y0 + inset, 4, L.yFront - y0 - inset, FIX.ink);
+        }
+        G.globalAlpha = 1;
       }
     }
 
