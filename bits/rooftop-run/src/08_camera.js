@@ -84,7 +84,10 @@ function createFollowCamera(THREE, camera, world) {
     const pullT = hit < Infinity ? clamp((hit - T.nearClip) / dl, 0.25, 1) : 1;
     st.pull = pullT < st.pull ? pullT : damp(st.pull, pullT, 2.5, dt);
     st.fade.clear();
-    for (const b of world.overlaps(Math.min(o[0], st.pos.x) - 0.2, Math.max(o[0], st.pos.x) + 0.2, Math.min(o[1], st.pos.y), Math.max(o[1], st.pos.y) + 0.2, Math.min(o[2], st.pos.z), Math.max(o[2], st.pos.z))) if (b.cam === 'fade') st.fade.add(b.id);
+    // anticipate: anything thin between the camera and the next 1.5 m of the cat's path fades
+    // before the cat goes under it, not once it is already hidden
+    const ahead = o[2] - 1.5 - cat.fwd * 0.15;
+    for (const b of world.overlaps(Math.min(o[0], st.pos.x) - 0.3, Math.max(o[0], st.pos.x) + 0.3, Math.min(o[1] - 0.3, st.pos.y), Math.max(o[1], st.pos.y) + 0.2, Math.min(ahead, st.pos.z), Math.max(o[2], st.pos.z))) if (b.cam === 'fade') st.fade.add(b.id);
 
     camera.position.set(o[0] + d[0] * dl * st.pull, o[1] + d[1] * dl * st.pull, o[2] + d[2] * dl * st.pull);
     camera.lookAt(st.look);

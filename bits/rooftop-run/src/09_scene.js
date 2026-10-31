@@ -177,9 +177,10 @@ function createScene(THREE, A, scene, world, lab, opts) {
   }
   function setFaded(ids, dt) {
     for (const [id, f] of fades) {
-      const want = ids.has(id) ? 0.28 : 1;
-      f.k = damp(f.k, want, 10, dt);
-      f.mat.opacity = f.k; f.mat.transparent = f.k < 0.99; f.mat.depthWrite = f.k > 0.99;
+      const want = ids.has(id) ? 0.35 : 1;
+      f.k = damp(f.k, want, want < f.k ? 22 : 6, dt);
+      // stays transparent: three.js compiles opaque materials to ignore opacity
+      f.mat.opacity = f.k; f.mat.depthWrite = f.k > 0.99;
     }
   }
   function dispose() {
