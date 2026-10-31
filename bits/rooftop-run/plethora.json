@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "runtime": "plethora-bit@2",
   "entry": "main.js",
-  "title": "Rooftop Run",
-  "description": "A cat crosses weathered city rooftops: steer, leap the gaps, duck under the pipes, keep your balance on narrow ledges. Movement lab prototype.",
+  "title": "The Last Signal",
+  "description": "A small black cat carries a stolen power core across a tiled city overgrown by industry: run the ridges, balance on pipes, time the steam, cross the catwalks, and relight the signal tower.",
   "tags": [
     "3d",
-    "endless",
-    "platformer"
+    "platformer",
+    "adventure"
   ],
   "permissions": [
     "haptics"
@@ -18,7 +18,7 @@
   "display": "fullscreen",
   "onboarding": {
     "kind": "one_line",
-    "version": 1,
-    "message": "Drag left to steer. Tap right to jump, hold to go higher."
+    "version": 2,
+    "message": "Left thumb steers, pull back to wait. Right thumb jumps."
   }
 }

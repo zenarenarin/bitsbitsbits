@@ -1,8 +1,9 @@
 // Headless browser smoke test on an emulated phone: boot, real touch input
-// (stick and jump at once), an autopilot run through the whole lab, and
-// screenshots of each beat in landscape and portrait.
+// (stick and jump at once), an autopilot run through the whole slice to the
+// relay, and screenshots of each beat in landscape and portrait.
 // Usage: (serve this folder on :8765) node dev/smoke.js <outdir>
 const { chromium } = require('playwright');
+const pilot = require('./pilot.js');
 const out = process.argv[2] || '.';
 const shots = process.argv.includes('--no-shots') ? false : true;
 (async () => {
@@ -36,37 +37,35 @@ const shots = process.argv.includes('--no-shots') ? false : true;
     await touch('touchEnd', []);
     const released = await page.evaluate(() => ({ stick: !!window.__rr.input.state.stick, held: window.__rr.input.state.jumpHeld }));
     check(`${label}: releasing both clears the input`, !released.stick && !released.held, released);
-    // autopilot through the lab, stopping at each beat for a screenshot
+    // autopilot through the slice, rendering every step, with a screenshot at each beat
+    await page.evaluate(pilot);
     await page.evaluate(() => {
       const r = window.__rr, c = r.cat;
-      const toward = x => Math.max(-1, Math.min(1, (x - c.pos[0]) * 2.5));
-      const plan = z => z > -11 ? 0 : z > -16 ? -0.6 : z > -24 ? 0 : z > -46 ? 0.25 : z > -66 ? 1.4 : 0;
-      const jumpAt = [[-29.4, -30.6], [-65.4, -66.4]];
       window.__falls = 0;
       window.__runTo = (zt) => {
-        let prev = c.pos[2];
-        for (let i = 0; i < 60 * 20 && c.pos[2] > zt; i++) {
-          const z = c.pos[2];
-          r.sim({ steer: toward(plan(z)), jump: jumpAt.some(([a, b]) => z < a && z > b) });
+        let prev = c.pos[2], crouched = 0;
+        for (let i = 0; i < 60 * 30 && c.pos[2] > zt && r.mode !== 'result'; i++) {
+          r.sim(window.__pilot(c, r.hazards)); if (c.crouch) crouched = 1;
           if (c.pos[2] > prev + 3) window.__falls++;
           prev = c.pos[2];
+          if (i % 2 === 0) r.frame();
         }
-        for (let i = 0; i < 4; i++) r.sim({ steer: toward(plan(c.pos[2])) });
-        for (let i = 0; i < 45; i++) r.frame();   // let the camera and rig settle
-        return { z: c.pos[2], y: c.pos[1], grounded: c.grounded, crouch: c.crouch, falls: window.__falls };
+        r.frame();
+        return { z: +c.pos[2].toFixed(2), y: +c.pos[1].toFixed(2), crouched, falls: window.__falls, charge: r.hazards.charge, mode: r.mode };
       };
       r.restart();
     });
-    const beats = [[-6, 'wide-roof'], [-29.6, 'gap-1-takeoff'], [-31.4, 'gap-1-air'], [-39.4, 'low-passage'], [-53, 'ledge'], [-66.2, 'drop'], [-71, 'landing'], [-94.5, 'end']];
+    const beats = [[-8.5, 'roof'], [-19, 'ridge'], [-33, 'pipe'], [-40, 'narrow-pipe'], [-51.6, 'squeeze'], [-55.4, 'unstable'], [-66.5, 'tin-roof'], [-200, 'relay']];
     for (const [z, name] of beats) {
       const st = await page.evaluate(z => window.__runTo(z), z);
-      if (name === 'low-passage') check(`${label}: ducks in the low passage`, st.crouch === 1, st);
+      if (name === 'squeeze') check(`${label}: squeezes under the low pipe`, st.crouched === 1, st);
       if (shots) await page.screenshot({ path: `${out}/${label}-${name}.png` });
     }
-    const fin = await page.evaluate(() => window.__runTo(-96));
-    check(`${label}: autopilot completes the lab with no falls`, fin.falls === 0, fin);
-    const calls = await page.evaluate(() => { window.__rr.frame(); return window.__rr.renderer.info.render.calls; });
-    check(`${label}: draw calls under 120`, calls < 120, calls);
+    const fin = await page.evaluate(() => { const r = window.__rr; for (let i = 0; i < 160; i++) { r.sim(window.__pilot(r.cat, r.hazards)); r.frame(); } return { mode: r.mode, charge: r.hazards.charge, falls: window.__falls }; });
+    check(`${label}: autopilot reaches the relay with all fragments and no falls`, fin.mode === 'result' && fin.charge === 3 && fin.falls === 0, fin);
+    if (shots) await page.screenshot({ path: `${out}/${label}-result.png` });
+    const calls = await page.evaluate(() => { const r = window.__rr; r.restart(); r.warp(2); r.frame(); return r.renderer.info.render.calls; });
+    check(`${label}: draw calls under 160`, calls < 160, calls);
     check(`${label}: no page errors`, errs.length === 0, errs.slice(0, 3));
     await bctx.close();
   }

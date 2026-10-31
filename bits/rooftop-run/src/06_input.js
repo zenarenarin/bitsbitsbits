@@ -11,14 +11,14 @@
 
 function createInput(ctx, canvas, ui) {
   const I = TUNING.input;
-  const state = { steer: 0, jumpHeld: false, presses: 0, stick: null, keys: new Set(), keySteer: 0, enabled: false, virtual: null };
+  const state = { steer: 0, pace: 0, jumpHeld: false, presses: 0, stick: null, keys: new Set(), keySteer: 0, enabled: false, virtual: null };
   const roles = new Map();
   const rect = () => canvas.getBoundingClientRect();
   const jumpZoneX = () => ctx.width * (1 - I.jumpZone);
   const anyJumpPointer = () => { for (const r of roles.values()) if (r.role === 'jump') return true; return false; };
 
   function press() { state.presses++; state.jumpHeld = true; ui.jumpDown(true); }
-  function releaseCheck() { state.jumpHeld = anyJumpPointer() || state.keys.has('Space') || state.keys.has('KeyW') || state.keys.has('ArrowUp'); if (!state.jumpHeld) ui.jumpDown(false); }
+  function releaseCheck() { state.jumpHeld = anyJumpPointer() || state.keys.has('Space'); if (!state.jumpHeld) ui.jumpDown(false); }
 
   function onDown(e) {
     if (!state.enabled) return;
@@ -54,13 +54,13 @@ function createInput(ctx, canvas, ui) {
   ctx.listen(canvas, 'pointercancel', onUp);
   ctx.listen(canvas, 'contextmenu', e => e.preventDefault());
 
-  const KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'KeyA', 'KeyD', 'KeyW', 'Space']);
+  const KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyA', 'KeyD', 'KeyW', 'KeyS', 'Space']);
   ctx.listen(window, 'keydown', e => {
     if (e.target && e.target.tagName === 'INPUT') return;
     if (KEYS.has(e.code)) e.preventDefault();
     if (e.repeat || !state.enabled) return;
     state.keys.add(e.code);
-    if (e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') press();
+    if (e.code === 'Space') press();
   });
   ctx.listen(window, 'keyup', e => { state.keys.delete(e.code); releaseCheck(); });
 
@@ -68,19 +68,22 @@ function createInput(ctx, canvas, ui) {
   function sample(dt) {
     if (state.virtual) {
       const v = state.virtual; const p = v.jump && !v._was; v._was = !!v.jump;
-      return { steer: v.steer || 0, jumpPressed: p, jumpHeld: !!v.jump };
+      return { steer: v.steer || 0, pace: v.pace || 0, jumpPressed: p, jumpHeld: !!v.jump };
     }
     const k = state.keys;
     const want = ((k.has('ArrowRight') || k.has('KeyD')) ? 1 : 0) - ((k.has('ArrowLeft') || k.has('KeyA')) ? 1 : 0);
     // keys are digital; give them a short ramp so they steer like a thumb, not a switch
     state.keySteer += clamp(want - state.keySteer, -dt * 9, dt * 9);
     let steer = state.keySteer;
+    // pace: forward hurries, back waits. Keys are digital; the stick is analogue.
+    let pace = ((k.has('ArrowUp') || k.has('KeyW')) ? 1 : 0) - ((k.has('ArrowDown') || k.has('KeyS')) ? 1 : 0);
     if (state.stick) {
       const s = state.stick, n = clamp((s.x - s.ox) / I.stickRadius, -1, 1), m = Math.abs(n);
       steer = m < I.stickDead ? 0 : sign(n) * Math.pow((m - I.stickDead) / (1 - I.stickDead), I.stickCurve);
+      pace = clamp(-(s.y - s.oy) / I.stickRadius, -1, 1);
     }
-    state.steer = steer;
-    const out = { steer, jumpPressed: state.presses > 0, jumpHeld: state.jumpHeld };
+    state.steer = steer; state.pace = pace;
+    const out = { steer, pace, jumpPressed: state.presses > 0, jumpHeld: state.jumpHeld };
     state.presses = 0;
     return out;
   }

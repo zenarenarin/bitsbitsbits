@@ -12,7 +12,7 @@
 const SIM_DT = 1 / 60;
 
 window.plethoraBit = {
-  meta: { title: 'Rooftop Run', runtime: 'plethora-bit@2', tags: ['3d', 'endless', 'platformer'], permissions: ['haptics'] },
+  meta: { title: 'The Last Signal', runtime: 'plethora-bit@2', tags: ['3d', 'platformer', 'adventure'], permissions: ['haptics'] },
 
   async init(ctx) {
     const caps = ctx.capabilities || {};
@@ -67,9 +67,10 @@ window.plethoraBit = {
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(54, ctx.width / ctx.height, 0.05, 400);
     const world = new World();
-    const lab = buildLab(world);
+    const slice = buildSlice(world);
+    const hazards = new Hazards(world, slice);
     let shadows = true;
-    const view = createScene(THREE, A, scene, world, lab, { small, shadows });
+    const view = createScene(THREE, A, scene, world, slice, hazards, { small, shadows });
     const cat = new Cat(world);
     const rig = createCatRig(THREE, A);
     scene.add(rig.root);
@@ -79,7 +80,8 @@ window.plethoraBit = {
     const input = createInput(ctx, canvas, hud);
 
     // ---------- state ----------
-    let mode = 'title', frozen = false, acc = 0, lap = 1, cpIdx = 0, best = 0, respawn = null, contextLost = false, hintT = 0;
+    let mode = 'title', frozen = false, acc = 0, cpIdx = 0, respawn = null, contextLost = false, hintT = 0;
+    let runT = 0, finish = null, bestTime = Infinity, attempt = 0;
     const frameEvents = [];
     const fps = { t: 0, n: 0, v: 0 };
     function haptic(kind) { try { if (caps.haptics) ctx.platform.haptic(kind); } catch (e) { } }
@@ -90,8 +92,9 @@ window.plethoraBit = {
       if (g.box) { cat.pos[1] = g.y; cat.prev = cat.pos.slice(); cat.grounded = true; cat.ground = g.box; cat.lastGroundY = g.y; }
     }
     function resetLab() {
-      lap = 1; cpIdx = 0; best = 0; respawn = null;
-      place(lab.spawn, 0);
+      cpIdx = 0; respawn = null; runT = 0; finish = null;
+      hazards.reset();
+      place(slice.spawn, 0);
       cam.reset();
       input.clear();
     }
@@ -104,8 +107,9 @@ window.plethoraBit = {
       mode = 'play'; acc = 0;
       input.state.enabled = true;
       hud.card(null); hud.setPlay(true);
-      if (hud.touchy) { hintT = 4; hud.hints(true); }
-      try { ctx.platform.start({ phase: 'movement-lab' }); } catch (e) { }
+      if (hud.touchy) { hintT = 5; hud.hints(true); }
+      attempt++;
+      try { ctx.platform.start({ phase: 'vertical-slice' }); } catch (e) { }
     }
     function pause() {
       if (mode !== 'play') return;
@@ -115,15 +119,18 @@ window.plethoraBit = {
     function resume() { if (mode !== 'paused' || contextLost) return; mode = 'play'; input.state.enabled = true; hud.card(null); }
     function restart() {
       hud.panel(false); resetLab(); mode = 'paused'; resume(); if (mode !== 'play') return;
-      try { ctx.platform.start({ phase: 'movement-lab', replay: true }); } catch (e) { }
+      hud.setPlay(true); attempt++;
+      try { ctx.platform.start({ phase: 'vertical-slice', replay: true }); } catch (e) { }
     }
     const tap = (e, fn) => ctx.listen(e, 'click', ev => { ev.stopPropagation(); fn(ev); });
     tap(hud.H.go, begin); tap(hud.H.resume, resume); tap(hud.H.restart, restart);
+    tap(hud.H.again, () => { if (mode === 'result') { mode = 'paused'; restart(); } });
     ctx.listen(hud.H.pauseBtn, 'pointerdown', e => { e.stopPropagation(); if (mode === 'play') pause(); else resume(); });
     ctx.listen(hud.H.labBtn, 'pointerdown', e => { e.stopPropagation(); hud.panel(!hud.panelOpen()); });
     ctx.listen(window, 'keydown', e => {
       if (e.code === 'Escape' || e.code === 'KeyP') { if (mode === 'play') pause(); else if (mode === 'paused') resume(); }
       else if ((e.code === 'Enter' || e.code === 'Space') && mode === 'title' && !hud.H.go.disabled) begin();
+      else if ((e.code === 'Enter' || e.code === 'KeyR') && mode === 'result') { mode = 'paused'; restart(); }
       else if (e.code === 'Backquote' || e.code === 'KeyL') hud.panel(!hud.panelOpen());
       else if (e.code === 'KeyR' && mode === 'play') restart();
     });
@@ -150,45 +157,60 @@ window.plethoraBit = {
         if (respawn.t >= 0.24 && !respawn.done) {
           respawn.done = true;
           place(respawn.at, TUNING.cat.cruise * 0.55);
+          hazards.resetUnstable();
           cam.reset();
         }
         if (respawn.done) { hud.fade(clamp(1 - (respawn.t - 0.24) / 0.3, 0, 1)); if (respawn.t > 0.54) { respawn = null; hud.fade(0); } }
-        if (respawn && !respawn.done) { cat.step(dt, { steer: 0 }); cat.events.length = 0; return; }
+        if (respawn && !respawn.done) { cat.step(dt, { steer: 0 }); cat.events.length = 0; hazards.step(dt, cat); return; }
       }
       const inp = input.sample(dt);
+      if (mode === 'play' && !finish) runT += dt;
       cat.step(dt, inp);
+      for (const e of hazards.step(dt, cat)) cat.events.push(e);
       for (const e of cat.events) {
         frameEvents.push(e);
         if (e.type === 'jump') { try { ctx.platform.interact({ type: 'jump' }); } catch (er) { } }
         else if (e.type === 'land') { if (e.impact > 7) haptic('light'); }
         else if (e.type === 'bump' || e.type === 'scramble') haptic('medium');
+        else if (e.type === 'scald') haptic('warning');
+        else if (e.type === 'give') haptic('heavy');
+        else if (e.type === 'fragment') { haptic('success'); try { ctx.platform.interact({ type: 'fragment', count: e.count }); ctx.platform.milestone('fragment', { count: e.count }); } catch (er) { } }
+        else if (e.type === 'relay' && !finish) {
+          finish = { t: 0, time: runT, frags: hazards.charge };
+          cat.halt = true; haptic('success');
+          const best = finish.frags === hazards.fragments.length && runT < bestTime; if (best) bestTime = runT;
+          finish.best = best;
+          try { ctx.platform.complete({ fragments: finish.frags, timeMs: Math.round(runT * 1000) }); } catch (er) { }
+        }
         else if (e.type === 'fall' && !respawn) {
-          respawn = { t: 0, at: lab.checkpoints[cpIdx] };
+          respawn = { t: 0, at: slice.checkpoints[cpIdx] };
           try { ctx.platform.interact({ type: 'fall', at: Math.round(-cat.pos[2]) }); } catch (er) { }
         }
       }
       cat.events.length = 0;
       // checkpoints only advance on sound footing
-      const next = lab.checkpoints[cpIdx + 1];
-      if (next && cat.grounded && cat.pos[2] < next[2] && Math.abs(cat.pos[1] - next[1]) < 0.3) cpIdx++;
-      best = Math.max(best, -cat.pos[2]);
-      // the end of the lab: around again, without a menu
-      if (cat.pos[2] < lab.endZ && !respawn) {
-        lap++; cpIdx = 0; best = 0;
-        respawn = { t: 0, at: lab.spawn };
-        try { ctx.platform.milestone('lab_lap', { lap }); } catch (er) { }
+      const next = slice.checkpoints[cpIdx + 1];
+      if (next && cat.grounded && !cat.ground.unstable && cat.pos[2] < next[2] && Math.abs(cat.pos[1] - next[1]) < 0.6) cpIdx++;
+      // the relay is reached: the signal climbs to the tower, then the result
+      if (finish) {
+        finish.t += dt;
+        if (finish.t > 2.2 && mode === 'play') {
+          mode = 'result'; input.clear(); input.state.enabled = false;
+          hud.result(finish.frags, hazards.fragments.length, finish.time, finish.best);
+          hud.card('result'); hud.setPlay(false); hud.hints(false);
+        }
       }
     }
 
     // ---------- render ----------
-    const rs = { pos: [0, 0, 0], fwd: 0, vx: 0, vy: 0, grounded: true, crouch: 0, teeter: 0, edgeAhead: 0, narrow: 0, scr: null, stumble: 0, assistX: 0, sinceJump: 9, events: frameEvents };
-    const camCat = { pos: rs.pos, vel: [0, 0, 0], fwd: 0, grounded: true, ground: null };
+    const rs = { pos: [0, 0, 0], fwd: 0, vx: 0, vy: 0, grounded: true, crouch: 0, teeter: 0, edgeAhead: 0, narrow: 0, scr: null, stumble: 0, assistX: 0, sinceJump: 9, slope: [0, 0], charge: 0, events: frameEvents };
+    const camCat = { pos: rs.pos, vel: [0, 0, 0], fwd: 0, grounded: true, ground: null, finale: 0 };
     function frame(dt) {
-      const a = mode === 'play' ? clamp(acc / SIM_DT, 0, 1) : 1;
+      const a = mode === 'play' || mode === 'result' ? clamp(acc / SIM_DT, 0, 1) : 1;
       for (let i = 0; i < 3; i++) rs.pos[i] = lerp(cat.prev[i], cat.pos[i], a);
-      Object.assign(rs, { fwd: mode === 'title' ? 0 : cat.fwd, vx: cat.vel[0], vy: cat.vel[1], grounded: cat.grounded, crouch: cat.crouch, teeter: cat.teeter, edgeAhead: cat.edgeAhead, narrow: cat.narrow, scr: cat.scr ? clamp(cat.scr.t, 0, 1) : null, stumble: cat.stumble, assistX: cat.assistX, sinceJump: cat.sinceJump });
+      Object.assign(rs, { fwd: mode === 'title' ? 0 : cat.fwd, vx: cat.vel[0], vy: cat.vel[1], grounded: cat.grounded, crouch: cat.crouch, teeter: cat.teeter, edgeAhead: cat.edgeAhead, narrow: cat.narrow, scr: cat.scr ? clamp(cat.scr.t, 0, 1) : null, stumble: cat.stumble, assistX: cat.assistX, sinceJump: cat.sinceJump, slope: cat.slope, charge: hazards.charge });
       rig.update(dt, rs);
-      Object.assign(camCat, { vel: cat.vel, fwd: rs.fwd, grounded: cat.grounded, ground: cat.ground });
+      Object.assign(camCat, { vel: cat.vel, fwd: rs.fwd, grounded: cat.grounded, ground: cat.ground, finale: finish ? clamp(finish.t / 1.5, 0, 1) : 0 });
       cam.update(dt, camCat, ctx.height > ctx.width, frameEvents);
       frameEvents.length = 0;
       view.update(dt, rs.pos, camera);
@@ -201,7 +223,7 @@ window.plethoraBit = {
         blob.scale.set(0.42 * (0.7 + 0.3 * k), 0.75 * (0.7 + 0.3 * k), 1);
         A.M.shadow.opacity = 0.42 * k;
       } else blob.visible = false;
-      hud.distance(Math.floor(Math.max(0, best)), lap);
+      hud.charge(hazards.charge);
       if (hintT > 0) { hintT -= dt; if (hintT <= 0 || input.state.stick) { hintT = 0; hud.hints(false); } }
       fps.t += dt; fps.n++; if (fps.t > 0.5) { fps.v = fps.n / fps.t; fps.t = 0; fps.n = 0; }
       if (hud.H.dbg.classList.contains('on')) {
@@ -209,7 +231,7 @@ window.plethoraBit = {
         hud.debug(`fps ${fps.v.toFixed(0)}  calls ${inf.calls}  tris ${(inf.triangles / 1000).toFixed(1)}k\n` +
           `speed ${cat.fwd.toFixed(2)}  vx ${cat.vel[0].toFixed(2)}  vy ${cat.vel[1].toFixed(2)}\n` +
           `${cat.grounded ? 'ground' : 'air'}${cat.crouch ? ' crouch' : ''}${cat.narrow > 0.5 ? ' narrow' : ''}${cat.scr ? ' scramble' : ''}  coyote ${cat.coyote.toFixed(2)}  buffer ${cat.buffer.toFixed(2)}\n` +
-          `steer ${input.state.steer.toFixed(2)}  jump ${TUNING.input.jumpMode}${input.state.jumpHeld ? ' (held)' : ''}  grip ${cat.gripT.toFixed(2)}\n` +
+          `steer ${input.state.steer.toFixed(2)}  pace ${input.state.pace.toFixed(2)}  jump ${TUNING.input.jumpMode}${input.state.jumpHeld ? ' (held)' : ''}  grip ${cat.gripT.toFixed(2)}\n` +
           (j ? `last jump ${j.dist.toFixed(2)} m  rise ${j.rise.toFixed(2)} m  ${(j.air * 1000).toFixed(0)} ms` : 'last jump —'));
       }
       if (!contextLost) renderer.render(scene, camera);
@@ -220,6 +242,7 @@ window.plethoraBit = {
       hud.layout(w, h, a);
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
+      view.setPointScale(h * renderer.getPixelRatio() * 0.5 / Math.tan(camera.fov * Math.PI / 360));
       // centre the picture in the content safe area, so Plethora's logo button
       // (bottom centre) never sits on the cat
       const shift = Math.round(Math.max(0, (a.bottom || 0) * 0.8 - (a.top || 0) * 0.5));
@@ -234,7 +257,7 @@ window.plethoraBit = {
       if (destroyed) return;
       const dt = Math.min(0.1, Math.max(0, dtMs / 1000));
       if (frozen) return;
-      if (mode === 'play') {
+      if (mode === 'play' || mode === 'result') {
         acc += dt; let n = 0;
         while (acc >= SIM_DT && n < 5) { step(SIM_DT); acc -= SIM_DT; n++; }
         if (n === 5) acc = 0;
@@ -259,14 +282,14 @@ window.plethoraBit = {
 
     if (window.__RR_DEV) {
       window.__rr = {
-        begin, pause, resume, restart, cat, world, lab, input, camera, renderer, cam, scene, TUNING,
+        begin, pause, resume, restart, cat, world, slice, hazards, input, camera, renderer, cam, scene, TUNING,
         get mode() { return mode; },
         // drive the real loop deterministically: input = { steer, jump }
         advance(sec, inp) { if (inp !== undefined) input.state.virtual = inp; const n = Math.round(sec / SIM_DT); for (let i = 0; i < n && mode === 'play'; i++) step(SIM_DT); acc = 0; frame(SIM_DT); },
         frame: () => frame(SIM_DT),
         freeze(on) { frozen = on; },
-        sim(inp) { input.state.virtual = inp; if (mode === 'play') step(SIM_DT); },
-        warp(i) { place(lab.checkpoints[i], TUNING.cat.cruise); cpIdx = i; cam.reset(); frame(SIM_DT); }
+        sim(inp) { input.state.virtual = inp; if (mode === 'play' || mode === 'result') step(SIM_DT); },
+        warp(i) { place(slice.checkpoints[i], TUNING.cat.cruise); cpIdx = i; cam.reset(); frame(SIM_DT); }
       };
     }
   }

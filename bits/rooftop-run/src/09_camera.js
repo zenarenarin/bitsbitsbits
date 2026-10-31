@@ -61,13 +61,15 @@ function createFollowCamera(THREE, camera, world) {
     spring(st.dip, 0, 2.2, 0.6, dt);
 
     const speed = cat.fwd;
-    const back = F.back + speed * T.speedBack + st.gap * T.gapBack;
-    const up = F.up + st.gap * T.gapLift;
+    // the finale: rise and pull back so the beam to the tower fills the frame
+    const fin = smooth(cat.finale || 0);
+    const back = F.back + speed * T.speedBack + st.gap * T.gapBack + fin * 2.2;
+    const up = F.up + st.gap * T.gapLift + fin * 1.4;
     const x = lerp(st.laneX, cat.pos[0], F.follow);
     // in the air, rise with a third of the arc: enough to keep looking down onto the landing
     const arc = grounded ? 0 : Math.max(0, cat.pos[1] - st.refY) * T.arcFollow;
     want.set(x, Math.max(st.refY, st.aheadY - 0.5) + up + arc + st.dip.x, cat.pos[2] + back);
-    lookWant.set(lerp(x, cat.pos[0] + cat.vel[0] * 0.25, 0.6), lerp(st.refY, st.aheadY, 0.55) + F.lookUp + 0.35, cat.pos[2] - F.lookAhead);
+    lookWant.set(lerp(x, cat.pos[0] + cat.vel[0] * 0.25, 0.6) + fin * 1.4, lerp(st.refY, st.aheadY, 0.55) + F.lookUp + 0.35 + fin * 7, cat.pos[2] - F.lookAhead - fin * 10);
     if (!st.init) { st.pos.copy(want); st.look.copy(lookWant); st.init = true; }
     st.pos.x = damp(st.pos.x, want.x, T.posK * 0.7, dt);
     st.pos.y = damp(st.pos.y, want.y, T.posK * 0.8, dt);

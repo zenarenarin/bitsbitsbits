@@ -1,186 +1,124 @@
-# ROOFTOP RUN — Phase 1: Movement Lab
+# THE LAST SIGNAL — revised Phase 1: vertical slice
 
-A mobile-first 3D rooftop traversal Bit for Plethora (`plethora-bit@2`, three.js 0.164.1). A cat runs across weathered city rooftops. The player steers and jumps; everything else (ducking, steadying on a ledge, catching an edge it came up short of) is the cat's own competence.
+A mobile-first 3D traversal Bit for Plethora (`plethora-bit@2`, three.js 0.164.1, SDK 1.7.0).
 
-This is **Phase 1 only**: one authored stretch of rooftops for judging whether the movement, camera and touch controls feel right. There is no endless generation, scoring or audio yet.
+The city's rooftop signal network has gone dark. A small black stray carries a stolen power core on its collar toward the one relay still standing.
 
-## Findings from the existing code
+The core glows green and brightens with each energy fragment the cat picks up. Reaching the relay sends the signal across the sky to the great tower on the horizon. The tower stays in view for the whole run.
 
-- **`plethora-threejs-audit.md` is not in this repository.** Everything below comes from reading the source of `bits/unmake` and `bits/neon-orbit-pinball`.
-- **Plethora contract** (both bits use it the same way): `window.plethoraBit.init(ctx)`, three via `ctx.importModule('three', '0.164.1')`, `ctx.createCanvas/createRoot/listen/onResize/onDestroy/onFrame`, an optional `ctx.game.loop`, and `ctx.platform.ready/start/error/haptic/interact/milestone`. This is all Rooftop Run uses.
-- **The score API conflicts, and neither version can be verified here.** UNMAKE calls `ctx.game.score().set(n)` and then `.submit('score', {label})`. Pinball calls `ctx.memory.record('score').submit(n, {label})`. **Rooftop Run does not submit scores, and its manifest declares no `memory` record.** This has to be resolved with the platform owners before Phase 5.
-- **GLTF:** `libs.plethora.studio` serves `three/0.164.1/three.module.js` only. `GLTFLoader` returns 404 under `examples/jsm/…`, `addons/…` and the version root. A Bit is a single `main.js`, and no asset channel is declared anywhere. **Loading a skinned glTF cat is therefore unproven.** The cat is a procedural articulated rig behind a swappable interface (see below). Core three.js still includes `SkinnedMesh`, `Bone` and `AnimationMixer`, so a glTF path remains open if an asset channel is confirmed or a small GLB parser is inlined.
+This is the **revised Phase 1**: the original movement lab's foundations, rebuilt into one compact, playable slice of the new world. It is not the endless city yet, and it is not Phase 2 polish.
 
-## What was reused, changed, rebuilt
+## The slice
 
-| From UNMAKE | Here |
-|---|---|
-| `build.js` concat → single `main.js` | **Reused** as is |
-| `00_util` math, rng | **Reused**, trimmed; added a damped `spring()` |
-| Boot diagnostics, `ctx.game.loop` → `ctx.onFrame` fallback, fixed 60 Hz accumulator | **Reused**; added render interpolation (smooth on 90/120 Hz screens) |
-| Pointer role map (one role per finger), floating stick | **Modified**: stick origin follows an overshooting thumb; the whole right part of the screen is the jump zone |
-| Jump buffer, coyote time, variable height | **Kept the structure, retuned**: a tap gets a guaranteed minimum full-strength rise |
-| `dev/index.html` runtime stand-in, headless tests | **Reused** the pattern |
-| Capsule player, guided pace, OBB structural physics | **Rebuilt**: an axis-aligned box world and a long, low cat body (`02_world`, `04_cat`) |
-| Third/first-person camera | **Rebuilt**: no first person, no orbit; reads the terrain ahead (`08_camera`) |
-| Humanoid traveller rig | **Rebuilt**: procedural quadruped (`07_catrig`) |
-| Static batching by material | **Rebuilt** as a box/quad batcher with world-space UVs (`06_assets`) |
+A full run takes about 17–25 s.
 
-## Source layout
-
-Logic is kept separate from rendering. Files `00`–`04` have no three.js and no DOM, and run headless in Node.
-
-| File | Role |
-|---|---|
-| `00_util.js` | Math, rng, springs |
-| `01_tuning.js` | **Every gameplay number.** The in-game LAB panel edits these live |
-| `02_world.js` | Collision world: AABBs, a z-grid, ground, ceiling, overlap and ray queries |
-| `03_lab.js` | The Phase 1 course as pure data: boxes with a `kind`, decor, checkpoints |
-| `04_cat.js` | Cat movement: run, steer, jump, land, duck, edge grip, assists |
-| `05_input.js` | Touch, mouse and keys → `{steer, jumpPressed, jumpHeld}` |
-| `06_assets.js` | Procedural textures, shared materials, static batcher |
-| `07_catrig.js` | The visible cat (reads cat state, never writes it) |
-| `08_camera.js` | Follow camera |
-| `09_scene.js` | Architecture from the collision boxes, decor, backdrop, sky, light |
-| `10_hud.js` | HUD, start and pause cards, LAB tuning panel |
-| `11_game.js` | Lifecycle, loop, respawn, Plethora wiring, dev hooks |
-
-**Swapping the character:** any rig that provides `{ root, update(dt, s), dispose() }` replaces `createCatRig`. `s` is built in `11_game.js` from controller state: speed, velocity, grounded, crouch, teeter, edge ahead, narrow, scramble progress, stumble, and that frame's events.
-
-## The lab course
-
-1. **Wide concrete roof.** Steer around a water-tank plinth and a stair room, under a laundry line.
-2. **2.6 m gap**, slightly downhill.
-3. **Low passage.** A pipe bundle between a stair room and a tank platform leaves 0.30 m of clearance. Steer into the opening and the cat flattens itself through. Alternatively, a held jump onto the tank platform is a second route.
-4. **0.4 m ledge across a void**, entered through a gap in a parapet.
-5. **Short roof**, then a **3 m gap with a 1.25 m drop** onto
-6. **the landing terrace.** At the end the lab loops back to the start with a short fade, with no menu in between.
-
-A fall fades out and respawns at the last checkpoint reached on solid footing.
-
-## Controls and movement
-
-| | Touch (landscape or portrait) | Keyboard / mouse |
+| | Structure | What it asks of you |
 |---|---|---|
-| Steer | Drag anywhere on the left 55% (floating stick) | A/D or ←/→ (ramped, not digital) |
-| Jump | Tap anywhere on the right 45%; hold to jump higher | Space / W / ↑ (hold for higher); right mouse button |
-| Pause | ‖ button | Esc / P |
-| Lab panel | LAB button | L or \` |
-| Restart lab | Pause → Restart | R |
+| A | Terrace (start) | Nothing yet: the cat gathers speed |
+| B | Tiled roof, ridge across the route | Run up and over. Uphill costs speed, downhill gives it back. Chimneys stand on the ridge |
+| — | Alley (1.4 m) | Jump from the eave onto the next ridge |
+| C | Long roof, ridge along the route | The slopes pull you toward the eaves. Steer around a chimney onto the slope and back. **Fragment 1** sits low on the slope past the chimney |
+| — | Broken roof section (1.8 m) | Jump it, or fall through |
+| D | The great pipe | Pipe curvature rolls you outward. **Two steam vents**: hold back while they hiss, then go |
+| — | Junction (valve platform) | Route choice: stay on the great pipe through the steam, or drop left onto the narrow pipe |
+| D′ | The narrow pipe | No steam, but precision balance. **Fragment 2** |
+| E–F | Junction platform → suspended catwalk | **Squeeze** under a low pipe. An **unstable section** creaks and drops if you stall. **Fragment 3** hangs above the walkway: jump for it |
+| G | Lean-to tin roof | A downhill run-up |
+| — | Gap (3 m, 1.5 m drop) | The last jump |
+| H | Relay terrace | Reach the relay: the signal climbs to the tower, then the result |
 
-**Steering and jumping use separate pointers, so they work at the same time.**
+The fragments sit on the harder lines: the low slope, the narrow pipe, and the jump above the catwalk. They charge the collar core, shown as three diamonds in the HUD.
 
-### Movement behaviour
+The result card shows fragments and time and offers to run again. A full charge in a new best time is called out.
 
-- **Running:** the cat accelerates from rest to 6.4 m/s in about 1 s, so the start has weight. It never stops on its own.
-- **Steering:** lateral speed builds toward a target value, faster when reversing. On a surface narrower than 0.75 m, lateral speed drops to 55% and an idle stick lets the cat centre itself.
-- **Jump:** fires on the press, with no animation delay, and adds a 0.9 m/s pounce. It uses a 140 ms input buffer, 110 ms coyote time, and falls 1.55× faster than it rises.
-  - Hold mode: releasing early cuts the rise, but only after 130 ms of guaranteed full strength.
-  - A tap travels 2.9 m (0.81 m rise). A hold travels 4.1 m (1.10 m rise).
-- **Ducking is automatic:** the cat flattens under anything with 0.22–0.40 m of clearance. Jumping under the pipes bonks your head.
-- **Stumble:** running nose-first into a wall costs most of your speed for about half a second.
-- **Hard landing:** a fast landing briefly costs speed (weight and recovery). A soft landing keeps momentum.
+## Controls
 
-### Assistance
+Two inputs, with contextual behaviour for everything else.
 
-Every assist can be turned off from the LAB panel.
+| | Touch | Keyboard |
+|---|---|---|
+| Steer | Drag on the left 55% of the screen (floating stick) | A/D, ←/→ |
+| Pace | The same stick: push forward to hurry, pull back to slow and wait (full back = stop) | W/↑ hurry, S/↓ wait |
+| Jump | Tap the right 45% of the screen; hold to jump higher | Space (hold for higher) |
+| Pause / lab panel / restart | ‖ and LAB buttons | Esc or P / L / R |
 
-- **Air nudge.** The cat predicts its own landing. If the arc would just miss a surface to the side (by up to 0.4 m), it twists toward it.
-- **Ledge line-up.** Running at a narrow surface up to 0.45 m off its line eases the cat onto it. Steering clearly away overrides this.
-- **Edge grip.** Steering off the side of any roof is resisted for 0.22 s, and a sideways drift never walks the cat off. A committed push still falls.
-- **Scramble.** Coming up to 0.42 m short of an edge in front, the front paws hook the lip and the hind legs push the cat up, at a cost of 30% speed.
+The cat still runs by itself. Pace has a dead zone of about a third of the stick's travel, so steering never brakes by accident.
 
-### Tap vs hold
+The cat handles these on its own:
+- ducking under low structures;
+- steadying itself on pipes and ledges;
+- leaning into roof slopes;
+- lining up with a narrow surface;
+- catching an edge it came up just short of.
 
-Measured on the lab's gaps by `dev/test_move.js`. The window is the span of press times that still land, at cruise speed.
+## What made Phase 1 feel generic, and what changed
 
-| Mode | Gap 1 (2.6 m) | Gap 2 (3 m, drop) | Notes |
-|---|---|---|---|
-| Hold mode, quick tap | 344 ms | 375 ms | |
-| Hold mode, held | 492 ms | 508 ms | |
-| Tap mode (always full) | 508 ms | 508 ms | Every jump is full height |
+| Then | Now |
+|---|---|
+| Every surface was a flat axis-aligned box | The world has **shapes with height functions**: pitched roofs (ridge along or across the route), lean-to roofs, cylindrical pipes. Slopes and curvature are collision, not decoration |
+| Empty pale concrete, one material language, flat golden light | Terracotta, weathered plaster with lit and dark windows, oxidised pipes, catwalk grating, brick and rusted tin, under a dusk haze with selective green and violet industrial light |
+| Two verbs: steer and jump | **Pace control**, **slope physics**, **pipe balance**, **timed steam**, **collapsing catwalks**, **squeezing**, plus jumping and route choice |
+| No purpose | **The core, the fragments, the relay, the tower** |
+| A small brown cat | A **black cat** with lit eyes, a rim light, the glowing collar core, and new poses (see below) |
 
-**Recommendation: hold mode.**
-- A quick tap is already a fully useful jump with a window over 340 ms, so nobody has to learn to hold.
-- Holding adds reach for long gaps and the tank-platform route.
-- Tap-only is slightly more forgiving on gaps, but it removes short, controlled hops. Those matter for Phase 3's narrow landings and low ceilings.
+## Systems: preserved, modified, new
 
-The LAB panel switches between the two modes, so this can be judged on a device.
+| Preserved | Modified | New |
+|---|---|---|
+| Fixed 60 Hz simulation with render interpolation | `02_world`: shape functions for ground, ceiling, solids and camera rays | `05_hazards`: steam cycles, unstable walkways, fragments, relay. Pure simulation, testable headless |
+| Jump model: buffer, coyote time, variable height, scramble, edge grip | `04_cat`: pace, slope pull and climb drag, pipe roll-off, leading-edge blocking on slopes, riding a falling walkway, scalding | `03_slice`: authored slice plus a seeded neighbourhood and far layers |
+| Pointer-role input, keyboard ramping | `06_input`: pace axis | `10_scene`: rebuilt city (see below) |
+| Batcher, disposal, lifecycle, Plethora wiring, LAB panel | `08_catrig`: black cat, collar core, pipe, slope, waiting and flinch poses | Result flow, finale camera |
+| Headless and browser test harness | `09_camera`: shape-aware occlusion, anticipatory fades, finale framing | `dev/pilot.js`, `dev/clip.js` |
 
-## Camera
+**What the rebuilt city in `10_scene` contains:**
+- tiled roofs with ridge caps and gable ends;
+- plaster blocks with an emissive window map;
+- pipes with flanges and supports;
+- catwalks on hangers;
+- steam particles in a custom shader;
+- turning fans and smoke stacks;
+- the relay and its signal beam;
+- the lattice tower and its beacon;
+- a dusk sky with exponential haze.
 
-- **Ground reference.** It rides a smoothed ground height, not the cat, and follows about a third of a jump arc. Jumps don't bob the frame, the view keeps looking down onto the landing, and a new roof height is picked up promptly.
-- **Terrain ahead.** It probes the ground at 3, 6, 10 and 14 m and pitches toward drops before the cat reaches them. When a gap is coming it lifts and eases back slightly.
-- **Lane framing.** It sits partly toward the middle of the surface underfoot, so the next route choice stays visible.
-- **Obstruction.** It pulls in along the cat-to-camera line instead of clipping through walls. Thin overhead things (the pipe bundle) fade instead, and so does laundry the camera passes through.
-- **Landing dip.** Landings give a small spring dip.
-- **Orientation presets.** Landscape and portrait framing are separate, editable live:
-  - Landscape: 1.75 m back, 0.86 m up, 52° FOV.
-  - Portrait: 2.3 m back, 1.25 m up, 62° FOV.
-
-## The cat rig
-
-The rig is procedural and articulated:
-- **Body:** a two-part spine that flexes with the gallop.
-- **Legs:** two-bone IK. The hind legs have a hock. Paws are planted against the ground, so crouching, landing compression and edge-gathering bend the legs by themselves.
-- **Head:** held level against the body's pitch. It looks ahead, turns into steering, and looks down at the landing while falling.
-- **Ears and eyes:** ears flatten with speed and when ducking, with occasional twitches. The eyes blink.
-- **Tail:** eight segments on springs. It streams back at speed, rises on ledges, swings for balance when teetering, and lags behind jumps and turns.
-
-Its poses respond to what the body is doing:
-- **Gathering:** lowers and looks down as an edge approaches.
-- **Takeoff:** hind legs push off.
-- **Rising:** front paws reach forward.
-- **Falling:** front paws reach down to land.
-- **Landing:** compresses with overshoot.
-- **Scramble:** front paws hook the lip while the hind legs scrabble.
-- **Stumble:** the body pitches forward.
-
-## Performance
-
-- **Draw calls:** about 42 per frame, shadows included. Each static material is one merged mesh.
-- **Shadows:** one shadow-casting sun, with a 1024² map on phones (2048² otherwise) that follows the cat. A blob contact shadow sits straight under the cat to help judge landings.
-- **Materials:** Lambert throughout.
-- **Rendering:** pixel ratio is capped at 2 on phones (1.75 otherwise). The simulation is fixed-step and rendered with interpolation.
-- **Lifecycle:** resize, `visibilitychange` and blur pause the game, and `onDestroy` disposes everything. WebGL context loss pauses the game, and restore re-flags textures for upload; this is best-effort and unverified on a device.
-
-## Run locally
-
-```sh
-node build.js
-mkdir -p dev/vendor && curl -sS -o dev/vendor/three.module.js https://libs.plethora.studio/three/0.164.1/three.module.js
-python3 -m http.server 8765        # from this folder
-# open http://localhost:8765/dev/index.html (use device emulation for touch)
-```
+Every gameplay number is in `01_tuning.js`, including the new steam timings, pace and slope settings. The LAB panel edits them live.
 
 ## Tests
 
 ```sh
-node dev/test_move.js            # 19 movement checks on the real lab geometry, plus timing windows
-node dev/smoke.js <outdir>       # emulated phone, landscape + portrait: real touch events, autopilot through the lab, screenshots
-node dev/closeup.js <outdir>     # close-up stills of the cat in each movement state
+node build.js
+node dev/test_move.js          # 23 slice checks through the real controller and hazards
+node dev/smoke.js <outdir>     # emulated phone, landscape + portrait: real touch input, autopilot to the relay, screenshots
+node dev/clip.js <outdir>      # frame-exact gameplay recording (then ffmpeg)
+node dev/closeup.js <outdir>   # close-up stills of the cat
 ```
 
-## Known limitations
+**What `test_move.js` proves:**
+- **Roofs:** you can climb over the first one (slower uphill than down). An idle stick drifts toward the eave but never off the roof. Chimneys bump you, and you can steer around them.
+- **Gaps:** the alley jump window is 464 ms (tap). The broken roof and the alley both need a jump.
+- **Pipes:** you can run onto the great pipe and along it with the stick idle. A committed push falls. A 120 ms flick doesn't throw you off the narrow pipe.
+- **Steam:** running blind into a burst scalds you. Timing the vents with the brake gets through cleanly from 8 of 8 start phases.
+- **Route choice:** the junction leads onto the narrow pipe.
+- **Catwalk:** the squeeze works. The unstable section holds at pace and drops if you stop. The overhead fragment needs a jump.
+- **Last jump:** the final gap window is 313 ms.
+- **Full run:** a full run with all three fragments reaches the relay in 17 s.
 
-- The course is authored data. There is no module library, generation or validation yet (Phases 3–4).
-- There are no unstable surfaces yet. They are not part of the Phase 1 list.
-- The rig is procedural primitives, good enough to judge movement. It is the swappable part, and glTF is not yet proven on Plethora.
-- No audio, no score, no game-over. Falls respawn.
-- Performance numbers come from headless SwiftShader, so only draw calls and triangle counts are meaningful. Frame time is not.
+Draw calls: about 105 per frame including shadows. Static architecture is merged per material.
 
-## Still needs validation on a real mid-range Android phone
+## Functional placeholders, and what is intended as final
 
-- **Frame rate:** frame time with shadows on and off (LAB → Shadows).
-- **Touch controls:**
-  - stick radius and curve on a real thumb;
-  - whether the 45% jump zone is ever hit by accident while steering;
-  - simultaneous steer and jump under real multi-touch.
-- **Jump mode:** hold vs tap, in hand.
-- **Camera:** distance and height in both orientations, and whether the cat is big enough on a small landscape phone.
-- **Lifecycle:** behaviour inside the Plethora host:
-  - `ctx.game.loop` vs `onFrame`;
-  - safe areas;
-  - backgrounding;
-  - context loss and restore.
-- **Haptics:** whether landing, bump and scramble haptics feel right or noisy.
+- **Placeholder: the cat's geometry.** It is still procedural primitives, though articulated, rim-lit, and responding to pipes, slopes, steam and waiting. A rigged character is Phase 2; the rig interface (`root`, `update`, `setShadows`, `dispose`) lets it drop in. **Plethora's library registry still has no glTF loader.** That is the blocker for an imported skinned cat (a model built in code or an inline GLB parser are the options).
+- **Placeholder: the art pass.** Procedural textures are the right materials but at prototype density. There's no ambient occlusion and no baked lighting.
+- **Placeholder: the remaining hazards.** Fans are scenery, not hazards. There are no electrified sections or falling debris yet.
+- **Placeholder: audio.** There is none. Phase 5 adds the hiss, creak, collect and relay sounds and a score.
+- **No leaderboard yet.** It's planned with `ctx.game.score` and a `memory.records` best-time board.
+- **Intended as final structure:** the shape world, the hazard model, pace control, the slice layout as a module template, and the camera behaviour.
+
+## Needs testing on a real phone
+
+- **Frame rate:** test on a mid-range Android phone (shadows and steam particles are the costs to watch). The LAB panel can turn shadows off.
+- **Pace on the stick:** whether braking by pulling the stick back is natural, and whether its dead zone is right for real thumbs.
+- **Readability:** whether the steam warning reads from a distance, and whether the black cat reads on dark pipes at phone brightness.
+- **Narrow pipe:** whether it feels like a fair challenge, not a punishment.
+- **Plethora host:** behaviour inside the host (full-screen safe areas, the logo button, backgrounding), as before.

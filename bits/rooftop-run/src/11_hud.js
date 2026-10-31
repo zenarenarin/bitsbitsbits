@@ -12,6 +12,13 @@ const HUD_CSS = `
 .rr-num{font-size:28px;font-weight:300;line-height:1;font-variant-numeric:tabular-nums;text-shadow:0 1px 10px rgba(20,14,12,.5)}
 .rr-num small{font-size:11px;font-weight:700;letter-spacing:.16em;margin-left:4px;opacity:.8}
 .rr-sub{margin-top:6px;opacity:.8;text-shadow:0 1px 6px rgba(20,14,12,.6)}
+.rr-core{display:flex;gap:6px;align-items:center}
+.rr-core i{width:14px;height:14px;transform:rotate(45deg);border:1.5px solid rgba(125,255,176,.55);background:rgba(10,20,16,.35);transition:background .25s,box-shadow .25s}
+.rr-core i.on{background:#7dffb0;box-shadow:0 0 10px #7dffb0}
+.rr-stats{display:flex;justify-content:space-around;margin:8px 0}
+.rr-stats div{font-size:11px;font-weight:700;letter-spacing:.16em;opacity:.85}
+.rr-stats b{display:block;font-size:28px;font-weight:300;letter-spacing:0;margin-bottom:2px}
+.rr-title.small{font-size:24px}
 .rr-icons{display:flex;gap:8px}
 .rr-ib{pointer-events:auto;height:40px;min-width:40px;padding:0 12px;border-radius:20px;border:1.5px solid rgba(243,236,226,.55);background:rgba(30,24,22,.28);color:#f3ece2;display:flex;align-items:center;justify-content:center;font:700 11px system-ui,sans-serif;letter-spacing:.14em;touch-action:none;cursor:pointer}
 .rr-ib.on{background:#f3ece2;color:#231c19}
@@ -53,18 +60,18 @@ function createHud(ctx) {
   H.fade = el('div', 'rr-fade');
   H.top = el('div', 'rr-top');
   const tl = el('div', '', '', H.top);
-  H.dist = el('div', 'rr-num', '0<small>M</small>', tl);
-  H.sub = el('div', 'rr-sub rr-lab', 'Movement lab', tl);
+  H.core = el('div', 'rr-core', '<i></i><i></i><i></i>', tl);
+  H.sub = el('div', 'rr-sub rr-lab', 'Power core', tl);
   const icons = el('div', 'rr-icons', '', H.top);
   H.labBtn = el('div', 'rr-ib', 'LAB', icons);
   H.pauseBtn = el('div', 'rr-ib', '<svg viewBox="-10 -10 20 20" width="14" height="14"><path d="M-3.5,-6V6M3.5,-6V6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>', icons);
   H.dbg = el('div', 'rr-dbg');
   H.stick = el('div', 'rr-stick', '<b></b>'); H.knob = H.stick.firstChild;
   H.jump = el('div', 'rr-jump', '<svg viewBox="-10 -10 20 20"><path d="M-7,4L0,-4L7,4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>');
-  H.hintL = el('div', 'rr-hint', 'DRAG TO STEER'); H.hintR = el('div', 'rr-hint', 'TAP · HOLD TO JUMP HIGHER');
+  H.hintL = el('div', 'rr-hint', 'DRAG TO STEER · PULL BACK TO WAIT'); H.hintR = el('div', 'rr-hint', 'TAP · HOLD TO JUMP HIGHER');
   // cards
   H.start = el('div', 'rr-card on');
-  el('div', 'rr-title', 'ROOFTOP<br>RUN', H.start);
+  el('div', 'rr-title', 'THE LAST<br>SIGNAL', H.start);
   H.startText = el('div', 'rr-p', '', H.start);
   H.go = el('button', 'rr-b', 'RUN', H.start);
   H.retry = el('button', 'rr-b sec', 'RETRY', H.start); H.retry.style.display = 'none';
@@ -72,12 +79,17 @@ function createHud(ctx) {
   el('div', 'rr-p', 'Paused', H.pause);
   H.resume = el('button', 'rr-b', 'RESUME', H.pause);
   H.restart = el('button', 'rr-b sec', 'RESTART LAB', H.pause);
+  H.result = el('div', 'rr-card');
+  el('div', 'rr-title small', 'SIGNAL RELAYED', H.result);
+  H.resultStats = el('div', 'rr-stats', '', H.result);
+  H.resultNote = el('div', 'rr-p', '', H.result);
+  H.again = el('button', 'rr-b', 'RUN AGAIN', H.result);
   H.panel = el('div', 'rr-panel');
 
   const touchy = (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches);
   H.startText.innerHTML = touchy
-    ? 'The cat runs by itself.<br><b>Left thumb</b>: drag to steer. <b>Right thumb</b>: tap to jump, hold to jump higher.'
-    : 'The cat runs by itself.<br><b>A / D</b> or <b>← →</b> steer. <b>Space</b> jumps; hold it to jump higher.';
+    ? 'Carry the core to the relay.<br><b>Left thumb</b>: steer; pull back to wait. <b>Right thumb</b>: jump.'
+    : 'Carry the core to the relay.<br><b>A / D</b> steer, <b>S</b> wait, <b>W</b> hurry, <b>Space</b> jump (hold: higher).';
 
   const api = {
     root: ui, H, touchy,
@@ -87,9 +99,13 @@ function createHud(ctx) {
     jumpDown(on) { H.jump.classList.toggle('down', on); },
     setPlay(on) { for (const e of [H.top, H.jump]) e.style.display = on ? '' : 'none'; if (!on) H.stick.style.display = 'none'; },
     hints(on) { H.hintL.classList.toggle('on', on); H.hintR.classList.toggle('on', on); H.zone.classList.toggle('hint', on); },
-    card(which) { for (const [k, e] of [['start', H.start], ['pause', H.pause]]) e.classList.toggle('on', k === which); },
+    card(which) { for (const [k, e] of [['start', H.start], ['pause', H.pause], ['result', H.result]]) e.classList.toggle('on', k === which); },
+    charge(n) { if (api._c === n) return; api._c = n; [...H.core.children].forEach((e, i) => e.classList.toggle('on', i < n)); },
+    result(frags, of, secs, best) {
+      H.resultStats.innerHTML = `<div><b>${frags}/${of}</b>FRAGMENTS</div><div><b>${secs.toFixed(1)}s</b>TIME</div>`;
+      H.resultNote.textContent = frags === of ? (best ? 'Full charge. A new best time.' : 'Full charge.') : 'Fragments hide on the harder lines.';
+    },
     fade(v) { H.fade.style.opacity = v; },
-    distance(m, lap) { const s = m + '<small>M</small>'; if (api._d !== s) { api._d = s; H.dist.innerHTML = s; } const t = lap > 1 ? 'Movement lab · lap ' + lap : 'Movement lab'; if (api._l !== t) { api._l = t; H.sub.textContent = t; } },
     debug(text) { if (api._dbg !== text) { api._dbg = text; H.dbg.textContent = text; } },
     // area: ctx.contentSafeArea ?? ctx.safeArea (clears the island, home bar and Plethora's logo)
     layout(w, h, area) {
@@ -104,7 +120,11 @@ function createHud(ctx) {
       H.hintL.style.left = (24 + left) + 'px'; H.hintL.style.bottom = (bot + 16) + 'px';
       H.hintR.style.right = (24 + right) + 'px'; H.hintR.style.bottom = (bot + (portrait ? 16 : 12) + js + 12) + 'px';
       H.panel.style.paddingTop = (16 + top) + 'px'; H.panel.style.paddingBottom = (16 + bot) + 'px'; H.panel.style.paddingRight = (16 + right) + 'px';
-      for (const c of [H.start, H.pause]) { c.style.bottom = 'auto'; c.style.top = (top + (h - top - bot) * (portrait ? 0.42 : 0.5)) + 'px'; c.style.transform = 'translate(-50%,-50%)'; c.style.maxHeight = (h - top - bot - 16) + 'px'; c.style.overflowY = 'auto'; }
+      for (const c of [H.start, H.pause, H.result]) { c.style.bottom = 'auto'; c.style.top = (top + (h - top - bot) * (portrait ? 0.42 : 0.5)) + 'px'; c.style.transform = 'translate(-50%,-50%)'; c.style.maxHeight = (h - top - bot - 16) + 'px'; c.style.overflowY = 'auto'; }
+      // the result sits low, so the signal climbing to the tower stays in view
+      // (landscape is too short for that: there the card stands at the left, clear of the tower)
+      if (portrait) Object.assign(H.result.style, { top: 'auto', bottom: (bot + 12) + 'px', left: '50%', transform: 'translateX(-50%)', width: '', maxWidth: '380px' });
+      else Object.assign(H.result.style, { top: (top + 12) + 'px', bottom: 'auto', left: (16 + left) + 'px', transform: 'none', width: 'min(300px, 40vw)', maxWidth: '300px' });
     }
   };
 
@@ -115,6 +135,10 @@ function createHud(ctx) {
     ['Jump'],
     ['cat.jumpVel', 'Jump strength', 5, 10, 0.1], ['cat.gravity', 'Gravity', 12, 40, 0.5], ['cat.fallMul', 'Fall speed-up', 1, 2.5, 0.05], ['cat.jumpMinHold', 'Tap rise (s)', 0, 0.3, 0.01],
     ['cat.coyote', 'Coyote (s)', 0, 0.3, 0.01], ['cat.buffer', 'Buffer (s)', 0, 0.3, 0.01], ['cat.jumpForward', 'Pounce boost', 0, 3, 0.1],
+    ['Pace and slopes'],
+    ['cat.sprint', 'Hurry speed', 5, 10, 0.1], ['cat.brake', 'Braking', 4, 30, 1], ['cat.paceDead', 'Pace dead zone', 0, 0.6, 0.02], ['cat.slopePush', 'Slope pull', 0, 4, 0.1], ['cat.slopeClimb', 'Uphill drag', 0, 1, 0.05],
+    ['Hazards'],
+    ['hazards.steamIdle', 'Steam rest (s)', 0.6, 3, 0.05], ['hazards.steamWarn', 'Steam warning (s)', 0.2, 1.2, 0.05], ['hazards.steamBurst', 'Steam burst (s)', 0.3, 1.5, 0.05], ['hazards.creakTime', 'Walkway creak (s)', 0.2, 1.5, 0.05],
     ['Assistance'],
     ['assist.lateralReach', 'Air nudge reach', 0, 1, 0.05], ['assist.alignReach', 'Ledge line-up reach', 0, 1, 0.05], ['cat.edgeGrip', 'Edge grip (s)', 0, 0.6, 0.02], ['assist.scrambleDrop', 'Scramble reach', 0, 0.7, 0.02],
     ['Camera (landscape)'],

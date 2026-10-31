@@ -1,6 +1,7 @@
-// Close-up stills of the cat rig in each movement state, for judging the animation.
-// Usage: (serve on :8765) node dev/closeup.js <outdir>
+// Close-up stills of the cat in each movement state along the slice, for
+// judging the animation. Usage: (serve on :8765) node dev/closeup.js <outdir>
 const { chromium } = require('playwright');
+const pilot = require('./pilot.js');
 const out = process.argv[2] || '.';
 (async () => {
   const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
@@ -8,30 +9,23 @@ const out = process.argv[2] || '.';
   page.on('pageerror', e => console.log('ERR', e.message));
   await page.goto('http://localhost:8765/dev/index.html');
   await page.waitForFunction(() => window.__ready, null, { timeout: 90000 });
-  await page.evaluate(() => { const r = window.__rr; r.begin(); r.freeze(true); r.root = document.querySelector('.rr'); r.root.style.display = 'none'; });
-  // states: [name, warp/setup fn source, steps, input, camera offset]
-  const states = [
-    ['run-side', 0, 60, { steer: 0 }, [2.2, 0.5, 0.2]],
-    ['run-side-b', 0, 70, { steer: 0 }, [2.2, 0.5, 0.2]],
-    ['run-back', 0, 80, { steer: 0.6 }, null],
-    ['takeoff', 'gap', 0, null, [2.4, 0.5, 0]],
-    ['air-rise', 'gap', 6, null, [2.4, 0.5, 0]],
-    ['air-fall', 'gap', 22, null, [2.4, 0.4, 0]],
-    ['land', 'gap', 33, null, [2.4, 0.4, 0]],
-    ['crouch', 1, 0, null, [2.0, 0.3, 0.6]],
-    ['ledge', 2, 50, { steer: 0 }, [2.0, 0.6, 0.6]]
-  ];
-  for (const [name, warp, steps, inp, off] of states) {
-    const ok = await page.evaluate(({ warp, steps, inp, off }) => {
+  await page.evaluate(pilot);
+  await page.evaluate(() => { const r = window.__rr; r.begin(); r.freeze(true); document.querySelector('.rr').style.display = 'none'; for (const d of document.body.children) if (d.style && d.style.zIndex === '99') d.style.display = 'none'; });
+  // [name, run until z, extra steps, camera offset from the cat]
+  const states = [['run', -4, 0, [1.6, 0.4, 0.2]], ['ridge-slope', -21.3, 0, [1.6, 0.5, 0.5]], ['jump', -25.75, 8, [1.8, 0.5, 0]],
+    ['pipe', -31.5, 0, [1.4, 0.45, 0.4]], ['narrow-pipe', -38, 0, [1.4, 0.4, 0.4]], ['squeeze', -51.5, 0, [1.4, 0.35, 0.6]],
+    ['fragment-leap', -58.75, 10, [1.8, 0.6, 0]], ['wait', -34.1, 0, [1.2, 0.35, 0.6]]];
+  for (const [name, z, extra, off] of states) {
+    await page.evaluate(({ z, extra, off, name }) => {
       const r = window.__rr, c = r.cat;
-      if (warp === 'gap') { r.warp(0); c.pos[2] = -27.5; c.prev = c.pos.slice(); for (let i = 0; i < 400 && c.pos[2] > -29.7; i++) r.sim({ steer: 0 }); for (let i = 0; i < 400 && !c.events.some(e => e.type === 'jump') && c.grounded; i++) r.sim({ steer: 0, jump: true }); for (let i = 0; i < steps; i++) r.sim({ steer: 0, jump: i < 10 }); }
-      else if (warp === 1) { r.warp(1); for (let i = 0; i < 400 && c.pos[2] > -39.8; i++) r.sim({ steer: Math.max(-1, Math.min(1, (0.25 - c.pos[0]) * 3)) }); }
-      else { r.warp(warp); for (let i = 0; i < steps; i++) r.sim(inp); }
-      for (let i = 0; i < 2; i++) r.frame();
-      if (off) { r.camera.position.set(c.pos[0] + off[0], c.pos[1] + off[1], c.pos[2] + off[2]); r.camera.lookAt(c.pos[0], c.pos[1] + 0.18, c.pos[2]); r.camera.fov = 40; r.camera.updateProjectionMatrix(); r.renderer.render(r.scene, r.camera); }
-      return true;
-    }, { warp, steps, inp, off });
-    void ok;
+      if (name === 'wait') { r.restart(); r.freeze(true); r.warp(2); r.hazards.time = 1.6; }
+      let n = 0; while (c.pos[2] > z && n++ < 4000) r.sim(window.__pilot(c, r.hazards));
+      for (let i = 0; i < extra; i++) r.sim(window.__pilot(c, r.hazards));
+      if (name === 'wait') for (let i = 0; i < 30; i++) r.sim({ steer: 0, pace: -1 });
+      for (let i = 0; i < 3; i++) r.frame();
+      r.camera.position.set(c.pos[0] + off[0], c.pos[1] + off[1], c.pos[2] + off[2]); r.camera.lookAt(c.pos[0], c.pos[1] + 0.18, c.pos[2]);
+      r.camera.fov = 40; r.camera.clearViewOffset(); r.camera.updateProjectionMatrix(); r.renderer.render(r.scene, r.camera);
+    }, { z, extra, off, name });
     await page.screenshot({ path: `${out}/cat-${name}.png` });
   }
   await browser.close();

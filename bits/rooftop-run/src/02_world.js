@@ -1,13 +1,21 @@
 // =====================================================================
-// Collision world: axis-aligned boxes. Rooftops are boxes; that is all
-// this game needs, and it keeps every query cheap on a phone.
-// A box: { x0, x1, y0, y1, z0, z1 } with x0 < x1, y0 < y1, z0 < z1,
-// plus tags: surface ('concrete' | 'tin' | 'ledge' | ...), cam ('block' | 'fade').
+// Collision world. Every solid is a shape with an axis-aligned bound
+// (x0..x1, y0..y1, z0..z1) and a height function for its top:
+//   box     flat top at y1
+//   gableZ  pitched roof, ridge running along z (slopes fall away in x)
+//   gableX  pitched roof, ridge running across (slopes fall away in z)
+//   shed    lean-to roof, height runs linearly from yNear (z1) to yFar (z0)
+//   pipeZ   a cylinder along z: centre (cx, cy), radius r
+// Slopes and pipe curvature are real collision, not decoration: the cat
+// stands on the height function and feels its gradient.
+// Tags: kind (what the renderer builds), surface, walk, cam ('block' |
+// 'fade' | 'none'), far (scenery: landing there is a fall).
 // =====================================================================
 
 class World {
   constructor() { this.boxes = []; this.cell = 8; this.grid = new Map(); }
   add(b) {
+    b.shape = b.shape || 'box';
     b.id = this.boxes.length;
     this.boxes.push(b);
     for (let cz = Math.floor(b.z0 / this.cell); cz <= Math.floor(b.z1 / this.cell); cz++) {
@@ -16,41 +24,98 @@ class World {
     }
     return b;
   }
-  // boxes whose z range touches [z0, z1]
   near(z0, z1) {
     const out = [], seen = this._seen || (this._seen = new Set()); seen.clear();
     for (let cz = Math.floor(z0 / this.cell); cz <= Math.floor(z1 / this.cell); cz++) {
       const list = this.grid.get(cz); if (!list) continue;
-      for (const b of list) if (!seen.has(b.id)) { seen.add(b.id); out.push(b); }
+      for (const b of list) if (!seen.has(b.id) && !b.gone) { seen.add(b.id); out.push(b); }
     }
     return out;
   }
-  // highest top surface under (x, z) at or below `fromY`, within a footprint
-  // half-size (hx, hz). Returns { y, box } or { y: -Infinity, box: null }.
+
+  // ---- shape functions ----
+  topAt(b, x, z) {
+    if (x < b.x0 || x > b.x1 || z < b.z0 || z > b.z1) return -Infinity;
+    const dy = b.dy || 0;
+    switch (b.shape) {
+      case 'gableZ': { const hw = (b.x1 - b.x0) / 2; return dy + b.yr - (b.yr - b.ye) * Math.abs(x - (b.x0 + hw)) / hw; }
+      case 'gableX': { const hl = (b.z1 - b.z0) / 2; return dy + b.yr - (b.yr - b.ye) * Math.abs(z - (b.z0 + hl)) / hl; }
+      case 'shed': return dy + lerp(b.yNear, b.yFar, (b.z1 - z) / (b.z1 - b.z0));
+      case 'pipeZ': { const d = x - b.cx; return Math.abs(d) >= b.r ? -Infinity : dy + b.cy + Math.sqrt(b.r * b.r - d * d); }
+      default: return b.y1 + dy;
+    }
+  }
+  bottomAt(b, x, z) {
+    if (b.shape === 'pipeZ') { const d = x - b.cx; return Math.abs(d) >= b.r ? Infinity : (b.dy || 0) + b.cy - Math.sqrt(b.r * b.r - d * d); }
+    return b.y0;
+  }
+  // slope of the top surface: [d top / dx, d top / dz]
+  grad(b, x, z) {
+    switch (b.shape) {
+      case 'gableZ': { const hw = (b.x1 - b.x0) / 2; return [-(b.yr - b.ye) / hw * sign(x - (b.x0 + hw)), 0]; }
+      case 'gableX': { const hl = (b.z1 - b.z0) / 2; return [0, -(b.yr - b.ye) / hl * sign(z - (b.z0 + hl))]; }
+      case 'shed': return [0, (b.yNear - b.yFar) / (b.z1 - b.z0)];
+      case 'pipeZ': { const d = clamp(x - b.cx, -b.r * 0.97, b.r * 0.97); return [-d / Math.sqrt(b.r * b.r - d * d), 0]; }
+      default: return [0, 0];
+    }
+  }
+  // how wide the cat can comfortably stand across this shape
+  walkWidth(b) { return b.shape === 'pipeZ' ? b.r * 1.3 : b.x1 - b.x0; }
+  centreX(b) { return b.shape === 'pipeZ' ? b.cx : (b.x0 + b.x1) / 2; }
+
+  // points sampled across a footprint for shaped tops
+  samples(x, z, hx, hz) {
+    const s = this._s || (this._s = []); s.length = 0;
+    s.push([x, z], [x - hx, z], [x + hx, z], [x, z - hz], [x, z + hz]);
+    return s;
+  }
+  // highest top at or below fromY under a footprint. -> { y, box }
   groundAt(x, z, fromY, hx, hz) {
     hx = hx || 0; hz = hz || 0;
     let y = -Infinity, box = null;
     for (const b of this.near(z - hz, z + hz)) {
       if (x + hx <= b.x0 || x - hx >= b.x1 || z + hz <= b.z0 || z - hz >= b.z1) continue;
-      if (b.y1 <= fromY + 1e-4 && b.y1 > y) { y = b.y1; box = b; }
+      if (b.shape === 'box') { if (b.y1 + (b.dy || 0) <= fromY + 1e-4 && b.y1 + (b.dy || 0) > y) { y = b.y1 + (b.dy || 0); box = b; } continue; }
+      for (const [sx, sz] of this.samples(x, z, hx * 0.5, hz * 0.5)) {
+        const t = this.topAt(b, sx, sz);
+        if (t <= fromY + 1e-4 && t > y) { y = t; box = b; }
+      }
     }
     return { y, box };
   }
-  // lowest underside above `fromY` over (x, z) footprint: what the cat must fit under
+  // lowest underside at or above fromY over a footprint
   ceilingAt(x, z, fromY, hx, hz) {
     let y = Infinity, box = null;
     for (const b of this.near(z - hz, z + hz)) {
       if (x + hx <= b.x0 || x - hx >= b.x1 || z + hz <= b.z0 || z - hz >= b.z1) continue;
-      if (b.y0 >= fromY - 1e-4 && b.y0 < y) { y = b.y0; box = b; }
+      const u = b.shape === 'pipeZ' ? this.bottomAt(b, x, z) : b.y0 + (b.dy || 0);
+      if (u >= fromY - 1e-4 && u < y) { y = u; box = b; }
     }
     return { y, box };
+  }
+  // solids intruding into a volume; top is the highest intruding surface
+  solids(x0, x1, y0, y1, z0, z1) {
+    const out = [];
+    for (const b of this.near(z0, z1)) {
+      const dy = b.dy || 0;
+      if (x1 <= b.x0 || x0 >= b.x1 || z1 <= b.z0 || z0 >= b.z1 || y1 <= b.y0 + dy || y0 >= b.y1 + dy) continue;
+      if (b.shape === 'box') { out.push({ b, top: b.y1 + dy }); continue; }
+      const cx = clamp((x0 + x1) / 2, b.x0, b.x1), cz = clamp((z0 + z1) / 2, b.z0, b.z1);
+      let top = -Infinity;
+      for (const [sx, sz] of [[cx, cz], [clamp(x0, b.x0, b.x1), cz], [clamp(x1, b.x0, b.x1), cz], [cx, clamp(z0, b.z0, b.z1)], [cx, clamp(z1, b.z0, b.z1)]]) {
+        const t = this.topAt(b, sx, sz);
+        if (t > y0 + 1e-3 && this.bottomAt(b, sx, sz) < y1 && t > top) top = t;
+      }
+      if (top > -Infinity) out.push({ b, top });
+    }
+    return out;
   }
   overlaps(x0, x1, y0, y1, z0, z1) {
     const out = [];
     for (const b of this.near(z0, z1)) if (x1 > b.x0 && x0 < b.x1 && y1 > b.y0 && y0 < b.y1 && z1 > b.z0 && z0 < b.z1) out.push(b);
     return out;
   }
-  // ray against boxes (slab test); returns distance or Infinity
+  // ray against shapes; returns distance or Infinity
   ray(o, d, maxT, filter) {
     let best = maxT;
     const zs = [o[2], o[2] + d[2] * maxT];
@@ -64,17 +129,31 @@ class World {
         if (a > c) { const t = a; a = c; c = t; }
         t0 = Math.max(t0, a); t1 = Math.min(t1, c); if (t0 > t1) ok = false;
       }
-      if (ok && t0 < best) best = t0;
+      if (!ok || t0 >= best) continue;
+      if (b.shape === 'box') { best = t0; continue; }
+      // shaped: march through the bound and test the height function
+      for (let t = t0; t <= t1; t += 0.12) {
+        const px = o[0] + d[0] * t, py = o[1] + d[1] * t, pz = o[2] + d[2] * t;
+        if (py < this.topAt(b, px, pz) && py > this.bottomAt(b, px, pz)) { best = t; break; }
+      }
     }
     return best < maxT ? best : Infinity;
   }
 }
 
-// helper used by course builders: a box from centre/size in the usual units
-function boxAt(cx, y0, cz, w, h, len, tags) {
-  return Object.assign({ x0: cx - w / 2, x1: cx + w / 2, y0, y1: y0 + h, z0: cz - len / 2, z1: cz + len / 2, surface: 'concrete', cam: 'block' }, tags || {});
-}
-// a box spanning explicit z (z0 is the far end, more negative)
+// builders: z0 is always the far end (more negative)
 function boxSpan(x0, x1, y0, y1, zFar, zNear, tags) {
-  return Object.assign({ x0, x1, y0, y1, z0: zFar, z1: zNear, surface: 'concrete', cam: 'block' }, tags || {});
+  return Object.assign({ shape: 'box', x0, x1, y0, y1, z0: zFar, z1: zNear, surface: 'concrete', cam: 'block' }, tags || {});
+}
+function gableZ(x0, x1, base, eave, ridge, zFar, zNear, tags) {
+  return Object.assign({ shape: 'gableZ', x0, x1, y0: base, y1: ridge, ye: eave, yr: ridge, z0: zFar, z1: zNear, surface: 'tile', cam: 'block', walk: true }, tags || {});
+}
+function gableX(x0, x1, base, eave, ridge, zFar, zNear, tags) {
+  return Object.assign({ shape: 'gableX', x0, x1, y0: base, y1: ridge, ye: eave, yr: ridge, z0: zFar, z1: zNear, surface: 'tile', cam: 'block', walk: true }, tags || {});
+}
+function shed(x0, x1, base, yNear, yFar, zFar, zNear, tags) {
+  return Object.assign({ shape: 'shed', x0, x1, y0: base, y1: Math.max(yNear, yFar), yNear, yFar, z0: zFar, z1: zNear, surface: 'tin', cam: 'block', walk: true }, tags || {});
+}
+function pipeZ(cx, cy, r, zFar, zNear, tags) {
+  return Object.assign({ shape: 'pipeZ', cx, cy, r, x0: cx - r, x1: cx + r, y0: cy - r, y1: cy + r, z0: zFar, z1: zNear, surface: 'metal', cam: 'none', walk: true }, tags || {});
 }
