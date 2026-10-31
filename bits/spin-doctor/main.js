@@ -492,28 +492,31 @@
         cam.updateProjectionMatrix();
       }
 
-      // ----- Shared textures.
-      function radialTexture(stops) {
-        const c = document.createElement('canvas'); c.width = c.height = 128;
-        const g = c.getContext('2d');
-        const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-        stops.forEach(s => gr.addColorStop(s[0], s[1]));
-        g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
-        const t = new THREE.CanvasTexture(c);
-        t.colorSpace = THREE.SRGBColorSpace;
-        return t;
-      }
-      const glowTex = radialTexture([[0, 'rgba(255,255,255,1)'], [0.25, 'rgba(255,255,255,0.45)'], [1, 'rgba(255,255,255,0)']]);
-      const brushTex = (function () {
-        const c = document.createElement('canvas'); c.width = 4; c.height = 512;
-        const g = c.getContext('2d');
-        for (let y = 0; y < 512; y++) {
-          const v = 205 + Math.floor((Math.random() - 0.5) * 34 + Math.sin(y * 0.9) * 6);
-          g.fillStyle = 'rgb(' + v + ',' + v + ',' + v + ')';
-          g.fillRect(0, y, 4, 1);
+      // ----- Shared textures, generated as pixel data (no extra canvases).
+      const glowTex = (function () {
+        const N = 128, d = new Uint8Array(N * N * 4);
+        for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+          const r = Math.min(1, Math.hypot(x + 0.5 - N / 2, y + 0.5 - N / 2) / (N / 2));
+          // 1 at the centre, 0.45 at a quarter radius, 0 at the edge
+          const a = r < 0.25 ? 1 - 0.55 * (r / 0.25) : 0.45 * (1 - (r - 0.25) / 0.75);
+          const i = (y * N + x) * 4;
+          d[i] = d[i + 1] = d[i + 2] = 255; d[i + 3] = Math.round(Math.max(0, a) * 255);
         }
-        const t = new THREE.CanvasTexture(c);
+        const t = new THREE.DataTexture(d, N, N, THREE.RGBAFormat);
+        t.magFilter = t.minFilter = THREE.LinearFilter;
+        t.needsUpdate = true;
+        return t;
+      })();
+      const brushTex = (function () {
+        const W = 4, H = 512, d = new Uint8Array(W * H * 4);
+        for (let y = 0; y < H; y++) {
+          const v = 205 + Math.floor((Math.random() - 0.5) * 34 + Math.sin(y * 0.9) * 6);
+          for (let x = 0; x < W; x++) { const i = (y * W + x) * 4; d[i] = d[i + 1] = d[i + 2] = v; d[i + 3] = 255; }
+        }
+        const t = new THREE.DataTexture(d, W, H, THREE.RGBAFormat);
         t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true;
+        t.needsUpdate = true;
         return t;
       })();
       ctx.onDestroy(() => { glowTex.dispose(); brushTex.dispose(); envRT.dispose(); });
