@@ -12,10 +12,12 @@ const PAL = {
   street: '#1d1a19', tin: '#8b7c6c', tank: '#26292b', cat: '#7a5f4a'
 };
 
-function createAssets(THREE, renderer) {
+function createAssets(THREE, renderer, ctx) {
   const maxAniso = Math.min(4, renderer.capabilities.getMaxAnisotropy ? renderer.capabilities.getMaxAnisotropy() : 1);
   function paint(size, draw, repeat) {
-    const c = document.createElement('canvas'); c.width = c.height = size;
+    // texture canvases come from the runtime (cleanup-owned) and are never shown
+    const c = ctx.createCanvas2D({ layer: 'background', input: 'passthrough' });
+    c.style.display = 'none'; c.width = c.height = size;
     const g = c.getContext('2d'); draw(g, size);
     const t = new THREE.CanvasTexture(c);
     t.colorSpace = THREE.SRGBColorSpace;

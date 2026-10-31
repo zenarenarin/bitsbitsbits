@@ -63,7 +63,7 @@ window.plethoraBit = {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
 
-    const A = createAssets(THREE, renderer);
+    const A = createAssets(THREE, renderer, ctx);
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(54, ctx.width / ctx.height, 0.05, 400);
     const world = new World();
