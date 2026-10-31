@@ -26,7 +26,7 @@ function createInput(ctx, canvas, ui) {
     const r = rect(), x = e.clientX - r.left, y = e.clientY - r.top;
     if (x >= jumpZoneX() || (e.pointerType === 'mouse' && e.button === 2)) {
       roles.set(e.pointerId, { role: 'jump' }); press();
-    } else if (!state.stick) {
+    } else if (!state.stick && y < ctx.height - ((ctx.safeArea && ctx.safeArea.bottom) || 0)) {
       roles.set(e.pointerId, { role: 'stick' });
       state.stick = { ox: x, oy: y, x, y, id: e.pointerId };
       ui.stickShow(x, y);

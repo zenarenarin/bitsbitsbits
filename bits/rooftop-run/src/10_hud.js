@@ -67,6 +67,7 @@ function createHud(ctx) {
   el('div', 'rr-title', 'ROOFTOP<br>RUN', H.start);
   H.startText = el('div', 'rr-p', '', H.start);
   H.go = el('button', 'rr-b', 'RUN', H.start);
+  H.retry = el('button', 'rr-b sec', 'RETRY', H.start); H.retry.style.display = 'none';
   H.pause = el('div', 'rr-card');
   el('div', 'rr-p', 'Paused', H.pause);
   H.resume = el('button', 'rr-b', 'RESUME', H.pause);
@@ -90,18 +91,20 @@ function createHud(ctx) {
     fade(v) { H.fade.style.opacity = v; },
     distance(m, lap) { const s = m + '<small>M</small>'; if (api._d !== s) { api._d = s; H.dist.innerHTML = s; } const t = lap > 1 ? 'Movement lab · lap ' + lap : 'Movement lab'; if (api._l !== t) { api._l = t; H.sub.textContent = t; } },
     debug(text) { if (api._dbg !== text) { api._dbg = text; H.dbg.textContent = text; } },
-    layout(w, h, safe) {
-      const top = (safe && safe.top) || 0, bot = (safe && safe.bottom) || 0, right = (safe && safe.right) || 0, left = (safe && safe.left) || 0;
+    // area: ctx.contentSafeArea ?? ctx.safeArea (clears the island, home bar and Plethora's logo)
+    layout(w, h, area) {
+      const top = area.top || 0, bot = area.bottom || 0, right = area.right || 0, left = area.left || 0;
       const portrait = h > w;
-      H.top.style.paddingTop = (16 + top) + 'px';
+      H.top.style.paddingTop = (12 + top) + 'px';
       H.top.style.left = (16 + left) + 'px'; H.top.style.right = (16 + right) + 'px';
       H.dbg.style.top = (top + 80) + 'px'; H.dbg.style.left = (16 + left) + 'px';
-      const js = Math.round(clamp(Math.min(w, h) * (portrait ? 0.22 : 0.22), 72, 96));
-      Object.assign(H.jump.style, { width: js + 'px', height: js + 'px', right: (24 + right) + 'px', bottom: (bot + (portrait ? 48 : 28)) + 'px' });
+      const js = Math.round(clamp(Math.min(w, h) * 0.22, 72, 96));
+      Object.assign(H.jump.style, { width: js + 'px', height: js + 'px', right: (24 + right) + 'px', bottom: (bot + (portrait ? 16 : 12)) + 'px' });
       H.zone.style.width = (w * TUNING.input.jumpZone) + 'px';
-      H.hintL.style.left = (24 + left) + 'px'; H.hintL.style.bottom = (bot + 24) + 'px';
-      H.hintR.style.right = (24 + right) + 'px'; H.hintR.style.bottom = (bot + (portrait ? 48 : 28) + js + 12) + 'px';
-      for (const c of [H.start, H.pause]) { c.style.bottom = 'auto'; c.style.top = portrait ? '38%' : '50%'; c.style.transform = 'translate(-50%,-50%)'; }
+      H.hintL.style.left = (24 + left) + 'px'; H.hintL.style.bottom = (bot + 16) + 'px';
+      H.hintR.style.right = (24 + right) + 'px'; H.hintR.style.bottom = (bot + (portrait ? 16 : 12) + js + 12) + 'px';
+      H.panel.style.paddingTop = (16 + top) + 'px'; H.panel.style.paddingBottom = (16 + bot) + 'px'; H.panel.style.paddingRight = (16 + right) + 'px';
+      for (const c of [H.start, H.pause]) { c.style.bottom = 'auto'; c.style.top = (top + (h - top - bot) * (portrait ? 0.42 : 0.5)) + 'px'; c.style.transform = 'translate(-50%,-50%)'; c.style.maxHeight = (h - top - bot - 16) + 'px'; c.style.overflowY = 'auto'; }
     }
   };
 

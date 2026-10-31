@@ -23,7 +23,10 @@ const ctx = {
   get height() { return host.clientHeight; },
   dpr: Math.min(2, window.devicePixelRatio || 1),
   nativeDpr: window.devicePixelRatio || 1,
-  safeArea: { top: 0, bottom: 0, left: 0, right: 0 },
+  // full-screen insets like a notched phone: island/home bar, plus Plethora's logo button
+  get safeArea() { return host.clientHeight > host.clientWidth ? { top: 59, right: 0, bottom: 34, left: 0 } : { top: 0, right: 59, bottom: 21, left: 59 }; },
+  get contentSafeArea() { const s = this.safeArea; return { top: s.top, right: s.right, bottom: host.clientHeight > host.clientWidth ? 108 : 86, left: s.left }; },
+  get logoArea() { const w = host.clientWidth, h = host.clientHeight; return { x: w / 2 - 28, y: h - (h > w ? 96 : 76), width: 56, height: 56 }; },
   capabilities: { audio: true, backgroundMusic: true, haptics: true, storage: true },
   container: host,
   createCanvas2D(opts) { const c = document.createElement('canvas'); c.style.cssText = 'position:absolute;inset:0;pointer-events:none'; host.appendChild(c); return c; },
@@ -46,6 +49,9 @@ const ctx = {
   }
 };
 window.__ctx = ctx;
+const logo = document.createElement('div'); logo.style.cssText = 'position:absolute;z-index:99;border-radius:50%;background:rgba(255,255,255,.85);pointer-events:none';
+const placeLogo = () => { const a = ctx.logoArea; Object.assign(logo.style, { left: a.x + 'px', top: a.y + 'px', width: a.width + 'px', height: a.height + 'px' }); };
+placeLogo(); window.addEventListener('resize', placeLogo); document.body.appendChild(logo);
 window.plethoraBit.init(ctx).catch(e => { console.error(e); window.__initError = String(e && e.stack || e); });
 </script>
 </body>

@@ -1,3 +1,4 @@
+// Plethora Bit · docs and draft upload: https://agent.plethora.studio/v1/agent/start.md
 // ROOFTOP RUN — an endless rooftop traversal game for Plethora.
 // Built from src/ by build.js; edit the sources, not this file.
 (function () {
@@ -610,7 +611,7 @@ function createInput(ctx, canvas, ui) {
     const r = rect(), x = e.clientX - r.left, y = e.clientY - r.top;
     if (x >= jumpZoneX() || (e.pointerType === 'mouse' && e.button === 2)) {
       roles.set(e.pointerId, { role: 'jump' }); press();
-    } else if (!state.stick) {
+    } else if (!state.stick && y < ctx.height - ((ctx.safeArea && ctx.safeArea.bottom) || 0)) {
       roles.set(e.pointerId, { role: 'stick' });
       state.stick = { ox: x, oy: y, x, y, id: e.pointerId };
       ui.stickShow(x, y);
@@ -1459,6 +1460,7 @@ function createHud(ctx) {
   el('div', 'rr-title', 'ROOFTOP<br>RUN', H.start);
   H.startText = el('div', 'rr-p', '', H.start);
   H.go = el('button', 'rr-b', 'RUN', H.start);
+  H.retry = el('button', 'rr-b sec', 'RETRY', H.start); H.retry.style.display = 'none';
   H.pause = el('div', 'rr-card');
   el('div', 'rr-p', 'Paused', H.pause);
   H.resume = el('button', 'rr-b', 'RESUME', H.pause);
@@ -1482,18 +1484,20 @@ function createHud(ctx) {
     fade(v) { H.fade.style.opacity = v; },
     distance(m, lap) { const s = m + '<small>M</small>'; if (api._d !== s) { api._d = s; H.dist.innerHTML = s; } const t = lap > 1 ? 'Movement lab · lap ' + lap : 'Movement lab'; if (api._l !== t) { api._l = t; H.sub.textContent = t; } },
     debug(text) { if (api._dbg !== text) { api._dbg = text; H.dbg.textContent = text; } },
-    layout(w, h, safe) {
-      const top = (safe && safe.top) || 0, bot = (safe && safe.bottom) || 0, right = (safe && safe.right) || 0, left = (safe && safe.left) || 0;
+    // area: ctx.contentSafeArea ?? ctx.safeArea (clears the island, home bar and Plethora's logo)
+    layout(w, h, area) {
+      const top = area.top || 0, bot = area.bottom || 0, right = area.right || 0, left = area.left || 0;
       const portrait = h > w;
-      H.top.style.paddingTop = (16 + top) + 'px';
+      H.top.style.paddingTop = (12 + top) + 'px';
       H.top.style.left = (16 + left) + 'px'; H.top.style.right = (16 + right) + 'px';
       H.dbg.style.top = (top + 80) + 'px'; H.dbg.style.left = (16 + left) + 'px';
-      const js = Math.round(clamp(Math.min(w, h) * (portrait ? 0.22 : 0.22), 72, 96));
-      Object.assign(H.jump.style, { width: js + 'px', height: js + 'px', right: (24 + right) + 'px', bottom: (bot + (portrait ? 48 : 28)) + 'px' });
+      const js = Math.round(clamp(Math.min(w, h) * 0.22, 72, 96));
+      Object.assign(H.jump.style, { width: js + 'px', height: js + 'px', right: (24 + right) + 'px', bottom: (bot + (portrait ? 16 : 12)) + 'px' });
       H.zone.style.width = (w * TUNING.input.jumpZone) + 'px';
-      H.hintL.style.left = (24 + left) + 'px'; H.hintL.style.bottom = (bot + 24) + 'px';
-      H.hintR.style.right = (24 + right) + 'px'; H.hintR.style.bottom = (bot + (portrait ? 48 : 28) + js + 12) + 'px';
-      for (const c of [H.start, H.pause]) { c.style.bottom = 'auto'; c.style.top = portrait ? '38%' : '50%'; c.style.transform = 'translate(-50%,-50%)'; }
+      H.hintL.style.left = (24 + left) + 'px'; H.hintL.style.bottom = (bot + 16) + 'px';
+      H.hintR.style.right = (24 + right) + 'px'; H.hintR.style.bottom = (bot + (portrait ? 16 : 12) + js + 12) + 'px';
+      H.panel.style.paddingTop = (16 + top) + 'px'; H.panel.style.paddingBottom = (16 + bot) + 'px'; H.panel.style.paddingRight = (16 + right) + 'px';
+      for (const c of [H.start, H.pause]) { c.style.bottom = 'auto'; c.style.top = (top + (h - top - bot) * (portrait ? 0.42 : 0.5)) + 'px'; c.style.transform = 'translate(-50%,-50%)'; c.style.maxHeight = (h - top - bot - 16) + 'px'; c.style.overflowY = 'auto'; }
     }
   };
 
@@ -1576,16 +1580,30 @@ window.plethoraBit = {
     hud.H.go.disabled = true; hud.H.go.textContent = 'LOADING…';
     try { if (ctx.markVisualReady) ctx.markVisualReady('title'); } catch (e) { }
 
+    let readySent = false;
     function bootFail(stage, err) {
       try { ctx.platform.error({ stage, message: String((err && err.message) || err) }); } catch (e) { }
       hud.H.startText.textContent = { library: 'The 3D engine could not be downloaded. Check your connection and reopen.', renderer: 'This device could not start 3D graphics (WebGL).', frame: 'The first frame failed to draw. Please reopen.' }[stage];
       hud.H.go.style.display = 'none';
-      try { ctx.platform.ready(); } catch (e) { }
+      if (!readySent) { readySent = true; try { ctx.platform.ready(); } catch (e) { } }
     }
-    let THREE;
-    try { THREE = await ctx.importModule('three', '0.164.1'); } catch (e) { bootFail('library', e); return; }
-    if (destroyed) return;
     ctx.onDestroy(() => { destroyed = true; });
+    // the 3D library: a failed download offers one user-triggered retry at a time
+    let THREE = null, loading = null;
+    const loadThree = () => loading || (loading = ctx.importModule('three', '0.164.1').finally(() => { loading = null; }));
+    try { THREE = await loadThree(); } catch (e) {
+      bootFail('library', e);
+      hud.H.retry.style.display = '';
+      THREE = await new Promise(res => {
+        ctx.listen(hud.H.retry, 'click', async ev => {
+          ev.stopPropagation(); if (loading || destroyed) return;
+          hud.H.retry.textContent = 'LOADING…';
+          try { const T = await loadThree(); hud.H.retry.style.display = 'none'; hud.H.go.style.display = ''; res(T); }
+          catch (er) { hud.H.retry.textContent = 'RETRY'; try { ctx.platform.error({ stage: 'library', message: String(er && er.message || er) }); } catch (x) { } }
+        });
+      });
+    }
+    if (destroyed || !THREE) return;
 
     const small = Math.min(ctx.width, ctx.height) < 600;
     let renderer;
@@ -1648,7 +1666,10 @@ window.plethoraBit = {
       hud.card('pause'); hud.hints(false);
     }
     function resume() { if (mode !== 'paused' || contextLost) return; mode = 'play'; input.state.enabled = true; hud.card(null); }
-    function restart() { hud.panel(false); resetLab(); mode = 'paused'; resume(); if (mode !== 'play') begin(); }
+    function restart() {
+      hud.panel(false); resetLab(); mode = 'paused'; resume(); if (mode !== 'play') return;
+      try { ctx.platform.start({ phase: 'movement-lab', replay: true }); } catch (e) { }
+    }
     const tap = (e, fn) => ctx.listen(e, 'click', ev => { ev.stopPropagation(); fn(ev); });
     tap(hud.H.go, begin); tap(hud.H.resume, resume); tap(hud.H.restart, restart);
     ctx.listen(hud.H.pauseBtn, 'pointerdown', e => { e.stopPropagation(); if (mode === 'play') pause(); else resume(); });
@@ -1662,7 +1683,7 @@ window.plethoraBit = {
     hud.buildPanel({
       camPreset: () => cam.st.preset, setCamPreset: v => { cam.st.preset = v; },
       shadows: () => shadows, setShadows: v => { shadows = v; view.setShadows(v); rig.setShadows(v); },
-      restart, relayout: () => layout(ctx.width, ctx.height, ctx.safeArea)
+      restart, relayout: () => layout(ctx.width, ctx.height, area())
     });
 
     // lifecycle: background, blur, context loss
@@ -1691,7 +1712,8 @@ window.plethoraBit = {
       cat.step(dt, inp);
       for (const e of cat.events) {
         frameEvents.push(e);
-        if (e.type === 'land') { if (e.impact > 7) haptic('light'); }
+        if (e.type === 'jump') { try { ctx.platform.interact({ type: 'jump' }); } catch (er) { } }
+        else if (e.type === 'land') { if (e.impact > 7) haptic('light'); }
         else if (e.type === 'bump' || e.type === 'scramble') haptic('medium');
         else if (e.type === 'fall' && !respawn) {
           respawn = { t: 0, at: lab.checkpoints[cpIdx] };
@@ -1747,12 +1769,18 @@ window.plethoraBit = {
     }
 
     // ---------- layout ----------
-    function layout(w, h, safe) {
-      hud.layout(w, h, safe);
+    function layout(w, h, a) {
+      hud.layout(w, h, a);
       renderer.setSize(w, h, false);
-      camera.aspect = w / h; camera.updateProjectionMatrix();
+      camera.aspect = w / h;
+      // centre the picture in the content safe area, so Plethora's logo button
+      // (bottom centre) never sits on the cat
+      const shift = Math.round(Math.max(0, (a.bottom || 0) * 0.8 - (a.top || 0) * 0.5));
+      if (shift > 0) camera.setViewOffset(w, h, 0, shift, w, h); else camera.clearViewOffset();
+      camera.updateProjectionMatrix();
     }
-    ctx.onResize(({ width, height, safeArea }) => layout(width, height, safeArea || ctx.safeArea), { immediate: true });
+    const area = () => ctx.contentSafeArea ?? ctx.safeArea ?? { top: 0, right: 0, bottom: 0, left: 0 };
+    ctx.onResize(({ width, height }) => layout(width, height, area()), { immediate: true });
 
     // ---------- loop: fixed 60 Hz simulation, rendered with interpolation ----------
     function tick(dtMs) {
@@ -1780,7 +1808,7 @@ window.plethoraBit = {
 
     try { frame(SIM_DT); } catch (e) { bootFail('frame', e); return; }
     hud.H.go.disabled = false; hud.H.go.textContent = 'RUN';
-    try { ctx.platform.ready(); } catch (e) { }
+    if (!readySent) { readySent = true; try { ctx.platform.ready(); } catch (e) { } }
 
     if (window.__RR_DEV) {
       window.__rr = {

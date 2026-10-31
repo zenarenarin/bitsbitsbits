@@ -27,16 +27,30 @@ window.plethoraBit = {
     hud.H.go.disabled = true; hud.H.go.textContent = 'LOADING…';
     try { if (ctx.markVisualReady) ctx.markVisualReady('title'); } catch (e) { }
 
+    let readySent = false;
     function bootFail(stage, err) {
       try { ctx.platform.error({ stage, message: String((err && err.message) || err) }); } catch (e) { }
       hud.H.startText.textContent = { library: 'The 3D engine could not be downloaded. Check your connection and reopen.', renderer: 'This device could not start 3D graphics (WebGL).', frame: 'The first frame failed to draw. Please reopen.' }[stage];
       hud.H.go.style.display = 'none';
-      try { ctx.platform.ready(); } catch (e) { }
+      if (!readySent) { readySent = true; try { ctx.platform.ready(); } catch (e) { } }
     }
-    let THREE;
-    try { THREE = await ctx.importModule('three', '0.164.1'); } catch (e) { bootFail('library', e); return; }
-    if (destroyed) return;
     ctx.onDestroy(() => { destroyed = true; });
+    // the 3D library: a failed download offers one user-triggered retry at a time
+    let THREE = null, loading = null;
+    const loadThree = () => loading || (loading = ctx.importModule('three', '0.164.1').finally(() => { loading = null; }));
+    try { THREE = await loadThree(); } catch (e) {
+      bootFail('library', e);
+      hud.H.retry.style.display = '';
+      THREE = await new Promise(res => {
+        ctx.listen(hud.H.retry, 'click', async ev => {
+          ev.stopPropagation(); if (loading || destroyed) return;
+          hud.H.retry.textContent = 'LOADING…';
+          try { const T = await loadThree(); hud.H.retry.style.display = 'none'; hud.H.go.style.display = ''; res(T); }
+          catch (er) { hud.H.retry.textContent = 'RETRY'; try { ctx.platform.error({ stage: 'library', message: String(er && er.message || er) }); } catch (x) { } }
+        });
+      });
+    }
+    if (destroyed || !THREE) return;
 
     const small = Math.min(ctx.width, ctx.height) < 600;
     let renderer;
@@ -99,7 +113,10 @@ window.plethoraBit = {
       hud.card('pause'); hud.hints(false);
     }
     function resume() { if (mode !== 'paused' || contextLost) return; mode = 'play'; input.state.enabled = true; hud.card(null); }
-    function restart() { hud.panel(false); resetLab(); mode = 'paused'; resume(); if (mode !== 'play') begin(); }
+    function restart() {
+      hud.panel(false); resetLab(); mode = 'paused'; resume(); if (mode !== 'play') return;
+      try { ctx.platform.start({ phase: 'movement-lab', replay: true }); } catch (e) { }
+    }
     const tap = (e, fn) => ctx.listen(e, 'click', ev => { ev.stopPropagation(); fn(ev); });
     tap(hud.H.go, begin); tap(hud.H.resume, resume); tap(hud.H.restart, restart);
     ctx.listen(hud.H.pauseBtn, 'pointerdown', e => { e.stopPropagation(); if (mode === 'play') pause(); else resume(); });
@@ -113,7 +130,7 @@ window.plethoraBit = {
     hud.buildPanel({
       camPreset: () => cam.st.preset, setCamPreset: v => { cam.st.preset = v; },
       shadows: () => shadows, setShadows: v => { shadows = v; view.setShadows(v); rig.setShadows(v); },
-      restart, relayout: () => layout(ctx.width, ctx.height, ctx.safeArea)
+      restart, relayout: () => layout(ctx.width, ctx.height, area())
     });
 
     // lifecycle: background, blur, context loss
@@ -142,7 +159,8 @@ window.plethoraBit = {
       cat.step(dt, inp);
       for (const e of cat.events) {
         frameEvents.push(e);
-        if (e.type === 'land') { if (e.impact > 7) haptic('light'); }
+        if (e.type === 'jump') { try { ctx.platform.interact({ type: 'jump' }); } catch (er) { } }
+        else if (e.type === 'land') { if (e.impact > 7) haptic('light'); }
         else if (e.type === 'bump' || e.type === 'scramble') haptic('medium');
         else if (e.type === 'fall' && !respawn) {
           respawn = { t: 0, at: lab.checkpoints[cpIdx] };
@@ -198,12 +216,18 @@ window.plethoraBit = {
     }
 
     // ---------- layout ----------
-    function layout(w, h, safe) {
-      hud.layout(w, h, safe);
+    function layout(w, h, a) {
+      hud.layout(w, h, a);
       renderer.setSize(w, h, false);
-      camera.aspect = w / h; camera.updateProjectionMatrix();
+      camera.aspect = w / h;
+      // centre the picture in the content safe area, so Plethora's logo button
+      // (bottom centre) never sits on the cat
+      const shift = Math.round(Math.max(0, (a.bottom || 0) * 0.8 - (a.top || 0) * 0.5));
+      if (shift > 0) camera.setViewOffset(w, h, 0, shift, w, h); else camera.clearViewOffset();
+      camera.updateProjectionMatrix();
     }
-    ctx.onResize(({ width, height, safeArea }) => layout(width, height, safeArea || ctx.safeArea), { immediate: true });
+    const area = () => ctx.contentSafeArea ?? ctx.safeArea ?? { top: 0, right: 0, bottom: 0, left: 0 };
+    ctx.onResize(({ width, height }) => layout(width, height, area()), { immediate: true });
 
     // ---------- loop: fixed 60 Hz simulation, rendered with interpolation ----------
     function tick(dtMs) {
@@ -231,7 +255,7 @@ window.plethoraBit = {
 
     try { frame(SIM_DT); } catch (e) { bootFail('frame', e); return; }
     hud.H.go.disabled = false; hud.H.go.textContent = 'RUN';
-    try { ctx.platform.ready(); } catch (e) { }
+    if (!readySent) { readySent = true; try { ctx.platform.ready(); } catch (e) { } }
 
     if (window.__RR_DEV) {
       window.__rr = {
