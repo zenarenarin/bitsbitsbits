@@ -54,7 +54,7 @@ const { chromium } = require('playwright');
       const L = await page.evaluate(() => ({ ...window.__egg.L }));
       const deckL = L.px - 2 * L.k, deckR = L.px + 2 * L.k, table = L.py - (-2.6) * L.k;
       ok(`layout ${vp.width}x${vp.height}: deck on screen, table above chips`, deckL > 0 && deckR < vp.width && table < vp.height - (34 + 74) - 40, `deck ${deckL.toFixed(0)}..${deckR.toFixed(0)}, table ${table.toFixed(0)}`);
-      await page.screenshot({ path: `dev/out/vp_${vp.width}.png` });
+      await page.screenshot({ path: require('path').join(__dirname, 'out', `vp_${vp.width}.png`) });
     }
     // keyboard drives the weight
     await page.keyboard.down('ArrowRight'); await page.waitForTimeout(600); await page.keyboard.up('ArrowRight');
