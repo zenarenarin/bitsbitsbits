@@ -1200,7 +1200,7 @@ window.plethoraBit = {
     let renderer;
     try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' }); } catch (e) { bootFail('renderer', e); return; }
     const small = Math.min(ctx.width, ctx.height) < 600;
-    renderer.setPixelRatio(Math.min(ctx.nativeDpr || ctx.dpr || 1, small ? 1.6 : 1.75));
+    renderer.setPixelRatio(window.__REFLECTION_DEV && window.__rfPixelRatio ? window.__rfPixelRatio : Math.min(ctx.nativeDpr || ctx.dpr || 1, small ? 1.6 : 1.75));
     renderer.setSize(ctx.width, ctx.height, false);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -1576,7 +1576,7 @@ window.plethoraBit = {
       renderer.setRenderTarget(null); renderer.render(real, camera);
     }
     function tick(dtMs) {
-      if (destroyed) return;
+      if (destroyed || (window.__REFLECTION_DEV && window.__rfHold)) return;
       frame(Math.min(0.05, Math.max(0, dtMs / 1000)));
     }
     if (ctx.game && ctx.game.loop) ctx.game.loop({ update: tick });
