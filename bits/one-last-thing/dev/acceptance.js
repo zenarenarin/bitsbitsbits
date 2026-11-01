@@ -43,7 +43,7 @@ const ok = (c, m) => { console.log((c ? 'ok   ' : 'FAIL ') + m); if (!c) fails++
   ok(Math.abs(angle(a4.right, a3.right) - Math.PI / 12) < 0.01, 'A  fine step rotates 15 degrees');
   await page.click('.olt-fine');
   const qBefore = (await held()).q;
-  await E(() => { const c = document.querySelector('canvas'); const fire = (t, id, x, y) => c.dispatchEvent(new PointerEvent(t, { pointerId: id, clientX: x, clientY: y, bubbles: true, pointerType: 'touch', isPrimary: id === 11 })); fire('pointerdown', 11, 150, 330); fire('pointerdown', 12, 250, 330); for (let i = 1; i <= 10; i++) { const a = i / 10 * 0.8; fire('pointermove', 11, 200 - Math.cos(a) * 50, 330 - Math.sin(a) * 50); fire('pointermove', 12, 200 + Math.cos(a) * 50, 330 + Math.sin(a) * 50); } fire('pointerup', 11, 0, 0); fire('pointerup', 12, 0, 0); });
+  await E(() => { const c = __olt.view.renderer.domElement; const fire = (t, id, x, y) => c.dispatchEvent(new PointerEvent(t, { pointerId: id, clientX: x, clientY: y, bubbles: true, pointerType: 'touch', isPrimary: id === 11 })); fire('pointerdown', 11, 150, 330); fire('pointerdown', 12, 250, 330); for (let i = 1; i <= 10; i++) { const a = i / 10 * 0.8; fire('pointermove', 11, 200 - Math.cos(a) * 50, 330 - Math.sin(a) * 50); fire('pointermove', 12, 200 + Math.cos(a) * 50, 330 + Math.sin(a) * 50); } fire('pointerup', 11, 0, 0); fire('pointerup', 12, 0, 0); });
   await page.waitForTimeout(200);
   ok(!same((await held()).q, qBefore), 'A  two-finger twist turns the held object');
   await shot('A-held');

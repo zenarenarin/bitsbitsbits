@@ -32,6 +32,7 @@ const ctx = {
   contentSafeArea: q.has('frame') ? undefined : { top: 62, bottom: 108, left: 0, right: 0 },
   capabilities: { audio: true, backgroundMusic: false, haptics: true, storage: true },
   container: host,
+  createCanvas2D(opts) { const c = document.createElement('canvas'); c.style.cssText = 'position:absolute;inset:0;width:100%;height:100%'; place(c, opts); host.appendChild(c); if (opts && opts.coordinateSpace === 'css') { c.width = host.clientWidth; c.height = host.clientHeight; } return c; },
   createCanvas(opts) { const c = document.createElement('canvas'); c.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;touch-action:none'; place(c, opts); host.appendChild(c); return c; },
   createRoot(opts) { const d = document.createElement('div'); d.className = (opts && opts.className) || ''; d.style.cssText = 'position:absolute;inset:0;' + ((opts && opts.style) || ''); place(d, opts); host.appendChild(d); return d; },
   listen(t, ev, fn, o) { t.addEventListener(ev, fn, o); cleanups.push(() => t.removeEventListener(ev, fn, o)); return () => t.removeEventListener(ev, fn, o); },

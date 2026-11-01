@@ -1232,8 +1232,11 @@ const Paint = (() => {
   function shade(hex, dl, ds = 0, a = 1) { const [h, s, l] = rgbHsl(hexRgb(hex)); return hslCss(h, s + ds, l + dl, a); }
   function mixHex(a, b, t) { const A = hexRgb(a), B = hexRgb(b); return '#' + A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, '0')).join(''); }
 
+  let factory = null;
+  function setFactory(f) { factory = f; }
   function canvas(w, h) {
-    const c = document.createElement('canvas'); // detached; never mounted
+    // texture canvases come from the runtime-approved factory the game installs (OffscreenCanvas or ctx.createCanvas2D)
+    const c = factory ? factory(w, h) : new OffscreenCanvas(w, h);
     c.width = w; c.height = h; return c;
   }
 
@@ -1681,7 +1684,7 @@ const Paint = (() => {
     return c;
   }
 
-  return { texture, paperBg, canvas, mixHex, shade, hexRgb, FNS };
+  return { texture, paperBg, canvas, setFactory, mixHex, shade, hexRgb, FNS };
 })();
 
 // ---- 06_render.js ----
@@ -2433,13 +2436,33 @@ window.plethoraBit = {
     const area = () => ctx.contentSafeArea ?? ctx.safeArea ?? { top: 0, bottom: 120, left: 0, right: 0 };
 
     // ---------- surfaces ----------
+    // Texture canvases: an OffscreenCanvas where the WebView has one, else a hidden SDK canvas.
+    Paint.setFactory((w, h) => {
+      if (typeof OffscreenCanvas !== 'undefined') { try { const c = new OffscreenCanvas(w, h); if (c.getContext('2d')) return c; } catch (e) { } }
+      const c = ctx.createCanvas2D({ layer: 'background', order: -10, input: 'passthrough' });
+      c.style.display = 'none'; return c;
+    });
     const bgRoot = ctx.createRoot({ layer: 'background', input: 'passthrough', style: 'background:#efe4cc;overflow:hidden;' });
+    // painted paper behind everything, drawn on an SDK canvas
+    const paperCv = ctx.createCanvas2D({ layer: 'background', order: 1, input: 'passthrough', coordinateSpace: 'css', maxDpr: 1 });
+    paperCv.style.cssText += ';position:absolute;inset:0;width:100%;height:100%;';
+    let paperTile = null;
+    function drawPaper() {
+      try {
+        const g = paperCv.getContext('2d'), w = ctx.width, h = ctx.height;
+        if (!paperTile) paperTile = Paint.paperBg(512, 512, 7);
+        g.fillStyle = g.createPattern(paperTile, 'repeat'); g.fillRect(0, 0, w, h);
+        const gr = g.createRadialGradient(w / 2, h * 0.35, 0, w / 2, h * 0.35, Math.max(w, h) * 0.75);
+        gr.addColorStop(0, 'rgba(255,250,235,0.5)'); gr.addColorStop(1, 'rgba(120,80,40,0.16)');
+        g.fillStyle = gr; g.fillRect(0, 0, w, h);
+      } catch (e) { }
+    }
+    drawPaper(); ctx.onResize(drawPaper);
     const canvas = ctx.createCanvas({ layer: 'content', touchAction: 'none' });
     canvas.style.cssText += ';position:absolute;inset:0;width:100%;height:100%;touch-action:none;';
     const hud = ctx.createRoot({ layer: 'overlay', input: 'passthrough', className: 'olt' });
     hud.innerHTML = HUD_HTML;
     const $ = s => hud.querySelector(s);
-    try { const bg = Paint.paperBg(512, 512, 7); bgRoot.style.backgroundImage = `radial-gradient(ellipse at 50% 35%, rgba(255,250,235,0.55), rgba(120,80,40,0.16) 95%), url(${bg.toDataURL('image/jpeg', 0.82)})`; bgRoot.style.backgroundSize = 'cover, 512px 512px'; } catch (e) { }
     // fonts (non-blocking)
     const fonts = [['DM Serif Display', 'dm-serif-display', { weight: '400', style: 'normal' }], ['Cormorant Garamond', 'cormorant-garamond', { weight: '300', style: 'italic' }], ['Cormorant Garamond', 'cormorant-garamond', { weight: '300', style: 'normal' }], ['Nunito Sans', 'nunito-sans', { weight: '700', style: 'normal' }], ['Nunito Sans', 'nunito-sans', { weight: '400', style: 'normal' }]];
     const fontsReady = Promise.all(fonts.map(([fam, name, o]) => { try { return ctx.loadFont(fam, name, '1.0.0', o).catch(() => null); } catch (e) { return null; } }));

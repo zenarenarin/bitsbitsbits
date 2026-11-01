@@ -26,8 +26,11 @@ const Paint = (() => {
   function shade(hex, dl, ds = 0, a = 1) { const [h, s, l] = rgbHsl(hexRgb(hex)); return hslCss(h, s + ds, l + dl, a); }
   function mixHex(a, b, t) { const A = hexRgb(a), B = hexRgb(b); return '#' + A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, '0')).join(''); }
 
+  let factory = null;
+  function setFactory(f) { factory = f; }
   function canvas(w, h) {
-    const c = document.createElement('canvas'); // detached; never mounted
+    // texture canvases come from the runtime-approved factory the game installs (OffscreenCanvas or ctx.createCanvas2D)
+    const c = factory ? factory(w, h) : new OffscreenCanvas(w, h);
     c.width = w; c.height = h; return c;
   }
 
@@ -475,5 +478,5 @@ const Paint = (() => {
     return c;
   }
 
-  return { texture, paperBg, canvas, mixHex, shade, hexRgb, FNS };
+  return { texture, paperBg, canvas, setFactory, mixHex, shade, hexRgb, FNS };
 })();
