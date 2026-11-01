@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "One Last Thing",
+  "description": "A 3D packing puzzle. Fit a cabinet of curiosities, from glazed vases and a brass key to a little gramophone and a thick old journal, into an open wooden drawer. Turn, tip and roll each piece until nothing sticks out and nothing overlaps.",
+  "tags": [
+    "puzzle",
+    "3d",
+    "packing",
+    "cozy"
+  ],
+  "permissions": [
+    "haptics",
+    "audio",
+    "storage"
+  ],
+  "dependencies": [
+    "three@0.164.1"
+  ],
+  "display": "fullscreen",
+  "onboarding": {
+    "kind": "immersive",
+    "version": 1
+  },
+  "game": {
+    "progress": {
+      "main": {
+        "label": "Drawer",
+        "stateSchemaVersion": 1,
+        "ttlDays": 120
+      }
+    }
+  },
+  "memory": {
+    "records": {
+      "drawers": {
+        "label": "Drawers packed",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": [
+          "weekly",
+          "all_time"
+        ],
+        "scopes": [
+          "following",
+          "global"
+        ],
+        "dedupe": "best_per_user"
+      }
+    }
+  }
+}

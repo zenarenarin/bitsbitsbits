@@ -1,0 +1,1 @@
+module.exports = async page => { await page.evaluate(() => { const q = new URLSearchParams(location.search); __olt.goLevel(+(q.get('l') || 0)); }); await page.waitForTimeout(400); await page.evaluate(() => { __olt.devSolve(); }); await page.waitForTimeout(800); };
