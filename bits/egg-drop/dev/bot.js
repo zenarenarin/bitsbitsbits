@@ -11,7 +11,7 @@ function run(seed, surface, skill, maxT=180, opts={}) {
     lag.push({ e, v, a, w });
     const o = lag.length > react / H ? lag.shift() : lag[0];
     const want = Math.max(-0.2, Math.min(0.2, skill.kx * o.e.x + skill.kv * o.v.x));
-    let tgt = -(0.5 / 0.95) * o.e.x - skill.ka * (want - o.a) + skill.kw * o.w;
+    let tgt = -(s.egg.getMass() / s.cw.getMass()) * o.e.x - skill.ka * (want - o.a) + skill.kw * o.w;
     s.dragging = true; s.target = Math.max(-GEOM.travel, Math.min(GEOM.travel, tgt));
     const side = Math.abs(e.x) > 1.3 ? Math.sign(e.x) : 0;
     s.disturb = d.update(t, H, side);

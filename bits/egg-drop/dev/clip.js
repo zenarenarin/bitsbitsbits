@@ -26,7 +26,7 @@ const fs = require('fs'), path = require('path'), { execFileSync } = require('ch
         lagged.push({ e, v, a, w });
         const o = lagged.length > 6 ? lagged.shift() : lagged[0];
         const want = Math.max(-0.2, Math.min(0.2, 0.11 * o.e.x + 0.15 * o.v.x));
-        const goal = Math.max(-1.36, Math.min(1.36, -(0.5 / 0.95) * o.e.x - 3.6 * (want - o.a) + 0.5 * o.w));
+        const goal = Math.max(-1.36, Math.min(1.36, -(s.egg.getMass() / s.cw.getMass()) * o.e.x - 1.2 * (want - o.a) + 0.25 * o.w));
         ft += (goal - ft) * 0.35;
         s.target = ft;
       } else if (c.mode === 'swing') {
@@ -35,7 +35,7 @@ const fs = require('fs'), path = require('path'), { execFileSync } = require('ch
       window.__loopStep(1000 / 30);
       // fingertip under the carriage, a little below the bell
       if (E.drag.id !== null && E.state === 'play') {
-        const ang = s.angle(), x = s.cwPos(), ry = -0.5;
+        const ang = s.angle(), x = s.cwPos(), ry = -0.8;
         const wx = x * Math.cos(ang) - (ry - 0.62) * Math.sin(ang), wy = x * Math.sin(ang) + (ry - 0.62) * Math.cos(ang);
         f.style.left = (L.px + wx * L.k) + 'px'; f.style.top = (L.py - wy * L.k) + 'px'; f.style.opacity = '1';
       } else f.style.opacity = '0';
@@ -51,11 +51,8 @@ const fs = require('fs'), path = require('path'), { execFileSync } = require('ch
   // 2. grab the weight, nudge it, then balance
   await page.evaluate(() => { const E = window.__egg; E.drag.id = 1; E.sim.target = 0; E.beginRun(); window.__clip.mode = 'play'; });
   await rec(30 * 10);
-  // 3. fast-forward (not recorded) to just before the first gust
-  let r;
-  for (let i = 0; i < 60 * 30; i++) { r = await page.evaluate(() => window.__frame()); if (r.warn > 0.02 || r.state !== 'play') break; }
-  console.log('cut at', r);
-  await rec(30 * 7);
+  // 3. no cut: keep recording the same run
+  let r = await rec(30 * 22);
   // 4. let go: the egg runs away, falls and cracks
   await page.evaluate(() => { const E = window.__egg; window.__clip.mode = 'swing'; window.__clip.goal = E.sim.eggLocal().x > 0 ? 1.3 : -1.3; });
   for (let i = 0; i < 30 * 12; i++) { r = await page.evaluate(() => window.__frame()); await snap(); if (r.state === 'results') break; }

@@ -4,47 +4,64 @@ A physics balancing Bit for Plethora (`plethora-bit@2`, planck.js 1.5.0, Canvas2
 
 ## The physics
 
-Everything is a planck (Box2D) rigid body stepped at a fixed 120 Hz. Rendering interpolates between steps. Nothing sets the platform angle directly.
+Everything is a planck (Box2D) rigid body stepped at a fixed 120 Hz. Rendering interpolates between steps. Nothing sets the platform angle or the egg's position directly.
 
-- **Platform**: one dynamic body. It is made of the deck, two hangers and the rail rod, so its mass and moment of inertia come from all of them. It turns on a revolute joint at the pivot, which has:
+- **Platform**: one dynamic body made of the deck, two hangers and the rail. It turns on a revolute joint at the pivot, which has:
   - ±17.8° limits,
   - a little bearing friction (a zero-speed joint motor with a small torque cap),
   - angular damping.
-- **Counterweight**: a dynamic body on a prismatic joint along the rail, limited to ±1.36 m.
-  - While you hold it, a servo motor drives it toward your finger. The motor's reaction acts on the platform too, so you can feel the carriage's mass.
-  - When you let go, the motor brakes the carriage with only the rail's friction.
-  - Its lever arm changes the gravitational torque about the pivot. `dev/scenarios.js` checks that putting the carriage at −m_egg·x/m_cw cancels an off-centre egg, and that the measured torque matches.
-- **Egg**: an asymmetric ovoid built from 10 convex fans (110 outline vertices), so it rolls on its curve and does not rest on flat faces. It has:
-  - its own mass, centre of mass and inertia, and continuous collision;
-  - static friction (μs) while the contact isn't slipping and kinetic friction (μk) once it slips past 2.5 cm/s, chosen per contact in `pre-solve`;
-  - rolling resistance, a couple proportional to the measured normal load, applied equally and oppositely to the egg and the platform.
+
+  The rail hangs 0.8 m below the pivot, which makes the whole assembly a stiff pendulum (about 18 N·m/rad). Carriage position therefore maps progressively to tilt: 0.1 m gives about 4.8°, 0.3 m gives about 12°, and about 0.45 m reaches the stop.
+- **Counterweight**: a 1.4 kg body on a prismatic joint along the rail, limited to ±1.36 m.
+  - Touch and phone tilt both set the same target. A servo motor in the carriage drives toward it, and the reaction acts on the platform.
+  - When nothing steers it, the motor brakes the carriage with only the rail's friction.
+  - A finger moves the carriage 0.55 m per metre of drag.
+- **Egg**: a single convex polygon of 300 vertices that traces exactly the drawn outline. It is a slightly asymmetric ovoid, aspect 1.05.
+  - Sliding friction is static (μs) until the contact slips faster than 2.5 cm/s, then kinetic (μk). It is chosen per contact in `pre-solve`.
+  - **Rolling resistance** is a Coulomb couple, separate from sliding friction. It is a planck `FrictionJoint` acting only on the egg's rotation relative to the deck, with a torque cap of `roll × normal load`, updated every step. So it holds the egg still up to a threshold, then resists rolling with a constant couple.
 - **Disturbances** (`src/01_disturb.js`) are torques on the platform:
-  - slow drift (three incommensurate waves plus a filtered random walk),
-  - short raised-cosine nudges,
-  - from about 35 s on, stronger gusts announced 1.1 s ahead by air streaks and a rising whoosh.
+  - slow drift,
+  - short nudges,
+  - from about 35 s on, gusts announced 1.1 s ahead.
 
-  They ramp through the four phases: Learning to 10 s, Instability to 25 s, Pressure to 45 s, then Survival. A nudge or gust never starts toward an egg that is already near an end. If the egg gets into trouble after a gust's cue has played, the gust lands at half strength. The total torque is soft-capped well below what the carriage can answer.
+  They step up at 10 s, 25 s and 45 s (Learning, Instability, Pressure, Survival). A nudge never starts toward an egg that is already near an end. The total is soft-capped below what the carriage can answer.
 
-| Surface | μs | μk | rolling resistance | Break-away tilt |
+| Surface | μs / μk | rolling resistance | starts moving at (slow tilt) | on a 17° tilt |
 |---|---|---|---|---|
-| Rubber | 1.05 | 0.85 | 0.016 | about 12.4° |
-| Wood | 0.55 | 0.42 | 0.005 | about 7.8° |
-| Ceramic | 0.16 | 0.10 | 0.0035 | about 7.6° |
-| Metal | 0.07 | 0.04 | 0.0015 | about 5.6°; slides rather than rolls on steep tilts |
+| Rubber | 1.05 / 0.85 | 0.018 | about 4.8° | rolls |
+| Wood | 0.50 / 0.38 | 0.0085 | about 3.0° | rolls |
+| Ceramic | 0.14 / 0.09 | 0.0035 | about 2.2° | rolls and slips |
+| Metal | 0.07 / 0.04 | 0.0028 | about 1.9° | mostly slides |
+
+### Bugs fixed in the physics refinement
+
+- **The egg jammed on the deck.** It was assembled from wedge-shaped fixtures, because planck's default limit is 12 vertices per polygon. Two or three wedges touched the deck at once with conflicting normals, which held even a perfectly round egg on tilts of 7° or more. The egg is now one polygon (the vertex limit is raised).
+- **Rolling resistance read double while the egg rested.** The egg's facets are a few millimetres long, so a two-point contact is nearly degenerate. The solver then solves one point and reports the second as a copy. Two points closer than 2 cm now count once.
+- **The weight was too sensitive.** 0.1 m of carriage (about 9 px of finger) tilted the platform 8.7°, and 0.3 m hit the stop.
+- **The game overrode the physics' defaults.** It passed its own tuning defaults for carriage mass and damping, which overrode the tested values.
 
 ## Play
 
-- Touch anywhere and drag sideways. The weight follows your finger along the rail.
-- The run starts on the first grab and the timer is your score.
-- Bonuses:
-  - **Level**: within 2° for 4 s.
+- **Touch**: touch anywhere and drag sideways. The weight follows along the rail.
+- **Phone tilt**: choose it on the start or results screen.
+  1. Allow motion access. iOS asks in a system prompt.
+  2. Hold the phone comfortably upright and tap **Calibrate**. That pose becomes zero.
+  3. Tilt it like a steering wheel: right side down moves the weight right.
+
+  The tilt setting has a sensitivity slider. The mapping has a 1.2° dead zone, an expo curve and 60 ms smoothing, and it rotates with the screen orientation (a rotation asks for a new calibration). In the Plethora app it uses the host's motion bridge (`ctx.motion`). Otherwise it uses `DeviceOrientationEvent`, calling `requestPermission()` from the tap where the browser has it, and only on a secure page.
+
+  If permission is refused, no sensor exists, or the page isn't https, the panel says so and touch keeps working. If the sensor stops reporting during a run, control falls back to touch.
+- The run starts on the first grab (or tap or tilt in tilt mode). The timer is your score.
+- **Bonuses**:
+  - **Steady**: within 1.5° for 5 s.
   - **Rescued**: from the last 0.5 m back to the middle.
   - **Weathered**: a gust passed.
-  - **Light touch**: 10 s without hitting a rail stop.
-- Optional tilt control: the phone icon, shown only when the host offers motion. Drag always works.
-- Keyboard: ←/→.
+  - **Light touch**: 10 s without hitting a rail stop or reaching past 0.9 m.
 
-Records are `time` (Longest Balance, duration) and `score` (Balance Points). Both have a `surface` dimension. Your bests on this device are kept in `ctx.storage`.
+  Points are 10 per second plus bonuses.
+- **Keyboard**: ←/→.
+
+Records are `time` (Longest Balance, duration) and `score` (Balance Points). Both have a `surface` dimension.
 
 ## Build and run
 
@@ -57,7 +74,11 @@ python3 -m http.server 8765        # then open http://localhost:8765/dev/index.h
 ## Tests
 
 ```sh
-node dev/scenarios.js   # the brief's 12 physics scenarios plus torque, friction, fairness and determinism checks
+node dev/scenarios.js   # physics checklist 1-9 plus torque, coupling, fairness and determinism checks
+node dev/tilt.js        # phone tilt 10-17 and 22 against emulated sensors (not a physical-device test)
+node dev/gameplay.js    # timer, score, difficulty and game-over checks 18-21
+node dev/audit.js       # carriage-to-angle sensitivity, break-away per surface, creep at rest
+node dev/shape.js       # break-away by direction for egg profiles
 node dev/bot.js         # seeded survival times for no-input / novice / good / expert controllers on each surface
 node dev/play.js        # real pointer drags in headless Chromium: start, both rail limits, fall, results, replay
 node dev/edge.js        # dependency failure and retry, tilt granted and denied, three viewports, keyboard

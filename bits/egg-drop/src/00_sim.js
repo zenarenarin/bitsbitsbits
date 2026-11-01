@@ -3,11 +3,14 @@
 // the platform angle is never set directly, only produced by torques.
 // Units are SI: metres, kilograms, seconds, radians.
 
+// muS/muK: sliding friction (static, kinetic). roll: rolling-resistance
+// lever arm in metres (Coulomb couple = roll x normal load), separate from
+// sliding friction. rest: restitution.
 const SURFACES = {
-  rubber:  { label: 'Rubber',  muS: 1.05, muK: 0.85, roll: 0.016, rest: 0.02 },
-  wood:    { label: 'Wood',    muS: 0.55, muK: 0.42, roll: 0.005, rest: 0.06 },
-  ceramic: { label: 'Ceramic', muS: 0.16, muK: 0.10, roll: 0.0035, rest: 0.10 },
-  metal:   { label: 'Metal',   muS: 0.07, muK: 0.04, roll: 0.0015, rest: 0.12 }
+  rubber:  { label: 'Rubber',  muS: 1.05, muK: 0.85, roll: 0.018, rest: 0.02 },
+  wood:    { label: 'Wood',    muS: 0.50, muK: 0.38, roll: 0.0085, rest: 0.06 },
+  ceramic: { label: 'Ceramic', muS: 0.14, muK: 0.09, roll: 0.0035, rest: 0.10 },
+  metal:   { label: 'Metal',   muS: 0.07, muK: 0.04, roll: 0.0028, rest: 0.12 }
 };
 const SURFACE_ORDER = ['rubber', 'wood', 'ceramic', 'metal'];
 
@@ -15,13 +18,13 @@ const GEOM = {
   half: 2.0,          // deck half length
   deckBottom: 0.04,   // deck sits just above the pivot axle
   deckTop: 0.20,
-  railY: -0.5,        // rail rod, in platform frame
+  railY: -0.8,        // rail rod, in platform frame
   railHalf: 1.62,     // visible rod half length
   travel: 1.36,       // carriage limit either side
   tableY: -2.6,       // the table the egg lands on
-  eggA: 0.33,         // egg half length (blunt end towards +x)
+  eggA: 0.32,         // egg half length (blunt end towards +x)
   eggB: 0.305,        // egg half width
-  eggK: 0.06          // asymmetry: blunt and pointed ends
+  eggK: 0.03          // asymmetry: blunt and pointed ends
 };
 
 const CAT = { DECK: 1, EGG: 2, TABLE: 4 };
@@ -50,7 +53,7 @@ function createSim(pl, opt) {
   table.createFixture(new pl.Box(12, 0.3, V(0, -0.3), 0), { friction: 0.6, restitution: 0.05, filterCategoryBits: CAT.TABLE, filterMaskBits: CAT.EGG });
 
   // platform: deck, hangers and rail form one rigid body
-  const platform = world.createBody({ type: 'dynamic', position: V(0, 0), angularDamping: opt.angularDamping != null ? opt.angularDamping : 0.55 });
+  const platform = world.createBody({ type: 'dynamic', position: V(0, 0), angularDamping: opt.angularDamping != null ? opt.angularDamping : 0.9 });
   const deckH = (GEOM.deckTop - GEOM.deckBottom) / 2, deckY = (GEOM.deckTop + GEOM.deckBottom) / 2;
   const deckMass = 1.35, deckArea = GEOM.half * 2 * deckH * 2;
   const deck = platform.createFixture(new pl.Box(GEOM.half, deckH, V(0, deckY), 0), {
@@ -58,7 +61,7 @@ function createSim(pl, opt) {
     filterCategoryBits: CAT.DECK, filterMaskBits: CAT.EGG
   });
   // rail rod and two hangers carry mass but collide with nothing
-  const railMass = 0.42, railArea = GEOM.railHalf * 2 * 0.05;
+  const railMass = 0.7, railArea = GEOM.railHalf * 2 * 0.05;
   platform.createFixture(new pl.Box(GEOM.railHalf, 0.025, V(0, GEOM.railY), 0), { density: railMass / railArea, filterMaskBits: 0 });
   for (const sx of [-1, 1]) {
     const hx = sx * (GEOM.railHalf - 0.02), len = GEOM.deckBottom - GEOM.railY;
@@ -71,7 +74,7 @@ function createSim(pl, opt) {
   }, ground, platform, V(0, 0)));
 
   // counterweight carriage on the rail
-  const cwMass = opt.cwMass || 0.95;
+  const cwMass = opt.cwMass || 1.4;
   const cw = world.createBody({ type: 'dynamic', position: V(0, GEOM.railY), fixedRotation: false });
   // the brass bell hangs below the rail; its mass centre sits in the bell
   cw.createFixture(new pl.Box(0.24, 0.22, V(0, -0.2), 0), { density: cwMass / (0.48 * 0.44), filterMaskBits: 0 });
@@ -80,22 +83,26 @@ function createSim(pl, opt) {
     enableMotor: true, maxMotorForce: 7, motorSpeed: 0
   }, platform, cw, V(0, GEOM.railY), V(1, 0)));
 
-  // egg: convex fans around the centre form the ovoid. Many small facets,
-  // so the shell rolls on its curve rather than resting on flat faces
-  const fans = 10, per = 11;
-  const outline = eggOutline(fans * per, opt.eggA || GEOM.eggA, opt.eggB || GEOM.eggB, opt.eggK != null ? opt.eggK : GEOM.eggK);
+  // egg: one convex polygon tracing the visible outline. (Built from several
+  // wedge fixtures, the egg jammed: neighbouring wedges touched the deck at
+  // once with conflicting normals and held it on tilts of 7 degrees or more.)
+  const nVerts = opt.eggVerts || 300;
+  if (pl.Settings.maxPolygonVertices < nVerts) pl.Settings.maxPolygonVertices = nVerts;
+  const outline = eggOutline(nVerts, opt.eggA || GEOM.eggA, opt.eggB || GEOM.eggB, opt.eggK != null ? opt.eggK : GEOM.eggK);
   const eggMass = 0.55;
   let area = 0;
   for (let i = 0; i < outline.length; i++) { const a = outline[i], b = outline[(i + 1) % outline.length]; area += (a.x * b.y - b.x * a.y) / 2; }
   const egg = world.createBody({ type: 'dynamic', bullet: true, position: V(opt.eggX || 0, GEOM.deckTop + GEOM.eggB + 0.002), angle: 0, linearDamping: 0.02, angularDamping: 0.02 });
-  for (let f = 0; f < fans; f++) {
-    const verts = [V(0, 0)];
-    for (let i = 0; i <= per; i++) { const p = outline[(f * per + i) % outline.length]; verts.push(V(p.x, p.y)); }
-    egg.createFixture(new pl.Polygon(verts), { density: eggMass / area, friction: surf.muS, restitution: surf.rest, filterCategoryBits: CAT.EGG, filterMaskBits: CAT.DECK | CAT.TABLE });
-  }
+  egg.createFixture(new pl.Polygon(outline.map(p => V(p.x, p.y))), { density: eggMass / area, friction: surf.muS, restitution: surf.rest, filterCategoryBits: CAT.EGG, filterMaskBits: CAT.DECK | CAT.TABLE });
+
+  // rolling resistance as a Coulomb couple between egg and deck: a friction
+  // joint acting only on relative rotation (no linear part). Its torque cap is
+  // set every step from the measured contact load, so it holds the egg still
+  // up to a threshold and then resists rolling with a constant couple.
+  const rollJoint = world.createJoint(new pl.FrictionJoint({ maxForce: 0, maxTorque: 0, collideConnected: true }, platform, egg, egg.getWorldCenter()));
 
   const s = {
-    world, platform, cw, egg, pivot, rail, surf, outline, g,
+    world, rollJoint, platform, cw, egg, pivot, rail, surf, outline, g,
     target: 0, dragging: false, driveGain: 15, driveMax: 3.4, driveForce: 46, brakeForce: 7.5,
     disturb: 0,                // external torque on the platform this step (N·m)
     eggOnDeck: false, eggOnTable: false, deckNormal: 0, tableImpact: 0, deckImpact: 0,
@@ -120,11 +127,21 @@ function createSim(pl, opt) {
     contact.setFriction(slip ? surf.muK : surf.muS);
   });
 
+  // Normal load on the deck, for rolling resistance. The egg's facets are a
+  // few millimetres long, so a two-point manifold is nearly degenerate: the
+  // solver then solves one point and the second reported impulse is a copy.
+  // Summing both read the load double. Two points closer than 2 cm count once.
+  const deckLoads = new Map();
   world.on('post-solve', (contact, imp) => {
     const fa = contact.getFixtureA(), fb = contact.getFixtureB();
+    const n = contact.getManifold().pointCount;
     let J = 0;
-    for (let i = 0; i < imp.normalImpulses.length; i++) J += imp.normalImpulses[i];
-    if (fa === deck || fb === deck) { s.deckNormal += J; s.contactCount++; }
+    if (n === 2) {
+      const wm = contact.getWorldManifold(null);
+      const close = wm && wm.points.length === 2 && Math.hypot(wm.points[0].x - wm.points[1].x, wm.points[0].y - wm.points[1].y) < 0.02;
+      J = close ? Math.max(imp.normalImpulses[0], imp.normalImpulses[1]) : imp.normalImpulses[0] + imp.normalImpulses[1];
+    } else for (let i = 0; i < n; i++) J += imp.normalImpulses[i];
+    if (fa === deck || fb === deck) deckLoads.set(contact, J);
     else if (fa.getBody() === table || fb.getBody() === table) { s.tableImpact = Math.max(s.tableImpact, J); }
   });
 
@@ -154,24 +171,18 @@ function createSim(pl, opt) {
       rail.setMaxMotorForce(s.brakeForce);
     }
 
-    // rolling resistance: a couple opposing the egg's rolling relative to
-    // the deck, proportional to the normal load (lever arm = coefficient)
-    s.rollTorque = 0;
-    if (s.eggOnDeck) {
-      const N = s.lastNormal;
-      const wr = egg.getAngularVelocity() - platform.getAngularVelocity();
-      const tau = -surf.roll * N * Math.tanh(wr / 0.35);
-      egg.applyTorque(tau, true);
-      platform.applyTorque(-tau, true);
-      s.rollTorque = tau;
-    }
+    // rolling resistance cap from last step's normal load (zero off the deck)
+    s.rollTorque = s.eggOnDeck ? surf.roll * s.lastNormal : 0;
+    rollJoint.setMaxTorque(s.rollTorque);
     if (s.disturb) platform.applyTorque(s.disturb, true);
 
-    s.deckNormal = 0; s.contactCount = 0; s.slipping = false;
+    deckLoads.clear(); s.slipping = false;
     world.step(h, 10, 4);
     s.time += h;
-    s.lastNormal = s.deckNormal / h;
-    s.eggOnDeck = s.contactCount > 0;
+    let J = 0; for (const v of deckLoads.values()) J += v;
+    s.deckNormal = J; s.contactCount = deckLoads.size;
+    s.lastNormal = J / h;
+    s.eggOnDeck = deckLoads.size > 0;
 
     // events the presentation listens for
     const x2 = rail.getJointTranslation();

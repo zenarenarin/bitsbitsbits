@@ -8,11 +8,14 @@
 // the platform angle is never set directly, only produced by torques.
 // Units are SI: metres, kilograms, seconds, radians.
 
+// muS/muK: sliding friction (static, kinetic). roll: rolling-resistance
+// lever arm in metres (Coulomb couple = roll x normal load), separate from
+// sliding friction. rest: restitution.
 const SURFACES = {
-  rubber:  { label: 'Rubber',  muS: 1.05, muK: 0.85, roll: 0.016, rest: 0.02 },
-  wood:    { label: 'Wood',    muS: 0.55, muK: 0.42, roll: 0.005, rest: 0.06 },
-  ceramic: { label: 'Ceramic', muS: 0.16, muK: 0.10, roll: 0.0035, rest: 0.10 },
-  metal:   { label: 'Metal',   muS: 0.07, muK: 0.04, roll: 0.0015, rest: 0.12 }
+  rubber:  { label: 'Rubber',  muS: 1.05, muK: 0.85, roll: 0.018, rest: 0.02 },
+  wood:    { label: 'Wood',    muS: 0.50, muK: 0.38, roll: 0.0085, rest: 0.06 },
+  ceramic: { label: 'Ceramic', muS: 0.14, muK: 0.09, roll: 0.0035, rest: 0.10 },
+  metal:   { label: 'Metal',   muS: 0.07, muK: 0.04, roll: 0.0028, rest: 0.12 }
 };
 const SURFACE_ORDER = ['rubber', 'wood', 'ceramic', 'metal'];
 
@@ -20,13 +23,13 @@ const GEOM = {
   half: 2.0,          // deck half length
   deckBottom: 0.04,   // deck sits just above the pivot axle
   deckTop: 0.20,
-  railY: -0.5,        // rail rod, in platform frame
+  railY: -0.8,        // rail rod, in platform frame
   railHalf: 1.62,     // visible rod half length
   travel: 1.36,       // carriage limit either side
   tableY: -2.6,       // the table the egg lands on
-  eggA: 0.33,         // egg half length (blunt end towards +x)
+  eggA: 0.32,         // egg half length (blunt end towards +x)
   eggB: 0.305,        // egg half width
-  eggK: 0.06          // asymmetry: blunt and pointed ends
+  eggK: 0.03          // asymmetry: blunt and pointed ends
 };
 
 const CAT = { DECK: 1, EGG: 2, TABLE: 4 };
@@ -55,7 +58,7 @@ function createSim(pl, opt) {
   table.createFixture(new pl.Box(12, 0.3, V(0, -0.3), 0), { friction: 0.6, restitution: 0.05, filterCategoryBits: CAT.TABLE, filterMaskBits: CAT.EGG });
 
   // platform: deck, hangers and rail form one rigid body
-  const platform = world.createBody({ type: 'dynamic', position: V(0, 0), angularDamping: opt.angularDamping != null ? opt.angularDamping : 0.55 });
+  const platform = world.createBody({ type: 'dynamic', position: V(0, 0), angularDamping: opt.angularDamping != null ? opt.angularDamping : 0.9 });
   const deckH = (GEOM.deckTop - GEOM.deckBottom) / 2, deckY = (GEOM.deckTop + GEOM.deckBottom) / 2;
   const deckMass = 1.35, deckArea = GEOM.half * 2 * deckH * 2;
   const deck = platform.createFixture(new pl.Box(GEOM.half, deckH, V(0, deckY), 0), {
@@ -63,7 +66,7 @@ function createSim(pl, opt) {
     filterCategoryBits: CAT.DECK, filterMaskBits: CAT.EGG
   });
   // rail rod and two hangers carry mass but collide with nothing
-  const railMass = 0.42, railArea = GEOM.railHalf * 2 * 0.05;
+  const railMass = 0.7, railArea = GEOM.railHalf * 2 * 0.05;
   platform.createFixture(new pl.Box(GEOM.railHalf, 0.025, V(0, GEOM.railY), 0), { density: railMass / railArea, filterMaskBits: 0 });
   for (const sx of [-1, 1]) {
     const hx = sx * (GEOM.railHalf - 0.02), len = GEOM.deckBottom - GEOM.railY;
@@ -76,7 +79,7 @@ function createSim(pl, opt) {
   }, ground, platform, V(0, 0)));
 
   // counterweight carriage on the rail
-  const cwMass = opt.cwMass || 0.95;
+  const cwMass = opt.cwMass || 1.4;
   const cw = world.createBody({ type: 'dynamic', position: V(0, GEOM.railY), fixedRotation: false });
   // the brass bell hangs below the rail; its mass centre sits in the bell
   cw.createFixture(new pl.Box(0.24, 0.22, V(0, -0.2), 0), { density: cwMass / (0.48 * 0.44), filterMaskBits: 0 });
@@ -85,22 +88,26 @@ function createSim(pl, opt) {
     enableMotor: true, maxMotorForce: 7, motorSpeed: 0
   }, platform, cw, V(0, GEOM.railY), V(1, 0)));
 
-  // egg: convex fans around the centre form the ovoid. Many small facets,
-  // so the shell rolls on its curve rather than resting on flat faces
-  const fans = 10, per = 11;
-  const outline = eggOutline(fans * per, opt.eggA || GEOM.eggA, opt.eggB || GEOM.eggB, opt.eggK != null ? opt.eggK : GEOM.eggK);
+  // egg: one convex polygon tracing the visible outline. (Built from several
+  // wedge fixtures, the egg jammed: neighbouring wedges touched the deck at
+  // once with conflicting normals and held it on tilts of 7 degrees or more.)
+  const nVerts = opt.eggVerts || 300;
+  if (pl.Settings.maxPolygonVertices < nVerts) pl.Settings.maxPolygonVertices = nVerts;
+  const outline = eggOutline(nVerts, opt.eggA || GEOM.eggA, opt.eggB || GEOM.eggB, opt.eggK != null ? opt.eggK : GEOM.eggK);
   const eggMass = 0.55;
   let area = 0;
   for (let i = 0; i < outline.length; i++) { const a = outline[i], b = outline[(i + 1) % outline.length]; area += (a.x * b.y - b.x * a.y) / 2; }
   const egg = world.createBody({ type: 'dynamic', bullet: true, position: V(opt.eggX || 0, GEOM.deckTop + GEOM.eggB + 0.002), angle: 0, linearDamping: 0.02, angularDamping: 0.02 });
-  for (let f = 0; f < fans; f++) {
-    const verts = [V(0, 0)];
-    for (let i = 0; i <= per; i++) { const p = outline[(f * per + i) % outline.length]; verts.push(V(p.x, p.y)); }
-    egg.createFixture(new pl.Polygon(verts), { density: eggMass / area, friction: surf.muS, restitution: surf.rest, filterCategoryBits: CAT.EGG, filterMaskBits: CAT.DECK | CAT.TABLE });
-  }
+  egg.createFixture(new pl.Polygon(outline.map(p => V(p.x, p.y))), { density: eggMass / area, friction: surf.muS, restitution: surf.rest, filterCategoryBits: CAT.EGG, filterMaskBits: CAT.DECK | CAT.TABLE });
+
+  // rolling resistance as a Coulomb couple between egg and deck: a friction
+  // joint acting only on relative rotation (no linear part). Its torque cap is
+  // set every step from the measured contact load, so it holds the egg still
+  // up to a threshold and then resists rolling with a constant couple.
+  const rollJoint = world.createJoint(new pl.FrictionJoint({ maxForce: 0, maxTorque: 0, collideConnected: true }, platform, egg, egg.getWorldCenter()));
 
   const s = {
-    world, platform, cw, egg, pivot, rail, surf, outline, g,
+    world, rollJoint, platform, cw, egg, pivot, rail, surf, outline, g,
     target: 0, dragging: false, driveGain: 15, driveMax: 3.4, driveForce: 46, brakeForce: 7.5,
     disturb: 0,                // external torque on the platform this step (N·m)
     eggOnDeck: false, eggOnTable: false, deckNormal: 0, tableImpact: 0, deckImpact: 0,
@@ -125,11 +132,21 @@ function createSim(pl, opt) {
     contact.setFriction(slip ? surf.muK : surf.muS);
   });
 
+  // Normal load on the deck, for rolling resistance. The egg's facets are a
+  // few millimetres long, so a two-point manifold is nearly degenerate: the
+  // solver then solves one point and the second reported impulse is a copy.
+  // Summing both read the load double. Two points closer than 2 cm count once.
+  const deckLoads = new Map();
   world.on('post-solve', (contact, imp) => {
     const fa = contact.getFixtureA(), fb = contact.getFixtureB();
+    const n = contact.getManifold().pointCount;
     let J = 0;
-    for (let i = 0; i < imp.normalImpulses.length; i++) J += imp.normalImpulses[i];
-    if (fa === deck || fb === deck) { s.deckNormal += J; s.contactCount++; }
+    if (n === 2) {
+      const wm = contact.getWorldManifold(null);
+      const close = wm && wm.points.length === 2 && Math.hypot(wm.points[0].x - wm.points[1].x, wm.points[0].y - wm.points[1].y) < 0.02;
+      J = close ? Math.max(imp.normalImpulses[0], imp.normalImpulses[1]) : imp.normalImpulses[0] + imp.normalImpulses[1];
+    } else for (let i = 0; i < n; i++) J += imp.normalImpulses[i];
+    if (fa === deck || fb === deck) deckLoads.set(contact, J);
     else if (fa.getBody() === table || fb.getBody() === table) { s.tableImpact = Math.max(s.tableImpact, J); }
   });
 
@@ -159,24 +176,18 @@ function createSim(pl, opt) {
       rail.setMaxMotorForce(s.brakeForce);
     }
 
-    // rolling resistance: a couple opposing the egg's rolling relative to
-    // the deck, proportional to the normal load (lever arm = coefficient)
-    s.rollTorque = 0;
-    if (s.eggOnDeck) {
-      const N = s.lastNormal;
-      const wr = egg.getAngularVelocity() - platform.getAngularVelocity();
-      const tau = -surf.roll * N * Math.tanh(wr / 0.35);
-      egg.applyTorque(tau, true);
-      platform.applyTorque(-tau, true);
-      s.rollTorque = tau;
-    }
+    // rolling resistance cap from last step's normal load (zero off the deck)
+    s.rollTorque = s.eggOnDeck ? surf.roll * s.lastNormal : 0;
+    rollJoint.setMaxTorque(s.rollTorque);
     if (s.disturb) platform.applyTorque(s.disturb, true);
 
-    s.deckNormal = 0; s.contactCount = 0; s.slipping = false;
+    deckLoads.clear(); s.slipping = false;
     world.step(h, 10, 4);
     s.time += h;
-    s.lastNormal = s.deckNormal / h;
-    s.eggOnDeck = s.contactCount > 0;
+    let J = 0; for (const v of deckLoads.values()) J += v;
+    s.deckNormal = J; s.contactCount = deckLoads.size;
+    s.lastNormal = J / h;
+    s.eggOnDeck = deckLoads.size > 0;
 
     // events the presentation listens for
     const x2 = rail.getJointTranslation();
@@ -268,7 +279,8 @@ function phaseAt(t) {
 
 function createDisturbance(seed, strength) {
   const rnd = mulberry32(seed);
-  const k = strength == null ? 1 : strength;
+  // amplitudes are scaled to the platform's restoring stiffness (about 18 N·m/rad)
+  const k = (strength == null ? 1 : strength) * 2.2;
   // drift: three incommensurate slow waves with per-run phases, plus a
   // band-limited random walk that changes the drift's character over time
   const waves = [0, 1, 2].map(i => ({ f: [0.071, 0.113, 0.187][i] * (0.85 + rnd() * 0.3), ph: rnd() * Math.PI * 2, w: [1, 0.55, 0.3][i] }));
@@ -360,7 +372,7 @@ function createDisturbance(seed, strength) {
     // soft ceiling: stacked drift, nudge and gust never exceed what the
     // carriage can answer with the egg still near the middle
     const raw = d.drift + d.nudge + d.gustTorque;
-    d.torque = 7.5 * Math.tanh(raw / 7.5);
+    d.torque = 14 * Math.tanh(raw / 14);
     return d.torque;
   };
   return d;
@@ -1037,7 +1049,158 @@ function paintBroken(S, seed) {
   });
 }
 
-// ---- 05_game.js ----
+// ---- 05_tilt.js ----
+// Phone tilt input. Produces one number: how far the phone is tilted to the
+// right (degrees, relative to a calibrated neutral), turned into a carriage
+// target by the game through the same servo the finger uses.
+//
+// Two sources:
+//  - 'plethora': the host's ctx.motion (native sensor bridge in the app).
+//  - 'browser':  DeviceOrientationEvent, with iOS's requestPermission() when
+//                the browser has it, and only in a secure context.
+//
+// Status is reported in separate stages so the UI (and anyone testing on a
+// device) can tell them apart: implemented -> permission -> receiving -> moving.
+
+const TILT_DEFAULTS = { fullDeg: 20, deadDeg: 1.2, expo: 1.5, tauS: 0.06 };
+
+// Right-tilt angle from W3C deviceorientation beta/gamma, for the given screen
+// rotation. The "up" vector in device coordinates is
+// (-sin g cos b, sin b, cos g cos b); tilting right lowers the screen's right
+// edge, i.e. up . screenRight goes negative.
+function lateralFromOrientation(betaDeg, gammaDeg, screenAngleDeg) {
+  const b = betaDeg * Math.PI / 180, gm = gammaDeg * Math.PI / 180, sa = (screenAngleDeg || 0) * Math.PI / 180;
+  const ux = -Math.sin(gm) * Math.cos(b), uy = Math.sin(b);
+  const rx = Math.cos(sa), ry = -Math.sin(sa);    // screen-right in device x/y
+  const d = Math.max(-1, Math.min(1, -(ux * rx + uy * ry)));
+  return Math.asin(d) * 180 / Math.PI;
+}
+
+// Map a calibrated tilt (degrees) to -1..1: dead zone, sensitivity, expo curve.
+function tiltCurve(deg, sens, o) {
+  o = o || TILT_DEFAULTS;
+  const a = Math.abs(deg) - o.deadDeg;
+  if (a <= 0) return 0;
+  const u = Math.min(1, a / (o.fullDeg / sens));
+  return Math.sign(deg) * Math.pow(u, o.expo);
+}
+
+function createTilt(ctx) {
+  const T = {
+    implemented: true,
+    source: null,              // 'plethora' | 'browser' | null
+    permission: 'unknown',     // unknown | requesting | granted | denied | not-required | unavailable | insecure
+    error: '',
+    samples: 0, lastSampleAt: 0,
+    rawDeg: 0,                 // current lateral tilt, uncalibrated
+    neutral: null,             // calibrated zero, degrees
+    sensitivity: 1,
+    value: 0                   // smoothed, curved output -1..1
+  };
+  let listening = false, unsubs = [];
+  const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const screenAngle = () => {
+    try { if (screen.orientation && typeof screen.orientation.angle === 'number') return screen.orientation.angle; } catch (e) { }
+    return typeof window.orientation === 'number' ? window.orientation : 0;
+  };
+  const sample = (deg) => {
+    if (!isFinite(deg)) return;
+    T.rawDeg = deg; T.samples++; T.lastSampleAt = now();
+  };
+  const hostMotion = () => !!(ctx.motion && ctx.capabilities && ctx.capabilities.motion);
+  const browserMotion = () => typeof window !== 'undefined' && typeof window.DeviceOrientationEvent !== 'undefined';
+
+  T.available = () => hostMotion() || browserMotion();
+
+  // Must be called directly from a tap handler: iOS only allows the
+  // permission prompt inside a user gesture.
+  T.enable = async function () {
+    T.error = '';
+    if (listening) return true;
+    if (hostMotion()) {
+      T.permission = 'requesting';
+      try {
+        await ctx.motion.start({ smoothing: 0, deadzone: 0 });
+        T.source = 'plethora'; T.permission = 'granted';
+        const off = ctx.motion.onChange((snap) => {
+          // control.x is the host's degree-based left/right steering value
+          const c = snap && snap.control;
+          if (c && isFinite(c.x)) sample(c.x);
+        }, { throttleHz: 60 });
+        if (typeof off === 'function') unsubs.push(off);
+        listening = true;
+        return true;
+      } catch (e) {
+        T.error = String(e && e.message || e);
+        T.permission = /denied|NotAllowed/i.test(T.error) ? 'denied' : 'unavailable';
+        if (!browserMotion()) return false;
+        // fall through to the browser path (it may need a second tap on iOS)
+      }
+    }
+    if (!browserMotion()) { T.permission = 'unavailable'; return false; }
+    if (window.isSecureContext === false) { T.permission = 'insecure'; return false; }
+    const DOE = window.DeviceOrientationEvent;
+    // Listen first: the answer below is not the whole story. iOS Safari sends
+    // nothing until requestPermission() says 'granted', but newer Chrome also
+    // has requestPermission() and can answer 'denied' while events still flow.
+    // Live data therefore upgrades a refusal.
+    T.source = 'browser';
+    unsubs.push(ctx.listen(window, 'deviceorientation', (e) => {
+      if (e.beta == null || e.gamma == null) return;
+      sample(lateralFromOrientation(e.beta, e.gamma, screenAngle()));
+      if (T.permission === 'denied' || T.permission === 'requesting') T.permission = 'granted';
+    }));
+    if (typeof DOE.requestPermission === 'function') {
+      T.permission = 'requesting';
+      try {
+        const r = await DOE.requestPermission();
+        if (T.permission === 'requesting') T.permission = r === 'granted' ? 'granted' : 'denied';
+      } catch (e) {
+        // thrown when not called from a gesture, or blocked
+        T.error = String(e && e.message || e);
+        if (T.permission === 'requesting') T.permission = 'denied';
+      }
+    } else T.permission = 'not-required';
+    // a rotated screen changes which way is "right": ask for a new zero
+    unsubs.push(ctx.listen(window, 'orientationchange', () => { T.neutral = null; }));
+    listening = true;
+    return T.permission !== 'denied';
+  };
+
+  T.receiving = () => T.samples > 0 && now() - T.lastSampleAt < 1500;
+  T.calibrate = () => {
+    if (!T.receiving()) return false;
+    T.neutral = T.rawDeg; T.value = 0;
+    if (T.source === 'plethora') { try { ctx.motion.calibrate(); } catch (e) { } }
+    return true;
+  };
+  T.calibratedDeg = () => (T.neutral == null ? 0 : T.rawDeg - T.neutral);
+  // advance the smoothing; returns -1..1
+  T.update = (dt) => {
+    const target = T.neutral == null || !T.receiving() ? 0 : tiltCurve(T.calibratedDeg(), T.sensitivity);
+    const k = 1 - Math.exp(-Math.max(0, dt) / TILT_DEFAULTS.tauS);
+    T.value += (target - T.value) * k;
+    if (Math.abs(T.value) < 1e-4 && target === 0) T.value = 0;
+    return T.value;
+  };
+  T.reset = () => { T.value = 0; };
+  T.statusText = () => {
+    const p = { unknown: 'Not started', requesting: 'Asking permission…', granted: 'Permission granted', 'not-required': 'No permission needed', denied: 'Permission denied', unavailable: 'Motion sensor unavailable', insecure: 'Needs a secure (https) page' }[T.permission] || T.permission;
+    if (T.permission !== 'granted' && T.permission !== 'not-required') return p;
+    if (!T.receiving()) return p + ' · waiting for sensor data';
+    return p + ' · sensor live · ' + (T.neutral == null ? 'not calibrated' : (T.calibratedDeg() >= 0 ? '+' : '') + T.calibratedDeg().toFixed(1) + '°');
+  };
+  T.stop = () => {
+    for (const u of unsubs) { try { u(); } catch (e) { } }
+    unsubs = []; listening = false;
+    if (T.source === 'plethora') { try { ctx.motion.stop(); } catch (e) { } }
+    T.source = null; T.samples = 0; T.value = 0;
+    if (T.permission === 'granted' || T.permission === 'not-required') T.permission = 'unknown';
+  };
+  return T;
+}
+
+// ---- 06_game.js ----
 // Game: state flow, input, rendering, HUD, scoring and results.
 
 const H_STEP = 1 / 120;
@@ -1080,12 +1243,33 @@ const UI_CSS = `
 .ed-dim{opacity:.6;font-size:11px}
 .ed-ui .ed-again{margin-top:14px;display:inline-block;padding:11px 34px;border-radius:28px;background:#6a1f2b!important;color:#f5ead2!important;font-family:'Inter',system-ui,sans-serif!important;font-weight:600;font-size:14px;letter-spacing:.14em;text-transform:uppercase;box-shadow:inset 0 0 0 2px #4d1520,0 3px 0 #4d1520}
 .ed-ui .ed-again:active{transform:translateY(2px);box-shadow:inset 0 0 0 2px #4d1520,0 1px 0 #4d1520}
+.ed-mode{position:absolute;left:50%;transform:translateX(-50%);display:flex;border-radius:20px;background:rgba(245,234,210,.82);box-shadow:inset 0 0 0 1.5px rgba(140,106,38,.7);padding:3px;gap:2px;transition:opacity .25s}
+.ed-ui .ed-mode button{font-family:'Inter',system-ui,sans-serif;font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;padding:9px 11px;border-radius:16px;display:flex;align-items:center;gap:5px;white-space:nowrap}
+.ed-ui .ed-mode button.sel{background:#6a1f2b;color:#f5ead2}
+.ed-ui .ed-mode button svg{width:14px;height:14px}
+.ed-ui .ed-mode button.sel svg *{stroke:#f5ead2}
+.ed-mode.locked{opacity:.75}
+.ed-mode.locked button{pointer-events:none}
+.ed-tp{position:absolute;left:50%;transform:translateX(-50%);width:min(320px,calc(100% - 32px));box-sizing:border-box;padding:16px 18px 14px;border-radius:6px;background:#f5ead2;box-shadow:0 10px 30px rgba(59,36,23,.35);pointer-events:auto;text-align:center}
+.ed-tp h3{margin:0 0 4px;font-family:'DM Serif Display',Georgia,serif;font-weight:400;font-size:24px;color:#6a1f2b}
+.ed-tp p{margin:0 0 10px;font-style:italic;font-size:18px}
+.ed-tp .g{position:relative;height:16px;margin:4px 8px 12px;border-radius:8px;background:#c9c48a;box-shadow:inset 0 0 0 1.5px #8c6a26}
+.ed-tp .g i{position:absolute;top:2px;width:22px;height:12px;margin-left:-11px;border-radius:6px;background:#f5ead2;box-shadow:0 0 0 1px rgba(59,36,23,.4)}
+.ed-tp .g b{position:absolute;left:50%;top:2px;bottom:2px;width:1px;background:rgba(59,36,23,.5)}
+.ed-tp label{display:flex;align-items:center;gap:10px;font-family:'Inter',system-ui,sans-serif;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin:10px 4px 2px}
+.ed-tp input[type=range]{flex:1;accent-color:#6a1f2b;pointer-events:auto}
+.ed-tp .st{font-family:'Inter',system-ui,sans-serif;font-size:11px;opacity:.75;margin-top:8px;min-height:14px}
+.ed-tp .row{display:flex;gap:8px;justify-content:center;margin-top:12px}
+.ed-ui .ed-tp .btn{padding:10px 18px;border-radius:22px;font-family:'Inter',system-ui,sans-serif;font-weight:600;font-size:12px;letter-spacing:.12em;text-transform:uppercase;background:#6a1f2b;color:#f5ead2;box-shadow:inset 0 0 0 2px #4d1520,0 3px 0 #4d1520}
+.ed-ui .ed-tp .btn.alt{background:transparent;color:#3b2417;box-shadow:inset 0 0 0 1.5px rgba(59,36,23,.45)}
+.ed-ui .ed-tp .btn[disabled]{opacity:.4;pointer-events:none}
 .ed-err{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;width:80%;font-size:20px;pointer-events:auto}
 `;
 
 const ICON = {
   sound: '<svg viewBox="0 0 24 24" fill="none" stroke="#3b2417" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="#3b2417"/><path d="M15.5 9.2a4 4 0 0 1 0 5.6M18 7a7 7 0 0 1 0 10"/></svg>',
   mute: '<svg viewBox="0 0 24 24" fill="none" stroke="#3b2417" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="#3b2417"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>',
+  touch: '<svg viewBox="0 0 24 24" fill="none" stroke="#3b2417" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11V5a1.5 1.5 0 0 1 3 0v5M12 10V8.5a1.5 1.5 0 0 1 3 0V11M15 10.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-3l-2-4a1.5 1.5 0 0 1 2.6-1.5L9 15"/></svg>',
   tilt: '<svg viewBox="0 0 24 24" fill="none" stroke="#3b2417" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="3.5" width="8" height="17" rx="2" transform="rotate(18 12 12)"/><path d="M3 20c2-1 4-1 6 0M15 20c2-1 4-1 6 0"/></svg>'
 };
 
@@ -1164,9 +1348,24 @@ async function eggDropInit(ctx) {
   const icons = el('div', 'ed-icons');
   const muteBtn = el('button', 'ed-icon', save.muted ? ICON.mute : ICON.sound, icons);
   muteBtn.setAttribute('aria-label', 'Sound');
-  const motionOK = !!(caps.motion && ctx.motion);
-  const tiltBtn = motionOK ? el('button', 'ed-icon', ICON.tilt, icons) : null;
-  if (tiltBtn) tiltBtn.setAttribute('aria-label', 'Tilt control');
+  // control mode: TOUCH (drag the weight) or PHONE TILT
+  const modeEl = el('div', 'ed-mode');
+  const modeBtn = {
+    touch: el('button', 'sel', ICON.touch + '<span>Touch</span>', modeEl),
+    tilt: el('button', '', ICON.tilt + '<span>Phone tilt</span>', modeEl)
+  };
+  modeBtn.touch.setAttribute('aria-label', 'Touch control');
+  modeBtn.tilt.setAttribute('aria-label', 'Phone tilt control');
+  const tp = el('div', 'ed-tp');
+  tp.style.display = 'none';
+  tp.innerHTML = `<h3>Phone tilt</h3>
+    <p class="msg">Hold your phone comfortably upright.</p>
+    <div class="g"><b></b><i></i></div>
+    <div class="row"><button class="btn cal">Calibrate</button></div>
+    <label>Sensitivity <input class="sens" type="range" min="0.5" max="2" step="0.05" value="1"></label>
+    <div class="st"></div>
+    <div class="row"><button class="btn alt use-touch">Use touch</button><button class="btn done" disabled>Done</button></div>`;
+  const tpEl = { msg: tp.querySelector('.msg'), knob: tp.querySelector('.g i'), cal: tp.querySelector('.cal'), sens: tp.querySelector('.sens'), st: tp.querySelector('.st'), done: tp.querySelector('.done'), touch: tp.querySelector('.use-touch') };
   const chips = el('div', 'ed-chips');
   const chipEls = {};
   const SW = { rubber: PAL.olive2, wood: '#d9a25a', ceramic: PAL.ivory, metal: '#c9b48a' };
@@ -1180,6 +1379,10 @@ async function eggDropInit(ctx) {
   function placeUI() {
     const a = area();
     icons.style.top = (a.top + 10) + 'px'; icons.style.right = (a.right + 12) + 'px';
+    // control switch sits above the surface chips; during play it stays as the mode indicator
+    modeEl.style.bottom = (a.bottom + 12 + 58) + 'px';
+    L.modeTop = L.H - (a.bottom + 12 + 58) - 40;
+    tp.style.top = Math.max(a.top + 120, L.H * 0.2) + 'px';
     chips.style.bottom = (a.bottom + 12) + 'px';
     card.style.top = Math.max(a.top + 70, L.H * 0.16) + 'px';
   }
@@ -1211,21 +1414,64 @@ async function eggDropInit(ctx) {
     muteBtn.innerHTML = save.muted ? ICON.mute : ICON.sound;
   });
 
-  // optional tilt control: the phone's tilt sets the carriage's target
-  let tilt = null, tiltOn = false;
-  if (tiltBtn) ctx.input.activate(tiltBtn, async () => {
+  // ---- control mode ----
+  // Both modes steer the carriage through the same servo target (sim.target).
+  const tilt = createTilt(ctx);
+  tilt.sensitivity = save.tiltSens || 1;
+  tpEl.sens.value = String(tilt.sensitivity);
+  let mode = 'touch';            // 'touch' | 'tilt'
+  let tpOpen = false;
+  function setMode(m) {
+    mode = m;
+    modeBtn.touch.classList.toggle('sel', m === 'touch');
+    modeBtn.tilt.classList.toggle('sel', m === 'tilt');
+    tilt.reset();
+    ctx.platform.interact({ type: 'control', mode: m });
+  }
+  function openTiltPanel(open) {
+    tpOpen = open;
+    tp.style.display = open ? 'block' : 'none';
+    if (open) hideCard();
+    else if (state === 'results') { card.style.display = 'block'; card.classList.add('show'); }
+  }
+  function refreshTiltPanel() {
+    if (!tpOpen) return;
+    const live = tilt.receiving();
+    tpEl.cal.disabled = !live;
+    tpEl.done.disabled = !(live && tilt.neutral != null);
+    tpEl.st.textContent = tilt.statusText();
+    const v = tilt.neutral == null ? 0 : Math.max(-1, Math.min(1, tilt.calibratedDeg() / (TILT_DEFAULTS.fullDeg / tilt.sensitivity)));
+    tpEl.knob.style.left = (50 + v * 46) + '%';
+    if (tilt.permission === 'denied') tpEl.msg.textContent = 'Motion access was refused. Touch control still works.';
+    else if (tilt.permission === 'insecure') tpEl.msg.textContent = 'Phone tilt needs a secure (https) page. Touch control still works.';
+    else if (tilt.permission === 'unavailable') tpEl.msg.textContent = 'This device or browser gives no motion data. Touch control still works.';
+    else if (tilt.neutral != null) tpEl.msg.textContent = 'Calibrated. Tilt it like a steering wheel to test.';
+    else tpEl.msg.textContent = 'Hold your phone comfortably upright, then tap Calibrate.';
+  }
+  ctx.input.activate(modeBtn.touch, () => { if (state === 'play' || state === 'falling') return; openTiltPanel(false); setMode('touch'); });
+  ctx.input.activate(modeBtn.tilt, () => {
+    if (state === 'play' || state === 'falling') return;
     audio.unlock();
-    if (tiltOn) { tiltOn = false; tiltBtn.classList.remove('on'); toast('Drag control'); return; }
-    try {
-      await ctx.motion.start({ calibrate: true });
-      if (disposed) return;
-      if (!tilt) tilt = ctx.motion.tiltControl({ maxAngle: 22, deadzone: 0.04, smoothing: 0.25, calibrate: true });
-      else { try { ctx.motion.calibrate(); } catch (e) { } }
-      tiltOn = true; tiltBtn.classList.add('on'); toast('Tilt the phone to slide the weight');
-    } catch (e) {
-      tiltOn = false; tiltBtn.classList.remove('on'); toast('Tilt unavailable: drag the weight instead');
-    }
+    openTiltPanel(true);
+    if (!tilt.available()) { tilt.permission = 'unavailable'; refreshTiltPanel(); return; }
+    // enable() is called straight from the tap: iOS only prompts inside a gesture
+    tilt.enable().then(() => { if (!disposed) refreshTiltPanel(); });
+    refreshTiltPanel();
   });
+  ctx.input.activate(tpEl.cal, () => {
+    if (tilt.calibrate()) { if (caps.haptics) ctx.platform.haptic('light'); audio.chime(false); }
+    refreshTiltPanel();
+  });
+  ctx.listen(tpEl.sens, 'input', () => {
+    tilt.sensitivity = Math.max(0.5, Math.min(2, parseFloat(tpEl.sens.value) || 1));
+    save.tiltSens = tilt.sensitivity; persist();
+  });
+  ctx.input.activate(tpEl.done, () => {
+    if (tilt.neutral == null) return;
+    setMode('tilt'); openTiltPanel(false);
+    toast('Phone tilt on: tilt to move the weight');
+  });
+  ctx.input.activate(tpEl.touch, () => { setMode('touch'); openTiltPanel(false); });
 
   // ---- simulation and run state ----
   let pl = null, sim = null, dist = null;
@@ -1244,8 +1490,8 @@ async function eggDropInit(ctx) {
     sim = createSim(pl, {
       surface: save.surface,
       gravityScale: tune('gravity_scale', 1),
-      angularDamping: tune('platform_damping', 0.55),
-      cwMass: tune('counterweight_mass', 0.95)
+      angularDamping: tune('platform_damping', 0.9),
+      cwMass: tune('counterweight_mass', 1.4)
     });
     sprites.egg = null;
     snapshot(prev); snapshot(cur);
@@ -1264,11 +1510,12 @@ async function eggDropInit(ctx) {
     attempt++;
     runSeed = (runSeed * 1103515245 + 12345 + attempt * 7919) >>> 0;
     dist = createDisturbance(runSeed, tune('disturbance_strength', 1));
-    run = { t: 0, bonus: 0, counts: { level: 0, rescue: 0, weathered: 0, light: 0 }, levelT: 0, critical: false, gustWatch: -1, winStart: 0, winClean: true, fellAt: 0, maxPhase: 0 };
+    run = { t: 0, bonus: 0, counts: { steady: 0, rescue: 0, weathered: 0, light: 0 }, steadyT: 0, fallSteps: 0, warned: false, critical: false, gustWatch: -1, winStart: 0, winClean: true, fellAt: 0, maxPhase: 0 };
     state = 'play';
     timeTrack.reset(); pointsTrack.reset();
     fx.lastPhase = 0; fx.floaters.length = 0;
     chips.style.opacity = '0'; chips.style.pointerEvents = 'none';
+    modeEl.classList.add('locked'); openTiltPanel(false);
     ctx.platform.start({ surface: save.surface });
     audio.music(0.2);
   }
@@ -1282,11 +1529,20 @@ async function eggDropInit(ctx) {
   }
 
   // ---- input: grab the carriage anywhere, drag horizontally ----
+  // The carriage moves DRAG_GAIN metres per metre of finger travel: about
+  // 0.4 m of carriage takes the platform to its stop, so 1:1 made a few
+  // pixels of finger tip the platform hard.
+  const DRAG_GAIN = 0.55;
   const drag = { id: null, startX: 0, startTarget: 0, lastX: 0 };
   ctx.listen(canvas, 'pointerdown', (e) => {
-    if (drag.id !== null || !sim) return;
+    if (drag.id !== null || !sim || tpOpen) return;
     if (state !== 'ready' && state !== 'play') return;
     audio.unlock();
+    if (mode === 'tilt') {
+      // in tilt mode a tap only starts the run; the phone steers
+      if (state === 'ready') { beginRun(); ctx.platform.interact({ type: 'start' }); }
+      return;
+    }
     drag.id = e.pointerId; drag.startX = e.clientX; drag.lastX = e.clientX;
     drag.startTarget = sim.cwPos();
     sim.target = drag.startTarget;
@@ -1300,7 +1556,7 @@ async function eggDropInit(ctx) {
   ctx.listen(canvas, 'pointermove', (e) => {
     if (e.pointerId !== drag.id || !sim) return;
     drag.lastX = e.clientX;
-    sim.target = Math.max(-GEOM.travel - 0.08, Math.min(GEOM.travel + 0.08, drag.startTarget + (e.clientX - drag.startX) / L.k));
+    sim.target = Math.max(-GEOM.travel - 0.08, Math.min(GEOM.travel + 0.08, drag.startTarget + DRAG_GAIN * (e.clientX - drag.startX) / L.k));
   });
   const endDrag = (e) => {
     if (e.pointerId !== drag.id) return;
@@ -1329,7 +1585,13 @@ async function eggDropInit(ctx) {
     // who is steering the carriage
     if (live && drag.id !== null) sim.dragging = true;
     else if (live && (keys.l || keys.r)) { sim.dragging = true; sim.target = Math.max(-GEOM.travel - 0.05, Math.min(GEOM.travel + 0.05, sim.target + ((keys.r ? 1 : 0) - (keys.l ? 1 : 0)) * 1.6 * H_STEP)); }
-    else if (state === 'play' && tiltOn && tilt) { sim.dragging = true; sim.target = Math.max(-1, Math.min(1, tilt.x)) * GEOM.travel; }
+    else if (live && mode === 'tilt') {
+      const u = tilt.update(H_STEP);
+      // tilting the phone in the ready state starts the run
+      if (state === 'ready' && Math.abs(u) > 0.06) beginRun();
+      if (state === 'play') { sim.dragging = true; sim.target = u * GEOM.travel; }
+      else sim.dragging = false;
+    }
     else sim.dragging = false;
 
     if (state === 'play') {
@@ -1359,7 +1621,10 @@ async function eggDropInit(ctx) {
       if (fx.creak > 1) { fx.creak = 0; audio.creak(Math.min(1, (Math.abs(a) - 0.12) / 0.19)); }
     }
 
-    if (state === 'play' && sim.eggFallen()) {
+    // a single odd contact frame can't end a run: the egg must stay off
+    // the deck and past its end for several consecutive steps
+    if (state === 'play') run.fallSteps = sim.eggFallen() ? run.fallSteps + 1 : 0;
+    if (state === 'play' && run.fallSteps >= 6) {
       state = 'falling'; fx.fallT = 0;
       run.fellAt = run.t;
       audio.fall(); audio.duck(0.6, 1200);
@@ -1380,9 +1645,9 @@ async function eggDropInit(ctx) {
 
   function scoreStep(l) {
     const a = Math.abs(sim.platform.getAngle());
-    // level: held within two degrees for four seconds
-    if (run.t > 3 && a < 0.035) { run.levelT += H_STEP; if (run.levelT >= 4) { run.levelT = 0; addBonus('level', 25, 'Level'); } }
-    else run.levelT = 0;
+    // steady: platform held within 1.5 degrees of level for five seconds
+    if (run.t > 3 && a < 0.026) { run.steadyT += H_STEP; if (run.steadyT >= 5) { run.steadyT = 0; addBonus('steady', 25, 'Steady'); } }
+    else run.steadyT = 0;
     // rescue: back to the middle from the brink
     if (Math.abs(l.x) > 1.5) run.critical = true;
     else if (run.critical && Math.abs(l.x) < 0.6) { run.critical = false; addBonus('rescue', 100, 'Rescued'); }
@@ -1390,11 +1655,11 @@ async function eggDropInit(ctx) {
     if (dist.gustJustEnded) run.gustWatch = run.t;
     if (run.gustWatch >= 0 && run.t - run.gustWatch > 2.5) { run.gustWatch = -1; addBonus('weathered', 60, 'Weathered'); }
     // light touch: ten seconds without slamming or over-reaching the carriage
-    if (Math.abs(sim.cwPos()) > 1.2) run.winClean = false;
+    if (Math.abs(sim.cwPos()) > 0.9) run.winClean = false;
     if (run.t - run.winStart >= 10) { if (run.winClean && run.t > 9) addBonus('light', 20, 'Light touch'); run.winStart = run.t; run.winClean = true; }
-    // phase changes
+    // difficulty phase: fixed survival-time thresholds, announced once each
     const ph = dist.phase;
-    if (ph !== fx.lastPhase) {
+    if (ph > fx.lastPhase) {
       fx.lastPhase = ph; fx.phaseFlash = 1;
       audio.music([0.2, 0.34, 0.5, 0.66][ph]);
       ctx.platform.milestone('phase_' + PHASES[ph].name.toLowerCase());
@@ -1430,7 +1695,7 @@ async function eggDropInit(ctx) {
     const msg = MESSAGES.find(m => tSec < m[0])[1];
     const c = run.counts;
     const parts = [];
-    if (c.level) parts.push('Level ×' + c.level);
+    if (c.steady) parts.push('Steady ×' + c.steady);
     if (c.rescue) parts.push('Rescued ×' + c.rescue);
     if (c.weathered) parts.push('Weathered ×' + c.weathered);
     if (c.light) parts.push('Light touch ×' + c.light);
@@ -1446,6 +1711,7 @@ async function eggDropInit(ctx) {
     requestFrameClass();
     ctx.input.activate(card.querySelector('.ed-again'), again);
     chips.style.opacity = '1'; chips.style.pointerEvents = '';
+    modeEl.classList.remove('locked');
     audio.music(0.14);
     if (isBest && prevBest) audio.sting('success');
     ctx.platform.fail({ reason: 'egg_fell', timeMs: ms, points: pts, surface: surf });
@@ -1490,7 +1756,11 @@ async function eggDropInit(ctx) {
   function again() {
     if (state !== 'results') return;
     hideCard();
+    // a fresh world, and no input carried over from the last run
     newSim(); fx.broken = null; run = null;
+    drag.id = null; keys.l = keys.r = false; tilt.reset();
+    fx.danger = 0; fx.slide = 0; fx.roll = 0; fx.air = 0;
+    modeEl.classList.remove('locked');
     state = 'ready';
     audio.silenceLayers();
     ctx.platform.interact({ type: 'replay' });
@@ -1563,7 +1833,7 @@ async function eggDropInit(ctx) {
       g.fillText('Egg Drop', cx, top + 44);
       g.fillStyle = PAL.umber;
       g.font = `italic 300 ${Math.round(Math.min(21, L.W * 0.055))}px 'Cormorant Garamond', Georgia, serif`;
-      g.fillText('Move the weight. Keep the egg alive.', cx, top + 70);
+      g.fillText(mode === 'tilt' ? 'Tilt your phone. Keep the egg alive.' : 'Move the weight. Keep the egg alive.', cx, top + 70);
     } else if (state !== 'results') {
       const t = run ? (state === 'play' ? run.t : run.fellAt) : 0;
       g.fillStyle = PAL.burgundy;
@@ -1580,8 +1850,8 @@ async function eggDropInit(ctx) {
     const ang = lerp(prev.ang, cur.ang, renderAlpha);
     g.fillStyle = PAL.brass; roundedRect(g, cx - lw / 2 - 4, ly - 4, lw + 8, lh + 8, (lh + 8) / 2); g.fill();
     g.strokeStyle = PAL.brass2; g.lineWidth = 1.5; g.stroke();
-    const tilt = Math.abs(ang) / 0.31;
-    g.fillStyle = tilt > 0.62 ? mixHex('#c9c48a', PAL.vermilion, Math.min(1, (tilt - 0.62) / 0.38) * 0.75) : '#c9c48a';
+    const tiltFrac = Math.abs(ang) / 0.31;
+    g.fillStyle = tiltFrac > 0.62 ? mixHex('#c9c48a', PAL.vermilion, Math.min(1, (tiltFrac - 0.62) / 0.38) * 0.75) : '#c9c48a';
     roundedRect(g, cx - lw / 2, ly, lw, lh, lh / 2); g.fill();
     g.strokeStyle = rgba(PAL.umber, 0.6); g.lineWidth = 1;
     for (const dx of [-11, 11]) { g.beginPath(); g.moveTo(cx + dx, ly + 2); g.lineTo(cx + dx, ly + lh - 2); g.stroke(); }
@@ -1591,12 +1861,21 @@ async function eggDropInit(ctx) {
     g.fillStyle = 'rgba(255,255,255,0.8)'; g.beginPath(); g.ellipse(bx - 3, ly + lh / 2 - 2, 3, 1.6, 0, 0, Math.PI * 2); g.fill();
     g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(cx - lw / 2 + 8, ly + 3, lw - 16, 2);
 
+    // phone tilt: a small live gauge under the control switch
+    if (mode === 'tilt' && (state === 'ready' || state === 'play')) {
+      const gw = 120, gx = cx - gw / 2, gy = L.modeTop - 20;
+      g.fillStyle = rgba(PAL.ivory, 0.82); roundedRect(g, gx, gy, gw, 12, 6); g.fill();
+      g.strokeStyle = rgba(PAL.brass2, 0.8); g.lineWidth = 1.2; g.stroke();
+      g.fillStyle = rgba(PAL.umber, 0.5); g.fillRect(gx + gw / 2 - 0.5, gy + 2, 1, 8);
+      g.fillStyle = tilt.receiving() ? PAL.burgundy : rgba(PAL.umber, 0.35);
+      g.beginPath(); g.arc(gx + gw / 2 + tilt.value * (gw / 2 - 7), gy + 6, 4.5, 0, Math.PI * 2); g.fill();
+    }
     // phase word, briefly
     if (fx.phaseFlash > 0 && state === 'play') {
       g.globalAlpha = Math.min(1, fx.phaseFlash * 1.6);
       g.fillStyle = PAL.burgundy;
       g.font = `italic 300 19px 'Cormorant Garamond', Georgia, serif`;
-      g.fillText(PHASES[fx.lastPhase].name, cx, ly + lh + 28);
+      g.fillText('Phase ' + (fx.lastPhase + 1) + ' · ' + PHASES[fx.lastPhase].name, cx, ly + lh + 28);
       g.globalAlpha = 1;
     }
     // instruction, then the personal best, under the level
@@ -1610,7 +1889,7 @@ async function eggDropInit(ctx) {
       g.globalAlpha = Math.max(0, Math.min(1, (9 - run.t) / 2));
       g.fillStyle = PAL.umber;
       g.font = `italic 300 ${Math.round(Math.min(21, L.W * 0.055))}px 'Cormorant Garamond', Georgia, serif`;
-      g.fillText('Move the weight. Keep the egg alive.', cx, ly + lh + 28);
+      g.fillText(mode === 'tilt' ? 'Tilt your phone. Keep the egg alive.' : 'Move the weight. Keep the egg alive.', cx, ly + lh + 28);
       g.globalAlpha = 1;
     }
     if (fx.toast) {
@@ -1628,7 +1907,7 @@ async function eggDropInit(ctx) {
 
   // a ghost finger shows the drag on the first visits
   function drawGhost(time) {
-    if (state !== 'ready' || (save.runs || 0) >= 3) return;
+    if (state !== 'ready' || mode === 'tilt' || (save.runs || 0) >= 3) return;
     const [cx, cy] = W2S(0, GEOM.railY - 0.75);
     const u = (time * 0.45) % 1, x = cx + Math.sin(u * Math.PI * 2) * L.k * 0.7;
     g.save();
@@ -1677,7 +1956,9 @@ async function eggDropInit(ctx) {
       const sx = Math.sign(el2.x) * (GEOM.half - 0.35);
       const [wx, wy] = toWorld(sx, GEOM.deckBottom);
       const [dx, dy] = W2S(wx, wy);
-      g.save(); g.globalAlpha = Math.min(0.85, fx.danger * 0.9);
+      // past the halfway mark of danger the pigment breathes, so it reads as a warning
+      const pulse = fx.danger > 0.5 ? 0.8 + 0.2 * Math.sin(clock * 9) : 1;
+      g.save(); g.globalAlpha = Math.min(0.9, fx.danger * 0.95) * pulse;
       blitFrame(g, sprites.danger, dx, dy, ang, L.k);
       g.restore();
     }
@@ -1699,7 +1980,17 @@ async function eggDropInit(ctx) {
     {
       const [wx, wy] = toWorld(cwx, GEOM.railY);
       const [sx, sy] = W2S(wx, wy);
-      const grabbing = drag.id !== null || (tiltOn && state === 'play');
+      const grabbing = drag.id !== null || (mode === 'tilt' && state === 'play');
+      // balance notch: where the carriage would exactly cancel the egg's
+      // weight about the pivot (m_cw * x = -m_egg * x_egg)
+      if (state === 'play' || state === 'ready') {
+        const xb = Math.max(-GEOM.travel, Math.min(GEOM.travel, -sim.egg.getMass() * el2.x / sim.cw.getMass()));
+        const [bx, by] = W2S(...toWorld(xb, GEOM.railY + 0.05));
+        g.save(); g.translate(bx, by); g.rotate(-ang);
+        g.fillStyle = rgba(PAL.ivory, 0.75); g.strokeStyle = rgba(PAL.umber, 0.55); g.lineWidth = 1;
+        g.beginPath(); g.moveTo(-5, -7); g.lineTo(5, -7); g.lineTo(0, 0); g.closePath(); g.fill(); g.stroke();
+        g.restore();
+      }
       fx.grabGlow += ((grabbing ? 1 : 0) - fx.grabGlow) * 0.2;
       if (fx.grabGlow > 0.02) {
         g.save(); g.globalAlpha = 0.28 * fx.grabGlow; g.fillStyle = PAL.brassHi;
@@ -1773,6 +2064,16 @@ async function eggDropInit(ctx) {
       danger = Math.max(0, Math.min(1, (reach - 1.15) / (GEOM.half - 1.15)));
     }
     fx.danger += (danger - fx.danger) * Math.min(1, dt * 6);
+    // one clear warning per approach to an edge
+    if (state === 'play' && run) {
+      if (!run.warned && danger > 0.6) { run.warned = true; if (caps.haptics) ctx.platform.haptic('warning'); }
+      else if (run.warned && danger < 0.25) run.warned = false;
+    }
+    // tilt: live panel, and a lost sensor during a run hands control back to touch
+    if (tpOpen && (fx.tpTick = (fx.tpTick || 0) + 1) % 3 === 0) refreshTiltPanel();
+    if (mode === 'tilt' && state === 'play' && !tilt.receiving()) {
+      setMode('touch'); toast('Tilt signal lost: drag the weight');
+    }
     const live = state === 'play' || state === 'ready';
     fx.slide += ((live ? Math.abs(sim.rail.getJointSpeed()) : 0) - fx.slide) * Math.min(1, dt * 14);
     const rollV = sim.eggOnDeck && live ? Math.abs(sim.egg.getAngularVelocity() - sim.platform.getAngularVelocity()) * GEOM.eggB : 0;
@@ -1828,7 +2129,7 @@ async function eggDropInit(ctx) {
   });
 
   if (typeof window !== 'undefined' && window.__EGG_DEV) {
-    window.__egg = { get sim() { return sim; }, get state() { return state; }, get run() { return run; }, get dist() { return dist; }, L, again, beginRun, selectSurface, fx, save, get drag() { return drag; } };
+    window.__egg = { tilt, tiltCurve, lateralFromOrientation, get mode() { return mode; }, get sim() { return sim; }, get state() { return state; }, get run() { return run; }, get dist() { return dist; }, L, again, beginRun, selectSurface, fx, save, get drag() { return drag; } };
   }
   await boot();
 }

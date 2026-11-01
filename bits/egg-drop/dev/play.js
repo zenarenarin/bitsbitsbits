@@ -5,16 +5,17 @@ const path = require('path');
   const out = process.argv[2] || path.join(__dirname, 'out');
   const { page, errors, close } = await open('');
   const L = await page.evaluate(() => ({ ...window.__egg.L }));
-  const cwY = L.py + 0.75 * L.k;
+  const cwY = L.py + 1.05 * L.k;
   const checks = [];
   const ok = (name, cond, info) => { checks.push([cond ? 'PASS' : 'FAIL', name, info || '']); };
   // grab the weight with a mouse-type pointer (touch in headless uses the same pointer path)
-  await page.mouse.move(L.px, cwY);
+  // the carriage moves 0.55 m per metre of finger, so a full stroke starts near the right edge
+  await page.mouse.move(L.W - 15, cwY);
   await page.mouse.down();
   let st = await page.evaluate(() => window.__egg.state);
   ok('grab starts run', st === 'play', st);
   // fully left
-  for (let i = 0; i <= 20; i++) { await page.mouse.move(L.px - i * 8, cwY); await page.waitForTimeout(16); }
+  for (let i = 0; i <= 24; i++) { await page.mouse.move(L.W - 15 - i * (L.W - 30) / 24, cwY); await page.waitForTimeout(16); }
   await page.waitForTimeout(500);
   let s1 = await page.evaluate(() => ({ cw: window.__egg.sim.cwPos(), ang: window.__egg.sim.angle(), ex: window.__egg.sim.eggLocal().x }));
   ok('cw fully left reaches limit', Math.abs(s1.cw + 1.36) < 0.02, JSON.stringify(s1));
@@ -37,10 +38,10 @@ const path = require('path');
   ok('again resets to ready', st === 'ready', st);
   const e2 = await page.evaluate(() => ({ ex: window.__egg.sim.eggLocal().x, ang: window.__egg.sim.angle(), cw: window.__egg.sim.cwPos() }));
   ok('fresh run state', Math.abs(e2.ex) < 0.05 && Math.abs(e2.ang) < 0.01 && Math.abs(e2.cw) < 0.01, JSON.stringify(e2));
-  await page.mouse.move(L.px, cwY); await page.mouse.down();
+  await page.mouse.move(15, cwY); await page.mouse.down();
   st = await page.evaluate(() => window.__egg.state);
   ok('second run starts', st === 'play', st);
-  for (let i = 0; i <= 20; i++) { await page.mouse.move(L.px + i * 8, cwY); await page.waitForTimeout(16); }
+  for (let i = 0; i <= 24; i++) { await page.mouse.move(15 + i * (L.W - 30) / 24, cwY); await page.waitForTimeout(16); }
   await page.waitForTimeout(500);
   const s2 = await page.evaluate(() => ({ cw: window.__egg.sim.cwPos(), ang: window.__egg.sim.angle() }));
   ok('cw fully right reaches limit', Math.abs(s2.cw - 1.36) < 0.02, JSON.stringify(s2));

@@ -1,181 +1,175 @@
-// The brief's physics scenarios, run headless against the real simulation.
-const { pl, createSim, createDisturbance, GEOM } = require('./simload');
+// Physics checks against the real simulation (headless). Numbered items follow
+// the refinement brief's PHYSICS list; unnumbered ones check coupling invariants.
+const { pl, createSim, createDisturbance, GEOM, SURFACES } = require('./simload');
 const H = 1 / 120;
 const results = [];
 const check = (name, cond, info) => results.push([cond ? 'PASS' : 'FAIL', name, info]);
-const deg = r => (r * 180 / Math.PI).toFixed(2) + '°';
-const steps = (s, sec, fn) => { for (let i = 0; i < Math.round(sec / H); i++) { fn && fn(i * H); s.step(H); } };
-// hold the platform at an angle with an external servo torque (stands in for a hand on the platform)
-const servo = (s, th, kp = 600, kd = 60) => { s.disturb = -s.gravityTorque() + (th - s.angle()) * kp - s.platform.getAngularVelocity() * kd; };
-
-// 1-3: counterweight positions genuinely set the torque balance
-for (const [name, pos, expect] of [['1 counterweight fully left', -GEOM.travel, 1], ['2 counterweight fully right', GEOM.travel, -1], ['3 counterweight centred', 0, 0]]) {
-  const s = createSim(pl, {}); s.dragging = true; s.target = pos;
-  // pin the egg: measure the platform alone first, then with the egg
-  steps(s, 1.0);
-  const a = s.angle();
-  const torqueArm = -s.cw.getMass() * s.g * s.cw.getWorldCenter().x;
-  check(name, expect === 0 ? Math.abs(a) < 0.005 : Math.sign(a) === expect && Math.abs(a) > 0.3, `angle ${deg(a)}, carriage torque ${torqueArm.toFixed(2)} N·m`);
-}
-// torque balance: egg held off centre is cancelled by the carriage at -m_e x / m_cw
-{
-  const s = createSim(pl, { eggX: 1.0 });
+const D = r => (r * 180 / Math.PI).toFixed(1) + '°';
+const run = (s, sec, fn) => { for (let i = 0; i < Math.round(sec / H); i++) { fn && fn(i * H); s.step(H); } };
+// a hand on the platform: an external servo torque that holds a chosen angle
+const hold = (s, th) => { s.disturb = -s.gravityTorque() + (th - s.angle()) * 600 - s.platform.getAngularVelocity() * 60; };
+const SURF = ['rubber', 'wood', 'ceramic', 'metal'];
+// a balancing hand on the carriage (used where a player is needed)
+const hand = (s) => {
+  const e = s.eggLocal(), v = s.eggLocalVel(), a = s.angle(), w = s.platform.getAngularVelocity();
+  const want = Math.max(-0.2, Math.min(0.2, 0.12 * e.x + 0.16 * v.x));
   s.dragging = true;
-  const xe = s.eggLocal().x;
-  const comp = -s.egg.getMass() * xe / s.cw.getMass();
-  s.target = comp;
-  // keep the egg from rolling by holding the platform level, then read the residual torque the hold needs
-  for (let i = 0; i < 240; i++) { servo(s, 0); s.step(H); }
-  const net = s.gravityTorque();
-  const s0 = createSim(pl, { eggX: 1.0 }); s0.dragging = true; s0.target = 0;
-  for (let i = 0; i < 240; i++) { servo(s0, 0); s0.step(H); }
-  check('torque: carriage cancels an off-centre egg', Math.abs(net) < 0.05 * Math.abs(s0.gravityTorque()) && Math.abs(s0.gravityTorque()) > 4, `egg x ${xe.toFixed(2)}: gravity torque ${s0.gravityTorque().toFixed(2)} N·m with carriage centred, ${net.toFixed(3)} N·m with carriage at ${s.cwPos().toFixed(3)} (predicted ${comp.toFixed(3)})`);
-}
-// 4: egg stationary on a level platform
-{
-  const s = createSim(pl, {}); s.dragging = true; s.target = 0;
-  steps(s, 3, () => servo(s, 0));
-  const xa = s.eggLocal().x;
-  steps(s, 3, () => servo(s, 0));
-  const v = s.eggLocalVel();
-  check('4 egg at rest on a level deck', Math.abs(s.eggLocal().x - xa) < 0.002 && Math.hypot(v.x, v.y) < 0.005, `settled at x ${xa.toFixed(3)} (off-centre centre of mass rocks it there), drift over the next 3 s ${(s.eggLocal().x - xa).toFixed(4)} m, speed ${Math.hypot(v.x, v.y).toFixed(5)}`);
-}
-// 5: a gradually tilting platform: the egg holds, then starts downhill and accelerates
-{
-  const s = createSim(pl, { surface: 'wood' }); s.dragging = true;
-  let startAt = null, vA = null, vB = null, t = 0;
-  while (t < 10 && vB === null) {
-    servo(s, -0.25 * Math.min(1, t / 7)); s.step(H); t += H;
-    const x = s.eggLocal().x;
-    if (startAt === null && x > 0.05) startAt = s.angle();
-    if (vA === null && x > 0.4) vA = s.eggLocalVel().x;
-    if (vB === null && x > 1.4) vB = s.eggLocalVel().x;
-  }
-  check('5 egg rolls downhill on a slow tilt, accelerating', startAt !== null && vA > 0 && vB > vA, `breaks away at ${deg(Math.abs(startAt || 0))}; ${vA && vA.toFixed(2)} m/s at 0.4 m, ${vB && vB.toFixed(2)} m/s at 1.4 m`);
-}
-// 6-7: friction: rubber rolls, metal slides (rolling fraction = rω / travel)
-const rollFrac = (surface, th) => {
-  const s = createSim(pl, { surface }); s.dragging = true;
-  steps(s, 0.5, () => servo(s, 0));
-  const x0 = s.eggLocal().x, a0 = s.egg.getAngle();
-  let t = 0;
-  while (t < 4 && Math.abs(s.eggLocal().x - x0) < 1.0) { servo(s, th); s.step(H); t += H; }
-  const travel = Math.abs(s.eggLocal().x - x0), spin = Math.abs(s.egg.getAngle() - a0) * 0.3;
-  return { frac: spin / Math.max(1e-6, travel), t, travel };
+  s.target = Math.max(-GEOM.travel, Math.min(GEOM.travel, -(s.egg.getMass() / s.cw.getMass()) * e.x - 1.2 * (want - a) + 0.25 * w));
 };
-{
-  const r = rollFrac('rubber', -0.29), m = rollFrac('metal', -0.29), c = rollFrac('ceramic', -0.29), w = rollFrac('wood', -0.29);
-  check('6 high friction (rubber): rolls without slipping', r.frac > 0.8, `rolling fraction ${r.frac.toFixed(2)}, 1 m in ${r.t.toFixed(2)} s`);
-  check('7 low friction (metal): slips on a steep tilt and gets away faster', m.frac < 0.8 && m.t < r.t, `rolling fraction ${m.frac.toFixed(2)}, 1 m in ${m.t.toFixed(2)} s`);
-  check('  rolling fraction by surface', r.frac >= w.frac - 0.02 && w.frac >= m.frac, `rubber ${r.frac.toFixed(2)} wood ${w.frac.toFixed(2)} ceramic ${c.frac.toFixed(2)} metal ${m.frac.toFixed(2)}`);
-  // break-away tilt on a slow ramp, and coasting distance on a level deck
-  const brk = {}, coast = {};
-  for (const su of ['rubber', 'wood', 'ceramic', 'metal']) {
-    const s = createSim(pl, { surface: su }); s.dragging = true; brk[su] = 99;
-    for (let i = 0; i < 1200; i++) { servo(s, -0.3 * Math.min(1, i * H / 10)); s.step(H); if (s.eggLocal().x > 0.08) { brk[su] = -s.angle() * 180 / Math.PI; break; } }
-    const q = createSim(pl, { surface: su }); q.dragging = true;
-    steps(q, 0.3, () => servo(q, 0));
-    q.egg.setLinearVelocity(pl.Vec2(0.9, 0)); q.egg.setAngularVelocity(-0.9 / 0.3);
-    const x0 = q.eggLocal().x;
-    steps(q, 3, () => servo(q, 0));
-    coast[su] = q.eggLocal().x - x0;
-  }
-  check('  surfaces: break-away tilt rubber > wood > ceramic > metal', brk.rubber > brk.wood && brk.wood > brk.ceramic && brk.ceramic > brk.metal, Object.entries(brk).map(([k, v]) => k + ' ' + v.toFixed(1) + '°').join(', '));
-  check('  surfaces: a pushed egg coasts further on smoother finishes', coast.rubber < coast.wood && coast.wood < coast.ceramic, Object.entries(coast).map(([k, v]) => k + ' ' + v.toFixed(2) + ' m').join(', '));
+
+// 1. egg stationary on a horizontal platform, every surface
+for (const su of SURF) {
+  const s = createSim(pl, { surface: su }); s.dragging = true;
+  run(s, 3, () => hold(s, 0));
+  const x0 = s.eggLocal().x;
+  run(s, 5, () => hold(s, 0));
+  const v = s.eggLocalVel();
+  check(`1 egg stays put on a level deck (${su})`, Math.abs(s.eggLocal().x - x0) < 0.001 && Math.hypot(v.x, v.y) < 0.002 && s.eggOnDeck, `drift ${((s.eggLocal().x - x0) * 1000).toFixed(2)} mm over 5 s, speed ${Math.hypot(v.x, v.y).toFixed(4)} m/s, in contact ${s.eggOnDeck}`);
 }
-// static friction threshold on metal: below tan⁻¹(μs) and below the shape's tipping angle the egg stays put
-{
-  // the platform is jerked sideways in rotation: a grippy deck carries the egg, a slick one lets it slip
-  const jerk = (su) => {
-    const s = createSim(pl, { surface: su }); s.dragging = true;
-    steps(s, 1.5, () => servo(s, 0));
-    let slipT = 0;
-    for (let i = 0; i < 60; i++) { servo(s, 0.12 * Math.sin(i * H * 18), 2500, 120); s.step(H); if (s.slipping) slipT += H; }
-    return slipT;
-  };
-  const jr = jerk('rubber'), jm = jerk('metal');
-  check('  static friction: a sharp jolt slips the egg on metal, not on rubber', jr < 0.02 && jm > 0.05, `slipping time over 0.5 s of jolts: rubber ${jr.toFixed(3)} s, metal ${jm.toFixed(3)} s`);
-}
-// 8: reversing the tilt while the egg has momentum
+
+// 2. egg rolling on a tilted platform: accelerates downhill, turns as it rolls, stays on the deck
 {
   const s = createSim(pl, { surface: 'wood' }); s.dragging = true;
-  steps(s, 0.3, () => servo(s, 0));
-  let t = 0;
-  while (s.eggLocalVel().x < 0.45 && t < 5) { servo(s, -0.2); s.step(H); t += H; }
-  const vAt = s.eggLocalVel().x, xAt = s.eggLocal().x;
-  let more = 0, peak = xAt, tt = 0;
-  while (tt < 3) { servo(s, 0.2); s.step(H); tt += H; const x = s.eggLocal().x; if (x > peak) { peak = x; more = tt; } }
-  check('8 momentum carries through a reversal', more > 0.25 && peak > xAt + 0.08, `moving ${vAt.toFixed(2)} m/s at reversal, kept going ${more.toFixed(2)} s and ${(peak - xAt).toFixed(2)} m before turning back`);
+  run(s, 1, () => hold(s, 0));
+  const a0 = s.egg.getAngle(), x0 = s.eggLocal().x;
+  let vA = null, vB = null, onDeck = 0, n = 0;
+  run(s, 1.6, (t) => { hold(s, 0.14); if (t > 0.5 && vA === null) vA = s.eggLocalVel().x; n++; if (s.eggOnDeck) onDeck++; });
+  vB = s.eggLocalVel().x;
+  const dx = s.eggLocal().x - x0, turn = s.egg.getAngle() - a0;
+  check('2 egg rolls downhill on a tilted deck', vA < 0 && vB < vA && dx < -0.3 && turn > 1, `8° left-down: speed ${vA.toFixed(2)} -> ${vB.toFixed(2)} m/s, moved ${dx.toFixed(2)} m, turned ${(turn * 57.3).toFixed(0)}° (rolling turns it anticlockwise), in contact ${(100 * onDeck / n).toFixed(0)}% of steps`);
 }
-// 9: moving the carriage while the egg rolls: constraints hold
-{
-  const s = createSim(pl, { surface: 'ceramic' }); s.dragging = true;
-  let maxCw = 0, maxOffRail = 0, lost = 0, n = 0;
-  steps(s, 6, (t) => {
-    // a balancing hand plus an extra back-and-forth sweep of the carriage
-    const e = s.eggLocal(), v = s.eggLocalVel(), a = s.angle(), w = s.platform.getAngularVelocity();
-    const want = Math.max(-0.2, Math.min(0.2, 0.12 * e.x + 0.16 * v.x));
-    s.target = Math.max(-GEOM.travel, Math.min(GEOM.travel, -(0.5 / 0.95) * e.x - 4 * (want - a) + 0.6 * w + 0.5 * Math.sin(t * 2.1)));
-    maxCw = Math.max(maxCw, Math.abs(s.cwPos()));
-    const lp = s.platform.getLocalPoint(s.cw.getPosition());
-    maxOffRail = Math.max(maxOffRail, Math.abs(lp.y - GEOM.railY));
-    n++; if (!s.eggOnDeck) lost++;
-  });
-  check('9 carriage stays on its rail and in its limits while the egg rolls', maxCw < GEOM.travel + 0.01 && maxOffRail < 0.005 && !s.eggFallen() && lost / n < 0.2, `max |x| ${maxCw.toFixed(3)} (limit ${GEOM.travel}), off-rail ${maxOffRail.toFixed(4)} m, egg airborne ${(100 * lost / n).toFixed(1)}% of steps`);
-}
-// 10: a strong gust then recovery by a simple controller
-{
-  const s = createSim(pl, { surface: 'wood' }); s.dragging = true;
-  let t = 0, fell = false, worst = 0;
-  while (t < 8) {
-    const e = s.eggLocal(), v = s.eggLocalVel(), a = s.angle(), w = s.platform.getAngularVelocity();
-    const want = Math.max(-0.2, Math.min(0.2, 0.12 * e.x + 0.16 * v.x));
-    s.target = Math.max(-GEOM.travel, Math.min(GEOM.travel, -(0.5 / 0.95) * e.x - 4 * (want - a) + 0.6 * w));
-    s.disturb = (t > 1 && t < 2) ? 6.5 * Math.sin((t - 1) * Math.PI) : 0;
-    s.step(H); t += H;
-    worst = Math.max(worst, Math.abs(e.x));
-    if (s.eggFallen()) { fell = true; break; }
+
+// 3. the brief's sequence: level, tilt left slowly (holds, then breaks away), then tilt right while it moves left
+for (const su of SURF) {
+  const s = createSim(pl, { surface: su }); s.dragging = true;
+  run(s, 2, () => hold(s, 0));
+  const x0 = s.eggLocal().x;
+  let th = 0, t = 0, broke = null, stillAt1 = null;
+  // ramp 0.6 deg/s; "moving" = 3 cm from where it sat
+  while (broke === null && t < 30) {
+    th = (0.6 * Math.PI / 180) * t; hold(s, th); s.step(H); t += H;
+    if (stillAt1 === null && th >= 0.5 * Math.PI / 180) stillAt1 = Math.abs(s.eggLocal().x - x0);
+    if (s.eggLocal().x - x0 < -0.03) broke = th;
   }
-  check('10 strong gust, then recovery', !fell && Math.abs(s.eggLocal().x) < 0.5, `6.5 N·m gust; egg reached ${worst.toFixed(2)} m from centre, ended at ${s.eggLocal().x.toFixed(2)} m`);
+  // keep that tilt until it is really rolling, then tilt the other way
+  let tb = 0; while (s.eggLocalVel().x > -0.35 && tb < 4) { hold(s, Math.max(th, 0.16)); s.step(H); tb += H; }
+  const vRev = s.eggLocalVel().x, xRev = s.eggLocal().x;
+  let tt = 0, minX = xRev, keptFor = 0;
+  while (tt < 3 && s.eggLocalVel().x < 0) { hold(s, -0.14); s.step(H); tt += H; minX = Math.min(minX, s.eggLocal().x); keptFor = tt; }
+  const carry = xRev - minX;
+  check(`3 holds, breaks away, carries through a reversal (${su})`, broke !== null && stillAt1 < 0.005 && vRev < -0.3 && keptFor > 0.15 && carry > 0.05, `still at 0.5° (moved ${(stillAt1 * 1000).toFixed(1)} mm); 3 cm of travel at ${D(broke || 0)}; tilted right while moving ${(-vRev).toFixed(2)} m/s left: kept going left ${keptFor.toFixed(2)} s and ${carry.toFixed(2)} m, then came back`);
 }
-// 11: approaching the edge and falling: no game over until it is truly off
+
+// 4. the materials change the physics, not just the paint
 {
-  const s = createSim(pl, { surface: 'wood' }); s.dragging = true;
-  let t = 0, flaggedNear = false, fellAt = null, xAtFall = 0;
-  while (t < 8 && fellAt === null) {
-    servo(s, -0.18); s.step(H); t += H;
-    const x = s.eggLocal().x;
-    if (x > 1.7 && x < GEOM.half && s.eggFallen()) flaggedNear = true;
-    if (s.eggFallen()) { fellAt = t; xAtFall = x; }
+  const brk = {}, frac = {}, coast = {}, slip = {}, t1m = {};
+  for (const su of SURF) {
+    let s = createSim(pl, { surface: su }); s.dragging = true; brk[su] = 99;
+    run(s, 2, () => hold(s, 0));
+    for (let t = 0; t < 30; t += H) { hold(s, -(0.5 * Math.PI / 180) * t); s.step(H); if (s.eggLocalVel().x > 0.05) { brk[su] = -s.angle() * 180 / Math.PI; break; } }
+    s = createSim(pl, { surface: su }); s.dragging = true;
+    run(s, 1, () => hold(s, 0));
+    const x0 = s.eggLocal().x, a0 = s.egg.getAngle(); let t = 0;
+    while (t < 4 && Math.abs(s.eggLocal().x - x0) < 1.0) { hold(s, -0.29); s.step(H); t += H; }
+    frac[su] = Math.abs(s.egg.getAngle() - a0) * 0.3 / Math.max(1e-6, Math.abs(s.eggLocal().x - x0)); t1m[su] = t;
+    s = createSim(pl, { surface: su }); s.dragging = true;
+    run(s, 2, () => hold(s, 0));
+    s.egg.setLinearVelocity(pl.Vec2(0.9, 0)); s.egg.setAngularVelocity(-0.9 / 0.3);
+    const xc = s.eggLocal().x; run(s, 3, () => hold(s, 0)); coast[su] = s.eggLocal().x - xc;
+    s = createSim(pl, { surface: su }); s.dragging = true;
+    run(s, 2, () => hold(s, 0));
+    let st = 0; for (let i = 0; i < 60; i++) { s.disturb = -s.gravityTorque() + (0.12 * Math.sin(i * H * 18) - s.angle()) * 2500 - s.platform.getAngularVelocity() * 120; s.step(H); if (s.slipping) st += H; }
+    slip[su] = st;
   }
-  let y0 = s.egg.getWorldCenter().y;
-  steps(s, 0.6, () => { s.disturb = 0; });
-  const y1 = s.egg.getWorldCenter().y;
-  check('11 edge: falls only once past the deck end, then keeps falling', fellAt !== null && !flaggedNear && xAtFall > GEOM.half && y1 < y0 - 0.5, `fell at ${fellAt && fellAt.toFixed(2)} s, ${xAtFall.toFixed(2)} m from centre; dropped ${(y0 - y1).toFixed(2)} m in 0.6 s`);
+  const fmt = (o, d, u) => SURF.map(k => k + ' ' + o[k].toFixed(d) + u).join(', ');
+  check('4a break-away tilt: rubber > wood > ceramic > metal', brk.rubber > brk.wood && brk.wood > brk.ceramic && brk.ceramic > brk.metal && brk.rubber - brk.metal > 2, fmt(brk, 1, '°'));
+  check('4b steep tilt (17°): metal slides, rubber and wood roll', frac.rubber > 0.9 && frac.wood > 0.9 && frac.metal < 0.6, 'rolling fraction ' + fmt(frac, 2, ''));
+  check('4c a pushed egg coasts further on smoother finishes', coast.rubber < coast.wood && coast.wood < coast.ceramic && coast.ceramic < coast.metal, fmt(coast, 2, ' m'));
+  check('4d sharp jolts: grip on rubber, slip on metal', slip.rubber < 0.02 && slip.metal > 0.1, 'time slipping in 0.5 s of jolts: ' + fmt(slip, 2, ' s'));
 }
-// 12: restart: a new world is independent and deterministic
+
+// 5-6. counterweight fully left / right, and a progressive response in between
+for (const [n, dir] of [['5 counterweight fully left', -1], ['6 counterweight fully right', 1]]) {
+  const s = createSim(pl, {}); s.dragging = true; s.target = dir * GEOM.travel;
+  run(s, 2);
+  check(n, Math.abs(s.cwPos() - dir * GEOM.travel) < 0.01 && Math.sign(s.angle()) === -dir && Math.abs(s.angle()) > 0.3, `carriage ${s.cwPos().toFixed(3)} m, platform ${D(s.angle())} (${dir < 0 ? 'left' : 'right'} end down, at its stop)`);
+}
 {
-  const runOnce = () => { const s = createSim(pl, {}); const d = createDisturbance(1234); s.dragging = false; let t = 0; while (t < 12) { s.disturb = d.update(t, H, 0); s.step(H); t += H; } return [s.angle(), s.eggLocal().x]; };
-  const a = runOnce(), b = runOnce();
-  check('12 restart: fresh worlds replay identically for a seed', a[0] === b[0] && a[1] === b[1], `angle ${a[0].toFixed(6)} / ${b[0].toFixed(6)}`);
-  const d1 = createDisturbance(1), d2 = createDisturbance(2); let diff = 0;
-  for (let t = 0; t < 30; t += H) diff = Math.max(diff, Math.abs(d1.update(t, H, 0) - d2.update(t, H, 0)));
-  check('  runs differ by seed', diff > 0.3, `max torque difference ${diff.toFixed(2)} N·m`);
+  const out = [];
+  for (const x of [0.05, 0.1, 0.2, 0.3]) { const s = createSim(pl, {}); s.egg.setActive(false); s.dragging = true; s.target = x; run(s, 4); out.push([x, -s.angle()]); }
+  const mono = out.every((o, i) => i === 0 || o[1] > out[i - 1][1]);
+  check('  carriage position maps progressively to tilt', mono && out[0][1] < 0.06 && out[3][1] < 0.3, out.map(o => `${o[0]} m -> ${D(o[1])}`).join(', '));
 }
-// the egg's own weight moves the platform (coupling both ways)
+// torque: moving the carriage changes gravitational torque; it can cancel the egg
+{
+  const s0 = createSim(pl, { eggX: 1.0 }); s0.dragging = true; s0.target = 0;
+  run(s0, 2, () => hold(s0, 0));
+  const s = createSim(pl, { eggX: 1.0 }); s.dragging = true;
+  run(s, 2, () => { s.target = -s.egg.getMass() * s.eggLocal().x / s.cw.getMass(); hold(s, 0); });
+  check('  carriage cancels an off-centre egg (torque balance)', Math.abs(s.gravityTorque()) < 0.03 * Math.abs(s0.gravityTorque()), `egg at ${s.eggLocal().x.toFixed(2)} m: ${s0.gravityTorque().toFixed(2)} N·m with carriage centred, ${s.gravityTorque().toFixed(3)} N·m with carriage at ${s.cwPos().toFixed(3)} m`);
+  const m = [s.platform, s.cw, s.egg].map(b => b.getMass().toFixed(2));
+  check('  platform, carriage and egg masses all in the dynamics', s.platform.getMass() > 1 && s.cw.getMass() > 1 && s.egg.getMass() > 0.4, `platform ${m[0]} kg, carriage ${m[1]} kg, egg ${m[2]} kg; inertia about pivot ${s.inertiaAboutPivot().toFixed(2)} kg·m²`);
+}
+// the egg's weight moves the platform; the platform's rotation is about the pivot
 {
   const s = createSim(pl, { eggX: 1.2 }); s.dragging = true; s.target = 0;
-  const e0 = s.eggLocal().x;
-  steps(s, 0.25);
-  check('  egg weight tips the platform', s.angle() < -0.01, `egg at ${e0.toFixed(2)} m, platform ${deg(s.angle())} after 0.25 s`);
+  run(s, 0.3);
+  const pv = s.platform.getPosition();
+  check('  egg weight tips the platform; platform turns about its pivot', s.angle() < -0.02 && Math.hypot(pv.x, pv.y) < 1e-3, `egg at 1.2 m -> ${D(s.angle())} after 0.3 s; pivot drift ${(Math.hypot(pv.x, pv.y) * 1000).toFixed(3)} mm`);
 }
-// the disturbance stays bounded and fair
+
+// 7. carriage moved while the egg rolls: everything stays on its constraints
 {
+  const s = createSim(pl, { surface: 'ceramic' });
+  let maxCw = 0, offRail = 0, lost = 0, n = 0, pen = 0;
+  run(s, 8, (t) => {
+    hand(s); s.target = Math.max(-GEOM.travel, Math.min(GEOM.travel, s.target + 0.25 * Math.sin(t * 2.1)));
+    maxCw = Math.max(maxCw, Math.abs(s.cwPos()));
+    offRail = Math.max(offRail, Math.abs(s.platform.getLocalPoint(s.cw.getPosition()).y - GEOM.railY));
+    const l = s.eggLocal(); pen = Math.max(pen, (GEOM.deckTop + GEOM.eggB * 0.97) - l.y);
+    n++; if (!s.eggOnDeck) lost++;
+  });
+  check('7 carriage moved while the egg rolls', maxCw <= GEOM.travel + 0.006 && offRail < 0.004 && lost / n < 0.1 && !s.eggFallen(), `max |x| ${maxCw.toFixed(3)} m (limit ${GEOM.travel}), off rail ${(offRail * 1000).toFixed(1)} mm, egg out of contact ${(100 * lost / n).toFixed(1)}% of steps`);
+}
+
+// 8. recovery from a near-fall
+{
+  const s = createSim(pl, { surface: 'wood', eggX: 1.62 });
+  s.egg.setLinearVelocity(pl.Vec2(0.25, 0));
+  let fell = false, worst = 0;
+  run(s, 10, () => { if (fell) return; hand(s); worst = Math.max(worst, s.eggLocal().x); if (s.eggFallen()) fell = true; });
+  check('8 egg recovered from the brink', !fell && Math.abs(s.eggLocal().x) < 0.6, `start 1.62 m out, moving outward 0.25 m/s; got to ${worst.toFixed(2)} m (deck end ${GEOM.half} m), finished at ${s.eggLocal().x.toFixed(2)} m`);
+}
+// a strong gust, then recovery
+{
+  const s = createSim(pl, { surface: 'wood' });
+  let fell = false, worst = 0, t = 0;
+  while (t < 8) { hand(s); s.disturb = (t > 1 && t < 2) ? 13 * Math.sin((t - 1) * Math.PI) : 0; s.step(H); t += H; worst = Math.max(worst, Math.abs(s.eggLocal().x)); if (s.eggFallen()) { fell = true; break; } }
+  check('  strong gust, then recovery', !fell && Math.abs(s.eggLocal().x) < 0.5, `13 N·m gust; egg reached ${worst.toFixed(2)} m from centre, ended ${s.eggLocal().x.toFixed(2)} m`);
+}
+
+// 9. falling beyond the platform; never called fallen for an angle alone
+{
+  const s = createSim(pl, { surface: 'wood' }); s.dragging = true;
+  let t = 0, early = false, fellAt = null, xAt = 0;
+  while (t < 8 && fellAt === null) { hold(s, -0.25); s.step(H); t += H; const x = s.eggLocal().x; if (s.eggFallen() && x < GEOM.half) early = true; if (s.eggFallen()) { fellAt = t; xAt = x; } }
+  const y0 = s.egg.getWorldCenter().y; run(s, 0.5, () => { s.disturb = 0; }); const y1 = s.egg.getWorldCenter().y;
+  check('9 egg falls past the deck end, then keeps falling', fellAt !== null && !early && xAt > GEOM.half && y0 - y1 > 0.4, `fallen at ${fellAt && fellAt.toFixed(2)} s, ${xAt.toFixed(2)} m out; dropped ${(y0 - y1).toFixed(2)} m in the next 0.5 s`);
+  const q = createSim(pl, { surface: 'rubber' }); q.dragging = true; q.target = GEOM.travel;
+  let any = false; run(q, 0.25, () => { if (q.eggFallen()) any = true; });
+  check('  platform at its stop is not a game over', !any && Math.abs(q.angle()) > 0.2, `platform reached ${D(q.angle())} with the egg still on the deck at ${q.eggLocal().x.toFixed(2)} m; fallen flagged: ${any}`);
+}
+
+// determinism, disturbance fairness
+{
+  const once = () => { const s = createSim(pl, {}); const d = createDisturbance(1234); let t = 0; while (t < 12) { s.disturb = d.update(t, H, 0); s.step(H); t += H; } return [s.angle(), s.eggLocal().x]; };
+  const a = once(), b = once();
+  check('  a seed replays identically (fixed step)', a[0] === b[0] && a[1] === b[1], `angle ${a[0].toFixed(6)} / ${b[0].toFixed(6)}`);
   let peak = 0;
   for (let seed = 1; seed <= 20; seed++) { const d = createDisturbance(seed); for (let t = 0; t < 180; t += H) peak = Math.max(peak, Math.abs(d.update(t, H, 0))); }
-  const early = (() => { let p = 0; for (let seed = 1; seed <= 20; seed++) { const d = createDisturbance(seed); for (let t = 0; t < 10; t += H) p = Math.max(p, Math.abs(d.update(t, H, 0))); } return p; })();
-  const capacity = 0.95 * 9.81 * GEOM.travel;
-  check('  disturbance bounded below what the carriage can answer', peak < capacity * 0.75 && early < 0.75, `peak ${peak.toFixed(2)} N·m over 20 seeds × 3 min (carriage reach ${capacity.toFixed(1)} N·m); first 10 s ≤ ${early.toFixed(2)}`);
+  const reach = 1.4 * 9.81 * GEOM.travel;
+  check('  disturbance stays below what the carriage can answer', peak < reach * 0.8, `peak ${peak.toFixed(1)} N·m over 20 seeds × 3 min; carriage reach ${reach.toFixed(1)} N·m`);
 }
 for (const r of results) console.log(r[0], ' ', r[1], ' — ', r[2]);
+console.log(results.filter(r => r[0] === 'PASS').length + '/' + results.length + ' passed');
 process.exit(results.some(r => r[0] === 'FAIL') ? 1 : 0);

@@ -42,7 +42,8 @@ function phaseAt(t) {
 
 function createDisturbance(seed, strength) {
   const rnd = mulberry32(seed);
-  const k = strength == null ? 1 : strength;
+  // amplitudes are scaled to the platform's restoring stiffness (about 18 N·m/rad)
+  const k = (strength == null ? 1 : strength) * 2.2;
   // drift: three incommensurate slow waves with per-run phases, plus a
   // band-limited random walk that changes the drift's character over time
   const waves = [0, 1, 2].map(i => ({ f: [0.071, 0.113, 0.187][i] * (0.85 + rnd() * 0.3), ph: rnd() * Math.PI * 2, w: [1, 0.55, 0.3][i] }));
@@ -134,7 +135,7 @@ function createDisturbance(seed, strength) {
     // soft ceiling: stacked drift, nudge and gust never exceed what the
     // carriage can answer with the egg still near the middle
     const raw = d.drift + d.nudge + d.gustTorque;
-    d.torque = 7.5 * Math.tanh(raw / 7.5);
+    d.torque = 14 * Math.tanh(raw / 14);
     return d.torque;
   };
   return d;

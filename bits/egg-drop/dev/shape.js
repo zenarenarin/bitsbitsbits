@@ -1,11 +1,20 @@
-const { pl, createSim, GEOM } = require('./simload');
-const H = 1/120;
-const servo = (s, th) => { s.disturb = -s.gravityTorque() + (th - s.angle()) * 600 - s.platform.getAngularVelocity() * 60; };
-function breakaway(surface, A, B, K) {
-  const s = createSim(pl, { surface, eggA: A, eggB: B, eggK: K }); s.dragging = true;
-  for (let i = 0; i < 1200; i++) { const t = i * H; servo(s, -0.3 * Math.min(1, t / 10)); s.step(H); if (s.eggLocal().x > 0.08) return (s.angle() * -180 / Math.PI).toFixed(1); }
-  return '>17';
-}
-for (const [A, B, K] of [[0.31, 0.31, 0], [0.33, 0.305, 0], [0.33, 0.305, 0.06], [0.34, 0.3, 0.04]]) {
-  console.log(A, B, K, ['rubber','wood','ceramic','metal'].map(su => su + ' ' + breakaway(su, A, B, K)).join('  '));
+// True break-away (egg reaches 0.15 m/s) in both directions, per egg profile and surface.
+const { pl, createSim } = require('./simload');
+const H = 1 / 120;
+const hold = (s, th) => { s.disturb = -s.gravityTorque() + (th - s.angle()) * 600 - s.platform.getAngularVelocity() * 60; };
+const shapes = [[0.32, 0.305, 0.03]];
+for (const [A, B, K] of shapes) {
+  const row = [];
+  for (const su of ['rubber', 'wood', 'ceramic', 'metal']) {
+    const r = [];
+    for (const dir of [1, -1]) {
+      const s = createSim(pl, { surface: su, eggA: A, eggB: B, eggK: K }); s.dragging = true;
+      for (let i = 0; i < 240; i++) { hold(s, 0); s.step(H); }
+      let t = 0, br = null;
+      while (t < 40 && br === null) { hold(s, dir * (0.5 * Math.PI / 180) * t); s.step(H); t += H; if (Math.abs(s.eggLocalVel().x) > 0.15) br = Math.abs(s.angle()); }
+      r.push(br ? (br * 57.3).toFixed(1) : '>20');
+    }
+    row.push(su + ' ' + r.join('/'));
+  }
+  console.log(`A ${A} B ${B} K ${K} (aspect ${(A / B).toFixed(3)}): ` + row.join('  '));
 }

@@ -40,12 +40,33 @@ const UI_CSS = `
 .ed-dim{opacity:.6;font-size:11px}
 .ed-ui .ed-again{margin-top:14px;display:inline-block;padding:11px 34px;border-radius:28px;background:#6a1f2b!important;color:#f5ead2!important;font-family:'Inter',system-ui,sans-serif!important;font-weight:600;font-size:14px;letter-spacing:.14em;text-transform:uppercase;box-shadow:inset 0 0 0 2px #4d1520,0 3px 0 #4d1520}
 .ed-ui .ed-again:active{transform:translateY(2px);box-shadow:inset 0 0 0 2px #4d1520,0 1px 0 #4d1520}
+.ed-mode{position:absolute;left:50%;transform:translateX(-50%);display:flex;border-radius:20px;background:rgba(245,234,210,.82);box-shadow:inset 0 0 0 1.5px rgba(140,106,38,.7);padding:3px;gap:2px;transition:opacity .25s}
+.ed-ui .ed-mode button{font-family:'Inter',system-ui,sans-serif;font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;padding:9px 11px;border-radius:16px;display:flex;align-items:center;gap:5px;white-space:nowrap}
+.ed-ui .ed-mode button.sel{background:#6a1f2b;color:#f5ead2}
+.ed-ui .ed-mode button svg{width:14px;height:14px}
+.ed-ui .ed-mode button.sel svg *{stroke:#f5ead2}
+.ed-mode.locked{opacity:.75}
+.ed-mode.locked button{pointer-events:none}
+.ed-tp{position:absolute;left:50%;transform:translateX(-50%);width:min(320px,calc(100% - 32px));box-sizing:border-box;padding:16px 18px 14px;border-radius:6px;background:#f5ead2;box-shadow:0 10px 30px rgba(59,36,23,.35);pointer-events:auto;text-align:center}
+.ed-tp h3{margin:0 0 4px;font-family:'DM Serif Display',Georgia,serif;font-weight:400;font-size:24px;color:#6a1f2b}
+.ed-tp p{margin:0 0 10px;font-style:italic;font-size:18px}
+.ed-tp .g{position:relative;height:16px;margin:4px 8px 12px;border-radius:8px;background:#c9c48a;box-shadow:inset 0 0 0 1.5px #8c6a26}
+.ed-tp .g i{position:absolute;top:2px;width:22px;height:12px;margin-left:-11px;border-radius:6px;background:#f5ead2;box-shadow:0 0 0 1px rgba(59,36,23,.4)}
+.ed-tp .g b{position:absolute;left:50%;top:2px;bottom:2px;width:1px;background:rgba(59,36,23,.5)}
+.ed-tp label{display:flex;align-items:center;gap:10px;font-family:'Inter',system-ui,sans-serif;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin:10px 4px 2px}
+.ed-tp input[type=range]{flex:1;accent-color:#6a1f2b;pointer-events:auto}
+.ed-tp .st{font-family:'Inter',system-ui,sans-serif;font-size:11px;opacity:.75;margin-top:8px;min-height:14px}
+.ed-tp .row{display:flex;gap:8px;justify-content:center;margin-top:12px}
+.ed-ui .ed-tp .btn{padding:10px 18px;border-radius:22px;font-family:'Inter',system-ui,sans-serif;font-weight:600;font-size:12px;letter-spacing:.12em;text-transform:uppercase;background:#6a1f2b;color:#f5ead2;box-shadow:inset 0 0 0 2px #4d1520,0 3px 0 #4d1520}
+.ed-ui .ed-tp .btn.alt{background:transparent;color:#3b2417;box-shadow:inset 0 0 0 1.5px rgba(59,36,23,.45)}
+.ed-ui .ed-tp .btn[disabled]{opacity:.4;pointer-events:none}
 .ed-err{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;width:80%;font-size:20px;pointer-events:auto}
 `;
 
 const ICON = {
   sound: '<svg viewBox="0 0 24 24" fill="none" stroke="#3b2417" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="#3b2417"/><path d="M15.5 9.2a4 4 0 0 1 0 5.6M18 7a7 7 0 0 1 0 10"/></svg>',
   mute: '<svg viewBox="0 0 24 24" fill="none" stroke="#3b2417" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="#3b2417"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>',
+  touch: '<svg viewBox="0 0 24 24" fill="none" stroke="#3b2417" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11V5a1.5 1.5 0 0 1 3 0v5M12 10V8.5a1.5 1.5 0 0 1 3 0V11M15 10.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-3l-2-4a1.5 1.5 0 0 1 2.6-1.5L9 15"/></svg>',
   tilt: '<svg viewBox="0 0 24 24" fill="none" stroke="#3b2417" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="3.5" width="8" height="17" rx="2" transform="rotate(18 12 12)"/><path d="M3 20c2-1 4-1 6 0M15 20c2-1 4-1 6 0"/></svg>'
 };
 
@@ -124,9 +145,24 @@ async function eggDropInit(ctx) {
   const icons = el('div', 'ed-icons');
   const muteBtn = el('button', 'ed-icon', save.muted ? ICON.mute : ICON.sound, icons);
   muteBtn.setAttribute('aria-label', 'Sound');
-  const motionOK = !!(caps.motion && ctx.motion);
-  const tiltBtn = motionOK ? el('button', 'ed-icon', ICON.tilt, icons) : null;
-  if (tiltBtn) tiltBtn.setAttribute('aria-label', 'Tilt control');
+  // control mode: TOUCH (drag the weight) or PHONE TILT
+  const modeEl = el('div', 'ed-mode');
+  const modeBtn = {
+    touch: el('button', 'sel', ICON.touch + '<span>Touch</span>', modeEl),
+    tilt: el('button', '', ICON.tilt + '<span>Phone tilt</span>', modeEl)
+  };
+  modeBtn.touch.setAttribute('aria-label', 'Touch control');
+  modeBtn.tilt.setAttribute('aria-label', 'Phone tilt control');
+  const tp = el('div', 'ed-tp');
+  tp.style.display = 'none';
+  tp.innerHTML = `<h3>Phone tilt</h3>
+    <p class="msg">Hold your phone comfortably upright.</p>
+    <div class="g"><b></b><i></i></div>
+    <div class="row"><button class="btn cal">Calibrate</button></div>
+    <label>Sensitivity <input class="sens" type="range" min="0.5" max="2" step="0.05" value="1"></label>
+    <div class="st"></div>
+    <div class="row"><button class="btn alt use-touch">Use touch</button><button class="btn done" disabled>Done</button></div>`;
+  const tpEl = { msg: tp.querySelector('.msg'), knob: tp.querySelector('.g i'), cal: tp.querySelector('.cal'), sens: tp.querySelector('.sens'), st: tp.querySelector('.st'), done: tp.querySelector('.done'), touch: tp.querySelector('.use-touch') };
   const chips = el('div', 'ed-chips');
   const chipEls = {};
   const SW = { rubber: PAL.olive2, wood: '#d9a25a', ceramic: PAL.ivory, metal: '#c9b48a' };
@@ -140,6 +176,10 @@ async function eggDropInit(ctx) {
   function placeUI() {
     const a = area();
     icons.style.top = (a.top + 10) + 'px'; icons.style.right = (a.right + 12) + 'px';
+    // control switch sits above the surface chips; during play it stays as the mode indicator
+    modeEl.style.bottom = (a.bottom + 12 + 58) + 'px';
+    L.modeTop = L.H - (a.bottom + 12 + 58) - 40;
+    tp.style.top = Math.max(a.top + 120, L.H * 0.2) + 'px';
     chips.style.bottom = (a.bottom + 12) + 'px';
     card.style.top = Math.max(a.top + 70, L.H * 0.16) + 'px';
   }
@@ -171,21 +211,64 @@ async function eggDropInit(ctx) {
     muteBtn.innerHTML = save.muted ? ICON.mute : ICON.sound;
   });
 
-  // optional tilt control: the phone's tilt sets the carriage's target
-  let tilt = null, tiltOn = false;
-  if (tiltBtn) ctx.input.activate(tiltBtn, async () => {
+  // ---- control mode ----
+  // Both modes steer the carriage through the same servo target (sim.target).
+  const tilt = createTilt(ctx);
+  tilt.sensitivity = save.tiltSens || 1;
+  tpEl.sens.value = String(tilt.sensitivity);
+  let mode = 'touch';            // 'touch' | 'tilt'
+  let tpOpen = false;
+  function setMode(m) {
+    mode = m;
+    modeBtn.touch.classList.toggle('sel', m === 'touch');
+    modeBtn.tilt.classList.toggle('sel', m === 'tilt');
+    tilt.reset();
+    ctx.platform.interact({ type: 'control', mode: m });
+  }
+  function openTiltPanel(open) {
+    tpOpen = open;
+    tp.style.display = open ? 'block' : 'none';
+    if (open) hideCard();
+    else if (state === 'results') { card.style.display = 'block'; card.classList.add('show'); }
+  }
+  function refreshTiltPanel() {
+    if (!tpOpen) return;
+    const live = tilt.receiving();
+    tpEl.cal.disabled = !live;
+    tpEl.done.disabled = !(live && tilt.neutral != null);
+    tpEl.st.textContent = tilt.statusText();
+    const v = tilt.neutral == null ? 0 : Math.max(-1, Math.min(1, tilt.calibratedDeg() / (TILT_DEFAULTS.fullDeg / tilt.sensitivity)));
+    tpEl.knob.style.left = (50 + v * 46) + '%';
+    if (tilt.permission === 'denied') tpEl.msg.textContent = 'Motion access was refused. Touch control still works.';
+    else if (tilt.permission === 'insecure') tpEl.msg.textContent = 'Phone tilt needs a secure (https) page. Touch control still works.';
+    else if (tilt.permission === 'unavailable') tpEl.msg.textContent = 'This device or browser gives no motion data. Touch control still works.';
+    else if (tilt.neutral != null) tpEl.msg.textContent = 'Calibrated. Tilt it like a steering wheel to test.';
+    else tpEl.msg.textContent = 'Hold your phone comfortably upright, then tap Calibrate.';
+  }
+  ctx.input.activate(modeBtn.touch, () => { if (state === 'play' || state === 'falling') return; openTiltPanel(false); setMode('touch'); });
+  ctx.input.activate(modeBtn.tilt, () => {
+    if (state === 'play' || state === 'falling') return;
     audio.unlock();
-    if (tiltOn) { tiltOn = false; tiltBtn.classList.remove('on'); toast('Drag control'); return; }
-    try {
-      await ctx.motion.start({ calibrate: true });
-      if (disposed) return;
-      if (!tilt) tilt = ctx.motion.tiltControl({ maxAngle: 22, deadzone: 0.04, smoothing: 0.25, calibrate: true });
-      else { try { ctx.motion.calibrate(); } catch (e) { } }
-      tiltOn = true; tiltBtn.classList.add('on'); toast('Tilt the phone to slide the weight');
-    } catch (e) {
-      tiltOn = false; tiltBtn.classList.remove('on'); toast('Tilt unavailable: drag the weight instead');
-    }
+    openTiltPanel(true);
+    if (!tilt.available()) { tilt.permission = 'unavailable'; refreshTiltPanel(); return; }
+    // enable() is called straight from the tap: iOS only prompts inside a gesture
+    tilt.enable().then(() => { if (!disposed) refreshTiltPanel(); });
+    refreshTiltPanel();
   });
+  ctx.input.activate(tpEl.cal, () => {
+    if (tilt.calibrate()) { if (caps.haptics) ctx.platform.haptic('light'); audio.chime(false); }
+    refreshTiltPanel();
+  });
+  ctx.listen(tpEl.sens, 'input', () => {
+    tilt.sensitivity = Math.max(0.5, Math.min(2, parseFloat(tpEl.sens.value) || 1));
+    save.tiltSens = tilt.sensitivity; persist();
+  });
+  ctx.input.activate(tpEl.done, () => {
+    if (tilt.neutral == null) return;
+    setMode('tilt'); openTiltPanel(false);
+    toast('Phone tilt on: tilt to move the weight');
+  });
+  ctx.input.activate(tpEl.touch, () => { setMode('touch'); openTiltPanel(false); });
 
   // ---- simulation and run state ----
   let pl = null, sim = null, dist = null;
@@ -204,8 +287,8 @@ async function eggDropInit(ctx) {
     sim = createSim(pl, {
       surface: save.surface,
       gravityScale: tune('gravity_scale', 1),
-      angularDamping: tune('platform_damping', 0.55),
-      cwMass: tune('counterweight_mass', 0.95)
+      angularDamping: tune('platform_damping', 0.9),
+      cwMass: tune('counterweight_mass', 1.4)
     });
     sprites.egg = null;
     snapshot(prev); snapshot(cur);
@@ -224,11 +307,12 @@ async function eggDropInit(ctx) {
     attempt++;
     runSeed = (runSeed * 1103515245 + 12345 + attempt * 7919) >>> 0;
     dist = createDisturbance(runSeed, tune('disturbance_strength', 1));
-    run = { t: 0, bonus: 0, counts: { level: 0, rescue: 0, weathered: 0, light: 0 }, levelT: 0, critical: false, gustWatch: -1, winStart: 0, winClean: true, fellAt: 0, maxPhase: 0 };
+    run = { t: 0, bonus: 0, counts: { steady: 0, rescue: 0, weathered: 0, light: 0 }, steadyT: 0, fallSteps: 0, warned: false, critical: false, gustWatch: -1, winStart: 0, winClean: true, fellAt: 0, maxPhase: 0 };
     state = 'play';
     timeTrack.reset(); pointsTrack.reset();
     fx.lastPhase = 0; fx.floaters.length = 0;
     chips.style.opacity = '0'; chips.style.pointerEvents = 'none';
+    modeEl.classList.add('locked'); openTiltPanel(false);
     ctx.platform.start({ surface: save.surface });
     audio.music(0.2);
   }
@@ -242,11 +326,20 @@ async function eggDropInit(ctx) {
   }
 
   // ---- input: grab the carriage anywhere, drag horizontally ----
+  // The carriage moves DRAG_GAIN metres per metre of finger travel: about
+  // 0.4 m of carriage takes the platform to its stop, so 1:1 made a few
+  // pixels of finger tip the platform hard.
+  const DRAG_GAIN = 0.55;
   const drag = { id: null, startX: 0, startTarget: 0, lastX: 0 };
   ctx.listen(canvas, 'pointerdown', (e) => {
-    if (drag.id !== null || !sim) return;
+    if (drag.id !== null || !sim || tpOpen) return;
     if (state !== 'ready' && state !== 'play') return;
     audio.unlock();
+    if (mode === 'tilt') {
+      // in tilt mode a tap only starts the run; the phone steers
+      if (state === 'ready') { beginRun(); ctx.platform.interact({ type: 'start' }); }
+      return;
+    }
     drag.id = e.pointerId; drag.startX = e.clientX; drag.lastX = e.clientX;
     drag.startTarget = sim.cwPos();
     sim.target = drag.startTarget;
@@ -260,7 +353,7 @@ async function eggDropInit(ctx) {
   ctx.listen(canvas, 'pointermove', (e) => {
     if (e.pointerId !== drag.id || !sim) return;
     drag.lastX = e.clientX;
-    sim.target = Math.max(-GEOM.travel - 0.08, Math.min(GEOM.travel + 0.08, drag.startTarget + (e.clientX - drag.startX) / L.k));
+    sim.target = Math.max(-GEOM.travel - 0.08, Math.min(GEOM.travel + 0.08, drag.startTarget + DRAG_GAIN * (e.clientX - drag.startX) / L.k));
   });
   const endDrag = (e) => {
     if (e.pointerId !== drag.id) return;
@@ -289,7 +382,13 @@ async function eggDropInit(ctx) {
     // who is steering the carriage
     if (live && drag.id !== null) sim.dragging = true;
     else if (live && (keys.l || keys.r)) { sim.dragging = true; sim.target = Math.max(-GEOM.travel - 0.05, Math.min(GEOM.travel + 0.05, sim.target + ((keys.r ? 1 : 0) - (keys.l ? 1 : 0)) * 1.6 * H_STEP)); }
-    else if (state === 'play' && tiltOn && tilt) { sim.dragging = true; sim.target = Math.max(-1, Math.min(1, tilt.x)) * GEOM.travel; }
+    else if (live && mode === 'tilt') {
+      const u = tilt.update(H_STEP);
+      // tilting the phone in the ready state starts the run
+      if (state === 'ready' && Math.abs(u) > 0.06) beginRun();
+      if (state === 'play') { sim.dragging = true; sim.target = u * GEOM.travel; }
+      else sim.dragging = false;
+    }
     else sim.dragging = false;
 
     if (state === 'play') {
@@ -319,7 +418,10 @@ async function eggDropInit(ctx) {
       if (fx.creak > 1) { fx.creak = 0; audio.creak(Math.min(1, (Math.abs(a) - 0.12) / 0.19)); }
     }
 
-    if (state === 'play' && sim.eggFallen()) {
+    // a single odd contact frame can't end a run: the egg must stay off
+    // the deck and past its end for several consecutive steps
+    if (state === 'play') run.fallSteps = sim.eggFallen() ? run.fallSteps + 1 : 0;
+    if (state === 'play' && run.fallSteps >= 6) {
       state = 'falling'; fx.fallT = 0;
       run.fellAt = run.t;
       audio.fall(); audio.duck(0.6, 1200);
@@ -340,9 +442,9 @@ async function eggDropInit(ctx) {
 
   function scoreStep(l) {
     const a = Math.abs(sim.platform.getAngle());
-    // level: held within two degrees for four seconds
-    if (run.t > 3 && a < 0.035) { run.levelT += H_STEP; if (run.levelT >= 4) { run.levelT = 0; addBonus('level', 25, 'Level'); } }
-    else run.levelT = 0;
+    // steady: platform held within 1.5 degrees of level for five seconds
+    if (run.t > 3 && a < 0.026) { run.steadyT += H_STEP; if (run.steadyT >= 5) { run.steadyT = 0; addBonus('steady', 25, 'Steady'); } }
+    else run.steadyT = 0;
     // rescue: back to the middle from the brink
     if (Math.abs(l.x) > 1.5) run.critical = true;
     else if (run.critical && Math.abs(l.x) < 0.6) { run.critical = false; addBonus('rescue', 100, 'Rescued'); }
@@ -350,11 +452,11 @@ async function eggDropInit(ctx) {
     if (dist.gustJustEnded) run.gustWatch = run.t;
     if (run.gustWatch >= 0 && run.t - run.gustWatch > 2.5) { run.gustWatch = -1; addBonus('weathered', 60, 'Weathered'); }
     // light touch: ten seconds without slamming or over-reaching the carriage
-    if (Math.abs(sim.cwPos()) > 1.2) run.winClean = false;
+    if (Math.abs(sim.cwPos()) > 0.9) run.winClean = false;
     if (run.t - run.winStart >= 10) { if (run.winClean && run.t > 9) addBonus('light', 20, 'Light touch'); run.winStart = run.t; run.winClean = true; }
-    // phase changes
+    // difficulty phase: fixed survival-time thresholds, announced once each
     const ph = dist.phase;
-    if (ph !== fx.lastPhase) {
+    if (ph > fx.lastPhase) {
       fx.lastPhase = ph; fx.phaseFlash = 1;
       audio.music([0.2, 0.34, 0.5, 0.66][ph]);
       ctx.platform.milestone('phase_' + PHASES[ph].name.toLowerCase());
@@ -390,7 +492,7 @@ async function eggDropInit(ctx) {
     const msg = MESSAGES.find(m => tSec < m[0])[1];
     const c = run.counts;
     const parts = [];
-    if (c.level) parts.push('Level ×' + c.level);
+    if (c.steady) parts.push('Steady ×' + c.steady);
     if (c.rescue) parts.push('Rescued ×' + c.rescue);
     if (c.weathered) parts.push('Weathered ×' + c.weathered);
     if (c.light) parts.push('Light touch ×' + c.light);
@@ -406,6 +508,7 @@ async function eggDropInit(ctx) {
     requestFrameClass();
     ctx.input.activate(card.querySelector('.ed-again'), again);
     chips.style.opacity = '1'; chips.style.pointerEvents = '';
+    modeEl.classList.remove('locked');
     audio.music(0.14);
     if (isBest && prevBest) audio.sting('success');
     ctx.platform.fail({ reason: 'egg_fell', timeMs: ms, points: pts, surface: surf });
@@ -450,7 +553,11 @@ async function eggDropInit(ctx) {
   function again() {
     if (state !== 'results') return;
     hideCard();
+    // a fresh world, and no input carried over from the last run
     newSim(); fx.broken = null; run = null;
+    drag.id = null; keys.l = keys.r = false; tilt.reset();
+    fx.danger = 0; fx.slide = 0; fx.roll = 0; fx.air = 0;
+    modeEl.classList.remove('locked');
     state = 'ready';
     audio.silenceLayers();
     ctx.platform.interact({ type: 'replay' });
@@ -523,7 +630,7 @@ async function eggDropInit(ctx) {
       g.fillText('Egg Drop', cx, top + 44);
       g.fillStyle = PAL.umber;
       g.font = `italic 300 ${Math.round(Math.min(21, L.W * 0.055))}px 'Cormorant Garamond', Georgia, serif`;
-      g.fillText('Move the weight. Keep the egg alive.', cx, top + 70);
+      g.fillText(mode === 'tilt' ? 'Tilt your phone. Keep the egg alive.' : 'Move the weight. Keep the egg alive.', cx, top + 70);
     } else if (state !== 'results') {
       const t = run ? (state === 'play' ? run.t : run.fellAt) : 0;
       g.fillStyle = PAL.burgundy;
@@ -540,8 +647,8 @@ async function eggDropInit(ctx) {
     const ang = lerp(prev.ang, cur.ang, renderAlpha);
     g.fillStyle = PAL.brass; roundedRect(g, cx - lw / 2 - 4, ly - 4, lw + 8, lh + 8, (lh + 8) / 2); g.fill();
     g.strokeStyle = PAL.brass2; g.lineWidth = 1.5; g.stroke();
-    const tilt = Math.abs(ang) / 0.31;
-    g.fillStyle = tilt > 0.62 ? mixHex('#c9c48a', PAL.vermilion, Math.min(1, (tilt - 0.62) / 0.38) * 0.75) : '#c9c48a';
+    const tiltFrac = Math.abs(ang) / 0.31;
+    g.fillStyle = tiltFrac > 0.62 ? mixHex('#c9c48a', PAL.vermilion, Math.min(1, (tiltFrac - 0.62) / 0.38) * 0.75) : '#c9c48a';
     roundedRect(g, cx - lw / 2, ly, lw, lh, lh / 2); g.fill();
     g.strokeStyle = rgba(PAL.umber, 0.6); g.lineWidth = 1;
     for (const dx of [-11, 11]) { g.beginPath(); g.moveTo(cx + dx, ly + 2); g.lineTo(cx + dx, ly + lh - 2); g.stroke(); }
@@ -551,12 +658,21 @@ async function eggDropInit(ctx) {
     g.fillStyle = 'rgba(255,255,255,0.8)'; g.beginPath(); g.ellipse(bx - 3, ly + lh / 2 - 2, 3, 1.6, 0, 0, Math.PI * 2); g.fill();
     g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(cx - lw / 2 + 8, ly + 3, lw - 16, 2);
 
+    // phone tilt: a small live gauge under the control switch
+    if (mode === 'tilt' && (state === 'ready' || state === 'play')) {
+      const gw = 120, gx = cx - gw / 2, gy = L.modeTop - 20;
+      g.fillStyle = rgba(PAL.ivory, 0.82); roundedRect(g, gx, gy, gw, 12, 6); g.fill();
+      g.strokeStyle = rgba(PAL.brass2, 0.8); g.lineWidth = 1.2; g.stroke();
+      g.fillStyle = rgba(PAL.umber, 0.5); g.fillRect(gx + gw / 2 - 0.5, gy + 2, 1, 8);
+      g.fillStyle = tilt.receiving() ? PAL.burgundy : rgba(PAL.umber, 0.35);
+      g.beginPath(); g.arc(gx + gw / 2 + tilt.value * (gw / 2 - 7), gy + 6, 4.5, 0, Math.PI * 2); g.fill();
+    }
     // phase word, briefly
     if (fx.phaseFlash > 0 && state === 'play') {
       g.globalAlpha = Math.min(1, fx.phaseFlash * 1.6);
       g.fillStyle = PAL.burgundy;
       g.font = `italic 300 19px 'Cormorant Garamond', Georgia, serif`;
-      g.fillText(PHASES[fx.lastPhase].name, cx, ly + lh + 28);
+      g.fillText('Phase ' + (fx.lastPhase + 1) + ' · ' + PHASES[fx.lastPhase].name, cx, ly + lh + 28);
       g.globalAlpha = 1;
     }
     // instruction, then the personal best, under the level
@@ -570,7 +686,7 @@ async function eggDropInit(ctx) {
       g.globalAlpha = Math.max(0, Math.min(1, (9 - run.t) / 2));
       g.fillStyle = PAL.umber;
       g.font = `italic 300 ${Math.round(Math.min(21, L.W * 0.055))}px 'Cormorant Garamond', Georgia, serif`;
-      g.fillText('Move the weight. Keep the egg alive.', cx, ly + lh + 28);
+      g.fillText(mode === 'tilt' ? 'Tilt your phone. Keep the egg alive.' : 'Move the weight. Keep the egg alive.', cx, ly + lh + 28);
       g.globalAlpha = 1;
     }
     if (fx.toast) {
@@ -588,7 +704,7 @@ async function eggDropInit(ctx) {
 
   // a ghost finger shows the drag on the first visits
   function drawGhost(time) {
-    if (state !== 'ready' || (save.runs || 0) >= 3) return;
+    if (state !== 'ready' || mode === 'tilt' || (save.runs || 0) >= 3) return;
     const [cx, cy] = W2S(0, GEOM.railY - 0.75);
     const u = (time * 0.45) % 1, x = cx + Math.sin(u * Math.PI * 2) * L.k * 0.7;
     g.save();
@@ -637,7 +753,9 @@ async function eggDropInit(ctx) {
       const sx = Math.sign(el2.x) * (GEOM.half - 0.35);
       const [wx, wy] = toWorld(sx, GEOM.deckBottom);
       const [dx, dy] = W2S(wx, wy);
-      g.save(); g.globalAlpha = Math.min(0.85, fx.danger * 0.9);
+      // past the halfway mark of danger the pigment breathes, so it reads as a warning
+      const pulse = fx.danger > 0.5 ? 0.8 + 0.2 * Math.sin(clock * 9) : 1;
+      g.save(); g.globalAlpha = Math.min(0.9, fx.danger * 0.95) * pulse;
       blitFrame(g, sprites.danger, dx, dy, ang, L.k);
       g.restore();
     }
@@ -659,7 +777,17 @@ async function eggDropInit(ctx) {
     {
       const [wx, wy] = toWorld(cwx, GEOM.railY);
       const [sx, sy] = W2S(wx, wy);
-      const grabbing = drag.id !== null || (tiltOn && state === 'play');
+      const grabbing = drag.id !== null || (mode === 'tilt' && state === 'play');
+      // balance notch: where the carriage would exactly cancel the egg's
+      // weight about the pivot (m_cw * x = -m_egg * x_egg)
+      if (state === 'play' || state === 'ready') {
+        const xb = Math.max(-GEOM.travel, Math.min(GEOM.travel, -sim.egg.getMass() * el2.x / sim.cw.getMass()));
+        const [bx, by] = W2S(...toWorld(xb, GEOM.railY + 0.05));
+        g.save(); g.translate(bx, by); g.rotate(-ang);
+        g.fillStyle = rgba(PAL.ivory, 0.75); g.strokeStyle = rgba(PAL.umber, 0.55); g.lineWidth = 1;
+        g.beginPath(); g.moveTo(-5, -7); g.lineTo(5, -7); g.lineTo(0, 0); g.closePath(); g.fill(); g.stroke();
+        g.restore();
+      }
       fx.grabGlow += ((grabbing ? 1 : 0) - fx.grabGlow) * 0.2;
       if (fx.grabGlow > 0.02) {
         g.save(); g.globalAlpha = 0.28 * fx.grabGlow; g.fillStyle = PAL.brassHi;
@@ -733,6 +861,16 @@ async function eggDropInit(ctx) {
       danger = Math.max(0, Math.min(1, (reach - 1.15) / (GEOM.half - 1.15)));
     }
     fx.danger += (danger - fx.danger) * Math.min(1, dt * 6);
+    // one clear warning per approach to an edge
+    if (state === 'play' && run) {
+      if (!run.warned && danger > 0.6) { run.warned = true; if (caps.haptics) ctx.platform.haptic('warning'); }
+      else if (run.warned && danger < 0.25) run.warned = false;
+    }
+    // tilt: live panel, and a lost sensor during a run hands control back to touch
+    if (tpOpen && (fx.tpTick = (fx.tpTick || 0) + 1) % 3 === 0) refreshTiltPanel();
+    if (mode === 'tilt' && state === 'play' && !tilt.receiving()) {
+      setMode('touch'); toast('Tilt signal lost: drag the weight');
+    }
     const live = state === 'play' || state === 'ready';
     fx.slide += ((live ? Math.abs(sim.rail.getJointSpeed()) : 0) - fx.slide) * Math.min(1, dt * 14);
     const rollV = sim.eggOnDeck && live ? Math.abs(sim.egg.getAngularVelocity() - sim.platform.getAngularVelocity()) * GEOM.eggB : 0;
@@ -788,7 +926,7 @@ async function eggDropInit(ctx) {
   });
 
   if (typeof window !== 'undefined' && window.__EGG_DEV) {
-    window.__egg = { get sim() { return sim; }, get state() { return state; }, get run() { return run; }, get dist() { return dist; }, L, again, beginRun, selectSurface, fx, save, get drag() { return drag; } };
+    window.__egg = { tilt, tiltCurve, lateralFromOrientation, get mode() { return mode; }, get sim() { return sim; }, get state() { return state; }, get run() { return run; }, get dist() { return dist; }, L, again, beginRun, selectSurface, fx, save, get drag() { return drag; } };
   }
   await boot();
 }
