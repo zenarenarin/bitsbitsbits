@@ -50,10 +50,10 @@ const fs = require('fs'), path = require('path'), { execFileSync } = require('ch
   await rec(40);
   // 2. grab the weight, nudge it, then balance
   // a deliberate demonstration first: tip the platform, let the egg roll, reverse, recover
-  await page.evaluate(() => { const E = window.__egg; E.drag.id = 1; E.sim.target = 0; E.beginRun(); window.__clip.mode = 'swing'; window.__clip.goal = -0.22; });
-  await rec(30 * 2.2);                                   // weight left: platform tips left, egg rolls left
-  await page.evaluate(() => { window.__clip.goal = 0.3; });
-  await rec(30 * 2.0);                                   // weight right: egg carries on, slows, comes back
+  await page.evaluate(() => { const E = window.__egg; E.drag.id = 1; E.sim.target = 0; E.beginRun(); window.__clip.mode = 'swing'; window.__clip.goal = -0.1; });
+  await rec(30 * 1.8);                                   // weight left: platform tips left, egg rolls left
+  await page.evaluate(() => { window.__clip.goal = 0.16; });
+  await rec(30 * 1.6);                                   // weight right: egg carries on, slows, comes back
   await page.evaluate(() => { window.__clip.mode = 'play'; });
   await rec(30 * 6);
   // 3. no cut: keep recording the same run
