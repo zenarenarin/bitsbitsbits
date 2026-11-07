@@ -125,13 +125,12 @@ export const scene07 = {
 };
 
 export const scene08 = {
-  headline: ['Four games.', 'Four recipes.'],
+  headline: ['Three games.', 'Three recipes.'],
   placeholder: 'Gameplay footage to be added',
   games: [
     { id: 'flappy-bird', title: 'Flappy Bird', aspect: 9 / 16, recipe: [['tap', 'action'], ['gravity', 'world'], ['obstacles', 'limit'], ['survival', 'goal']] },
     { id: '2048', title: '2048', aspect: 9 / 16, recipe: [['swipe', 'action'], ['merge', 'world'], ['limited space', 'limit'], ['high score', 'goal']] },
-    { id: 'tetris', title: 'Tetris', aspect: 3 / 4, recipe: [['move · rotate', 'action'], ['falling pieces', 'world'], ['time pressure', 'limit'], ['spatial strategy', 'goal']] },
-    { id: 'candy-crush', title: 'Candy Crush', aspect: 9 / 16, recipe: [['swap', 'action'], ['cascade', 'world'], ['limited moves', 'limit'], ['match', 'goal']] },
+    { id: 'tetris', title: 'Tetris', aspect: 9 / 16, recipe: [['move · rotate', 'action'], ['falling pieces', 'world'], ['time pressure', 'limit'], ['spatial strategy', 'goal']] },
   ],
   legend: { action: 'action', world: 'world', limit: 'limit', goal: 'goal' },
 };

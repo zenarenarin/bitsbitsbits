@@ -6,20 +6,19 @@ import { VideoSlot } from '../../systems/video/VideoSlot.jsx';
 import { pluck, note, whoosh } from '../../systems/audio/sound.js';
 import './scene08.css';
 
-/* Four games, one at a time. The overview lays the four windows out like
+/* Three games, one at a time. The overview lays the windows out like
    specimens; each beat pulls one forward into its own colour world while its
    recipe is read out ingredient by ingredient, colour-coded with the grammar
    from slide 05. Only the game in focus plays. */
 
 const CAT = { action: '#ff6a55', world: '#34d6c2', limit: '#ffc94a', goal: '#a77cf2' };
-const WASH = ['#0b3d48', '#3b2414', '#191552', '#4a1038'];
+const WASH = ['#0b3d48', '#3b2414', '#191552'];
 
 // overview: four specimen windows of different sizes on a shared baseline
 const OVERVIEW = [
-  { x: 110, h: 470 },
-  { x: 400, h: 370 },
-  { x: 645, h: 520 },
-  { x: 1070, h: 420 },
+  { x: 150, h: 500 },
+  { x: 500, h: 400 },
+  { x: 790, h: 510 },
 ].map((o, i) => ({ ...o, y: 990 - o.h, w: o.h * C.games[i].aspect }));
 
 // focus: the video takes one side, alternating left and right
@@ -65,7 +64,7 @@ export default function Scene08({ beat, replayKey }) {
           if (i === gi) tl.to(w, { left: F.x, top: F.y, width: F.w, height: F.h, opacity: 1, duration: 1, ease: 'expo.inOut' }, 0.1);
           else {
             // the others step back into a quiet strip at the far edge
-            const slot = [0, 1, 2, 3].filter((k) => k !== gi).indexOf(i);
+            const slot = C.games.map((_, k) => k).filter((k) => k !== gi).indexOf(i);
             const sh = 150;
             const sw = sh * C.games[i].aspect;
             const sx = 1810 - sw;

@@ -30,7 +30,7 @@ export const SCENES = [
   { id: '05', Component: Scene05, beats: 2, group: 5, bg: '#efe6d2', light: true, enter: { type: 'band', origin: [960, 668] } },
   { id: '06', Component: Scene06, beats: 2, group: 6, bg: '#05242a', enter: { type: 'iris', origin: [1350, 560], accent: '#34d6c2' } },
   { id: '07', Component: Scene07, beats: 3, group: 7, bg: '#0b1236', enter: { type: 'slit', accent: '#ffc94a' } },
-  { id: '08', Component: Scene08, beats: 5, group: 8, bg: '#120c22', enter: { type: 'split' } },
+  { id: '08', Component: Scene08, beats: 4, group: 8, bg: '#120c22', enter: { type: 'split' } },
   { id: '09', Component: Scene09, beats: 3, group: 9, bg: '#08162e', enter: { type: 'dissolve' } },
   { id: '10', Component: Scene10, beats: 3, group: 10, quiet: true, bg: '#04161d', enter: { type: 'dissolve' } },
 ];

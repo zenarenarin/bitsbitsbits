@@ -73,7 +73,7 @@ quality with `?full`.
 | 05 | Games have a grammar | 2 |
 | 06 | A game needs limits (Three.js) | 2 |
 | 07 | Same rules. New problems. | 3 |
-| 08 | Four games. Four recipes. | 5 |
+| 08 | Three games. Three recipes. | 4 |
 | 09 | Flow (WebGL shader field) | 3 |
 | 10 | Connect. The. Dots. | 3 |
 
@@ -96,13 +96,13 @@ src/
   components/              the Bit, presenter chrome
 public/assets/
   brand/                   plethora-wordmark.png, plethora-symbol.png
-  games/                   flappy-bird.mp4, 2048.mp4, tetris.mp4, candy-crush.mp4
+  games/                   flappy-bird.mp4, 2048.mp4, tetris.mp4
 ```
 
 ## Asset slots
 
 - `public/assets/brand/plethora-wordmark.png`: supplied, used on the opening.
 - `public/assets/brand/plethora-symbol.png`: supplied, reserved for the closing signature.
-- `public/assets/games/flappy-bird.mp4`: supplied (cropped from the phone recording to 9:16).
-- `public/assets/games/2048.mp4`, `tetris.mp4`, `candy-crush.mp4`: **not supplied yet.**
-  Slide 08 shows a labelled placeholder at the correct aspect ratio until each file exists.
+- `public/assets/games/flappy-bird.mp4`, `tetris.mp4`: supplied (cropped from the phone recordings to 9:16).
+- `public/assets/games/2048.mp4`: **not supplied yet.** Slide 08 shows a labelled
+  placeholder at the correct aspect ratio until the file exists.
