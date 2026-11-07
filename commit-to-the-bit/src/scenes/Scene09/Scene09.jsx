@@ -4,45 +4,28 @@ import { scene09 as C } from '../../content/deck.js';
 import { useBeats } from '../../systems/navigation/useBeats.js';
 import { toStage } from '../../systems/stage/Stage.jsx';
 import { pluck, note, chord, miss } from '../../systems/audio/sound.js';
-import { createField } from './field.js';
-import { FoliageDefs, Plants } from '../../systems/environment/foliage.jsx';
+import { createValley } from './valley.js';
 import './scene09.css';
 
-// the valley around the pool: marsh reeds where it is too easy, thorns where it
-// is too hard, luminous ferns where the river runs
-const VALLEY = [
-  // boredom corner (low right): flat, grey-blue reeds at the very edge
-  { kind: 'blade', x: 1740, y: 988, s: 0.55, r: -4, h: 300, w: 40, bend: -0.08, fill: 'mist', zone: 'b' },
-  { kind: 'blade', x: 1772, y: 990, s: 0.55, r: 6, h: 340, w: 42, bend: 0.06, fill: 'mist', zone: 'b' },
-  { kind: 'tuft', x: 1715, y: 986, s: 1, fill: 'mist', seed: 5, zone: 'b' },
-  // frustration corner (top left): thorny, hot
-  { kind: 'twig', x: 900, y: 40, s: 1.1, r: 150, h: 340, bend: 0.5, buds: 7, fill: 'coral', stem: '#3a0f1e', seed: 3, zone: 'f' },
-  { kind: 'twig', x: 1060, y: -20, s: 0.9, r: 200, h: 300, bend: -0.4, buds: 6, fill: 'magenta', stem: '#3a0f1e', seed: 7, zone: 'f' },
-  // the river's banks: luminous ferns
-  { kind: 'frond', x: 930, y: 1080, s: 1, r: 30, h: 380, n: 12, leaf: 44, bend: 0.4, fill: 'sea', stem: '#0b4a50', zone: 'r' },
-  { kind: 'frond', x: 1930, y: 120, s: 0.8, r: -150, h: 340, n: 12, leaf: 40, bend: 0.4, fill: 'sea', stem: '#0b4a50', zone: 'r' },
-];
+/* A path through the valley. Challenge reshapes the world, skill reshapes
+   the traveller. Too easy: a wide grey road with nothing on it. Too hard:
+   brambles, wind and stalling. In balance: lanterns light up as the Bit
+   weaves past them. Two sliders, one living world. */
 
-/* Two sliders, one field. Wherever challenge and skill put the Bit, the world
-   around it answers: still and grey, hot and violent, or streaming. */
-
-const SIZE = 860;
-const FX = 960;
-const FY = 110;
-const WIDTH = 0.11;
 const PRESETS = [
-  { c: 0.2, s: 0.8 }, // boredom
-  { c: 0.86, s: 0.26 }, // frustration
-  { c: 0.62, s: 0.6 }, // flow
+  { c: 0.12, s: 0.86 }, // boredom
+  { c: 0.9, s: 0.18 }, // frustration
+  { c: 0.55, s: 0.55 }, // flow
 ];
-const COLORS = { boredom: '#8fa3c9', flow: '#34d6c2', frustration: '#ff6a55' };
+const WIDTH = 0.16;
+const COLORS = { boredom: '#a9b4cc', flow: '#34d6c2', frustration: '#ff6a55' };
 const stateOf = (c, s) => (c - s > WIDTH ? 'frustration' : s - c > WIDTH ? 'boredom' : 'flow');
 
-function Slider({ label, k, vals, onDrag }) {
+function Slider({ label, k, onDrag }) {
   const track = useRef(null);
   const down = (e) => {
-    const r = track.current.getBoundingClientRect();
     const st = document.getElementById('stage').getBoundingClientRect();
+    const r = track.current.getBoundingClientRect();
     const scale = st.width / 1920;
     const set = (ev) => {
       const p = toStage(ev);
@@ -72,13 +55,11 @@ function Slider({ label, k, vals, onDrag }) {
 
 export default function Scene09({ beat, replayKey }) {
   const scope = useRef(null);
-  const host = useRef(null);
-  const field = useRef(null);
-  const bit = useRef(null);
+  const canvas = useRef(null);
+  const valley = useRef(null);
   const vals = useRef({ ...PRESETS[0] });
   const [state, setState] = useState('boredom');
   const stateRef = useRef('boredom');
-  const sways = useRef([]);
 
   const apply = () => {
     const { c, s } = vals.current;
@@ -88,59 +69,44 @@ export default function Scene09({ beat, replayKey }) {
     root.querySelector('.s9-fill-c').style.width = `${c * 100}%`;
     root.querySelector('.s9-knob-s').style.left = `${s * 100}%`;
     root.querySelector('.s9-fill-s').style.width = `${s * 100}%`;
-    field.current && field.current.point(s, c);
+    if (valley.current) {
+      valley.current.S.c = c;
+      valley.current.S.s = s;
+    }
     const st = stateOf(c, s);
     if (st !== stateRef.current) {
       stateRef.current = st;
       setState(st);
-      if (st === 'flow') chord([0, 4, 7], 262, { vol: 0.1, spread: 0.05 });
-      else if (st === 'frustration') miss();
-      else pluck(note(0, 165), { vol: 0.1, decay: 0.8 });
     }
   };
 
   useEffect(() => {
-    field.current = createField(host.current, SIZE);
+    const V = createValley();
+    valley.current = V;
     apply();
-    // the Bit lives in the field and behaves like its state
+    const cv = canvas.current;
+    const k = Math.min(1.5, window.devicePixelRatio || 1);
+    cv.width = 1920 * k;
+    cv.height = 1080 * k;
+    const ctx = cv.getContext('2d');
     let raf;
-    const t0 = performance.now();
-    let bx = FX + vals.current.s * SIZE;
-    let by = FY + (1 - vals.current.c) * SIZE;
-    sways.current = [...scope.current.querySelectorAll('.s9-valley .sway')].map((el, i) =>
-      gsap.fromTo(el, { rotation: -2 }, { rotation: 2, duration: 1.6 + (i % 4) * 0.4, yoyo: true, repeat: -1, ease: 'sine.inOut', transformOrigin: '50% 100%' }),
-    );
-    const loop = (now) => {
-      const t = (now - t0) / 1000;
-      const { c, s } = vals.current;
-      const tx = FX + s * SIZE;
-      const ty = FY + (1 - c) * SIZE;
-      bx += (tx - bx) * 0.12;
-      by += (ty - by) * 0.12;
-      const st = stateRef.current;
-      let ox = 0;
-      let oy = 0;
-      let sc = 1;
-      if (st === 'frustration') {
-        ox = (Math.random() - 0.5) * 9;
-        oy = (Math.random() - 0.5) * 9;
-      } else if (st === 'boredom') {
-        oy = Math.sin(t * 0.8) * 4;
-        sc = 0.92;
-      } else {
-        ox = Math.cos(t * 2.4) * 6;
-        oy = Math.sin(t * 2.4) * 6;
-        sc = 1 + Math.sin(t * 4.8) * 0.08;
-      }
-      if (bit.current) gsap.set(bit.current, { x: bx + ox, y: by + oy, scale: sc });
-      raf = requestAnimationFrame(loop);
+    let last = performance.now();
+    let lastSound = 0;
+    const frame = (now) => {
+      const dt = Math.min(0.033, (now - last) / 1000);
+      last = now;
+      V.step(dt);
+      V.draw(ctx, k);
+      V.S.events.splice(0).forEach((e) => {
+        if (now - lastSound < 160) return;
+        lastSound = now;
+        if (e.type === 'light') pluck(note(5 + Math.floor(Math.random() * 4), 262), { vol: 0.09, decay: 0.6 });
+        else if (e.type === 'bump') miss();
+      });
+      raf = requestAnimationFrame(frame);
     };
-    raf = requestAnimationFrame(loop);
-    return () => {
-      cancelAnimationFrame(raf);
-      sways.current.forEach((t) => t.kill());
-      field.current.dispose();
-    };
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -150,55 +116,49 @@ export default function Scene09({ beat, replayKey }) {
     apply();
   };
 
-  // each beat walks the Bit to a state; the sliders stay live throughout
+  // each beat walks the world to a state; the sliders stay live throughout
   useEffect(() => {
     const target = PRESETS[Math.min(2, beat)];
     gsap.killTweensOf(vals.current);
-    gsap.to(vals.current, { ...target, duration: 1.4, ease: 'power3.inOut', onUpdate: apply });
+    gsap.to(vals.current, { ...target, duration: 1.6, ease: 'power3.inOut', onUpdate: apply });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [beat, replayKey]);
 
-  // the valley answers the state: still when bored, agitated when frustrated
-  useEffect(() => {
-    const speed = state === 'boredom' ? 0.15 : state === 'frustration' ? 4 : 1;
-    sways.current.forEach((t) => gsap.to(t, { timeScale: speed, duration: 0.8 }));
-    const root = scope.current;
-    root.dataset.state = state;
-  }, [state]);
-
-  // the state word swaps physically
   useEffect(() => {
     const w = scope.current.querySelector('.s9-state');
     gsap.fromTo(w, { yPercent: 40, opacity: 0 }, { yPercent: 0, opacity: 1, duration: 0.7, ease: 'back.out(2)' });
+    if (state === 'flow') chord([0, 4, 7], 262, { vol: 0.08, spread: 0.05 });
   }, [state]);
 
   useBeats(scope, beat, replayKey, {
     init: (q) => {
       gsap.set(q('.s9-head .split-line'), { yPercent: 110, opacity: 0 });
-      gsap.set(q('.s9-field'), { clipPath: 'circle(0% at 50% 50%)' });
-      gsap.set(q('.s9-slider, .s9-axis, .s9-region'), { opacity: 0, y: 16 });
-      gsap.set(q('.s9-arcade li, .s9-note'), { opacity: 0, scale: 0.7 });
+      gsap.set(q('.s9-world'), { opacity: 0, scale: 1.06, transformOrigin: '65% 45%' });
+      gsap.set(q('.s9-slider, .s9-statewrap'), { opacity: 0, y: 16 });
+      gsap.set(q('.s9-arcade'), { opacity: 0, y: 16 });
     },
     beats: [
       (tl, q) =>
         tl
-          .to(q('.s9-field'), { clipPath: 'circle(75% at 50% 50%)', duration: 1.4, ease: 'expo.inOut' }, 0)
+          .to(q('.s9-world'), { opacity: 1, scale: 1, duration: 1.6, ease: 'power3.out' }, 0)
           .to(q('.s9-head .split-line'), { yPercent: 0, opacity: 1, duration: 1, ease: 'expo.out', stagger: 0.1 }, 0.3)
-          .to(q('.s9-axis, .s9-region'), { opacity: 1, y: 0, duration: 0.6, stagger: 0.06 }, 1.0)
+          .to(q('.s9-statewrap'), { opacity: 1, y: 0, duration: 0.7 }, 0.9)
           .to(q('.s9-slider'), { opacity: 1, y: 0, duration: 0.6, stagger: 0.1 }, 1.1),
       () => {},
-      (tl, q) => tl.to(q('.s9-arcade li, .s9-note'), { opacity: 1, scale: 1, duration: 0.6, ease: 'back.out(2.5)', stagger: 0.18 }, 1.2),
+      (tl, q) => tl.to(q('.s9-arcade'), { opacity: 1, y: 0, duration: 0.8, ease: 'power3.out' }, 1.4),
     ],
   });
 
-  const pts = [0.24, 0.42, 0.6, 0.78];
   return (
     <div ref={scope} className="scene s9">
+      <canvas ref={canvas} className="s9-world" />
+      <div className="layer s9-shade" />
+
       <h2 className="s9-head">
         <span className="mask-line"><span className="split-line t-display">{C.headline[0]}</span></span>
-        <span className="mask-line"><span className="split-line t-quote">{C.headline[1]}</span></span>
+        <span className="mask-line"><span className="split-line t-sub">{C.headline[1]}</span></span>
         <span className="mask-line gap"><span className="split-line t-display">{C.headline[2]}</span></span>
-        <span className="mask-line"><span className="split-line t-quote">{C.headline[3]}</span></span>
+        <span className="mask-line"><span className="split-line t-sub">{C.headline[3]}</span></span>
       </h2>
 
       <div className="s9-statewrap">
@@ -212,43 +172,7 @@ export default function Scene09({ beat, replayKey }) {
         <Slider label={C.skill} k="s" onDrag={onDrag} />
       </div>
 
-      <div className="s9-field" style={{ left: FX - 60, top: FY - 60, width: SIZE + 120, height: SIZE + 120 }}>
-        <div ref={host} className="s9-canvas" style={{ position: 'absolute', left: 60, top: 60, width: SIZE, height: SIZE }} />
-      </div>
-      <svg className="fill s9-valley" viewBox="0 0 1920 1080">
-        <FoliageDefs prefix="s9" />
-        {VALLEY.map(({ zone, ...pl }, i) => (
-          <g key={i} className={`zone-${zone}`}>
-            <Plants list={[pl]} p="s9" />
-          </g>
-        ))}
-      </svg>
-      <span className="s9-axis s9-axis-y t-mono" style={{ left: FX - 46, top: FY + SIZE / 2 }}>
-        {C.challenge} →
-      </span>
-      <span className="s9-axis s9-axis-x t-mono" style={{ left: FX + SIZE / 2, top: FY + SIZE + 18 }}>
-        {C.skill} →
-      </span>
-      <span className="s9-region t-mono" style={{ left: FX + 34, top: FY + 30, color: COLORS.frustration }}>
-        {C.states.frustration}
-      </span>
-      <span className="s9-region t-mono" style={{ left: FX + SIZE - 34, top: FY + SIZE - 56, color: '#b9c6e2', transform: 'translateX(-100%)' }}>
-        {C.states.boredom}
-      </span>
-
-      <ul className="s9-arcade">
-        {C.arcade.map((g, i) => (
-          <li key={g} style={{ left: FX + pts[i] * SIZE, top: FY + (1 - pts[i]) * SIZE }}>
-            <i />
-            <span className="t-mono">{g}</span>
-          </li>
-        ))}
-      </ul>
-      <span className="s9-note t-quote" style={{ left: FX + SIZE - 40 - 500, top: FY + SIZE - 132 }}>
-        {C.arcadeNote}
-      </span>
-
-      <div ref={bit} className="bit s9-bit" style={{ width: 52, height: 52, margin: '-26px 0 0 -26px' }} />
+      <p className="s9-arcade">{C.arcadeLine}</p>
     </div>
   );
 }

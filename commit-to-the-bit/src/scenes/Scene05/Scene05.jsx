@@ -57,6 +57,7 @@ export default function Scene05({ beat, replayKey, lite }) {
       // feedback
       G.g.events.splice(0).forEach((e) => {
         if (e.type === 'collect') pluck(note(5 + (G.g.score % 5), 220), { vol: 0.14, decay: 0.4 });
+        else if (e.type === 'merge') pluck(note(2, 330), { vol: 0.1, decay: 0.3 });
         else if (e.type === 'hit') {
           miss();
           gsap.fromTo(scope.current.querySelector('.s5-dish'), { scale: 0.97 }, { scale: 1, duration: 0.6, ease: 'elastic.out(1.2, 0.3)' });
@@ -180,17 +181,23 @@ export default function Scene05({ beat, replayKey, lite }) {
             {si > 0 && <span className="s5-plus">+</span>}
             <div className={`s5-col s5-col-${slot.key}`}>
               <span className="t-mono s5-label">{slot.label}</span>
-              {slot.options.map((o) => (
-                <button
-                  key={o}
-                  className={`s5-word ${combo[slot.key] === o ? 'on' : ''}`}
-                  data-k={slot.key}
-                  data-v={o}
-                  onClick={(e) => (e.currentTarget.blur(), choose(slot.key, o, si))}
-                >
-                  {o}
-                </button>
-              ))}
+              {slot.options.map((o) =>
+                slot.live.includes(o) ? (
+                  <button
+                    key={o}
+                    className={`s5-word ${combo[slot.key] === o ? 'on' : ''}`}
+                    data-k={slot.key}
+                    data-v={o}
+                    onClick={(e) => (e.currentTarget.blur(), choose(slot.key, o, si))}
+                  >
+                    {o}
+                  </button>
+                ) : (
+                  <span key={o} className="s5-word ghost">
+                    {o}
+                  </span>
+                ),
+              )}
             </div>
           </div>
         ))}
@@ -202,11 +209,12 @@ export default function Scene05({ beat, replayKey, lite }) {
       </div>
 
       <div className="s5-score">
+        <span className="t-mono s5-fb">{C.feedback}</span>
         <span className="t-mono">{C.score}</span>
         <span ref={scoreEl} className="t-display s5-num">0</span>
         <span className="t-mono s5-lives" ref={livesEl} />
         <span className="t-mono s5-best">
-          {C.best} <b ref={bestEl}>0</b>
+          {combo.goal === 'avoid' || combo.goal === 'survive' ? C.bestTime : C.best} <b ref={bestEl}>0</b>
         </span>
       </div>
 

@@ -102,7 +102,8 @@ svg.fill {
 /* ---------- Typography system ---------- */
 .t-display {
   font-family: var(--f-display);
-  font-weight: 800;
+  font-weight: 850;
+  font-stretch: 84%;
   line-height: 0.86;
   letter-spacing: -0.012em;
   margin: 0;
@@ -117,7 +118,8 @@ svg.fill {
 
 .t-head {
   font-family: var(--f-display);
-  font-weight: 800;
+  font-weight: 850;
+  font-stretch: 84%;
   line-height: 0.9;
   letter-spacing: -0.005em;
   margin: 0;
@@ -134,19 +136,18 @@ svg.fill {
 
 .t-mono {
   font-family: var(--f-mono);
-  font-weight: 500;
+  font-weight: 400;
   font-size: 18px;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
 .t-quote {
-  font-family: var(--f-serif);
-  font-style: italic;
-  font-weight: 400;
-  font-variation-settings: 'SOFT' 100, 'WONK' 1;
-  line-height: 1.12;
-  letter-spacing: -0.01em;
+  font-family: var(--f-text);
+  font-style: normal;
+  font-weight: 500;
+  line-height: 1.16;
+  letter-spacing: -0.015em;
   margin: 0;
 }
 
@@ -425,46 +426,13 @@ svg.fill {
   font-size: 14px;
 }
 
-/* ---------- Original type system, kept for slides 01–03 ---------- */
-.s1,
-.s2,
-.c1,
-.s3 {
-  --f-display: 'Barlow Condensed', 'Arial Narrow', sans-serif;
-  --f-text: 'Space Grotesk', system-ui, sans-serif;
-}
-
+/* ---------- Slides 01–03 keep their uppercase headlines ---------- */
 :is(.s1, .s2, .c1, .s3) .t-display {
-  font-weight: 800;
   text-transform: uppercase;
-  line-height: 0.84;
-  letter-spacing: -0.005em;
+  line-height: 0.86;
+  letter-spacing: -0.01em;
 }
 
 :is(.s1, .s2, .c1, .s3) .t-head {
-  font-weight: 700;
   text-transform: uppercase;
-  line-height: 0.9;
-  letter-spacing: 0.005em;
-}
-
-:is(.s1, .s2, .c1, .s3) .t-body {
-  font-size: 30px;
-  line-height: 1.38;
-  letter-spacing: -0.005em;
-}
-
-:is(.s1, .s2, .c1, .s3) .t-mono {
-  font-size: 17px;
-  letter-spacing: 0.22em;
-}
-
-:is(.s1, .s2, .c1, .s3) .mask-line {
-  padding: 0.06em 0.04em 0.04em;
-  margin: -0.06em -0.04em -0.04em;
-}
-
-:is(.s1, .s2, .c1, .s3) .mask-word {
-  padding: 0.04em 0.02em 0.02em;
-  margin: -0.04em -0.02em -0.02em;
 }

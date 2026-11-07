@@ -1,69 +1,85 @@
 .s9 {
-  background: radial-gradient(ellipse 60% 70% at 70% 50%, #0f2142, #07101f 70%);
+  background: #07142e;
   color: var(--cream);
+}
+
+.s9-world {
+  position: absolute;
+  inset: 0;
+  width: 1920px;
+  height: 1080px;
+}
+
+/* a quiet left margin for the words, so the world can be full-bleed */
+.s9-shade {
+  background: linear-gradient(90deg, rgba(4, 10, 22, 0.82) 0%, rgba(4, 10, 22, 0.55) 30%, transparent 50%);
 }
 
 .s9-head {
   position: absolute;
   left: 110px;
-  top: 82px;
+  top: 86px;
   margin: 0;
-  font-weight: 400;
   display: flex;
   flex-direction: column;
+  z-index: 2;
 }
 
 .s9-head .t-display {
-  font-size: 112px;
-  line-height: 0.92;
+  font-size: 104px;
+  line-height: 0.95;
 }
 
-.s9-head .t-quote {
-  font-size: 66px;
-  line-height: 1.12;
-  color: rgba(245, 234, 211, 0.82);
+.s9-head .t-sub {
+  font-family: var(--f-text);
+  font-weight: 600;
+  font-size: 50px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: rgba(245, 234, 211, 0.86);
 }
 
 .s9-head .gap {
-  margin-top: 26px;
+  margin-top: 28px;
 }
 
 .s9-statewrap {
   position: absolute;
   left: 110px;
   top: 560px;
-  height: 190px;
+  height: 170px;
+  width: 800px;
   overflow: hidden;
-  width: 760px;
+  z-index: 2;
 }
 
 .s9-state {
-  font-size: 196px;
-  line-height: 0.95;
+  font-size: 150px;
+  line-height: 1;
   transition: color 0.5s;
 }
 
 .s9-sliders {
   position: absolute;
   left: 110px;
-  top: 790px;
+  top: 760px;
   display: flex;
   flex-direction: column;
-  gap: 34px;
-  width: 640px;
+  gap: 18px;
+  width: 620px;
+  z-index: 2;
 }
 
 .s9-slider {
   cursor: pointer;
   touch-action: none;
-  padding: 6px 0 22px;
-  margin-bottom: -16px;
+  padding: 8px 0 18px;
 }
 
 .s9-sl-label {
   display: block;
   font-size: 18px;
-  color: rgba(245, 234, 211, 0.7);
+  color: rgba(245, 234, 211, 0.8);
   margin-bottom: 16px;
 }
 
@@ -71,7 +87,7 @@
   position: relative;
   height: 6px;
   border-radius: 3px;
-  background: rgba(245, 234, 211, 0.18);
+  background: rgba(245, 234, 211, 0.22);
 }
 
 .s9-fill {
@@ -101,103 +117,14 @@
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
 }
 
-.s9-field {
-  position: absolute;
-  /* a pool in the valley, not a chart: the field dissolves at its edges */
-  -webkit-mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 58%, transparent 97%);
-  mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 58%, transparent 97%);
-}
-
-.s9-valley {
-  z-index: 3;
-  pointer-events: none;
-}
-
-.s9-valley .zone-b,
-.s9-valley .zone-f,
-.s9-valley .zone-r {
-  transition: opacity 0.8s;
-}
-
-.s9[data-state='boredom'] .zone-f,
-.s9[data-state='frustration'] .zone-b {
-  opacity: 0.45;
-}
-
-.s9[data-state='flow'] .zone-r {
-  filter: drop-shadow(0 0 18px rgba(52, 214, 194, 0.55));
-}
-
-.s9-canvas,
-.s9-canvas canvas {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-.s9-axis {
-  position: absolute;
-  font-size: 18px;
-  color: rgba(245, 234, 211, 0.6);
-  white-space: nowrap;
-}
-
-.s9-axis-y {
-  transform: translate(-50%, -50%) rotate(-90deg);
-}
-
-.s9-axis-x {
-  transform: translateX(-50%);
-}
-
-.s9-region {
-  position: absolute;
-  font-size: 18px;
-  z-index: 2;
-}
-
 .s9-arcade {
+  position: absolute;
+  left: 110px;
+  top: 978px;
+  width: 760px;
   margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.s9-arcade li {
-  position: absolute;
-  z-index: 3;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  transform-origin: 0 50%;
-}
-
-.s9-arcade i {
-  width: 12px;
-  height: 12px;
-  margin: -6px 0 0 -6px;
-  border-radius: 50%;
-  background: #fff6d6;
-  box-shadow: 0 0 0 5px rgba(255, 246, 214, 0.18);
-}
-
-.s9-arcade .t-mono {
-  font-size: 17px;
-  color: #fff6d6;
-  transform: translate(14px, 22px);
-  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
-  white-space: nowrap;
-}
-
-.s9-note {
-  position: absolute;
-  width: 500px;
-  text-align: right;
-  font-size: 34px;
-  color: #ffe7a0;
-  z-index: 3;
-  transform-origin: 100% 50%;
-}
-
-.s9-bit {
-  z-index: 4;
+  font-size: 24px;
+  line-height: 1.35;
+  color: rgba(245, 234, 211, 0.78);
+  z-index: 2;
 }

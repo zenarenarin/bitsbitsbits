@@ -44,8 +44,8 @@
   top: 440px;
   width: 560px;
   margin: 0;
-  font-family: var(--f-serif);
-  font-style: italic;
+  font-family: var(--f-text);
+  font-weight: 500;
   font-size: 40px;
   line-height: 1.18;
   color: rgba(245, 234, 211, 0.92);

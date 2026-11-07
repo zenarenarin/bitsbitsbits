@@ -28,10 +28,10 @@
   --paper: #fbf4e6;
 
   /* type */
-  --f-display: 'Big Shoulders Display', 'Arial Narrow', sans-serif;
-  --f-text: 'Instrument Sans', system-ui, sans-serif;
-  --f-mono: 'IBM Plex Mono', ui-monospace, monospace;
-  --f-serif: 'Fraunces', Georgia, serif;
+  --f-display: 'Archivo Variable', 'Archivo', 'Arial Narrow', sans-serif;
+  --f-text: 'DM Sans Variable', 'DM Sans', system-ui, sans-serif;
+  --f-mono: 'Space Mono', ui-monospace, monospace;
+  --f-serif: var(--f-text); /* no serif anywhere: kept as an alias */
 
   /* motion */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);

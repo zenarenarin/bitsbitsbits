@@ -13,7 +13,7 @@ export const scene01 = {
   kicker: 'Why do we play?',
   headline: 'Why play?',
   setup:
-    'In The Grasshopper (1978), the philosopher Bernard Suits imagines a utopia where every need is already met. What would anyone do all day?',
+    'Bernard Suits, The Grasshopper (1978). His question: what would people do all day in a perfect world where every need is met?',
   answer: 'His answer: games.',
   beats: ['Unnecessary obstacles.', 'Voluntary challenge.'],
   easyWay: 'The easy way',
@@ -21,15 +21,15 @@ export const scene01 = {
   quote: 'The voluntary attempt to overcome unnecessary obstacles.',
   quoteLead: 'Playing a game is',
   attribution: 'Bernard Suits',
-  source: 'The Grasshopper: Games, Life and Utopia, 1978',
+  source: 'The Grasshopper: Games, Life and Utopia (1978)',
   hint: 'Click the wall to raise the challenge',
 };
 
 export const scene02 = {
   index: '02',
-  kicker: 'Connecting dots',
+  kicker: 'Connecting the dots',
   words: ['Unrelated.', 'Until connected.'],
-  statement: ['Creativity is the power of connecting dots', 'that seem unconnected.'],
+  statement: ['Creativity is the power of connecting dots', 'that are yet seemingly unconnected.'],
   hint: 'Drag any object',
 };
 
@@ -61,10 +61,10 @@ export const challenge01 = {
 
 export const scene03 = {
   index: '03',
-  kicker: 'The joy of trying again',
-  headline: ["The reward isn't", 'only winning.'],
-  payoff: ["It's wanting", 'another attempt.'],
-  support: 'Feedback makes trying again meaningful.',
+  kicker: 'Why games feel good',
+  headline: ['Games make trying again', 'feel worthwhile.'],
+  // one word per beat: the three things the throw shows
+  stages: ['Anticipation.', 'Feedback.', 'Achievement.'],
   feedback: { short: 'Too short', long: 'Too far', hit: 'Landed' },
   attempt: 'Attempt',
   yourTurn: 'Your turn — pull back the seed and let go',
@@ -86,13 +86,16 @@ export const scene04 = {
 
 export const scene05 = {
   headline: ['Games have', 'a grammar.'],
+  // `live` words are wired into the mini-game; the rest complete the vocabulary
   slots: [
-    { key: 'action', label: 'Player does', options: ['tap', 'drag', 'hold', 'aim'] },
-    { key: 'world', label: 'World does', options: ['bounce', 'fall', 'move', 'spawn'] },
-    { key: 'goal', label: 'To win', options: ['avoid', 'collect', 'survive'] },
+    { key: 'action', label: 'Player actions', options: ['tap', 'drag', 'swipe', 'hold', 'rotate', 'draw', 'aim'], live: ['tap', 'drag', 'swipe', 'hold', 'aim'] },
+    { key: 'world', label: 'World behaviour', options: ['fall', 'bounce', 'move', 'collide', 'spawn', 'teleport', 'merge'], live: ['fall', 'bounce', 'move', 'collide', 'spawn', 'teleport', 'merge'] },
+    { key: 'goal', label: 'Objectives', options: ['collect', 'avoid', 'match', 'connect', 'survive', 'solve'], live: ['collect', 'avoid', 'match', 'survive'] },
   ],
   score: 'Score',
   best: 'Best',
+  bestTime: 'Best time',
+  feedback: 'Feedback',
   leaderboard: 'A leaderboard gives someone a reason to beat your score.',
   reset: 'Reset',
 };
@@ -100,16 +103,16 @@ export const scene05 = {
 export const scene06 = {
   open: 'Possibility.',
   headline: ['A game needs', 'limits.'],
-  support: 'An objective plus constraints turns possibility into play.',
+  support: 'A game takes possibilities and makes them playable through constraints and an objective.',
   constraints: [
-    { key: 'space', label: 'Space' },
     { key: 'time', label: 'Time' },
-    { key: 'goal', label: 'Objective' },
-    { key: 'enemies', label: 'Enemies' },
+    { key: 'space', label: 'Space' },
     { key: 'lives', label: 'Lives' },
+    { key: 'enemies', label: 'Enemies' },
     { key: 'level', label: 'Level design' },
     { key: 'info', label: 'Information' },
-    { key: 'resources', label: 'Resources' },
+    { key: 'resources', label: 'Limited resources' },
+    { key: 'goal', label: 'Objective' },
   ],
   clear: 'Clear',
 };
@@ -117,7 +120,7 @@ export const scene06 = {
 export const scene07 = {
   headline: ['Same rules.', 'New problems.'],
   stages: [
-    { n: '01', word: 'Generous.' },
+    { n: '01', word: '' },
     { n: '02', word: 'Faster. Tighter.' },
     { n: '03', word: 'Smarter.' },
   ],
@@ -130,13 +133,14 @@ export const scene08 = {
   games: [
     { id: 'flappy-bird', title: 'Flappy Bird', aspect: 9 / 16, recipe: [['tap', 'action'], ['gravity', 'world'], ['obstacles', 'limit'], ['survival', 'goal']] },
     { id: '2048', title: '2048', aspect: 9 / 16, recipe: [['swipe', 'action'], ['merge', 'world'], ['limited space', 'limit'], ['high score', 'goal']] },
-    { id: 'tetris', title: 'Tetris', aspect: 9 / 16, recipe: [['move · rotate', 'action'], ['falling pieces', 'world'], ['time pressure', 'limit'], ['spatial strategy', 'goal']] },
+    { id: 'tetris', title: 'Tetris', aspect: 9 / 16, recipe: [['move', 'action'], ['rotate', 'action'], ['spatial strategy', 'limit'], ['clear lines', 'goal']] },
   ],
-  legend: { action: 'action', world: 'world', limit: 'limit', goal: 'goal' },
+  legend: { action: 'action', world: 'world', limit: 'constraint', goal: 'goal' },
 };
 
 export const scene09 = {
   headline: ['Hard enough', 'to feel rewarding.', 'Easy enough', 'to try again.'],
+  arcadeLine: 'Pac-Man, Space Invaders, Tempest and Tetris raise the challenge as the player gets better.',
   states: { boredom: 'Boredom', flow: 'Flow', frustration: 'Frustration' },
   challenge: 'Challenge',
   skill: 'Skill',

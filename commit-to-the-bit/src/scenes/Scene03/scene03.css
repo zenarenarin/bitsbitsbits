@@ -46,10 +46,18 @@
 .s3-support {
   position: absolute;
   left: 128px;
-  top: 430px;
-  font-size: 46px;
-  color: rgba(245, 234, 211, 0.92);
+  top: 420px;
+  height: 120px;
+  width: 900px;
   z-index: 10;
+}
+
+.s3-stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-size: 96px;
+  color: #ffd27a;
 }
 
 .s3-bit {

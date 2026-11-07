@@ -274,8 +274,8 @@ export default function Scene03({ beat, replayKey, lite }) {
     init: (q) => {
       gsap.set(q('.s3-kicker'), { opacity: 0, y: 20 });
       gsap.set(q('.s3-h0 .split-unit .split-unit'), { yPercent: 110 });
-      gsap.set(q('.s3-h1 .split-unit .split-unit'), { yPercent: -160, opacity: 0 });
-      gsap.set(q('.s3-support, .s3-hint'), { opacity: 0, y: 24 });
+      gsap.set(q('.s3-stage'), { opacity: 0, yPercent: 60 });
+      gsap.set(q('.s3-hint'), { opacity: 0, y: 24 });
       gsap.set(q('.s3-moon'), { y: 60, opacity: 0 });
       gsap.set(q('.s3-land'), { y: 80, opacity: 0 });
       gsap.set(q('.plant'), { scale: 0, transformOrigin: '50% 100%' });
@@ -289,14 +289,19 @@ export default function Scene03({ beat, replayKey, lite }) {
           .to(q('.plant'), { scale: 1, duration: 1, ease: 'back.out(1.6)', stagger: { each: 0.04, from: 'random' } }, 0.4)
           .to(q('.s3-cup'), { scale: 1, duration: 0.9, ease: 'back.out(2.2)' }, 0.8)
           .to(q('.s3-kicker'), { opacity: 1, y: 0, duration: 0.7 }, 0.3)
-          .to(q('.s3-h0 .split-unit .split-unit'), { yPercent: 0, duration: 1, ease: 'expo.out', stagger: 0.02 }, 0.5),
-      (tl, q) => tl.to(q('.s3-support'), { opacity: 1, y: 0, duration: 0.9, ease: 'power3.out' }, 0.2),
-      (tl, q) => {
-        // IT'S WANTING ANOTHER ATTEMPT. — drops in, compresses, rebounds
-        tl.to(q('.s3-h0 .split-unit .split-unit'), { yPercent: 110, duration: 0.45, ease: 'power3.in', stagger: 0.012 }, 0)
-          .to(q('.s3-h1 .split-unit .split-unit'), { yPercent: 0, opacity: 1, duration: 0.9, ease: 'bounce.out', stagger: 0.025 }, 0.35)
-          .to(q('.s3-hint'), { opacity: 1, y: 0, duration: 0.8 }, 1.4);
-      },
+          .to(q('.s3-h0 .split-unit .split-unit'), { yPercent: 0, duration: 1, ease: 'expo.out', stagger: 0.02 }, 0.5)
+          .to(q('.s3-stage-0'), { opacity: 1, yPercent: 0, duration: 0.8, ease: 'back.out(2)' }, 1.2),
+      // each throw names what it shows: anticipation, then feedback, then achievement
+      (tl, q) =>
+        tl
+          .to(q('.s3-stage-0'), { opacity: 0, yPercent: -60, duration: 0.4, ease: 'power2.in' }, 0)
+          .to(q('.s3-stage-1'), { opacity: 1, yPercent: 0, duration: 0.8, ease: 'back.out(2)' }, 0.3),
+      (tl, q) =>
+        tl
+          .set(q('.s3-stage-0'), { opacity: 0 }, 0)
+          .to(q('.s3-stage-1'), { opacity: 0, yPercent: -60, duration: 0.4, ease: 'power2.in' }, 0)
+          .to(q('.s3-stage-2'), { opacity: 1, yPercent: 0, duration: 0.9, ease: 'bounce.out' }, 0.3)
+          .to(q('.s3-hint'), { opacity: 1, y: 0, duration: 0.8 }, 1.4),
     ],
   });
 
@@ -436,15 +441,14 @@ export default function Scene03({ beat, replayKey, lite }) {
             </span>
           ))}
         </h2>
-        <h2 className="t-display s3-h s3-h1">
-          {C.payoff.map((l, i) => (
-            <span key={i} className="split-line">
-              <Split text={l} />
-            </span>
-          ))}
-        </h2>
       </div>
-      <p className="t-quote s3-support">{C.support}</p>
+      <div className="s3-support">
+        {C.stages.map((w, i) => (
+          <span key={w} className={`t-display s3-stage s3-stage-${i}`}>
+            {w}
+          </span>
+        ))}
+      </div>
 
       <div className="s3-attempt t-mono">
         {C.attempt} <span>{String(Math.max(1, count + (st.current.busy ? 1 : 0))).padStart(2, '0')}</span>

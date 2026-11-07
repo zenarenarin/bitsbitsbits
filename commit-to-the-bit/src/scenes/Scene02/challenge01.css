@@ -86,8 +86,8 @@
 }
 
 .c1-ing-article {
-  font-family: var(--f-serif);
-  font-style: italic;
+  font-family: var(--f-text);
+  font-weight: 500;
   font-size: 34px;
   margin-top: 14px;
   min-height: 34px;
