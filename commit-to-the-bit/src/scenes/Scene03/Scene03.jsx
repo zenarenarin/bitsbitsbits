@@ -290,7 +290,7 @@ export default function Scene03({ beat, replayKey, lite }) {
       (tl, q) => tl.to(q('.s3-support'), { opacity: 1, y: 0, duration: 0.9, ease: 'power3.out' }, 0.2),
       (tl, q) => {
         // IT'S WANTING ANOTHER ATTEMPT. — drops in, compresses, rebounds
-        tl.to(q('.s3-h0 .split-unit .split-unit'), { yPercent: 110, duration: 0.45, ease: 'power3.in', stagger: 0.012 }, 0)
+        tl.to(q('.s3-h0 .split-unit .split-unit'), { yPercent: 110, opacity: 0, duration: 0.45, ease: 'power3.in', stagger: 0.012 }, 0)
           .to(q('.s3-h1 .split-unit .split-unit'), { yPercent: 0, opacity: 1, duration: 0.9, ease: 'bounce.out', stagger: 0.025 }, 0.35)
           .to(q('.s3-hint'), { opacity: 1, y: 0, duration: 0.8 }, 1.4);
       },

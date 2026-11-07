@@ -43,7 +43,8 @@
 }
 
 .s1-d0 {
-  font-size: 330px;
+  white-space: nowrap;
+  font-size: 300px;
   letter-spacing: -0.02em;
 }
 

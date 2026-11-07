@@ -146,7 +146,7 @@ export default function Scene01({ beat, replayKey, lite }) {
       },
       (tl, q, { instant }) => {
         // the open meadow gets a goal — and a rule
-        tl.to(q('.s1-d0 .split-unit .split-unit'), { yPercent: -110, duration: 0.5, ease: 'power3.in', stagger: 0.02 }, 0)
+        tl.to(q('.s1-d0 .split-unit .split-unit'), { yPercent: -110, opacity: 0, duration: 0.5, ease: 'power3.in', stagger: 0.02 }, 0)
           .to(q('.s1-body0'), { opacity: 0, y: -16, duration: 0.4 }, 0)
           .to(q('.s1-trail'), { opacity: 0, duration: 0.6 }, 0)
           .to(q('.s1-goal'), { scale: 1, duration: 0.8, ease: 'back.out(2.2)' }, 0.3)
@@ -160,7 +160,7 @@ export default function Scene01({ beat, replayKey, lite }) {
         if (!instant) [0, 1, 2].forEach((i) => tl.call(() => thump({ freq: 90 + i * 30, vol: 0.2 }), null, 1.05 + i * 0.14));
       },
       (tl, q) => {
-        tl.to(q('.s1-d1 .split-unit .split-unit'), { yPercent: -110, duration: 0.5, ease: 'power3.in', stagger: 0.015 }, 0)
+        tl.to(q('.s1-d1 .split-unit .split-unit'), { yPercent: -110, opacity: 0, duration: 0.5, ease: 'power3.in', stagger: 0.015 }, 0)
           .to(q('.s1-body1'), { opacity: 0, duration: 0.4 }, 0)
           .to(q('.s1-d2 .split-unit .split-unit'), { yPercent: 0, duration: 0.9, ease: 'expo.out', stagger: 0.025 }, 0.35)
           .to(q('.s1-quote'), { opacity: 1, y: 0, duration: 1, ease: 'power3.out' }, 0.7)
