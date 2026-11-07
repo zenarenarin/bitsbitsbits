@@ -104,5 +104,6 @@ public/assets/
 - `public/assets/brand/plethora-wordmark.png`: supplied, used on the opening.
 - `public/assets/brand/plethora-symbol.png`: supplied, reserved for the closing signature.
 - `public/assets/games/flappy-bird.mp4`, `tetris.mp4`: supplied (cropped from the phone recordings to 9:16).
-- `public/assets/games/2048.mp4`: **not supplied yet.** Slide 08 shows a labelled
-  placeholder at the correct aspect ratio until the file exists.
+- `public/assets/games/2048.mp4`: recorded for this deck from a from-scratch implementation of
+  2048 (the original game is MIT-licensed), played by a simple bot. Replace it with your own
+  recording any time; same file name, 9:16.
