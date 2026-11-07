@@ -50,8 +50,9 @@ export default function App() {
     // forward: use the destination's entrance; backward: replay the one we came through, mirrored
     const t = (direction > 0 ? to.enter : from.enter) || { type: 'iris' };
     const color = to.bg;
+    let zoom = null;
     if (t.zoom && direction > 0) {
-      gsap.to(host.current, { scale: 2.6, transformOrigin: `${(t.origin || [960, 600]).join('px ')}px`, duration: 0.95, ease: 'power3.in' });
+      zoom = gsap.to(host.current, { scale: 2.6, transformOrigin: `${(t.origin || [960, 600]).join('px ')}px`, duration: 0.95, ease: 'power3.in' });
     }
     await tr.current.run({
       ...t,
@@ -59,6 +60,7 @@ export default function App() {
       color,
       origin: t.origin || (t.zoom ? [960, 600] : [960, 540]),
       onCovered: () => {
+        if (zoom) zoom.kill(); // the zoom must never outlive the cover
         gsap.set(host.current, { clearProps: 'transform' });
         setDir(direction);
         setIndex(target);
