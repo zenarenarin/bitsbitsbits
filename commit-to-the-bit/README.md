@@ -20,7 +20,7 @@ npm run preview    # http://localhost:4173
 ```
 
 Then press **F** for fullscreen. After `npm install`, nothing at runtime needs
-the internet. Fonts are bundled from `@fontsource`, textures are generated in
+the internet. Fonts (Big Shoulders Display, Instrument Sans, Fraunces, IBM Plex Mono) are bundled from `@fontsource`, textures are generated in
 the browser, and audio is synthesised.
 
 ## Presenter controls
@@ -40,12 +40,18 @@ Nothing advances on its own. Each screen has a few beats, and every beat
 settles into a stable composition you can talk over. The URL hash (for example
 `#02.1`) records the current screen and beat, so a reload resumes in place.
 
-Pointer interactions:
+Per-screen interactions (all resettable):
 
-- **01**: click the wall to raise the challenge.
-- **02**: drag any object; its threads stretch with it.
-- **Challenge**: **T** start/pause, **S** new pair, **X** reset, **→** skip.
-- **03**: pull back the seed and let go.
+| Screen | Interaction |
+| --- | --- |
+| 01 | Click the wall to raise the challenge |
+| 02 | Drag any object; threads stretch with it |
+| Challenge | **T** start/pause · **S** new pair · **X** reset · **→** skip |
+| 03 | Pull back the seed and let go |
+| 05 | Click words to rebuild the sentence; play in the dish · **X** reset |
+| 06 | **1–8** or click to add/remove limits · **0** clear |
+| 07 | **J** / ↑ / click to jump · **1–3** jump to a stage |
+| 09 | Drag the Challenge and Skill sliders |
 
 ### Lite mode
 
@@ -56,14 +62,22 @@ quality with `?full`.
 
 ## Running order
 
-| # | Screen | Status |
+| # | Screen | Beats |
 | --- | --- | --- |
-| — | Opening: Plethora presents Commit to the Bit | Built |
-| 01 | Why play? (Bernard Suits) | Built |
-| 02 | Connecting dots | Built |
-| 02 · Challenge | Make the connection (45 s) | Built |
-| 03 | The joy of trying again | Built |
-| 04–10 | Chapter cards | Phases 3–5 |
+| — | Opening — Plethora presents Commit to the Bit | 1 |
+| 01 | Why play? (Bernard Suits) | 3 |
+| 02 | Connecting dots | 3 |
+| 02 · Challenge | Make the connection (45 s) | 1 |
+| 03 | The joy of trying again | 3 |
+| 04 | Two ways to build a game | 4 |
+| 05 | Games have a grammar | 2 |
+| 06 | A game needs limits (Three.js) | 2 |
+| 07 | Same rules. New problems. | 3 |
+| 08 | Four games. Four recipes. | 5 |
+| 09 | Flow (WebGL shader field) | 3 |
+| 10 | Connect. The. Dots. | 3 |
+
+The final screen holds; → does nothing more and the presenter chrome is hidden.
 
 ## Structure
 
@@ -89,5 +103,6 @@ public/assets/
 
 - `public/assets/brand/plethora-wordmark.png`: supplied, used on the opening.
 - `public/assets/brand/plethora-symbol.png`: supplied, reserved for the closing signature.
-- `public/assets/games/*.mp4`: **not supplied yet.** Slide 08 shows a labelled
-  placeholder at the correct aspect ratio until each file exists.
+- `public/assets/games/flappy-bird.mp4`: supplied (cropped from the phone recording to 9:16).
+- `public/assets/games/2048.mp4`, `tetris.mp4`, `candy-crush.mp4`: **not supplied yet.**
+  Slide 08 shows a labelled placeholder at the correct aspect ratio until each file exists.

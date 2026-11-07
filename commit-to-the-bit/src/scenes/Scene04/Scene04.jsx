@@ -204,7 +204,7 @@ export default function Scene04({ beat, replayKey }) {
         <g className="s4-disc">
           <g className="s4-disc-spin" clipPath="url(#s4-clip)">
             {[0, 1, 2].map((i) => (
-              <rect key={i} className="s4-slice" x={L.cx - 120} y={L.concept - 120 + i * 80} width="240" height="80" fill={['#ff8a6a', '#ff6a55', '#e4702a'][i]} />
+              <rect key={i} className="s4-slice" x={L.cx - 120} y={L.concept - 120 + i * 80} width="240" height="80" rx="0" fill={['#ff8a6a', '#ff6a55', '#e4702a'][i]} />
             ))}
           </g>
         </g>
