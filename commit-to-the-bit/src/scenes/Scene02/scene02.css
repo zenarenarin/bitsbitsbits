@@ -1,0 +1,75 @@
+.s2 {
+  background: #140f3d;
+}
+
+.s2-sky {
+  background:
+    radial-gradient(ellipse 70% 50% at 50% 38%, rgba(224, 64, 120, 0.55), transparent 70%),
+    linear-gradient(180deg, #1a0f4a 0%, #3b1468 30%, #7a2378 52%, #3a1660 72%, #120b30 100%);
+}
+
+.s2-glow {
+  background: radial-gradient(ellipse 40% 30% at 52% 42%, rgba(255, 140, 120, 0.35), transparent 70%);
+  opacity: 0.4;
+}
+
+.s2-kicker {
+  position: absolute;
+  left: 128px;
+  top: 104px;
+  color: rgba(245, 234, 211, 0.75);
+  z-index: 10;
+}
+
+.s2-kicker .idx {
+  color: var(--sun);
+  margin-right: 18px;
+}
+
+.s2-words {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 780px;
+  height: 240px;
+  text-align: center;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.s2-w {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  font-size: 200px;
+  color: var(--cream);
+  line-height: 0.9;
+}
+
+.s2-w1 {
+  color: #ffe7a0;
+}
+
+.s2-statement {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 18px;
+  font-size: 76px;
+  color: var(--cream);
+  margin: 0;
+}
+
+.s2-hint {
+  position: absolute;
+  left: 128px;
+  top: 140px;
+  font-size: 14px;
+  color: rgba(255, 201, 74, 0.8);
+  z-index: 10;
+}
+
+.s2-system {
+  z-index: 5;
+}

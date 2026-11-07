@@ -1,0 +1,38 @@
+/* Commit to the Bit — design tokens.
+   The palette comes from the illustration references, not from the Plethora brand. */
+:root {
+  /* inks & darks */
+  --ink: #03131a;
+  --night: #061d26;
+  --forest-900: #072a27;
+  --forest-700: #0d4239;
+  --forest-500: #16614f;
+  --midnight: #0a1636;
+  --indigo-900: #140f3d;
+  --indigo-700: #26217a;
+  --indigo-500: #3c3cb0;
+  --violet-500: #7a45d6;
+  --violet-300: #a77cf2;
+
+  /* water & light */
+  --teal-700: #0b5560;
+  --teal-500: #12808a;
+  --turquoise: #34d6c2;
+  --lumen: #8ff7dc;
+
+  /* warm accents */
+  --coral: #ff6a55;
+  --ember: #e4702a;
+  --sun: #ffc94a;
+  --cream: #f5ead3;
+  --paper: #fbf4e6;
+
+  /* type */
+  --f-display: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  --f-text: 'Space Grotesk', system-ui, sans-serif;
+  --f-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --f-serif: 'Fraunces', Georgia, serif;
+
+  /* motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}

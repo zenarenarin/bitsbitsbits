@@ -1,0 +1,402 @@
+@import './tokens.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #020a0d;
+  color: var(--cream);
+  font-family: var(--f-text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+body.hide-cursor {
+  cursor: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+/* ---------- Stage ---------- */
+.viewport {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #020a0d;
+}
+
+.stage {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+  transform-origin: 0 0;
+  background: var(--night);
+  isolation: isolate;
+}
+
+.scene-host {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+.scene {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.layer.interactive {
+  pointer-events: auto;
+}
+
+svg.fill {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* ---------- Grain / paint texture ---------- */
+.grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-size: 256px 256px;
+  mix-blend-mode: overlay;
+  opacity: 0.22;
+  z-index: 50;
+}
+
+.vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 75% 70% at 50% 48%, transparent 55%, rgba(2, 8, 12, 0.55) 100%);
+  z-index: 49;
+}
+
+/* ---------- Typography system ---------- */
+.t-display {
+  font-family: var(--f-display);
+  font-weight: 800;
+  text-transform: uppercase;
+  line-height: 0.84;
+  letter-spacing: -0.005em;
+  margin: 0;
+}
+
+.t-head {
+  font-family: var(--f-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  line-height: 0.9;
+  letter-spacing: 0.005em;
+  margin: 0;
+}
+
+.t-body {
+  font-family: var(--f-text);
+  font-weight: 400;
+  font-size: 30px;
+  line-height: 1.38;
+  letter-spacing: -0.005em;
+  margin: 0;
+}
+
+.t-mono {
+  font-family: var(--f-mono);
+  font-weight: 500;
+  font-size: 17px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.t-quote {
+  font-family: var(--f-serif);
+  font-style: italic;
+  font-weight: 400;
+  font-variation-settings: 'SOFT' 100, 'WONK' 1;
+  line-height: 1.12;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.split-unit {
+  display: inline-block;
+  will-change: transform;
+}
+
+.split-line {
+  display: block;
+}
+
+.mask-line {
+  display: block;
+  overflow: hidden;
+  padding: 0.06em 0.04em 0.04em;
+  margin: -0.06em -0.04em -0.04em;
+}
+
+/* ---------- Chrome (presenter UI) ---------- */
+.chrome {
+  position: absolute;
+  z-index: 80;
+  pointer-events: none;
+}
+
+.progress {
+  right: 56px;
+  bottom: 44px;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  color: rgba(245, 234, 211, 0.7);
+  transition: opacity 0.6s var(--ease-out);
+}
+
+.progress .label {
+  font-family: var(--f-mono);
+  font-size: 14px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+.progress .dots {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+}
+
+.progress .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.3;
+  transition: all 0.5s var(--ease-out);
+}
+
+.progress .dot.done {
+  opacity: 0.6;
+}
+
+.progress .dot.now {
+  opacity: 1;
+  width: 26px;
+  border-radius: 4px;
+  background: var(--coral);
+}
+
+.progress .beats {
+  display: flex;
+  gap: 4px;
+}
+
+.progress .beat {
+  width: 14px;
+  height: 2px;
+  background: currentColor;
+  opacity: 0.25;
+  transition: opacity 0.4s;
+}
+
+.progress .beat.on {
+  opacity: 0.95;
+}
+
+.progress.on-light {
+  color: rgba(6, 29, 38, 0.72);
+}
+
+.toast {
+  left: 50%;
+  top: 40px;
+  transform: translateX(-50%);
+  font-family: var(--f-mono);
+  font-size: 14px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: rgba(3, 19, 26, 0.72);
+  color: var(--cream);
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+
+.toast.show {
+  opacity: 1;
+}
+
+.help {
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(3, 12, 16, 0.78);
+  backdrop-filter: blur(6px);
+  pointer-events: auto;
+}
+
+.help .card {
+  font-family: var(--f-mono);
+  font-size: 18px;
+  letter-spacing: 0.08em;
+  line-height: 2.1;
+  color: var(--cream);
+  display: grid;
+  grid-template-columns: auto auto;
+  column-gap: 48px;
+}
+
+.help .card kbd {
+  font-family: var(--f-mono);
+  color: var(--sun);
+}
+
+/* ---------- Activity controls ---------- */
+.ctrl {
+  pointer-events: auto;
+  appearance: none;
+  border: 1.5px solid currentColor;
+  background: transparent;
+  border-radius: 999px;
+  padding: 14px 26px 13px;
+  font-family: var(--f-mono);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  transition: background 0.25s, color 0.25s, transform 0.25s var(--ease-out);
+}
+
+.ctrl:hover {
+  transform: translateY(-2px);
+}
+
+.ctrl.solid {
+  background: var(--cream);
+  color: var(--ink);
+  border-color: var(--cream);
+}
+
+.ctrl .key {
+  opacity: 0.55;
+  font-size: 13px;
+}
+
+.ctrl:focus-visible {
+  outline: 2px solid var(--sun);
+  outline-offset: 4px;
+}
+
+/* ---------- Lite mode ---------- */
+.lite .grain {
+  display: none;
+}
+
+/* ---------- The Bit ---------- */
+.bit {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffe0cc 0%, #ff8466 32%, #ef4a33 72%, #c8341f 100%);
+  box-shadow:
+    0 0 22px 4px rgba(255, 106, 85, 0.5),
+    0 0 80px 18px rgba(255, 140, 90, 0.22);
+  z-index: 12;
+  will-change: transform;
+}
+
+.bit::after {
+  /* a painted highlight so rotation reads */
+  content: '';
+  position: absolute;
+  left: 22%;
+  top: 18%;
+  width: 26%;
+  height: 16%;
+  border-radius: 50%;
+  background: rgba(255, 245, 230, 0.85);
+  transform: rotate(-30deg);
+}
+
+.on-light .bit,
+.bit.on-light {
+  box-shadow:
+    0 0 18px 2px rgba(255, 106, 85, 0.35),
+    0 10px 30px rgba(120, 40, 20, 0.18);
+}
+
+.mask-word {
+  overflow: hidden;
+  vertical-align: top;
+  padding: 0.04em 0.02em 0.02em;
+  margin: -0.04em -0.02em -0.02em;
+}
+
+/* ---------- Video slots ---------- */
+.video-slot {
+  position: relative;
+  border-radius: 22px;
+  overflow: hidden;
+  background: #03131a;
+}
+
+.video-slot video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.video-slot-ph {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  text-align: center;
+  padding: 24px;
+  color: rgba(245, 234, 211, 0.75);
+  border: 1.5px dashed rgba(245, 234, 211, 0.3);
+  border-radius: 22px;
+  background: repeating-linear-gradient(135deg, rgba(245, 234, 211, 0.03) 0 14px, transparent 14px 28px);
+}
+
+.video-slot-ph .file {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: none;
+  opacity: 0.55;
+}
