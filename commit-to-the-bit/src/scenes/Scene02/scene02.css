@@ -41,8 +41,8 @@
   position: absolute;
   left: 0;
   right: 0;
-  top: -30px;
-  font-size: 250px;
+  top: 0;
+  font-size: 200px;
   color: var(--cream);
   line-height: 0.9;
 }
@@ -55,8 +55,8 @@
   position: absolute;
   left: 0;
   right: 0;
-  top: 4px;
-  font-size: 84px;
+  top: 18px;
+  font-size: 76px;
   color: var(--cream);
   margin: 0;
 }

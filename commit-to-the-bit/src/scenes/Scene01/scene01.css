@@ -11,8 +11,8 @@
 
 .s1-type {
   position: absolute;
-  left: 120px;
-  top: 92px;
+  left: 128px;
+  top: 104px;
   width: 1100px;
   z-index: 10;
   pointer-events: none;
@@ -37,15 +37,13 @@
   position: absolute;
   left: 0;
   top: 0;
-  font-size: 236px;
+  font-size: 196px;
   color: #062a33;
   line-height: 0.86;
 }
 
 .s1-d0 {
-  white-space: nowrap;
-  font-size: 300px;
-  letter-spacing: -0.02em;
+  font-size: 240px;
 }
 
 .s1-body {
@@ -56,35 +54,34 @@
 }
 
 .s1-body0 {
-  top: 330px;
-  font-size: 36px;
-  max-width: 820px;
+  top: 310px;
+  font-size: 32px;
 }
 
 .s1-body1 {
-  top: 440px;
-  font-size: 64px;
+  top: 470px;
+  font-size: 58px;
   color: #a8301c;
 }
 
 .s1-q {
   position: absolute;
   margin: 0;
-  left: 1180px;
-  top: 120px;
-  width: 640px;
+  left: 1240px;
+  top: 140px;
+  width: 560px;
   z-index: 10;
 }
 
 .s1-quote {
-  font-size: 56px;
+  font-size: 50px;
   color: #062a33;
   margin: 0;
 }
 
 .s1-quote .lead {
   display: block;
-  font-size: 32px;
+  font-size: 30px;
   font-family: var(--f-text);
   font-style: normal;
   color: rgba(7, 42, 51, 0.6);
@@ -106,8 +103,8 @@
 
 .s1-attr .src {
   font-family: var(--f-text);
-  font-size: 24px;
-  color: rgba(7, 42, 51, 0.7);
+  font-size: 21px;
+  color: rgba(7, 42, 51, 0.62);
 }
 
 .s1-hint {
@@ -119,8 +116,8 @@
 .s1-lbl {
   position: absolute;
   text-align: center;
-  font-size: 20px;
-  color: rgba(7, 42, 51, 0.75);
+  font-size: 15px;
+  color: rgba(7, 42, 51, 0.7);
   z-index: 11;
 }
 

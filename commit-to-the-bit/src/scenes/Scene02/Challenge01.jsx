@@ -175,8 +175,14 @@ export default function Challenge01({ beat, replayKey, next }) {
   return (
     <div ref={scope} className={`scene c1 is-${state}`}>
       <div className="layer c1-bg" />
+      <svg className="fill" viewBox="0 0 1920 1080">
+        <FoliageDefs prefix="c1" />
+        <Plants list={EDGE} p="c1" />
+      </svg>
 
-      <div className="c1-kicker t-mono">{C.kicker}</div>
+      <div className="c1-kicker t-mono">
+        <span className="idx">{C.kicker}</span> · {C.duration} seconds
+      </div>
       <h2 className="t-display c1-title">{C.title}</h2>
 
       <div className="c1-float-wrap" style={{ left: A.x, top: A.y }}>

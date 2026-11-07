@@ -424,3 +424,47 @@ svg.fill {
 .video-slot.compact .video-slot-ph .ph-label {
   font-size: 14px;
 }
+
+/* ---------- Original type system, kept for slides 01–03 ---------- */
+.s1,
+.s2,
+.c1,
+.s3 {
+  --f-display: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  --f-text: 'Space Grotesk', system-ui, sans-serif;
+}
+
+:is(.s1, .s2, .c1, .s3) .t-display {
+  font-weight: 800;
+  text-transform: uppercase;
+  line-height: 0.84;
+  letter-spacing: -0.005em;
+}
+
+:is(.s1, .s2, .c1, .s3) .t-head {
+  font-weight: 700;
+  text-transform: uppercase;
+  line-height: 0.9;
+  letter-spacing: 0.005em;
+}
+
+:is(.s1, .s2, .c1, .s3) .t-body {
+  font-size: 30px;
+  line-height: 1.38;
+  letter-spacing: -0.005em;
+}
+
+:is(.s1, .s2, .c1, .s3) .t-mono {
+  font-size: 17px;
+  letter-spacing: 0.22em;
+}
+
+:is(.s1, .s2, .c1, .s3) .mask-line {
+  padding: 0.06em 0.04em 0.04em;
+  margin: -0.06em -0.04em -0.04em;
+}
+
+:is(.s1, .s2, .c1, .s3) .mask-word {
+  padding: 0.04em 0.02em 0.02em;
+  margin: -0.04em -0.02em -0.02em;
+}
