@@ -47,12 +47,12 @@ export function FoliageDefs({ prefix = 'g' }) {
   return (
     <defs>
       {Object.entries(GRADS).map(([k, [a, b]]) => (
-        <linearGradient key={k} id={`${prefix}-${k}`} x1="0" y1="1" x2="0.15" y2="0">
+        <linearGradient key={k} id={`${prefix}-f-${k}`} x1="0" y1="1" x2="0.15" y2="0">
           <stop offset="0" stopColor={a} />
           <stop offset="1" stopColor={b} />
         </linearGradient>
       ))}
-      <radialGradient id={`${prefix}-glow`}>
+      <radialGradient id={`${prefix}-f-glow`}>
         <stop offset="0" stopColor="#fff" stopOpacity="0.9" />
         <stop offset="0.35" stopColor="#fff" stopOpacity="0.35" />
         <stop offset="1" stopColor="#fff" stopOpacity="0" />
@@ -68,7 +68,7 @@ function mix(a, b, t) {
 }
 export const flat = (name, t = 0.5) => (name?.startsWith('#') ? name : mix(GRADS[name][0], GRADS[name][1], t));
 
-const fillOf = (p, name) => (name?.startsWith('#') ? name : `url(#${p}-${name})`);
+const fillOf = (p, name) => (name?.startsWith('#') ? name : `url(#${p}-f-${name})`);
 
 /* ---------- geometry helpers ---------- */
 
@@ -268,7 +268,7 @@ function GlowTree({ p, h = 900, fill = 'lumen', seed = 7, dust = 90 }) {
   }, [h, R, dust]);
   return (
     <>
-      <ellipse cx={0} cy={-h * 0.5} rx={h * 0.3} ry={h * 0.55} fill={`url(#${p}-glow)`} opacity="0.2" />
+      <ellipse cx={0} cy={-h * 0.5} rx={h * 0.3} ry={h * 0.55} fill={`url(#${p}-f-glow)`} opacity="0.2" />
       {parts.limbs.map((L, i) => (
         <path key={i} d={limb(L[0], L[1], L[2], L[3], L[4])} fill={fillOf(p, fill)} />
       ))}
@@ -322,7 +322,7 @@ function Lantern({ p, h = 260, bend = 0.5, fill = 'coral', stem = '#0b3a35' }) {
       <path d={limb([0, 0], [bend * h * -0.1, -h * 0.75], top, 6, 2.5, 14)} fill={stem} />
       <path d={`M${top[0]},${top[1]} Q${tip[0]},${top[1] - 10} ${tip[0]},${tip[1]}`} stroke={stem} strokeWidth="2.5" fill="none" />
       <ellipse cx={tip[0]} cy={tip[1] + h * 0.07} rx={h * 0.06} ry={h * 0.085} fill={fillOf(p, fill)} />
-      <circle cx={tip[0]} cy={tip[1] + h * 0.07} r={h * 0.2} fill={`url(#${p}-glow)`} opacity="0.25" />
+      <circle cx={tip[0]} cy={tip[1] + h * 0.07} r={h * 0.2} fill={`url(#${p}-f-glow)`} opacity="0.25" />
     </>
   );
 }

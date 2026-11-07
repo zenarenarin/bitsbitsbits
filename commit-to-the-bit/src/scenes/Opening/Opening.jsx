@@ -174,7 +174,7 @@ export default function Opening({ beat, replayKey, lite }) {
             <stop offset="0" stopColor="#0f4c4c" />
             <stop offset="1" stopColor="#2a8f86" />
           </linearGradient>
-          <linearGradient id="op-haze" x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id="op-hazeband" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" stopColor="#1d7983" stopOpacity="0" />
             <stop offset="0.6" stopColor="#1f8a8a" stopOpacity="0.45" />
             <stop offset="1" stopColor="#0d3f46" stopOpacity="0" />
@@ -190,7 +190,7 @@ export default function Opening({ beat, replayKey, lite }) {
         <g className="far" data-depth="0.3">
           <Plants list={FAR} p="op" />
         </g>
-        <rect x="0" y="600" width="1920" height="200" fill="url(#op-haze)" />
+        <rect x="0" y="600" width="1920" height="200" fill="url(#op-hazeband)" />
         <g className="op-ground">
           <path d="M-20,740 Q480,700 960,712 T1940,736 V1100 H-20Z" fill="url(#op-ground-g)" />
           <path d={limb(PATH.p0, PATH.p1, PATH.p2, 420, 10, 30)} fill="url(#op-path-g)" opacity="0.6" />
