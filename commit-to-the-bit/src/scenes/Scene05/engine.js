@@ -356,23 +356,21 @@ export function createGame({ size = 680 }) {
       ctx.translate(it.x, it.y);
       ctx.rotate(it.spin);
       if (it.kind === 'gem') {
-        ctx.fillStyle = '#ffc94a';
+        // a golden berry on a leaf
+        ctx.fillStyle = '#46b083';
         ctx.beginPath();
-        ctx.moveTo(0, -r);
-        ctx.lineTo(r * 0.8, 0);
-        ctx.lineTo(0, r);
-        ctx.lineTo(-r * 0.8, 0);
-        ctx.closePath();
+        ctx.ellipse(r * 0.55, -r * 0.75, r * 0.55, r * 0.22, -0.6, 0, TAU);
         ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        const bg = ctx.createRadialGradient(-r * 0.3, -r * 0.3, 1, 0, 0, r);
+        bg.addColorStop(0, '#fff3c4');
+        bg.addColorStop(1, '#e8a21a');
+        ctx.fillStyle = bg;
         ctx.beginPath();
-        ctx.moveTo(0, -r);
-        ctx.lineTo(r * 0.3, -r * 0.2);
-        ctx.lineTo(0, 0);
-        ctx.closePath();
+        ctx.arc(0, 0, r * 0.85, 0, TAU);
         ctx.fill();
       } else {
-        ctx.fillStyle = '#a77cf2';
+        // a thorn pod
+        ctx.fillStyle = '#7a45d6';
         ctx.beginPath();
         for (let i = 0; i < 12; i++) {
           const a = (i / 12) * TAU;

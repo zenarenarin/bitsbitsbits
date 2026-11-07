@@ -5,7 +5,23 @@ import { useBeats } from '../../systems/navigation/useBeats.js';
 import { toStage } from '../../systems/stage/Stage.jsx';
 import { pluck, note, chord, miss } from '../../systems/audio/sound.js';
 import { createField } from './field.js';
+import { FoliageDefs, Plants } from '../../systems/environment/foliage.jsx';
 import './scene09.css';
+
+// the valley around the pool: marsh reeds where it is too easy, thorns where it
+// is too hard, luminous ferns where the river runs
+const VALLEY = [
+  // boredom corner (low right): flat, grey-blue reeds at the very edge
+  { kind: 'blade', x: 1740, y: 988, s: 0.55, r: -4, h: 300, w: 40, bend: -0.08, fill: 'mist', zone: 'b' },
+  { kind: 'blade', x: 1772, y: 990, s: 0.55, r: 6, h: 340, w: 42, bend: 0.06, fill: 'mist', zone: 'b' },
+  { kind: 'tuft', x: 1715, y: 986, s: 1, fill: 'mist', seed: 5, zone: 'b' },
+  // frustration corner (top left): thorny, hot
+  { kind: 'twig', x: 900, y: 40, s: 1.1, r: 150, h: 340, bend: 0.5, buds: 7, fill: 'coral', stem: '#3a0f1e', seed: 3, zone: 'f' },
+  { kind: 'twig', x: 1060, y: -20, s: 0.9, r: 200, h: 300, bend: -0.4, buds: 6, fill: 'magenta', stem: '#3a0f1e', seed: 7, zone: 'f' },
+  // the river's banks: luminous ferns
+  { kind: 'frond', x: 930, y: 1080, s: 1, r: 30, h: 380, n: 12, leaf: 44, bend: 0.4, fill: 'sea', stem: '#0b4a50', zone: 'r' },
+  { kind: 'frond', x: 1930, y: 120, s: 0.8, r: -150, h: 340, n: 12, leaf: 40, bend: 0.4, fill: 'sea', stem: '#0b4a50', zone: 'r' },
+];
 
 /* Two sliders, one field. Wherever challenge and skill put the Bit, the world
    around it answers: still and grey, hot and violent, or streaming. */
@@ -62,6 +78,7 @@ export default function Scene09({ beat, replayKey }) {
   const vals = useRef({ ...PRESETS[0] });
   const [state, setState] = useState('boredom');
   const stateRef = useRef('boredom');
+  const sways = useRef([]);
 
   const apply = () => {
     const { c, s } = vals.current;
@@ -90,6 +107,9 @@ export default function Scene09({ beat, replayKey }) {
     const t0 = performance.now();
     let bx = FX + vals.current.s * SIZE;
     let by = FY + (1 - vals.current.c) * SIZE;
+    sways.current = [...scope.current.querySelectorAll('.s9-valley .sway')].map((el, i) =>
+      gsap.fromTo(el, { rotation: -2 }, { rotation: 2, duration: 1.6 + (i % 4) * 0.4, yoyo: true, repeat: -1, ease: 'sine.inOut', transformOrigin: '50% 100%' }),
+    );
     const loop = (now) => {
       const t = (now - t0) / 1000;
       const { c, s } = vals.current;
@@ -118,6 +138,7 @@ export default function Scene09({ beat, replayKey }) {
     raf = requestAnimationFrame(loop);
     return () => {
       cancelAnimationFrame(raf);
+      sways.current.forEach((t) => t.kill());
       field.current.dispose();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -137,6 +158,14 @@ export default function Scene09({ beat, replayKey }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [beat, replayKey]);
 
+  // the valley answers the state: still when bored, agitated when frustrated
+  useEffect(() => {
+    const speed = state === 'boredom' ? 0.15 : state === 'frustration' ? 4 : 1;
+    sways.current.forEach((t) => gsap.to(t, { timeScale: speed, duration: 0.8 }));
+    const root = scope.current;
+    root.dataset.state = state;
+  }, [state]);
+
   // the state word swaps physically
   useEffect(() => {
     const w = scope.current.querySelector('.s9-state');
@@ -145,7 +174,7 @@ export default function Scene09({ beat, replayKey }) {
 
   useBeats(scope, beat, replayKey, {
     init: (q) => {
-      gsap.set(q('.s9-head .split-line'), { yPercent: 110 });
+      gsap.set(q('.s9-head .split-line'), { yPercent: 110, opacity: 0 });
       gsap.set(q('.s9-field'), { clipPath: 'circle(0% at 50% 50%)' });
       gsap.set(q('.s9-slider, .s9-axis, .s9-region'), { opacity: 0, y: 16 });
       gsap.set(q('.s9-arcade li, .s9-note'), { opacity: 0, scale: 0.7 });
@@ -154,7 +183,7 @@ export default function Scene09({ beat, replayKey }) {
       (tl, q) =>
         tl
           .to(q('.s9-field'), { clipPath: 'circle(75% at 50% 50%)', duration: 1.4, ease: 'expo.inOut' }, 0)
-          .to(q('.s9-head .split-line'), { yPercent: 0, duration: 1, ease: 'expo.out', stagger: 0.1 }, 0.3)
+          .to(q('.s9-head .split-line'), { yPercent: 0, opacity: 1, duration: 1, ease: 'expo.out', stagger: 0.1 }, 0.3)
           .to(q('.s9-axis, .s9-region'), { opacity: 1, y: 0, duration: 0.6, stagger: 0.06 }, 1.0)
           .to(q('.s9-slider'), { opacity: 1, y: 0, duration: 0.6, stagger: 0.1 }, 1.1),
       () => {},
@@ -183,9 +212,17 @@ export default function Scene09({ beat, replayKey }) {
         <Slider label={C.skill} k="s" onDrag={onDrag} />
       </div>
 
-      <div className="s9-field" style={{ left: FX, top: FY, width: SIZE, height: SIZE }}>
-        <div ref={host} className="s9-canvas" />
+      <div className="s9-field" style={{ left: FX - 60, top: FY - 60, width: SIZE + 120, height: SIZE + 120 }}>
+        <div ref={host} className="s9-canvas" style={{ position: 'absolute', left: 60, top: 60, width: SIZE, height: SIZE }} />
       </div>
+      <svg className="fill s9-valley" viewBox="0 0 1920 1080">
+        <FoliageDefs prefix="s9" />
+        {VALLEY.map(({ zone, ...pl }, i) => (
+          <g key={i} className={`zone-${zone}`}>
+            <Plants list={[pl]} p="s9" />
+          </g>
+        ))}
+      </svg>
       <span className="s9-axis s9-axis-y t-mono" style={{ left: FX - 46, top: FY + SIZE / 2 }}>
         {C.challenge} →
       </span>

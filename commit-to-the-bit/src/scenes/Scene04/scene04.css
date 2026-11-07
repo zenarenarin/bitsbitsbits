@@ -14,16 +14,16 @@
 .s4-half-l {
   left: 0;
   background:
-    repeating-linear-gradient(180deg, transparent 0 59px, rgba(245, 234, 211, 0.035) 59px 60px),
-    linear-gradient(180deg, #0b1638 0%, #101d4a 100%);
+    radial-gradient(ellipse 60% 40% at 37% 32%, rgba(95, 214, 168, 0.18), transparent 70%),
+    linear-gradient(180deg, #0a1236 0%, #14215a 60%, #0b1638 100%);
 }
 
 /* bottom up: an emergent field of points */
 .s4-half-r {
   left: 960px;
   background:
-    radial-gradient(circle, rgba(52, 214, 194, 0.16) 1.5px, transparent 1.8px) 0 0 / 36px 36px,
-    linear-gradient(0deg, #0a2b36 0%, #0c2232 100%);
+    radial-gradient(ellipse 70% 35% at 50% 100%, rgba(52, 214, 194, 0.22), transparent 70%),
+    linear-gradient(180deg, #071c26 0%, #0a2b36 70%, #0d3a3e 100%);
 }
 
 .s4-head {

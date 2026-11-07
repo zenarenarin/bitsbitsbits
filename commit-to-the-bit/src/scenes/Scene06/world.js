@@ -6,7 +6,7 @@ import gsap from 'gsap';
    appears, chasers arrive, walls lift out of the ground, fog closes in,
    energy drains. The agent's behaviour responds to whatever is switched on. */
 
-const OPEN_R = 58;
+const OPEN_R = 40;
 const BOUND_R = 16;
 const ROUND = 20; // seconds on the clock
 
@@ -41,9 +41,25 @@ export function createWorld(host, { onEvent = () => {} } = {}) {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   host.appendChild(renderer.domElement);
 
-  const BG = new THREE.Color('#0b3a40');
+  const BG = new THREE.Color('#2f7a80');
   const scene = new THREE.Scene();
   scene.background = BG.clone();
+  // painted dusk sky behind everything (fog never touches it)
+  const skyC = document.createElement('canvas');
+  skyC.width = 4;
+  skyC.height = 256;
+  const sx = skyC.getContext('2d');
+  const sg = sx.createLinearGradient(0, 0, 0, 256);
+  sg.addColorStop(0, '#0a1236');
+  sg.addColorStop(0.45, '#1b2a6b');
+  sg.addColorStop(0.7, '#2c6a86');
+  sg.addColorStop(0.84, '#4a9a94');
+  sg.addColorStop(1, '#2f7a80');
+  sx.fillStyle = sg;
+  sx.fillRect(0, 0, 4, 256);
+  const skyTex = new THREE.CanvasTexture(skyC);
+  skyTex.colorSpace = THREE.SRGBColorSpace;
+  scene.background = skyTex;
   scene.fog = new THREE.Fog(BG.clone(), 40, 150);
 
   const camera = new THREE.PerspectiveCamera(36, 1920 / 1080, 0.5, 400);
@@ -58,32 +74,85 @@ export function createWorld(host, { onEvent = () => {} } = {}) {
   scene.add(lamp);
 
   // ground
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ color: '#0f4a4f', roughness: 0.95 }));
-  ground.rotation.x = -Math.PI / 2;
+  const gGeo = new THREE.PlaneGeometry(400, 400, 140, 140);
+  gGeo.rotateX(-Math.PI / 2);
+  const gp = gGeo.attributes.position;
+  const gcol = [];
+  const cA = new THREE.Color('#0e4a3f');
+  const cB = new THREE.Color('#1d7a5e');
+  const cC = new THREE.Color('#2a6f7a');
+  const tmpC = new THREE.Color();
+  for (let i = 0; i < gp.count; i++) {
+    const x = gp.getX(i);
+    const z = gp.getZ(i);
+    const r = Math.hypot(x, z);
+    const n = Math.sin(x * 0.11) * Math.cos(z * 0.09) + Math.sin((x + z) * 0.05) * 0.8;
+    const rise = Math.max(0, r - (OPEN_R + 6)) / 30;
+    gp.setY(i, rise * rise * 6 + n * (0.25 + rise * 2.2));
+    tmpC.copy(cA).lerp(cB, 0.5 + 0.5 * Math.sin(x * 0.07 + z * 0.05)).lerp(cC, Math.min(1, rise * 0.5));
+    gcol.push(tmpC.r, tmpC.g, tmpC.b);
+  }
+  gGeo.setAttribute('color', new THREE.Float32BufferAttribute(gcol, 3));
+  gGeo.computeVertexNormals();
+  const ground = new THREE.Mesh(gGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true }));
   scene.add(ground);
-  const grid = new THREE.GridHelper(400, 100, '#7fe8d6', '#7fe8d6');
-  grid.material.transparent = true;
-  grid.material.opacity = 0.16;
-  grid.position.y = 0.01;
-  scene.add(grid);
 
-  // distant landforms: the open world goes on
+  // the forest that rings the clearing — the open world goes on beyond it
   const land = new THREE.Group();
-  const landMat = new THREE.MeshStandardMaterial({ color: '#126067', roughness: 1, flatShading: true });
-  const spireMat = new THREE.MeshStandardMaterial({ color: '#1b7c7a', roughness: 0.9, flatShading: true });
-  for (let i = 0; i < 22; i++) {
-    const a = (i / 22) * Math.PI * 2 + Math.sin(i * 7) * 0.2;
-    const r = 70 + ((i * 37) % 60);
-    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(6 + (i % 5) * 3, 0), landMat);
-    m.scale.y = 0.45 + (i % 3) * 0.2;
-    m.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
-    m.rotation.y = i;
-    land.add(m);
-    if (i % 3 === 0) {
-      const s = new THREE.Mesh(new THREE.ConeGeometry(1.6, 14 + (i % 4) * 5, 5), spireMat);
-      s.position.set(Math.cos(a + 0.1) * (r - 10), 6, Math.sin(a + 0.1) * (r - 10));
-      land.add(s);
+  const M = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.85, flatShading: true, ...extra });
+  const coneMats = [M('#145a5c'), M('#1b3f7a'), M('#0f4a4f')];
+  const stemMat = M('#0b3a35');
+  const capMats = [M('#2a6f9a'), M('#3c8f8a')];
+  const capsMats = [M('#5a3aa8'), M('#7a45d6')];
+  const budMat = new THREE.MeshStandardMaterial({ color: '#ffb36a', emissive: '#ff7a3a', emissiveIntensity: 1.2 });
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  for (let i = 0; i < 90; i++) {
+    const a = (i / 90) * Math.PI * 2 + rnd(-0.03, 0.03);
+    const r = OPEN_R + 10 + Math.pow(Math.random(), 0.7) * 70;
+    const x = Math.cos(a) * r;
+    const z = Math.sin(a) * r;
+    const k = i % 6;
+    const base = Math.max(0, r - (OPEN_R + 6)) / 30;
+    const y0 = base * base * 6;
+    if (k < 3) {
+      const h = rnd(9, 22);
+      const m = new THREE.Mesh(new THREE.ConeGeometry(rnd(2.2, 4), h, 6), coneMats[i % 3]);
+      m.position.set(x, y0 + h / 2 - 0.5, z);
+      land.add(m);
+    } else if (k === 3) {
+      // mushroom shelves
+      const h = rnd(6, 12);
+      const st = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.6, h, 6), stemMat);
+      st.position.set(x, y0 + h / 2, z);
+      land.add(st);
+      for (let j = 0; j < 3; j++) {
+        const cap = new THREE.Mesh(new THREE.CylinderGeometry(3.4 - j * 0.8, 3.4 - j * 0.8, 0.5, 18), capMats[j % 2]);
+        cap.position.set(x, y0 + h * (0.45 + j * 0.27), z);
+        land.add(cap);
+      }
+    } else if (k === 4) {
+      const h = rnd(5, 10);
+      const c = new THREE.Mesh(new THREE.CapsuleGeometry(0.9, h, 4, 10), capsMats[i % 2]);
+      c.position.set(x, y0 + h / 2 + 0.9, z);
+      land.add(c);
+    } else {
+      // a lantern plant: curved stem, glowing bud
+      const h = rnd(3, 6);
+      const st = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, h, 5), stemMat);
+      st.position.set(x, y0 + h / 2, z);
+      const bud = new THREE.Mesh(new THREE.SphereGeometry(0.55, 12, 10), budMat);
+      bud.position.set(x + 0.4, y0 + h, z);
+      land.add(st, bud);
     }
+  }
+  // small glow-flowers scattered through the clearing (they don't block anything)
+  const petalMat = new THREE.MeshStandardMaterial({ color: '#8ff7dc', emissive: '#34d6c2', emissiveIntensity: 0.6 });
+  for (let i = 0; i < 60; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = 6 + Math.random() * (OPEN_R + 4);
+    const f = new THREE.Mesh(new THREE.SphereGeometry(rnd(0.15, 0.3), 8, 6), i % 3 ? petalMat : budMat);
+    f.position.set(Math.cos(a) * r, 0.25, Math.sin(a) * r);
+    land.add(f);
   }
   scene.add(land);
 
@@ -116,11 +185,13 @@ export function createWorld(host, { onEvent = () => {} } = {}) {
   /* ---------- constraint objects ---------- */
   // SPACE: a fence of posts
   const fence = new THREE.Group();
-  const postMat = new THREE.MeshStandardMaterial({ color: '#f5ead3', roughness: 0.6 });
+  const reedMats = [new THREE.MeshStandardMaterial({ color: '#7a45d6', roughness: 0.6, flatShading: true }), new THREE.MeshStandardMaterial({ color: '#34d6c2', roughness: 0.6, flatShading: true })];
   for (let i = 0; i < 72; i++) {
     const a = (i / 72) * Math.PI * 2;
-    const p = new THREE.Mesh(new THREE.BoxGeometry(0.5, 2.6, 0.5), postMat);
-    p.position.set(Math.cos(a) * BOUND_R, 1.3, Math.sin(a) * BOUND_R);
+    const hh = 2.4 + ((i * 37) % 10) / 4;
+    const p = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, hh, 3, 6), reedMats[i % 2]);
+    p.geometry.translate(0, hh / 2 + 0.28, 0);
+    p.position.set(Math.cos(a) * BOUND_R, 0, Math.sin(a) * BOUND_R);
     p.scale.y = 0.001;
     p.visible = false;
     fence.add(p);
@@ -141,7 +212,17 @@ export function createWorld(host, { onEvent = () => {} } = {}) {
   const pad = new THREE.Mesh(new THREE.TorusGeometry(1.8, 0.22, 10, 48), new THREE.MeshStandardMaterial({ color: '#ffc94a', emissive: '#ffb020', emissiveIntensity: 0.8 }));
   pad.rotation.x = Math.PI / 2;
   pad.position.y = 0.3;
-  const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.8), new THREE.MeshStandardMaterial({ color: '#fff1c4', emissive: '#ffc94a', emissiveIntensity: 1 }));
+  const core = new THREE.Group();
+  const petal = new THREE.MeshStandardMaterial({ color: '#ffd27a', emissive: '#ffb020', emissiveIntensity: 0.9 });
+  for (let i = 0; i < 6; i++) {
+    const pe = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 8), petal);
+    pe.scale.set(1, 0.35, 0.55);
+    const a = (i / 6) * Math.PI * 2;
+    pe.position.set(Math.cos(a) * 0.6, 0, Math.sin(a) * 0.6);
+    pe.rotation.y = -a;
+    core.add(pe);
+  }
+  core.add(new THREE.Mesh(new THREE.SphereGeometry(0.35, 12, 10), new THREE.MeshStandardMaterial({ color: '#fff1c4', emissive: '#ffc94a', emissiveIntensity: 1.4 })));
   core.position.y = 2.2;
   beacon.add(beam, pad, core);
   beacon.scale.setScalar(0.001);
@@ -174,7 +255,7 @@ export function createWorld(host, { onEvent = () => {} } = {}) {
 
   // LEVEL DESIGN: walls rise out of the floor
   const blocks = BLOCKS.map(([x, z, w, d], i) => {
-    const b = new THREE.Mesh(new THREE.BoxGeometry(w, 3, d), new THREE.MeshStandardMaterial({ color: i % 2 ? '#2a8f86' : '#1f6f6c', roughness: 0.7 }));
+    const b = new THREE.Mesh(new THREE.BoxGeometry(w, 3, d), new THREE.MeshStandardMaterial({ color: i % 2 ? '#1d7a5e' : '#165f4c', roughness: 0.9, flatShading: true }));
     b.position.set(x, -1.6, z);
     b.visible = false;
     scene.add(b);
@@ -188,7 +269,7 @@ export function createWorld(host, { onEvent = () => {} } = {}) {
   scene.add(energyRing);
   const cells = [];
   for (let i = 0; i < 5; i++) {
-    const c = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), new THREE.MeshStandardMaterial({ color: '#ffe7a0', emissive: '#ffc94a', emissiveIntensity: 0.7 }));
+    const c = new THREE.Mesh(new THREE.SphereGeometry(0.5, 14, 10), new THREE.MeshStandardMaterial({ color: '#ffe7a0', emissive: '#ff9a3a', emissiveIntensity: 0.8 }));
     c.scale.setScalar(0.001);
     c.visible = false;
     scene.add(c);
@@ -532,8 +613,7 @@ export function createWorld(host, { onEvent = () => {} } = {}) {
     // atmosphere: information hides the world
     scene.fog.near = S.fog.near;
     scene.fog.far = S.fog.far;
-    tmp.set('#0b3a40').lerp(new THREE.Color('#03161a'), S.dark);
-    scene.background.copy(tmp);
+    tmp.set('#2f7a80').lerp(new THREE.Color('#03161a'), S.dark);
     scene.fog.color.copy(tmp);
     hemi.intensity = 1.1 - S.dark * 0.75;
     sun.intensity = 1.6 - S.dark * 1.3;

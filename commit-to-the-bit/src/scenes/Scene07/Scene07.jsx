@@ -73,7 +73,7 @@ export default function Scene07({ beat, replayKey }) {
 
   useBeats(scope, beat, replayKey, {
     init: (q) => {
-      gsap.set(q('.s7-head .split-line'), { yPercent: 110 });
+      gsap.set(q('.s7-head .split-line'), { yPercent: 110, opacity: 0 });
       gsap.set(q('.s7-course'), { clipPath: 'inset(50% 0 50% 0)' });
       gsap.set(q('.s7-word'), { opacity: 0 });
       gsap.set(q('.s7-stages'), { opacity: 0, y: 20 });
@@ -83,7 +83,7 @@ export default function Scene07({ beat, replayKey }) {
       (tl, q) =>
         tl
           .to(q('.s7-course'), { clipPath: 'inset(0% 0 0% 0)', duration: 1.1, ease: 'expo.inOut' }, 0)
-          .to(q('.s7-head .split-line'), { yPercent: 0, duration: 1, ease: 'expo.out', stagger: 0.12 }, 0.3)
+          .to(q('.s7-head .split-line'), { yPercent: 0, opacity: 1, duration: 1, ease: 'expo.out', stagger: 0.12 }, 0.3)
           .to(q('.s7-stages'), { opacity: 1, y: 0, duration: 0.6 }, 0.9)
           .set(q('.s7-w0'), { opacity: 1 }, 0.8)
           .fromTo(q('.s7-w0 .ch'), { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 1, ease: 'power3.out', stagger: 0.04 }, 0.8),

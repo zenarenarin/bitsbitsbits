@@ -3,6 +3,9 @@ import gsap from 'gsap';
 import { scene04 as C } from '../../content/deck.js';
 import { useBeats } from '../../systems/navigation/useBeats.js';
 import { pluck, note, thump, chord } from '../../systems/audio/sound.js';
+import { FoliageDefs, Plants, limb } from '../../systems/environment/foliage.jsx';
+import { swayAll, useParallax } from '../../systems/environment/atmosphere.jsx';
+import { Motes } from '../../systems/environment/Motes.jsx';
 import './scene04.css';
 
 /* Two systems on one stage. On the left, a complete idea (one disc) is cut
@@ -47,20 +50,46 @@ const BOARD = Array.from({ length: 6 }, (_, i) => ({
   y: Rr.game - CELL - 5 + Math.floor(i / 3) * (CELL + 10),
 }));
 
-export default function Scene04({ beat, replayKey }) {
+/* The world: on the left a great tree at night — the whole idea — that is
+   unpacked into branches (rules), leaves (mechanics) and spores (details).
+   On the right a seedbed — loose seeds sprout tendrils, fuse into buds and
+   climb a vine into a bloom. A single vine carries the shared mechanics. */
+const LEFT_FLORA = [
+  { kind: 'paddle', x: -40, y: -40, s: 1.05, r: 132, h: 460, w: 180, stripes: 6, fill: 'deep', stripe: '#0b3a35' },
+  { kind: 'twig', x: 300, y: -20, s: 1, r: 176, h: 320, bend: 0.4, buds: 6, fill: 'violet', stem: '#160e33', seed: 4 },
+  { kind: 'blade', x: 30, y: 1110, r: 16, h: 520, w: 90, bend: 0.3, fill: 'deep' },
+  { kind: 'frond', x: 130, y: 1120, s: 0.9, r: 26, h: 380, n: 12, leaf: 44, bend: 0.4, fill: 'night' },
+];
+const RIGHT_FLORA = [
+  { kind: 'frond', x: 1940, y: 700, s: 1, r: -40, h: 420, n: 12, leaf: 46, bend: -0.4, fill: 'teal', stem: '#0a3d40' },
+  { kind: 'tuft', x: 1020, y: 975, s: 1.4, fill: 'jade', seed: 3 },
+  { kind: 'tuft', x: 1260, y: 985, s: 1.2, fill: 'teal', seed: 5 },
+  { kind: 'tuft', x: 1450, y: 975, s: 1.3, fill: 'jade', seed: 7 },
+  { kind: 'lantern', x: 1120, y: 990, s: 0.8, h: 180, bend: 0.5, fill: 'sun', stem: '#0b3a35' },
+];
+const VINE = `M${Rr.cx + 280},995 C${Rr.cx + 330},880 ${Rr.cx + 250},${MY + 90} ${Rr.cx + 262},${MY} S${Rr.cx + 290},${Rr.game + 120} ${Rr.cx + 210},${Rr.game - 125}`;
+
+export default function Scene04({ beat, replayKey, lite }) {
   const scope = useRef(null);
+  useParallax(scope, { enabled: !lite, strength: 14 });
 
   useBeats(scope, beat, replayKey, {
     ambient: (q) => {
+      swayAll(q('.sway'), { amp: lite ? 1 : 2 });
+      gsap.to(q('.s4-trunk-glow'), { opacity: 0.55, duration: 3, yoyo: true, repeat: -1, ease: 'sine.inOut' });
+      gsap.to(q('.s4-disc'), { y: -6, duration: 2.6, yoyo: true, repeat: -1, ease: 'sine.inOut' });
       q('.s4-tile-in').forEach((t, i) =>
         gsap.to(t, { y: -6 - (i % 3) * 3, rotation: i % 2 ? 6 : -6, duration: 1.4 + (i % 4) * 0.3, yoyo: true, repeat: -1, ease: 'sine.inOut', transformOrigin: '50% 50%' }),
       );
       gsap.to(q('.s4-disc-spin'), { scale: 1.03, duration: 2.2, yoyo: true, repeat: -1, ease: 'sine.inOut', svgOrigin: `${L.cx} ${L.concept}` });
     },
     init: (q) => {
-      gsap.set(q('.s4-head .split-line, .s4-anchor .split-line'), { yPercent: 110 });
+      gsap.set(q('.s4-head .split-line, .s4-anchor .split-line'), { yPercent: 110, opacity: 0 });
       gsap.set(q('.s4-arrow, .s4-lvl, .s4-ex'), { opacity: 0, y: 16 });
       gsap.set(q('.s4-half'), { scaleY: 0, transformOrigin: '50% 0%' });
+      gsap.set(q('.plant'), { scale: 0, transformOrigin: '50% 100%' });
+      gsap.set(q('.s4-tree'), { opacity: 0, y: 40 });
+      gsap.set(q('.s4-vine'), { strokeDasharray: 1400, strokeDashoffset: 1400 });
       gsap.set(q('.s4-divider'), { scaleY: 0, transformOrigin: '50% 50%' });
       // left
       gsap.set(q('.s4-disc'), { scale: 0, transformOrigin: '50% 50%' });
@@ -75,15 +104,18 @@ export default function Scene04({ beat, replayKey }) {
       gsap.set(q('.s4-cell'), { opacity: 0 });
       gsap.set(q('.s4-frame'), { strokeDashoffset: 1 });
       // meet
-      gsap.set(q('.s4-meetline'), { scaleX: 0, transformOrigin: '50% 50%' });
+      gsap.set(q('.s4-meetline'), { strokeDasharray: 1200, strokeDashoffset: 1200 });
     },
     beats: [
       // 0 — the question, two directions, two starting points
       (tl, q) => {
         tl.to(q('.s4-half'), { scaleY: 1, duration: 1, ease: 'expo.inOut', stagger: 0.1 }, 0)
+          .to(q('.plant'), { scale: 1, duration: 1, ease: 'back.out(1.6)', stagger: { each: 0.05, from: 'random' } }, 0.5)
+          .to(q('.s4-tree'), { opacity: 1, y: 0, duration: 1.4, ease: 'expo.out' }, 0.4)
+          .to(q('.s4-vine'), { strokeDashoffset: 0, duration: 1.8, ease: 'power2.inOut' }, 0.9)
           .to(q('.s4-divider'), { scaleY: 1, duration: 1.1, ease: 'expo.out' }, 0.3)
-          .to(q('.s4-head .split-line'), { yPercent: 0, duration: 1, ease: 'expo.out', stagger: 0.1 }, 0.4)
-          .to(q('.s4-anchor .split-line'), { yPercent: 0, duration: 1, ease: 'expo.out', stagger: 0.15 }, 0.8)
+          .to(q('.s4-head .split-line'), { yPercent: 0, opacity: 1, duration: 1, ease: 'expo.out', stagger: 0.1 }, 0.4)
+          .to(q('.s4-anchor .split-line'), { yPercent: 0, opacity: 1, duration: 1, ease: 'expo.out', stagger: 0.15 }, 0.8)
           .to(q('.s4-arrow'), { opacity: 1, y: 0, duration: 0.7 }, 1.2)
           .to(q('.s4-lvl'), { opacity: 1, y: 0, duration: 0.6, stagger: 0.05 }, 1.3)
           .to(q('.s4-disc'), { scale: 1, duration: 1, ease: 'elastic.out(1, 0.5)' }, 1.0)
@@ -162,8 +194,8 @@ export default function Scene04({ beat, replayKey }) {
       // 3 — both pass through the same layer
       (tl, q, { instant }) => {
         tl.to(q('.s4-dim'), { opacity: 0.32, duration: 0.6 }, 0)
-          .to(q('.s4-meetline'), { scaleX: 1, duration: 0.9, ease: 'expo.inOut' }, 0.1)
-          .to(q('.s4-lblock, .s4-rblock'), { fill: '#ff6a55', duration: 0.3, stagger: { each: 0.05, from: 'start' } }, 0.5)
+          .to(q('.s4-meetline'), { strokeDashoffset: 0, duration: 1.1, ease: 'power2.inOut' }, 0.1)
+          .to(q('.s4-lblock, .s4-rblock'), { fill: '#ff8a6a', duration: 0.3, stagger: { each: 0.05, from: 'start' } }, 0.5)
           .to(q('.s4-lblock, .s4-rblock'), { y: -14, duration: 0.18, yoyo: true, repeat: 1, ease: 'power2.out', stagger: 0.05 }, 0.5)
           .to(q('.s4-lvl-m'), { scale: 1.45, backgroundColor: '#ff6a55', color: '#0a1430', borderColor: '#ff6a55', duration: 0.7, ease: 'back.out(2.5)' }, 0.7);
         if (!instant) tl.call(() => chord([0, 4, 7, 12], 220, { vol: 0.14, spread: 0.04, decay: 1.8 }), null, 0.7);
@@ -187,7 +219,38 @@ export default function Scene04({ beat, replayKey }) {
             <stop offset="1" stopColor="#e2442f" />
           </radialGradient>
         </defs>
-        <line className="s4-divider" x1="960" y1="170" x2="960" y2="1010" stroke="#f5ead3" strokeOpacity="0.22" strokeWidth="2" />
+        <FoliageDefs prefix="s4" />
+        <defs>
+          <linearGradient id="s4-leaf" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#fff3d6" />
+            <stop offset="1" stopColor="#e9c98a" />
+          </linearGradient>
+          <radialGradient id="s4-seed" cx="0.35" cy="0.3">
+            <stop offset="0" stopColor="#fff6d6" />
+            <stop offset="1" stopColor="#d99a2a" />
+          </radialGradient>
+        </defs>
+        {/* left territory: a great tree, the whole idea */}
+        <g data-depth="0.25" opacity="0.35">
+          {[120, 340, 560].map((x, i) => (
+            <path key={i} d={limb([x, 1090], [x + 14, 600], [x - 6, -20], 46 - i * 8, 26 - i * 4)} fill="#1a2a66" />
+          ))}
+        </g>
+        <g className="s4-tree" data-depth="0.4">
+          <g className="s4-trunk-glow" opacity="0.4">
+            <Plants list={[{ kind: 'glowtree', x: L.cx + 10, y: 1100, s: 1, h: 900, seed: 21, dust: 120 }]} p="s4" />
+          </g>
+        </g>
+        <g data-depth="1">
+          <Plants list={LEFT_FLORA} p="s4" />
+        </g>
+        {/* right territory: a seedbed and the vine that climbs out of it */}
+        <path d="M960,1000 C1200,960 1600,975 1940,990 V1100 H960Z" fill="#06261f" />
+        <path className="s4-vine" d={VINE} fill="none" stroke="#1d7a5e" strokeWidth="9" strokeLinecap="round" opacity="0.8" />
+        <g data-depth="1">
+          <Plants list={RIGHT_FLORA} p="s4" />
+        </g>
+        <line className="s4-divider" x1="960" y1="170" x2="960" y2="1010" stroke="#f5ead3" strokeOpacity="0.14" strokeWidth="2" strokeDasharray="2 10" />
 
         {/* level guides */}
         <g className="s4-dim">
@@ -198,18 +261,18 @@ export default function Scene04({ beat, replayKey }) {
             <line key={'r' + y} x1="990" x2="1480" y1={y} y2={y} stroke="#f5ead3" strokeOpacity="0.08" strokeDasharray="2 10" strokeWidth="2" />
           ))}
         </g>
-        <line className="s4-meetline" x1="420" x2="1500" y1={MY} y2={MY} stroke="#ff6a55" strokeWidth="3" />
+        <path className="s4-meetline" d={`M420,${MY + 6} C700,${MY - 18} 1200,${MY + 22} 1500,${MY - 4}`} fill="none" stroke="#5fd6a8" strokeWidth="6" strokeLinecap="round" />
 
         {/* top down */}
         <g className="s4-disc">
           <g className="s4-disc-spin" clipPath="url(#s4-clip)">
             {[0, 1, 2].map((i) => (
-              <rect key={i} className="s4-slice" x={L.cx - 120} y={L.concept - 120 + i * 80} width="240" height="80" rx="0" fill={['#ff8a6a', '#ff6a55', '#e4702a'][i]} />
+              <rect key={i} className="s4-slice" x={L.cx - 120} y={L.concept - 120 + i * 80} width="240" height="80" rx="0" fill={['#5fd6a8', '#2fb3a8', '#1d7a5e'][i]} />
             ))}
           </g>
         </g>
         {LROW.map((x, i) => (
-          <rect key={i} className="s4-lblock" x={x} y={MY - BH / 2} width={BW} height={BH} rx="8" fill="#f5ead3" />
+          <rect key={i} className="s4-lblock" x={x} y={MY - BH / 2} width={BW} height={BH} rx={BH / 2} fill="url(#s4-leaf)" />
         ))}
         <g className="s4-dim">
           {DOTS.map((d, i) => (
@@ -219,25 +282,27 @@ export default function Scene04({ beat, replayKey }) {
 
         {/* bottom up */}
         {PAIRS.map(([a, b], k) => (
-          <line key={k} className="s4-link" x1={RROW[k] + BW / 2 - 22} x2={RROW[k] + BW / 2 + 22} y1={Rr.interaction} y2={Rr.interaction} stroke="#f5ead3" strokeWidth="3" pathLength="1" strokeDasharray="1" />
+          <path key={k} className="s4-link" d={`M${RROW[k] + BW / 2 - 22},${Rr.interaction} q11,-22 22,0 t22,0`} fill="none" stroke="#8ff7dc" strokeWidth="3" strokeLinecap="round" pathLength="1" strokeDasharray="1" />
         ))}
         {TILES.map((t, i) => (
           <g key={i} className="s4-tile" style={{ transformBox: 'fill-box' }}>
             <g transform={`translate(${t.x} ${t.y}) rotate(${t.r})`}>
-              <rect className="s4-tile-in" x="-17" y="-17" width="34" height="34" rx="7" fill={t.c} />
+              <ellipse className="s4-tile-in" cx="0" cy="0" rx="15" ry="19" fill={t.c === '#ffc94a' ? 'url(#s4-seed)' : t.c} />
             </g>
           </g>
         ))}
         {RROW.map((x, i) => (
-          <rect key={i} className="s4-rblock" x={x} y={MY - BH / 2} width={BW} height={BH} rx="8" fill="#f5ead3" />
+          <rect key={i} className="s4-rblock" x={x} y={MY - BH / 2} width={BW} height={BH} rx={BH / 2} fill="url(#s4-leaf)" />
         ))}
         <g className="s4-dim">
           {BOARD.map((_, i) => (
-            <rect key={i} className="s4-cell" x={BOARD[i].x} y={BOARD[i].y} width={CELL} height={CELL} rx="12" fill={i % 2 ? '#34d6c2' : '#ffc94a'} />
+            <rect key={i} className="s4-cell" x={BOARD[i].x} y={BOARD[i].y} width={CELL} height={CELL} rx="40" fill={i % 2 ? 'url(#s4-f-sea)' : 'url(#s4-f-sun)'} />
           ))}
-          <rect className="s4-frame" x={BOARD[0].x - 16} y={BOARD[0].y - 16} width={3 * CELL + 20 + 32} height={2 * CELL + 10 + 32} rx="22" fill="none" stroke="#f5ead3" strokeWidth="3" pathLength="1" strokeDasharray="1" />
+          <rect className="s4-frame" x={BOARD[0].x - 16} y={BOARD[0].y - 16} width={3 * CELL + 20 + 32} height={2 * CELL + 10 + 32} rx="60" fill="none" stroke="#5fd6a8" strokeWidth="5" pathLength="1" strokeDasharray="1" />
         </g>
       </svg>
+
+      <Motes lite={lite} count={70} colors={['#8ff7dc', '#ffd98a']} size={26} speed={0.5} />
 
       {/* type */}
       <h2 className="s4-head">

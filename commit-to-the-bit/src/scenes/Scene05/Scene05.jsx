@@ -5,6 +5,16 @@ import { useBeats } from '../../systems/navigation/useBeats.js';
 import { toStage } from '../../systems/stage/Stage.jsx';
 import { pluck, note, thump, miss, chord } from '../../systems/audio/sound.js';
 import { createGame } from './engine.js';
+import { FoliageDefs, Plants } from '../../systems/environment/foliage.jsx';
+import { swayAll, useParallax } from '../../systems/environment/atmosphere.jsx';
+
+// specimens on the table: oversized, pressed-looking, at the edges only
+const SPECIMENS = [
+  { kind: 'frond', x: 1040, y: -40, s: 0.85, r: 192, h: 420, n: 13, leaf: 46, bend: 0.35, fill: 'moss', stem: '#0c3a2c' },
+  { kind: 'twig', x: 1560, y: 1110, s: 1, r: -12, h: 300, bend: 0.4, buds: 6, fill: 'coral', stem: '#3a2a1a', seed: 6 },
+  { kind: 'blade', x: 1890, y: 1110, r: -24, h: 460, w: 100, bend: -0.3, fill: 'forest' },
+  { kind: 'paddle', x: 2010, y: 1140, s: 1, r: -52, h: 460, w: 200, stripes: 6, fill: 'forest', stripe: '#03201a' },
+]
 import './scene05.css';
 
 /* A laboratory on paper. Three columns of words read as one sentence —
@@ -17,7 +27,7 @@ const CX = 1350;
 const CY = 560;
 const DEFAULT = { action: 'tap', world: 'bounce', goal: 'avoid' };
 
-export default function Scene05({ beat, replayKey }) {
+export default function Scene05({ beat, replayKey, lite }) {
   const scope = useRef(null);
   const canvas = useRef(null);
   const game = useRef(null);
@@ -25,6 +35,7 @@ export default function Scene05({ beat, replayKey }) {
   const bestEl = useRef(null);
   const livesEl = useRef(null);
   const [combo, setCombo] = useState(DEFAULT);
+  useParallax(scope, { enabled: !lite, strength: 10 });
 
   /* ---------- the game loop ---------- */
   useEffect(() => {
@@ -120,8 +131,13 @@ export default function Scene05({ beat, replayKey }) {
   });
 
   useBeats(scope, beat, replayKey, {
+    ambient: (q) => {
+      swayAll(q('.sway'), { amp: lite ? 0.8 : 1.6 });
+      gsap.to(q('.s5-ripple'), { scale: 1.06, opacity: 0.5, duration: 3.5, yoyo: true, repeat: -1, ease: 'sine.inOut' });
+    },
     init: (q) => {
-      gsap.set(q('.s5-head .split-line'), { yPercent: 110 });
+      gsap.set(q('.plant'), { scale: 0, transformOrigin: '50% 100%' });
+      gsap.set(q('.s5-head .split-line'), { yPercent: 110, opacity: 0 });
       gsap.set(q('.s5-dish'), { scale: 0, transformOrigin: '50% 50%' });
       gsap.set(q('.s5-col'), { opacity: 0, y: 40 });
       gsap.set(q('.s5-plus'), { opacity: 0, scale: 0 });
@@ -131,7 +147,8 @@ export default function Scene05({ beat, replayKey }) {
     beats: [
       (tl, q) =>
         tl
-          .to(q('.s5-head .split-line'), { yPercent: 0, duration: 1, ease: 'expo.out', stagger: 0.1 }, 0)
+          .to(q('.plant'), { scale: 1, duration: 1.1, ease: 'back.out(1.5)', stagger: 0.07 }, 0)
+          .to(q('.s5-head .split-line'), { yPercent: 0, opacity: 1, duration: 1, ease: 'expo.out', stagger: 0.1 }, 0)
           .to(q('.s5-dish'), { scale: 1, duration: 1.2, ease: 'elastic.out(1, 0.6)' }, 0.25)
           .to(q('.s5-col'), { opacity: 1, y: 0, duration: 0.8, ease: 'power3.out', stagger: 0.12 }, 0.6)
           .to(q('.s5-plus'), { opacity: 1, scale: 1, duration: 0.5, ease: 'back.out(3)', stagger: 0.12 }, 0.9)
@@ -146,6 +163,12 @@ export default function Scene05({ beat, replayKey }) {
 
   return (
     <div ref={scope} className="scene s5">
+      <svg className="fill" viewBox="0 0 1920 1080">
+        <FoliageDefs prefix="s5" />
+        <g data-depth="0.8">
+          <Plants list={SPECIMENS} p="s5" />
+        </g>
+      </svg>
       <h2 className="s5-head">
         <span className="mask-line"><span className="split-line t-display">{C.headline[0]}</span></span>
         <span className="mask-line"><span className="split-line t-quote">{C.headline[1]}</span></span>
@@ -174,6 +197,7 @@ export default function Scene05({ beat, replayKey }) {
       </div>
 
       <div className="s5-dish" style={{ left: CX - SIZE / 2, top: CY - SIZE / 2, width: SIZE, height: SIZE }} onPointerDown={down}>
+        <div className="s5-ripple" />
         <canvas ref={canvas} style={{ width: SIZE, height: SIZE }} />
       </div>
 

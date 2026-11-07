@@ -4,7 +4,26 @@ import { scene10 as C, opening as O } from '../../content/deck.js';
 import { useBeats } from '../../systems/navigation/useBeats.js';
 import { rectInStage } from '../../systems/typography/measure.js';
 import { pluck, note, thump, chord } from '../../systems/audio/sound.js';
+import { FoliageDefs, Plants } from '../../systems/environment/foliage.jsx';
+import { swayAll, useParallax } from '../../systems/environment/atmosphere.jsx';
+import { Motes } from '../../systems/environment/Motes.jsx';
 import './scene10.css';
+
+// the opening's world, grown: the same night, the same canopy line, the
+// luminous tree — now holding everything the talk has gathered
+const HORIZON = [
+  { kind: 'canopy', x: 980, y: 1090, s: 0.7, fill: 'mist', seed: 2 },
+  { kind: 'cone', x: 1120, y: 1090, s: 0.9, h: 240, w: 90, fill: 'mist' },
+  { kind: 'canopy', x: 1290, y: 1095, s: 0.55, fill: 'mist', seed: 6 },
+  { kind: 'discs', x: 1500, y: 1095, s: 0.8, h: 280, size: 100, n: 3, fill: 'mist', stem: '#0b3e44' },
+  { kind: 'canopy', x: 1700, y: 1090, s: 0.8, fill: 'mist', seed: 9 },
+];
+const FRAME = [
+  { kind: 'twig', x: 1520, y: -20, s: 1, r: 186, h: 320, bend: 0.4, buds: 7, fill: 'violet', stem: '#160e33', seed: 4 },
+  { kind: 'frond', x: 1960, y: -30, s: 1, r: 208, h: 420, n: 13, leaf: 46, bend: 0.4, fill: 'night' },
+  { kind: 'paddle', x: 2060, y: 1160, s: 0.95, r: -50, h: 480, w: 200, stripes: 7, fill: 'forest', stripe: '#03201a', flip: true },
+  { kind: 'twig', x: 1250, y: -20, s: 0.8, r: 170, h: 280, bend: -0.4, buds: 6, fill: 'coral', stem: '#160e33', seed: 9 },
+];
 
 /* The finale gathers one motif from each idea in the talk — the wall you
    chose to jump, the tiles that merged, the dish of grammar, the fence, the
@@ -107,11 +126,17 @@ function Glyph({ id }) {
   }
 }
 
-export default function Scene10({ beat, replayKey }) {
+export default function Scene10({ beat, replayKey, lite }) {
   const scope = useRef(null);
+  useParallax(scope, { enabled: !lite, strength: 14 });
 
   useBeats(scope, beat, replayKey, {
+    ambient: (q) => {
+      swayAll(q('.sway'), { amp: lite ? 1 : 2 });
+      gsap.to(q('.s10-tree'), { opacity: 0.5, duration: 3.4, yoyo: true, repeat: -1, ease: 'sine.inOut' });
+    },
     init: (q) => {
+      gsap.set(q('.s10-world .plant'), { scale: 0, transformOrigin: '50% 100%' });
       q('.s10-node').forEach((n, i) => gsap.set(n, { x: NODES[i].from[0], y: NODES[i].from[1], rotation: (i % 2 ? 1 : -1) * 70, scale: 0.6, opacity: 0 }));
       gsap.set(q('.s10-thread'), { strokeDashoffset: 1 });
       gsap.set(q('.s10-ring'), { scale: 0, opacity: 0, transformOrigin: '50% 50%' });
@@ -124,7 +149,7 @@ export default function Scene10({ beat, replayKey }) {
     beats: [
       // everything arrives, one thread joins it, the words drop in
       (tl, q, { instant }) => {
-        tl.to(q('.s10-glow'), { opacity: 1, duration: 2 }, 0);
+        tl.to(q('.s10-glow'), { opacity: 1, duration: 2 }, 0).to(q('.s10-world .plant'), { scale: 1, duration: 1.2, ease: 'back.out(1.5)', stagger: { each: 0.06, from: 'random' } }, 0);
         q('.s10-node').forEach((n, i) => {
           tl.to(n, { x: 0, y: 0, rotation: 0, scale: 1, opacity: 1, duration: 1.1, ease: 'back.out(1.5)' }, 0.1 + i * 0.12);
         });
@@ -145,7 +170,7 @@ export default function Scene10({ beat, replayKey }) {
         const slot = q('.s10-slot')[0];
         const bit = q('.s10-bit')[0];
         tl.to(q('.s10-now'), { opacity: 1, duration: 0.01 }, 0)
-          .fromTo(q('.s10-now .w'), { yPercent: 110 }, { yPercent: 0, duration: 0.9, ease: 'expo.out', stagger: 0.08 }, 0)
+          .fromTo(q('.s10-now .w'), { yPercent: 110, opacity: 0 }, { yPercent: 0, opacity: 1, duration: 0.9, ease: 'expo.out', stagger: 0.08 }, 0)
           .to(bit, { x: () => rectInStage(slot).cx, duration: 1.0, ease: 'power1.inOut' }, 0.6)
           .to(bit, { y: () => rectInStage(slot).cy - 260, duration: 0.5, ease: 'power2.out' }, 0.6)
           .to(bit, { y: () => rectInStage(slot).cy, duration: 0.5, ease: 'power2.in' }, 1.1)
@@ -161,6 +186,19 @@ export default function Scene10({ beat, replayKey }) {
   return (
     <div ref={scope} className="scene s10">
       <div className="layer s10-glow" />
+      <svg className="fill s10-world" viewBox="0 0 1920 1080">
+        <FoliageDefs prefix="s10" />
+        <g data-depth="0.2" className="s10-tree" opacity="0.38">
+          <Plants list={[{ kind: 'glowtree', x: 1930, y: 1100, s: 1, h: 820, seed: 11, dust: 130 }]} p="s10" />
+        </g>
+        <g data-depth="0.3" opacity="0.6">
+          <Plants list={HORIZON} p="s10" />
+        </g>
+        <g data-depth="1.1">
+          <Plants list={FRAME} p="s10" />
+        </g>
+      </svg>
+      <Motes lite={lite} count={80} colors={['#8ff7dc', '#ffd98a']} size={26} speed={0.5} />
       <svg className="fill" viewBox="0 0 1920 1080">
         <path className="s10-thread" d={THREAD} fill="none" stroke="#ffe7a0" strokeWidth="3.5" strokeLinecap="round" pathLength="1" strokeDasharray="1" />
         {PTS.map(([x, y], i) => (

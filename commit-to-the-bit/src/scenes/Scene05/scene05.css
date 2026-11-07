@@ -1,7 +1,8 @@
 .s5 {
   background:
-    radial-gradient(ellipse 50% 60% at 68% 52%, rgba(255, 201, 74, 0.18), transparent 70%),
-    linear-gradient(180deg, #f3ebd9, #ebe0c8);
+    radial-gradient(ellipse 50% 60% at 70% 52%, rgba(255, 201, 74, 0.22), transparent 70%),
+    radial-gradient(ellipse 60% 50% at 10% 100%, rgba(70, 176, 131, 0.16), transparent 70%),
+    linear-gradient(180deg, #f1ead6, #e6dcc0);
   color: #1c1640;
 }
 
@@ -106,12 +107,15 @@
 .s5-dish {
   position: absolute;
   border-radius: 50%;
+  /* a stone basin of dark water */
   background:
-    radial-gradient(circle at 50% 38%, #2c2466 0%, #1a1440 62%, #120d30 100%);
+    radial-gradient(circle at 46% 36%, #1a6b70 0%, #0d4650 45%, #062a33 80%, #041c24 100%);
   box-shadow:
-    0 0 0 14px #e3d6ba,
-    0 0 0 16px rgba(28, 22, 64, 0.18),
-    0 40px 90px rgba(40, 24, 10, 0.28);
+    0 0 0 18px #d8c9a6,
+    0 0 0 20px rgba(60, 44, 20, 0.25),
+    inset 0 16px 40px rgba(0, 0, 0, 0.45),
+    0 40px 90px rgba(40, 24, 10, 0.3);
+  overflow: hidden;
   cursor: crosshair;
   touch-action: none;
 }
@@ -168,14 +172,23 @@
   left: 116px;
   top: 952px;
   font-size: 42px;
+  z-index: 2;
   margin: 0;
   color: #1c1640;
 }
 
 .s5-reset {
   position: absolute;
-  right: 80px;
-  top: 92px;
+  left: 116px;
+  top: 870px;
   color: #1c1640;
   font-size: 15px;
+}
+
+.s5-ripple {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: repeating-radial-gradient(circle at 50% 50%, transparent 0 46px, rgba(143, 247, 220, 0.07) 46px 48px);
+  opacity: 0.8;
 }

@@ -4,7 +4,21 @@ import { scene08 as C } from '../../content/deck.js';
 import { useBeats } from '../../systems/navigation/useBeats.js';
 import { VideoSlot } from '../../systems/video/VideoSlot.jsx';
 import { pluck, note, whoosh } from '../../systems/audio/sound.js';
+import { FoliageDefs, Plants } from '../../systems/environment/foliage.jsx';
+import { swayAll } from '../../systems/environment/atmosphere.jsx';
 import './scene08.css';
+
+// windows are set into the forest: big soft leaves behind, a few in front
+const BACK = [
+  { kind: 'paddle', x: 1500, y: 1140, s: 1.6, r: -20, h: 520, w: 220, stripes: 7, fill: 'deep', stripe: '#0b3a35' },
+  { kind: 'paddle', x: 480, y: -60, s: 1.4, r: 160, h: 520, w: 220, stripes: 7, fill: 'deep', stripe: '#0b3a35' },
+  { kind: 'blade', x: 1100, y: 1120, s: 1.3, r: 12, h: 700, w: 120, bend: 0.3, fill: 'deep' },
+];
+const FRONT = [
+  { kind: 'frond', x: -40, y: 1120, s: 1.1, r: 34, h: 420, n: 13, leaf: 50, bend: 0.4, fill: 'forest', stem: '#062722' },
+  { kind: 'paddle', x: 1960, y: -40, s: 0.9, r: -140, h: 460, w: 190, stripes: 6, fill: 'forest', stripe: '#03201a', flip: true },
+  { kind: 'twig', x: 1880, y: 1110, s: 0.9, r: -14, h: 300, bend: -0.4, buds: 6, fill: 'coral', stem: '#062722', seed: 8 },
+];
 
 /* Three games, one at a time. The overview lays the windows out like
    specimens; each beat pulls one forward into its own colour world while its
@@ -35,12 +49,13 @@ export default function Scene08({ beat, replayKey }) {
   const focus = beat - 1; // -1 = overview
 
   useBeats(scope, beat, replayKey, {
+    ambient: (q) => swayAll(q('.sway'), { amp: 1.4 }),
     init: (q) => {
       q('.s8-win').forEach((w, i) => {
         const o = OVERVIEW[i];
         gsap.set(w, { left: o.x, top: o.y, width: o.w, height: o.h, opacity: 0, y: 60 });
       });
-      gsap.set(q('.s8-head .split-line'), { yPercent: 110 });
+      gsap.set(q('.s8-head .split-line'), { yPercent: 110, opacity: 0 });
       gsap.set(q('.s8-name'), { opacity: 0, y: 12 });
       gsap.set(q('.s8-legend li'), { opacity: 0, x: 30 });
       gsap.set(q('.s8-focus'), { autoAlpha: 0 });
@@ -50,7 +65,7 @@ export default function Scene08({ beat, replayKey }) {
       // overview
       (tl, q) =>
         tl
-          .to(q('.s8-head .split-line'), { yPercent: 0, duration: 1, ease: 'expo.out', stagger: 0.12 }, 0)
+          .to(q('.s8-head .split-line'), { yPercent: 0, opacity: 1, duration: 1, ease: 'expo.out', stagger: 0.12 }, 0)
           .to(q('.s8-win'), { opacity: 1, y: 0, duration: 0.9, ease: 'back.out(1.4)', stagger: 0.1 }, 0.3)
           .to(q('.s8-name'), { opacity: 1, y: 0, duration: 0.6, stagger: 0.1 }, 0.7)
           .to(q('.s8-legend li'), { opacity: 1, x: 0, duration: 0.6, ease: 'power3.out', stagger: 0.08 }, 1.0),
@@ -73,7 +88,7 @@ export default function Scene08({ beat, replayKey }) {
         });
         const panel = q(`.s8-focus-${gi}`);
         tl.set(panel, { autoAlpha: 1 }, 0.55)
-          .fromTo(q(`.s8-focus-${gi} .s8-title .split-line`), { yPercent: 110 }, { yPercent: 0, duration: 0.9, ease: 'expo.out' }, 0.6);
+          .fromTo(q(`.s8-focus-${gi} .s8-title .split-line`), { yPercent: 110, opacity: 0 }, { yPercent: 0, opacity: 1, duration: 0.9, ease: 'expo.out' }, 0.6);
         q(`.s8-focus-${gi} .s8-ing`).forEach((row, k) => {
           tl.fromTo(row, { opacity: 0, x: F.left ? 40 : -40 }, { opacity: 1, x: 0, duration: 0.6, ease: 'power3.out' }, 1.1 + k * 0.45);
           if (!instant) tl.call(() => pluck(note(3 + k * 2, 220), { vol: 0.13, decay: 0.5 }), null, 1.1 + k * 0.45);
@@ -86,6 +101,10 @@ export default function Scene08({ beat, replayKey }) {
   return (
     <div ref={scope} className="scene s8">
       <div className="layer s8-wash" />
+      <svg className="fill s8-back" viewBox="0 0 1920 1080">
+        <FoliageDefs prefix="s8" />
+        <Plants list={BACK} p="s8" />
+      </svg>
 
       <h2 className="s8-head t-display">
         <span className="mask-line"><span className="split-line">{C.headline[0]}</span></span>
@@ -127,6 +146,10 @@ export default function Scene08({ beat, replayKey }) {
           </div>
         );
       })}
+      <svg className="fill s8-front" viewBox="0 0 1920 1080">
+        <FoliageDefs prefix="s8f" />
+        <Plants list={FRONT} p="s8f" />
+      </svg>
     </div>
   );
 }

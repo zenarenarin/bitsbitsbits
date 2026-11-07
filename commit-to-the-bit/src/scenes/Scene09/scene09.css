@@ -103,8 +103,29 @@
 
 .s9-field {
   position: absolute;
-  border-radius: 6px;
-  overflow: hidden;
+  /* a pool in the valley, not a chart: the field dissolves at its edges */
+  -webkit-mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 58%, transparent 97%);
+  mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 58%, transparent 97%);
+}
+
+.s9-valley {
+  z-index: 3;
+  pointer-events: none;
+}
+
+.s9-valley .zone-b,
+.s9-valley .zone-f,
+.s9-valley .zone-r {
+  transition: opacity 0.8s;
+}
+
+.s9[data-state='boredom'] .zone-f,
+.s9[data-state='frustration'] .zone-b {
+  opacity: 0.45;
+}
+
+.s9[data-state='flow'] .zone-r {
+  filter: drop-shadow(0 0 18px rgba(52, 214, 194, 0.55));
 }
 
 .s9-canvas,

@@ -1,5 +1,7 @@
 .s7 {
-  background: #05092a;
+  background:
+    radial-gradient(ellipse 50% 40% at 80% 20%, rgba(52, 214, 194, 0.14), transparent 70%),
+    linear-gradient(180deg, #050d24 0%, #071a2a 100%);
   color: var(--cream);
 }
 
@@ -63,6 +65,8 @@
   height: 600px;
   cursor: pointer;
   touch-action: none;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 70px, #000 calc(100% - 50px), transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 70px, #000 calc(100% - 50px), transparent 100%);
 }
 
 .s7-stages {

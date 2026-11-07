@@ -87,7 +87,7 @@ export default function Scene06({ beat, replayKey }) {
   useBeats(scope, beat, replayKey, {
     init: (q) => {
       gsap.set(q('.s6-open .split-unit .split-unit'), { yPercent: 110 });
-      gsap.set(q('.s6-head .split-line'), { yPercent: 110 });
+      gsap.set(q('.s6-head .split-line'), { yPercent: 110, opacity: 0 });
       gsap.set(q('.s6-support, .s6-chip, .s6-clear'), { opacity: 0, y: 20 });
       gsap.set(q('.s6-shade'), { opacity: 0 });
     },
@@ -98,7 +98,7 @@ export default function Scene06({ beat, replayKey }) {
           .to(q('.s6-open .split-unit .split-unit'), { yPercent: -110, duration: 0.5, ease: 'power3.in', stagger: 0.02 }, 0)
           .to(q('.s6-open'), { opacity: 0, duration: 0.3 }, 0.4)
           .to(q('.s6-shade'), { opacity: 1, duration: 0.8 }, 0)
-          .to(q('.s6-head .split-line'), { yPercent: 0, duration: 1, ease: 'expo.out', stagger: 0.12 }, 0.35)
+          .to(q('.s6-head .split-line'), { yPercent: 0, opacity: 1, duration: 1, ease: 'expo.out', stagger: 0.12 }, 0.35)
           .to(q('.s6-support'), { opacity: 1, y: 0, duration: 0.8 }, 0.8)
           .to(q('.s6-chip, .s6-clear'), { opacity: 1, y: 0, duration: 0.5, ease: 'back.out(2)', stagger: 0.04 }, 1.0),
     ],

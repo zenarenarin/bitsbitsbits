@@ -168,35 +168,129 @@ export function createRunner() {
     const cy = ceilY();
     const v = s.cur.speed * s.slow;
 
-    // far columns: parallax shows speed without a number
-    ctx.fillStyle = 'rgba(167,124,242,0.10)';
-    const colGap = 220;
-    const off = (s.camX * 0.35) % colGap;
-    for (let x = -off; x < W; x += colGap) ctx.fillRect(x, cy, 14, fy - cy);
+    // deep forest behind: two parallax layers of trunks and hanging vines
+    const sky = ctx.createLinearGradient(0, 0, 0, H);
+    sky.addColorStop(0, '#071a2a');
+    sky.addColorStop(0.5, '#0c3340');
+    sky.addColorStop(1, '#06201f');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, H);
+    const layer = (spd, gap, w, color, seed) => {
+      ctx.fillStyle = color;
+      const off = (s.camX * spd) % gap;
+      for (let x = -off - gap, i = 0; x < W + gap; x += gap, i++) {
+        const k = Math.abs(Math.floor((s.camX * spd) / gap) + i + seed);
+        const ww = w * (0.6 + ((k * 37) % 10) / 12);
+        ctx.fillRect(x + ((k * 53) % 60), 0, ww, H);
+      }
+    };
+    layer(0.15, 260, 34, 'rgba(30,70,90,0.55)', 3);
+    layer(0.4, 380, 52, 'rgba(10,40,48,0.9)', 7);
 
-    // corridor
-    ctx.fillStyle = '#121a4a';
-    ctx.fillRect(0, cy, W, fy - cy);
-    ctx.fillStyle = '#05092a';
-    ctx.fillRect(0, 0, W, cy);
+    // canopy ceiling: a leafy mass with a scalloped edge and hanging leaves
+    const leafOff = s.camX % 46;
+    ctx.fillStyle = '#082a26';
+    ctx.fillRect(0, 0, W, cy - 6);
+    ctx.fillStyle = '#0d3d33';
+    for (let x = -leafOff - 46; x < W + 46; x += 46) {
+      const k = Math.abs(Math.floor((s.camX + x) / 46));
+      ctx.beginPath();
+      ctx.arc(x, cy - 10, 22 + ((k * 7) % 9), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#16614f';
+    for (let x = -leafOff - 46; x < W + 46; x += 92) {
+      const k = Math.abs(Math.floor((s.camX + x) / 46));
+      const len = 16 + ((k * 13) % 22);
+      ctx.beginPath();
+      ctx.ellipse(x + 10, cy + len * 0.45, 7, len * 0.6, 0.25, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // mossy floor with grass rushing by
+    const soil = ctx.createLinearGradient(0, fy, 0, H);
+    soil.addColorStop(0, '#0f4a3e');
+    soil.addColorStop(1, '#041612');
+    ctx.fillStyle = soil;
     ctx.fillRect(0, fy, W, H - fy);
-    ctx.fillStyle = '#ffc94a';
-    ctx.fillRect(0, fy, W, 3);
-    ctx.fillRect(0, cy - 3, W, 3);
-    // floor ticks rushing by
-    ctx.fillStyle = 'rgba(255,201,74,0.35)';
-    const tick = 120;
-    const toff = s.camX % tick;
-    for (let x = -toff; x < W; x += tick) ctx.fillRect(x, fy + 14, 40, 3);
+    ctx.fillStyle = '#1d7a5e';
+    ctx.fillRect(0, fy, W, 5);
+    const gOff = s.camX % 30;
+    ctx.fillStyle = '#2fa37e';
+    for (let x = -gOff; x < W; x += 30) {
+      const k = Math.abs(Math.floor((s.camX + x) / 30));
+      const hh = 8 + ((k * 17) % 14);
+      ctx.beginPath();
+      ctx.moveTo(x, fy + 2);
+      ctx.lineTo(x + 4 + ((k * 3) % 5), fy - hh);
+      ctx.lineTo(x + 8, fy + 2);
+      ctx.fill();
+    }
 
-    // obstacles
+    // obstacles grown by the forest
     s.obs.forEach((o) => {
       const r = obsRect(o);
       const x = r.x - s.camX;
-      if (x > W + 50 || x + r.w < -50) return;
-      ctx.fillStyle = o.top ? '#ff6a55' : o.kind === 'piston' ? '#a77cf2' : '#f5ead3';
-      roundRect(ctx, x, r.y, r.w, r.h, 10);
-      ctx.fill();
+      if (x > W + 60 || x + r.w < -60) return;
+      if (o.top) {
+        // a hanging thorn pod on a vine
+        ctx.strokeStyle = '#0d3d33';
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.moveTo(x + r.w / 2, r.y);
+        ctx.lineTo(x + r.w / 2, r.y + r.h * 0.35);
+        ctx.stroke();
+        const g = ctx.createLinearGradient(0, r.y, 0, r.y + r.h);
+        g.addColorStop(0, '#c8341f');
+        g.addColorStop(1, '#ff8a6a');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.ellipse(x + r.w / 2, r.y + r.h * 0.62, r.w / 2, r.h * 0.38, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#7e2a10';
+        for (let i = 0; i < 4; i++) {
+          const yy = r.y + r.h * (0.4 + i * 0.13);
+          ctx.beginPath();
+          ctx.moveTo(x + 2, yy);
+          ctx.lineTo(x - 8, yy + 6);
+          ctx.lineTo(x + 4, yy + 10);
+          ctx.moveTo(x + r.w - 2, yy);
+          ctx.lineTo(x + r.w + 8, yy + 6);
+          ctx.lineTo(x + r.w - 4, yy + 10);
+          ctx.fill();
+        }
+      } else if (o.kind === 'piston') {
+        // a violet capsule plant that swells and sinks
+        const g = ctx.createLinearGradient(x, 0, x + r.w, 0);
+        g.addColorStop(0, '#5a3aa8');
+        g.addColorStop(1, '#a77cf2');
+        ctx.fillStyle = g;
+        roundRect(ctx, x + 6, r.y, r.w - 12, r.h, (r.w - 12) / 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(x + r.w * 0.4, r.y + 14);
+        ctx.lineTo(x + r.w * 0.4, r.y + r.h - 10);
+        ctx.stroke();
+      } else {
+        // a mushroom stump: cream stem, ember cap
+        const capH = Math.min(26, r.h * 0.4);
+        ctx.fillStyle = '#e9dcbc';
+        roundRect(ctx, x + r.w * 0.22, r.y + capH * 0.6, r.w * 0.56, r.h - capH * 0.6, 8);
+        ctx.fill();
+        const g = ctx.createLinearGradient(0, r.y, 0, r.y + capH);
+        g.addColorStop(0, '#ffb36a');
+        g.addColorStop(1, '#e4702a');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.ellipse(x + r.w / 2, r.y + capH * 0.7, r.w / 2 + 6, capH * 0.75, 0, Math.PI, 0);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,240,210,0.8)';
+        ctx.beginPath();
+        ctx.arc(x + r.w * 0.35, r.y + capH * 0.35, 3, 0, Math.PI * 2);
+        ctx.arc(x + r.w * 0.62, r.y + capH * 0.22, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
     });
 
     // speed lines behind the Bit

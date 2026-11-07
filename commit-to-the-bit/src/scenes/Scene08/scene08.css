@@ -62,7 +62,7 @@
 .s8-name {
   position: absolute;
   left: 0;
-  top: -40px;
+  top: -48px;
   font-size: 18px;
   white-space: nowrap;
   color: rgba(245, 234, 211, 0.85);
@@ -113,4 +113,30 @@
 
 .s8-win.is-rail .video-slot-ph > * {
   display: none;
+}
+
+/* windows grown into the world: arched tops, a carved cream frame */
+.s8-win .video-slot,
+.s8-win .video-slot-ph {
+  border-radius: 50% 50% 26px 26px / 18% 18% 26px 26px;
+}
+
+.s8-win .video-slot {
+  box-shadow:
+    0 0 0 7px #e9dcbc,
+    0 0 0 9px rgba(0, 0, 0, 0.25),
+    0 40px 80px rgba(0, 0, 0, 0.45);
+}
+
+.s8-win.is-rail .video-slot {
+  box-shadow: 0 0 0 3px #e9dcbc;
+}
+
+.s8-back {
+  opacity: 0.55;
+}
+
+.s8-front {
+  z-index: 4;
+  pointer-events: none;
 }
