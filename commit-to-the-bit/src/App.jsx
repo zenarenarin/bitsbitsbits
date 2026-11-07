@@ -166,7 +166,7 @@ export default function App() {
       </div>
       <Grain />
       <TransitionLayer ref={tr} />
-      <Progress scenes={SCENES} index={index} beat={beat} light={S.light} />
+      {!S.quiet && <Progress scenes={SCENES} index={index} beat={beat} light={S.light} />}
       <Toast msg={toast} />
       {help && <Help onClose={() => setHelp(false)} muted={muted} lite={lite} />}
     </Stage>
