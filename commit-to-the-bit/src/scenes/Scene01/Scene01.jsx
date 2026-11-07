@@ -27,12 +27,9 @@ const EASY_D = `M${TAKEOFF - 40},${GY + 6} C${WX - 160},${GY + 140} ${WX + 160},
 const EDGE = [
   { kind: 'blade', x: 30, y: 1100, r: 14, h: 520, w: 90, bend: 0.35, fill: 'meadow' },
   { kind: 'blade', x: 110, y: 1110, r: 4, h: 380, w: 70, bend: 0.2, fill: 'jade' },
-  { kind: 'lantern', x: 200, y: 1090, s: 1.1, h: 300, bend: 0.6, fill: 'coral', stem: '#1f5e52' },
-  { kind: 'discs', x: 300, y: 1100, s: 0.8, h: 280, size: 90, n: 2, fill: 'sea', stem: '#1b6a66' },
   { kind: 'tuft', x: 380, y: 1080, s: 1.3, fill: 'meadow', seed: 3 },
   { kind: 'frond', x: 1960, y: 1000, s: 1, r: -24, h: 420, n: 12, leaf: 48, bend: -0.4, fill: 'jade', stem: '#1f5e52' },
   { kind: 'blade', x: 1880, y: 1110, r: -18, h: 520, w: 84, bend: -0.35, fill: 'meadow' },
-  { kind: 'capsule', x: 1480, y: 1120, s: 1, h: 200, w: 50, fill: 'dusk' },
   { kind: 'tuft', x: 1540, y: 1090, s: 1.2, fill: 'meadow', seed: 6 },
 ];
 
@@ -286,9 +283,6 @@ export default function Scene01({ beat, replayKey, lite }) {
       </svg>
 
       <div className="s1-type">
-        <div className="s1-kicker t-mono">
-          <span className="idx">{C.index}</span> {C.kicker}
-        </div>
         <div className="s1-dwrap">
           <h2 className="t-display s1-d s1-d0">
             <Split text={C.headline} wordClass="mask-word" />
@@ -312,7 +306,7 @@ export default function Scene01({ beat, replayKey, lite }) {
           <span className="t-mono name">{C.attribution}</span>
           <span className="src">{C.source}</span>
         </figcaption>
-        <div className="s1-hint t-mono">{C.hint}</div>
+
       </figure>
 
       <Vignette strength={0.18} />

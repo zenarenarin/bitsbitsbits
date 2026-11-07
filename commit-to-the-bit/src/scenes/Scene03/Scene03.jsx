@@ -25,16 +25,13 @@ const FAR = [
   { kind: 'discs', x: 980, y: 830, s: 1.2, h: 360, size: 120, n: 3, fill: 'mist', stem: '#0b3e40' },
   { kind: 'cone', x: 1120, y: 840, s: 1, h: 300, w: 110, fill: 'mist' },
   { kind: 'discs', x: 1780, y: 840, s: 1.3, h: 420, size: 120, n: 3, fill: 'mist', stem: '#0b3e40' },
-  { kind: 'canopy', x: 1320, y: 840, s: 0.8, fill: 'mist', trunk: '#0b3e40', seed: 3 },
   { kind: 'cone', x: 640, y: 800, s: 0.9, h: 280, w: 100, fill: 'mist' },
-  { kind: 'canopy', x: 120, y: 800, s: 0.9, fill: 'mist', trunk: '#0b3e40', seed: 7 },
 ];
 
 const NEAR = [
   { kind: 'paddle', x: -110, y: 1150, s: 1, r: 48, h: 460, w: 190, stripes: 6, fill: 'forest', stripe: '#03201a' },
   { kind: 'tuft', x: 190, y: 800, s: 1.4, fill: 'jade', seed: 2 },
   { kind: 'tuft', x: 560, y: 800, s: 1.1, fill: 'jade', seed: 4 },
-  { kind: 'lantern', x: 640, y: 800, s: 0.9, h: 220, bend: 0.5, fill: 'sun', stem: '#0b3a35' },
   { kind: 'tuft', x: 1330, y: 840, s: 1.2, fill: 'jade', seed: 6 },
   { kind: 'frond', x: 1700, y: 850, s: 0.9, r: 10, h: 300, n: 10, leaf: 40, bend: 0.3, fill: 'jade', stem: '#0b3a35' },
   { kind: 'blade', x: 1890, y: 1110, r: -20, h: 560, w: 100, bend: -0.3, fill: 'forest' },
@@ -425,9 +422,6 @@ export default function Scene03({ beat, replayKey, lite }) {
         </g>
       </svg>
 
-      <div className="s3-kicker t-mono">
-        <span className="idx">{C.index}</span> {C.kicker}
-      </div>
       <div className="s3-hwrap">
         <h2 className="t-display s3-h s3-h0">
           {C.headline.map((l, i) => (
@@ -449,7 +443,6 @@ export default function Scene03({ beat, replayKey, lite }) {
       <div className="s3-attempt t-mono">
         {C.attempt} <span>{String(Math.max(1, count + (st.current.busy ? 1 : 0))).padStart(2, '0')}</span>
       </div>
-      <div className="s3-hint t-mono">{C.yourTurn}</div>
       <Vignette strength={0.5} />
     </div>
   );

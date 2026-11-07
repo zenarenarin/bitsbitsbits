@@ -1,0 +1,139 @@
+.s4 {
+  background: #0a1430;
+  color: var(--cream);
+}
+
+.s4-half {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 960px;
+}
+
+/* top down: analytical strata */
+.s4-half-l {
+  left: 0;
+  background:
+    repeating-linear-gradient(180deg, transparent 0 59px, rgba(245, 234, 211, 0.035) 59px 60px),
+    linear-gradient(180deg, #0b1638 0%, #101d4a 100%);
+}
+
+/* bottom up: an emergent field of points */
+.s4-half-r {
+  left: 960px;
+  background:
+    radial-gradient(circle, rgba(52, 214, 194, 0.16) 1.5px, transparent 1.8px) 0 0 / 36px 36px,
+    linear-gradient(0deg, #0a2b36 0%, #0c2232 100%);
+}
+
+.s4-head {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 30px;
+  margin: 0;
+  text-align: center;
+  font-size: 96px;
+  font-weight: 400;
+  line-height: 1;
+  z-index: 5;
+}
+
+.s4-head .t-display {
+  font-size: 104px;
+}
+
+.s4-head .t-quote {
+  font-size: 80px;
+  color: rgba(245, 234, 211, 0.85);
+}
+
+.s4-anchor {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  z-index: 5;
+}
+
+.s4-anchor .t-display {
+  font-size: 150px;
+  line-height: 0.82;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.s4-anchor-top {
+  left: 80px;
+  top: 230px;
+  color: #ff8a6a;
+}
+
+.s4-anchor-bot {
+  right: 80px;
+  bottom: 70px;
+  align-items: flex-end;
+  color: #34d6c2;
+}
+
+.s4-arrow {
+  margin: 22px 6px;
+}
+
+.s4-ex {
+  position: absolute;
+  width: 330px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 5;
+}
+
+.s4-ex .g {
+  font-size: 48px;
+  color: var(--cream);
+}
+
+.s4-ex .l {
+  font-family: var(--f-text);
+  font-size: 28px;
+  line-height: 1.3;
+  color: rgba(245, 234, 211, 0.82);
+}
+
+.s4-ex-top {
+  left: 80px;
+  top: 740px;
+}
+
+.s4-ex-bot {
+  right: 80px;
+  top: 236px;
+  text-align: right;
+  align-items: flex-end;
+}
+
+.s4-lvl {
+  position: absolute;
+  font-size: 18px;
+  color: rgba(245, 234, 211, 0.6);
+  z-index: 5;
+}
+
+.s4-lvl-m {
+  transform: translateX(-50%);
+  color: #ff8a6a;
+  font-size: 22px;
+  padding: 8px 18px;
+  border: 1.5px solid rgba(255, 106, 85, 0.6);
+  border-radius: 999px;
+  background: #0a1430;
+}
+
+.s4-meet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 0;
+  pointer-events: none;
+}

@@ -40,7 +40,7 @@
 }
 
 .op-title {
-  font-size: 214px;
+  font-size: 250px;
   color: var(--cream);
   line-height: 0.82;
   letter-spacing: 0.002em;
@@ -62,7 +62,7 @@
 .op-sub {
   margin: 34px 0 0;
   font-family: var(--f-text);
-  font-size: 34px;
+  font-size: 38px;
   font-weight: 400;
   letter-spacing: 0.01em;
   color: rgba(245, 234, 211, 0.86);
@@ -90,8 +90,8 @@
   right: 0;
   bottom: 52px;
   text-align: center;
-  font-size: 15px;
-  letter-spacing: 0.4em;
+  font-size: 17px;
+  letter-spacing: 0.32em;
   color: rgba(245, 234, 211, 0.6);
   z-index: 12;
 }

@@ -1,0 +1,150 @@
+.s6 {
+  background: #0b3a40;
+  color: var(--cream);
+}
+
+.s6-world canvas {
+  display: block;
+}
+
+/* keeps type legible over the 3D world without boxing it in */
+.s6-shade {
+  background:
+    linear-gradient(90deg, rgba(3, 22, 26, 0.72) 0%, rgba(3, 22, 26, 0.35) 34%, transparent 55%),
+    linear-gradient(0deg, rgba(3, 22, 26, 0.65) 0%, transparent 22%);
+}
+
+.s6-open {
+  position: absolute;
+  left: 110px;
+  bottom: 70px;
+  font-size: 330px;
+  line-height: 0.86;
+  color: var(--cream);
+  letter-spacing: -0.02em;
+  text-shadow: 0 10px 60px rgba(3, 22, 26, 0.5);
+}
+
+.s6-head {
+  position: absolute;
+  left: 110px;
+  top: 90px;
+  font-size: 170px;
+  line-height: 0.88;
+  margin: 0;
+}
+
+.s6-head .accent {
+  color: #ffc94a;
+}
+
+.s6-support {
+  position: absolute;
+  left: 116px;
+  top: 440px;
+  width: 560px;
+  margin: 0;
+  font-family: var(--f-serif);
+  font-style: italic;
+  font-size: 40px;
+  line-height: 1.18;
+  color: rgba(245, 234, 211, 0.92);
+}
+
+.s6-hud {
+  position: absolute;
+  right: 80px;
+  top: 92px;
+  display: flex;
+  gap: 40px;
+  font-size: 34px;
+  letter-spacing: 0.06em;
+  color: var(--cream);
+}
+
+.s6-hud .warn {
+  color: #ff6a55;
+}
+
+.s6-hud .hearts {
+  color: #ff8a6a;
+}
+
+.s6-hud .hearts i {
+  font-style: normal;
+  opacity: 0.25;
+}
+
+.s6-chips {
+  position: absolute;
+  left: 110px;
+  bottom: 56px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  width: 1400px;
+}
+
+.s6-chip,
+.s6-clear {
+  appearance: none;
+  border: 1.5px solid rgba(245, 234, 211, 0.5);
+  background: rgba(3, 22, 26, 0.45);
+  color: var(--cream);
+  border-radius: 999px;
+  padding: 12px 22px 12px 14px;
+  font-family: var(--f-text);
+  font-weight: 500;
+  font-size: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: background 0.25s, color 0.25s, border-color 0.25s, transform 0.25s var(--ease-out);
+}
+
+.s6-chip .k,
+.s6-clear .k {
+  font-family: var(--f-mono);
+  font-size: 15px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  background: rgba(245, 234, 211, 0.14);
+}
+
+.s6-chip:hover {
+  transform: translateY(-3px);
+}
+
+.s6-chip.on {
+  background: #ffc94a;
+  border-color: #ffc94a;
+  color: #0b2a2e;
+}
+
+.s6-chip.on .k {
+  background: rgba(11, 42, 46, 0.15);
+}
+
+.s6-clear {
+  border-color: transparent;
+  background: transparent;
+  opacity: 0.75;
+  padding-left: 22px;
+}
+
+/* information: you can only see what's near you */
+.s6-fog {
+  --fx: 960px;
+  --fy: 540px;
+  background: radial-gradient(circle at var(--fx) var(--fy), transparent 0, transparent 110px, rgba(2, 12, 14, 0.94) 300px);
+  opacity: 0;
+  transition: opacity 1.2s;
+}
+
+.s6-fog.on {
+  opacity: 1;
+}

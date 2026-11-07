@@ -22,8 +22,9 @@
 .c1-kicker {
   position: absolute;
   left: 128px;
-  top: 104px;
-  color: rgba(245, 234, 211, 0.7);
+  top: 96px;
+  font-size: 20px;
+  color: var(--sun);
   z-index: 10;
 }
 
@@ -34,8 +35,8 @@
 .c1-title {
   position: absolute;
   left: 124px;
-  top: 140px;
-  font-size: 120px;
+  top: 128px;
+  font-size: 150px;
   color: var(--cream);
   z-index: 10;
 }
@@ -81,7 +82,7 @@
 }
 
 .c1-ing-tag {
-  font-size: 13px;
+  font-size: 15px;
   opacity: 0.6;
 }
 
@@ -94,8 +95,9 @@
 }
 
 .c1-ing-name {
-  font-size: 92px;
-  line-height: 0.86;
+  font-size: 104px;
+  line-height: 0.84;
+  text-transform: uppercase;
   margin-top: 4px;
 }
 
@@ -122,8 +124,8 @@
 }
 
 .c1-count .t-mono {
-  font-size: 13px;
-  color: rgba(245, 234, 211, 0.6);
+  font-size: 16px;
+  color: rgba(245, 234, 211, 0.65);
   margin-top: 10px;
 }
 
@@ -131,9 +133,9 @@
   position: absolute;
   left: 0;
   right: 0;
-  top: 768px;
+  top: 762px;
   text-align: center;
-  font-size: 32px;
+  font-size: 36px;
   margin: 0;
   color: rgba(245, 234, 211, 0.92);
   z-index: 10;
@@ -161,12 +163,12 @@
 
 .c1-prompt .n {
   color: rgba(245, 234, 211, 0.55);
-  font-size: 14px;
+  font-size: 17px;
   transition: color 0.5s;
 }
 
 .c1-prompt .q {
-  font-size: 28px;
+  font-size: 32px;
   line-height: 1.2;
 }
 
@@ -202,8 +204,8 @@
 .c1-controls .ctrl {
   color: var(--cream);
   border-color: rgba(245, 234, 211, 0.45);
-  padding: 11px 20px 10px;
-  font-size: 13px;
+  padding: 13px 22px 12px;
+  font-size: 15px;
 }
 
 .c1-controls .ctrl.solid {

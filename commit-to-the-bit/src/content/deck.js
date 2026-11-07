@@ -70,14 +70,83 @@ export const scene03 = {
   yourTurn: 'Your turn — pull back the seed and let go',
 };
 
-// Screens still in production (Phase 3–5). Shown as chapter cards so the
-// whole running order can be rehearsed today.
-export const upcoming = [
-  { index: '04', title: 'Two ways to build a game', phase: 'Phase 3' },
-  { index: '05', title: 'Games have a grammar', phase: 'Phase 3' },
-  { index: '06', title: 'Possibility needs limits', phase: 'Phase 3' },
-  { index: '07', title: 'Same rules. New problems.', phase: 'Phase 3' },
-  { index: '08', title: 'Four games. Four recipes.', phase: 'Phase 4' },
-  { index: '09', title: 'The flow state', phase: 'Phase 5' },
-  { index: '10', title: 'Connect. The. Dots.', phase: 'Phase 5' },
-];
+export const scene04 = {
+  headline: ['Two ways', 'to build a game.'],
+  topDown: 'Top down',
+  bottomUp: 'Bottom up',
+  left: ['Concept', 'Rules', 'Mechanics', 'Details'],
+  right: ['Action', 'Interaction', 'Mechanics', 'Game'],
+  meet: 'Mechanics',
+  examples: {
+    topDown: { game: 'Papers, Please', line: 'Start with a role: an immigration inspector.' },
+    bottomUp: { game: '2048', line: 'Start with an action: slide a tile. Equal tiles merge.' },
+  },
+  note: 'Illustrative approaches, not development histories.',
+};
+
+export const scene05 = {
+  headline: ['Games have', 'a grammar.'],
+  slots: [
+    { key: 'action', label: 'Player does', options: ['tap', 'drag', 'hold', 'aim'] },
+    { key: 'world', label: 'World does', options: ['bounce', 'fall', 'move', 'spawn'] },
+    { key: 'goal', label: 'To win', options: ['avoid', 'collect', 'survive'] },
+  ],
+  score: 'Score',
+  best: 'Best',
+  leaderboard: 'A leaderboard gives someone a reason to beat your score.',
+  reset: 'Reset',
+};
+
+export const scene06 = {
+  open: 'Possibility.',
+  headline: ['A game needs', 'limits.'],
+  support: 'An objective plus constraints turns possibility into play.',
+  constraints: [
+    { key: 'space', label: 'Space' },
+    { key: 'time', label: 'Time' },
+    { key: 'goal', label: 'Objective' },
+    { key: 'enemies', label: 'Enemies' },
+    { key: 'lives', label: 'Lives' },
+    { key: 'level', label: 'Level design' },
+    { key: 'info', label: 'Information' },
+    { key: 'resources', label: 'Resources' },
+  ],
+  clear: 'Clear',
+};
+
+export const scene07 = {
+  headline: ['Same rules.', 'New problems.'],
+  stages: [
+    { n: '01', word: 'Generous.' },
+    { n: '02', word: 'Faster. Tighter.' },
+    { n: '03', word: 'Smarter.' },
+  ],
+  speed: 'Speed',
+};
+
+export const scene08 = {
+  headline: ['Four games.', 'Four recipes.'],
+  placeholder: 'Gameplay footage to be added',
+  games: [
+    { id: 'flappy-bird', title: 'Flappy Bird', aspect: 9 / 16, recipe: [['tap', 'action'], ['gravity', 'world'], ['obstacles', 'limit'], ['survival', 'goal']] },
+    { id: '2048', title: '2048', aspect: 9 / 16, recipe: [['swipe', 'action'], ['merge', 'world'], ['limited space', 'limit'], ['high score', 'goal']] },
+    { id: 'tetris', title: 'Tetris', aspect: 3 / 4, recipe: [['move · rotate', 'action'], ['falling pieces', 'world'], ['time pressure', 'limit'], ['spatial strategy', 'goal']] },
+    { id: 'candy-crush', title: 'Candy Crush', aspect: 9 / 16, recipe: [['swap', 'action'], ['cascade', 'world'], ['limited moves', 'limit'], ['match', 'goal']] },
+  ],
+  legend: { action: 'action', world: 'world', limit: 'limit', goal: 'goal' },
+};
+
+export const scene09 = {
+  headline: ['Hard enough', 'to feel rewarding.', 'Easy enough', 'to try again.'],
+  states: { boredom: 'Boredom', flow: 'Flow', frustration: 'Frustration' },
+  challenge: 'Challenge',
+  skill: 'Skill',
+  arcade: ['Pac-Man', 'Space Invaders', 'Tempest', 'Tetris'],
+  arcadeNote: 'Each wave, a little harder.',
+};
+
+export const scene10 = {
+  words: ['Connect.', 'The.', 'Dots.'],
+  now: 'Now make one.',
+  signature: 'Commit to the Bit',
+};

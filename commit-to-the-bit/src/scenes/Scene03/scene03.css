@@ -24,7 +24,7 @@
 .s3-hwrap {
   position: absolute;
   left: 124px;
-  top: 150px;
+  top: 96px;
   z-index: 10;
   pointer-events: none;
 }
@@ -34,9 +34,9 @@
   left: 0;
   top: 0;
   white-space: nowrap;
-  font-size: 140px;
+  font-size: 176px;
   color: var(--cream);
-  line-height: 0.88;
+  line-height: 0.86;
 }
 
 .s3-h1 {
@@ -46,8 +46,8 @@
 .s3-support {
   position: absolute;
   left: 128px;
-  top: 430px;
-  font-size: 46px;
+  top: 432px;
+  font-size: 52px;
   color: rgba(245, 234, 211, 0.92);
   z-index: 10;
 }
@@ -60,7 +60,7 @@
 .s3-label {
   position: absolute;
   transform: translateX(-50%);
-  font-size: 14px;
+  font-size: 19px;
   color: #ff9a72;
   z-index: 13;
   white-space: nowrap;
@@ -69,7 +69,7 @@
 
 .s3-label.hit {
   color: var(--sun);
-  font-size: 16px;
+  font-size: 22px;
 }
 
 @keyframes s3-pop {
@@ -82,16 +82,16 @@
 .s3-attempt {
   position: absolute;
   left: 210px;
-  top: 862px;
-  font-size: 14px;
+  top: 870px;
+  font-size: 19px;
   color: rgba(245, 234, 211, 0.6);
   z-index: 12;
 }
 
 .s3-attempt span {
   color: var(--sun);
-  margin-left: 10px;
-  font-size: 20px;
+  margin-left: 12px;
+  font-size: 30px;
 }
 
 .s3-hint {

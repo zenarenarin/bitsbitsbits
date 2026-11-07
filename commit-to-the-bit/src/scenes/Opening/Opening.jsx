@@ -227,7 +227,7 @@ export default function Opening({ beat, replayKey, lite }) {
           <img src="./assets/brand/plethora-wordmark.png" alt="Plethora" />
           <span className="t-mono">{C.presents}</span>
         </div>
-        <h1 className="t-display op-title">
+        <h1 className="t-display caps op-title">
           <span className="mask-line">
             <span className="split-line">{C.title[0]}</span>
           </span>

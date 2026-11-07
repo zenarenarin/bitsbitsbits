@@ -20,6 +20,9 @@ export const TransitionLayer = forwardRef(function TransitionLayer(_, ref) {
   const hole = useRef(null);
   const leaves = useRef(null);
   const slit = useRef(null);
+  const band = useRef(null);
+  const quads = useRef(null);
+  const veil = useRef(null);
 
   // park the leaf bands off-stage so they never sit over another transition
   useLayoutEffect(() => {
@@ -70,6 +73,36 @@ export const TransitionLayer = forwardRef(function TransitionLayer(_, ref) {
             .to(top, { attr: { y: -560 }, duration: 0.8, ease: 'expo.out' }, '+=0.08')
             .to(bot, { attr: { y: 1080 }, duration: 0.8, ease: 'expo.out' }, '<')
             .to(line, { attr: { x1: 960, x2: 960 }, opacity: 0, duration: 0.6, ease: 'power2.in' }, '<0.15');
+        } else if (type === 'band') {
+          // a single layer of the outgoing slide expands and becomes the next one
+          const oy = origin[1];
+          const [top, bot] = slit.current.children;
+          gsap.set(band.current, { fill: color, attr: { y: oy - 3, height: 6 }, opacity: 1 });
+          whoosh({ dur: 0.8, from: 300, to: 1600, vol: 0.14 });
+          tl.to(band.current, { attr: { y: 0, height: 1080 }, duration: 0.65, ease: 'power3.in' })
+            .add(() => onCovered && onCovered())
+            .set(band.current, { opacity: 0 })
+            .set(top, { fill: color, attr: { y: -20, height: oy + 20 } })
+            .set(bot, { fill: color, attr: { y: oy, height: 1100 - oy } })
+            .to(top, { attr: { y: -oy - 40 }, duration: 0.85, ease: 'expo.inOut' }, '+=0.05')
+            .to(bot, { attr: { y: 1100 }, duration: 0.85, ease: 'expo.inOut' }, '<')
+            .set([top, bot], { attr: { height: 560 } })
+            .set(top, { attr: { y: -560 } });
+        } else if (type === 'split') {
+          // one world separates into four
+          const qs = quads.current.children;
+          const out = [[-980, -560], [980, -560], [-980, 560], [980, 560]];
+          gsap.set(qs, { fill: color, x: 0, y: 0, opacity: 0 });
+          whoosh({ dur: 1, from: 400, to: 2200, vol: 0.16 });
+          tl.to(qs, { opacity: 1, duration: 0.45, ease: 'power2.in' })
+            .add(() => onCovered && onCovered())
+            .to(qs, { x: (i) => out[i][0], y: (i) => out[i][1], duration: 1, ease: 'expo.inOut', stagger: 0.05 }, '+=0.1')
+            .set(qs, { opacity: 0, x: 0, y: 0 });
+        } else if (type === 'dissolve') {
+          gsap.set(veil.current, { fill: color, opacity: 0 });
+          tl.to(veil.current, { opacity: 1, duration: 0.8, ease: 'sine.inOut' })
+            .add(() => onCovered && onCovered())
+            .to(veil.current, { opacity: 0, duration: 1.2, ease: 'sine.inOut' }, '+=0.15');
         } else {
           onCovered && onCovered();
           tl.to({}, { duration: 0.01 });
@@ -86,6 +119,14 @@ export const TransitionLayer = forwardRef(function TransitionLayer(_, ref) {
         <circle ref={irisRing} r="0" fill="none" strokeWidth="10" />
         <circle ref={iris} r="0" />
         <path ref={hole} fillRule="evenodd" d="" />
+        <rect ref={band} x="-20" y="540" width="1960" height="0" opacity="0" />
+        <rect ref={veil} x="-20" y="-20" width="1960" height="1120" opacity="0" />
+        <g ref={quads}>
+          <rect x="-20" y="-20" width="981" height="561" opacity="0" />
+          <rect x="959" y="-20" width="981" height="561" opacity="0" />
+          <rect x="-20" y="539" width="981" height="561" opacity="0" />
+          <rect x="959" y="539" width="981" height="561" opacity="0" />
+        </g>
         <g ref={slit}>
           <rect x="-20" y="-560" width="1960" height="560" />
           <rect x="-20" y="1080" width="1960" height="560" />

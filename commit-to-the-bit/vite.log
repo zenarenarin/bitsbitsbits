@@ -1,0 +1,73 @@
+Re-optimizing dependencies because lockfile has changed
+
+  VITE v5.4.11  ready in 149 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: http://192.0.2.2:5173/
+Error: The following dependencies are imported but could not be resolved:
+
+  @fontsource/big-shoulders-display/600.css (imported by /home/user/bitsbitsbits/commit-to-the-bit/src/main.jsx)
+  @fontsource/big-shoulders-display/800.css (imported by /home/user/bitsbitsbits/commit-to-the-bit/src/main.jsx)
+  @fontsource/big-shoulders-display/900.css (imported by /home/user/bitsbitsbits/commit-to-the-bit/src/main.jsx)
+
+Are they installed?
+    at file:///home/user/bitsbitsbits/commit-to-the-bit/node_modules/vite/dist/node/chunks/dep-CB_7IfJ-.js:50666:15
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async file:///home/user/bitsbitsbits/commit-to-the-bit/node_modules/vite/dist/node/chunks/dep-CB_7IfJ-.js:50171:26
+6:06:06 PM [vite] Pre-transform error: Failed to resolve import "@fontsource/big-shoulders-display/600.css" from "src/main.jsx". Does the file exist?
+6:06:06 PM [vite] Internal server error: Failed to resolve import "@fontsource/big-shoulders-display/600.css" from "src/main.jsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /home/user/bitsbitsbits/commit-to-the-bit/src/main.jsx:2:7
+  1  |  import { jsxDEV } from "react/jsx-dev-runtime";
+  2  |  import { createRoot } from "react-dom/client";
+  3  |  import "@fontsource/big-shoulders-display/600.css";
+     |          ^
+  4  |  import "@fontsource/big-shoulders-display/800.css";
+  5  |  import "@fontsource/big-shoulders-display/900.css";
+      at TransformPluginContext._formatError (file:///home/user/bitsbitsbits/commit-to-the-bit/node_modules/vite/dist/node/chunks/dep-CB_7IfJ-.js:49255:41)
+      at TransformPluginContext.error (file:///home/user/bitsbitsbits/commit-to-the-bit/node_modules/vite/dist/node/chunks/dep-CB_7IfJ-.js:49250:16)
+      at normalizeUrl (file:///home/user/bitsbitsbits/commit-to-the-bit/node_modules/vite/dist/node/chunks/dep-CB_7IfJ-.js:64041:23)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async file:///home/user/bitsbitsbits/commit-to-the-bit/node_modules/vite/dist/node/chunks/dep-CB_7IfJ-.js:64173:39
+      at async Promise.all (index 2)
+      at async TransformPluginContext.transform (file:///home/user/bitsbitsbits/commit-to-the-bit/node_modules/vite/dist/node/chunks/dep-CB_7IfJ-.js:64100:7)
+      at async PluginContainer.transform (file:///home/user/bitsbitsbits/commit-to-the-bit/node_modules/vite/dist/node/chunks/dep-CB_7IfJ-.js:49096:18)
+      at async loadAndTransform (file:///home/user/bitsbitsbits/commit-to-the-bit/node_modules/vite/dist/node/chunks/dep-CB_7IfJ-.js:51929:27)
+      at async viteTransformMiddleware (file:///home/user/bitsbitsbits/commit-to-the-bit/node_modules/vite/dist/node/chunks/dep-CB_7IfJ-.js:61881:24)
+6:06:14 PM [vite] Pre-transform error: Failed to resolve import "@fontsource/big-shoulders-display/600.css" from "src/main.jsx". Does the file exist?
+6:06:14 PM [vite] Internal server error: Failed to resolve import "@fontsource/big-shoulders-display/600.css" from "src/main.jsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /home/user/bitsbitsbits/commit-to-the-bit/src/main.jsx:2:7
+  1  |  import { jsxDEV } from "react/jsx-dev-runtime";
+  2  |  import { createRoot } from "react-dom/client";
+  3  |  import "@fontsource/big-shoulders-display/600.css";
+     |          ^
+  4  |  import "@fontsource/big-shoulders-display/800.css";
+  5  |  import "@fontsource/big-shoulders-display/900.css";
+      at TransformPluginContext._formatError (file:///home/user/bitsbitsbits/commit-to-the-bit/node_modules/vite/dist/node/chunks/dep-CB_7IfJ-.js:49255:41)
+      at TransformPluginContext.error (file:///home/user/bitsbitsbits/commit-to-the-bit/node_modules/vite/dist/node/chunks/dep-CB_7IfJ-.js:49250:16)
+      at normalizeUrl (file:///home/user/bitsbitsbits/commit-to-the-bit/node_modules/vite/dist/node/chunks/dep-CB_7IfJ-.js:64041:23)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async file:///home/user/bitsbitsbits/commit-to-the-bit/node_modules/vite/dist/node/chunks/dep-CB_7IfJ-.js:64173:39
+      at async Promise.all (index 2)
+      at async TransformPluginContext.transform (file:///home/user/bitsbitsbits/commit-to-the-bit/node_modules/vite/dist/node/chunks/dep-CB_7IfJ-.js:64100:7)
+      at async PluginContainer.transform (file:///home/user/bitsbitsbits/commit-to-the-bit/node_modules/vite/dist/node/chunks/dep-CB_7IfJ-.js:49096:18)
+      at async loadAndTransform (file:///home/user/bitsbitsbits/commit-to-the-bit/node_modules/vite/dist/node/chunks/dep-CB_7IfJ-.js:51929:27)
+      at async viteTransformMiddleware (file:///home/user/bitsbitsbits/commit-to-the-bit/node_modules/vite/dist/node/chunks/dep-CB_7IfJ-.js:61881:24)
+6:06:21 PM [vite] page reload vite.config.js.timestamp-1794074781585-21bb21645ac2c.mjs
+6:06:35 PM [vite] page reload src/main.jsx
+6:08:11 PM [vite] hmr update /src/scenes/Scene04/Scene04.jsx
+6:10:03 PM [vite] hmr update /src/scenes/Scene04/Scene04.jsx
+6:10:03 PM [vite] hmr update /src/scenes/Scene04/scene04.css
+6:13:19 PM [vite] hmr update /src/App.jsx
+6:13:41 PM [vite] hmr update /src/scenes/Scene05/Scene05.jsx
+6:13:41 PM [vite] hmr update /src/scenes/Scene05/Scene05.jsx
+6:13:41 PM [vite] hmr update /src/scenes/Scene05/scene05.css
+6:13:41 PM [vite] hmr update /src/App.jsx
+6:16:21 PM [vite] hmr update /src/App.jsx
+6:17:33 PM [vite] hmr update /src/scenes/Scene06/Scene06.jsx
+6:17:33 PM [vite] hmr update /src/scenes/Scene06/Scene06.jsx
+6:18:09 PM [vite] hmr update /src/scenes/Scene06/Scene06.jsx
+6:18:09 PM [vite] hmr update /src/scenes/Scene06/Scene06.jsx
+6:18:09 PM [vite] hmr update /src/scenes/Scene06/scene06.css
+6:18:40 PM [vite] hmr update /src/scenes/Scene06/Scene06.jsx

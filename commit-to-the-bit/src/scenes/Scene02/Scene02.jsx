@@ -51,7 +51,6 @@ const FLOOR = [
   { kind: 'twig', x: 120, y: 1090, s: 1.1, h: 280, bend: 0.4, buds: 6, fill: 'coral', stem: '#2a0f45', seed: 3, bud: 13 },
   { kind: 'frond', x: 40, y: 1100, r: 14, h: 380, n: 11, leaf: 44, bend: 0.35, fill: 'indigo', stem: '#1a1048' },
   { kind: 'tuft', x: 230, y: 1080, s: 1.4, fill: 'plum', seed: 5 },
-  { kind: 'lantern', x: 300, y: 1090, s: 0.9, h: 220, bend: 0.5, fill: 'sun', stem: '#2a0f45' },
   { kind: 'twig', x: 1800, y: 1090, s: 1.1, h: 300, bend: -0.4, buds: 7, fill: 'magenta', stem: '#2a0f45', seed: 8, bud: 12 },
   { kind: 'frond', x: 1900, y: 1100, r: -14, h: 400, n: 11, leaf: 46, bend: -0.35, fill: 'indigo', stem: '#1a1048' },
   { kind: 'tuft', x: 1680, y: 1080, s: 1.4, fill: 'plum', seed: 9 },
@@ -424,9 +423,6 @@ export default function Scene02({ beat, replayKey, lite }) {
         </g>
       </svg>
 
-      <div className="s2-kicker t-mono">
-        <span className="idx">{C.index}</span> {C.kicker}
-      </div>
       <div className="s2-words">
         <h2 className="t-display s2-w s2-w0">
           <Split text={C.words[0]} />
@@ -442,7 +438,6 @@ export default function Scene02({ beat, replayKey, lite }) {
           ))}
         </p>
       </div>
-      <div className="s2-hint t-mono">{C.hint}</div>
       <Vignette strength={0.5} />
     </div>
   );
