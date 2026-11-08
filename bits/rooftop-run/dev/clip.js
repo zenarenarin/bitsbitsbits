@@ -1,9 +1,9 @@
 // Record a gameplay clip: an autopilot drives the real controller through the
 // slice to the relay; the game's clock is frozen and stepped exactly 1/30 s per video frame.
-// Usage: (serve on :8765) node dev/clip.js <framesDir> [landscape|portrait]
+// Usage: (serve on :8765) node dev/clip.js <framesDir> [landscape|portrait] [high|centre|low]
 const { chromium } = require('playwright');
 const pilot = require('./pilot.js');
-const out = process.argv[2], orient = process.argv[3] || 'landscape';
+const out = process.argv[2], orient = process.argv[3] || 'landscape', route = process.argv[4] || 'high';
 const vp = orient === 'portrait' ? { width: 450, height: 976 } : { width: 1280, height: 592 };
 (async () => {
   const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
@@ -14,6 +14,7 @@ const vp = orient === 'portrait' ? { width: 450, height: 976 } : { width: 1280, 
   // the harness's white logo stand-in is a layout aid, not part of the game
   await page.evaluate(() => { for (const d of document.body.children) if (d.style && d.style.zIndex === '99') d.style.display = 'none'; const r = window.__rr; r.begin(); r.freeze(true); });
   await page.evaluate(pilot);
+  await page.evaluate(r => window.__route(r), route);
   await page.evaluate(() => {
     const r = window.__rr, c = r.cat;
     window.__tick = () => { for (let i = 0; i < 2; i++) { r.sim(window.__pilot(c, r.hazards)); r.frame(); } return r.mode === 'result' ? 1 : 0; };
