@@ -26,6 +26,12 @@ class World {
     }
     return b;
   }
+  // streaming: a section's shapes leave the world when it is disposed
+  remove(list) {
+    const gone = new Set(list);
+    for (const [cz, l] of this.grid) { const k = l.filter(b => !gone.has(b)); if (k.length) this.grid.set(cz, k); else this.grid.delete(cz); }
+    for (const b of list) { b.gone = true; this.boxes[b.id] = null; }
+  }
   near(z0, z1) {
     const out = [], seen = this._seen || (this._seen = new Set()); seen.clear();
     for (let cz = Math.floor(z0 / this.cell); cz <= Math.floor(z1 / this.cell); cz++) {

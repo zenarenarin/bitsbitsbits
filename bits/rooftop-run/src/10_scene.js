@@ -7,29 +7,68 @@
 // horizon. Static geometry is merged per material: a handful of draw calls.
 // =====================================================================
 
-function createScene(THREE, A, scene, world, slice, hazards, opts) {
+function createScene(THREE, A, scene, opts) {
   const { M } = A;
-  const root = new THREE.Group(); scene.add(root);
+  const groot = new THREE.Group(); scene.add(groot);
+  const gGeo = [], gMat = [];
+  const keepG = g => { gGeo.push(g); return g; };
+  const ownG = m => { gMat.push(m); return m; };
+  const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _e = new THREE.Euler();
+  const xf = (x, y, z, sx, sy, sz, rx, ry, rz) => _m.compose(_p.set(x, y, z), _q.setFromEuler(_e.set(rx || 0, ry || 0, rz || 0)), _s.set(sx, sy, sz));
+  const G = {
+    cyl: keepG(new THREE.CylinderGeometry(1, 1, 1, 20, 1)), cyl8: keepG(new THREE.CylinderGeometry(1, 1, 1, 8, 1)),
+    box: keepG(new THREE.BoxGeometry(1, 1, 1)), dish: keepG(new THREE.SphereGeometry(1, 12, 6, 0, TAU, 0, 0.9)),
+    torus: keepG(new THREE.TorusGeometry(1, 0.12, 6, 16)), cone: keepG(new THREE.ConeGeometry(1, 1, 7))
+  };
+  const PL = PAL.plaster.map(hex3), WHITE = [1, 1, 1];
+  const plasterOf = b => PL[((b.plaster !== undefined ? b.plaster : b.id) % PL.length + PL.length) % PL.length];
+  const lowCol = hex3('#14161b');
+
+  // ---------------- steam and smoke: pooled particles ----------------
+  const PART_VS = 'attribute float aLife; attribute float aSize; varying float vLife; varying float vNear; uniform float uScale; void main(){ vLife = aLife; vec4 mv = modelViewMatrix * vec4(position,1.0); vNear = smoothstep(0.5, 2.6, -mv.z); gl_PointSize = aSize * (0.6 + aLife * 1.6) * uScale / max(0.1, -mv.z); gl_Position = projectionMatrix * mv; }';
+  // particles thin out as they reach the lens, so steam never walls off the view
+const PART_FS = 'uniform sampler2D map; uniform vec3 color; uniform float opacity; varying float vLife; varying float vNear; void main(){ if (vLife <= 0.0 || vLife >= 1.0) discard; vec4 t = texture2D(map, gl_PointCoord); float a = t.a * opacity * vNear * smoothstep(0.0, 0.12, vLife) * (1.0 - vLife); gl_FragColor = vec4(color, a); }';
+  const partMats = {};
+  function partMat(kind) {
+    if (partMats[kind]) return partMats[kind];
+    const steam = kind === 'steam';
+    return partMats[kind] = ownG(new THREE.ShaderMaterial({
+      uniforms: { map: { value: A.T.puff }, color: { value: new THREE.Color(steam ? '#d4dde2' : '#2f353d') }, opacity: { value: steam ? 0.5 : 0.5 }, uScale: { value: 300 } },
+      vertexShader: PART_VS, fragmentShader: PART_FS, transparent: true, depthWrite: false
+    }));
+  }
+  function emitter(root, keep, n, at, kind) {
+    const g = keep(new THREE.BufferGeometry());
+    const pos = new Float32Array(n * 3), life = new Float32Array(n), size = new Float32Array(n);
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('aLife', new THREE.BufferAttribute(life, 1)); g.setAttribute('aSize', new THREE.BufferAttribute(size, 1));
+    const pts = new THREE.Points(g, partMat(kind)); pts.frustumCulled = false; root.add(pts);
+    return { g, pos, life, size, vel: new Float32Array(n * 3), dur: new Float32Array(n), n, at, kind, acc: 0, next: 0 };
+  }
+  function emit(e, rate, dt, spawn) {
+    e.acc += rate * dt;
+    while (e.acc >= 1) { e.acc -= 1; const i = e.next; e.next = (e.next + 1) % e.n; spawn(i); }
+  }
+  function stepEmitter(e, dt, buoy) {
+    for (let i = 0; i < e.n; i++) {
+      if (e.life[i] <= 0 || e.life[i] >= 1) { e.life[i] = 0; continue; }
+      e.life[i] += dt / e.dur[i];
+      e.vel[i * 3 + 1] += buoy * dt; e.vel[i * 3] *= 1 - dt * 0.8; e.vel[i * 3 + 2] *= 1 - dt * 0.8;
+      for (let k = 0; k < 3; k++) e.pos[i * 3 + k] += e.vel[i * 3 + k] * dt;
+    }
+    e.g.attributes.position.needsUpdate = true; e.g.attributes.aLife.needsUpdate = true; e.g.attributes.aSize.needsUpdate = true;
+  }
+  // ---------------- a section: its architecture, detail, hazards and relay ----------------
+  function buildSection(sec, hz) {
+  const root = new THREE.Group(); groot.add(root);
   const ownGeo = [], ownMat = [];
   const keep = g => { ownGeo.push(g); return g; };
   const own = m => { ownMat.push(m); return m; };
   const B = new Batch();          // near: casts and receives shadows
   const BF = new Batch();         // scenery and far layers: no shadows
-  const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _e = new THREE.Euler();
-  const xf = (x, y, z, sx, sy, sz, rx, ry, rz) => _m.compose(_p.set(x, y, z), _q.setFromEuler(_e.set(rx || 0, ry || 0, rz || 0)), _s.set(sx, sy, sz));
-  const G = {
-    cyl: keep(new THREE.CylinderGeometry(1, 1, 1, 20, 1)), cyl8: keep(new THREE.CylinderGeometry(1, 1, 1, 8, 1)),
-    box: keep(new THREE.BoxGeometry(1, 1, 1)), dish: keep(new THREE.SphereGeometry(1, 12, 6, 0, TAU, 0, 0.9)),
-    torus: keep(new THREE.TorusGeometry(1, 0.12, 6, 16)), cone: keep(new THREE.ConeGeometry(1, 1, 7))
-  };
-  const PL = PAL.plaster.map(hex3), WHITE = [1, 1, 1];
-  const plasterOf = b => PL[((b.plaster !== undefined ? b.plaster : b.id) % PL.length + PL.length) % PL.length];
-  const lowCol = hex3('#14161b');
   const T = b => (b.far ? BF : B);
-
   // ---------------- architecture from shapes ----------------
   const fades = new Map(), unstableViews = [], bridges = [];
-  for (const b of world.boxes) {
+  for (const b of sec.boxes) {
     const pc = plasterOf(b), Bt = T(b), dark = b.far ? 0.72 : 1;
     switch (b.kind) {
       case 'terrace':
@@ -136,7 +175,7 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
   function pipe(b) {
     const len = b.z1 - b.z0, zc = (b.z0 + b.z1) / 2, c = b.narrow ? hex3('#6f4f3e') : hex3('#4f6366');
     // inclined pipes run from cy at the near end to cyFar at the far end
-    const yAt = z => world.pipeY(b, z), dir = new THREE.Vector3(0, yAt(b.z0) - yAt(b.z1), -len), L = dir.length(); dir.normalize();
+    const yAt = z => (b.cyFar === undefined ? b.cy : lerp(b.cy, b.cyFar, (b.z1 - z) / (b.z1 - b.z0))), dir = new THREE.Vector3(0, yAt(b.z0) - yAt(b.z1), -len), L = dir.length(); dir.normalize();
     const along = (z, sx, sy, sz) => { _q.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir); return _m.compose(_p.set(b.cx, yAt(z), z), _q, _s.set(sx, sy, sz)); };
     const g = keep(new THREE.CylinderGeometry(b.r, b.r, L, b.narrow ? 14 : 22, 1, true));
     const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (b.r * TAU), uv.getY(i) * L / 1.5);
@@ -195,42 +234,10 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
     return { g, mat, k: 1 };
   }
 
-  // ---------------- steam and smoke: pooled particles ----------------
-  const PART_VS = 'attribute float aLife; attribute float aSize; varying float vLife; uniform float uScale; void main(){ vLife = aLife; vec4 mv = modelViewMatrix * vec4(position,1.0); gl_PointSize = aSize * (0.6 + aLife * 1.6) * uScale / max(0.1, -mv.z); gl_Position = projectionMatrix * mv; }';
-  const PART_FS = 'uniform sampler2D map; uniform vec3 color; uniform float opacity; varying float vLife; void main(){ if (vLife <= 0.0 || vLife >= 1.0) discard; vec4 t = texture2D(map, gl_PointCoord); float a = t.a * opacity * smoothstep(0.0, 0.12, vLife) * (1.0 - vLife); gl_FragColor = vec4(color, a); }';
-  const partMats = {};
-  function partMat(kind) {
-    if (partMats[kind]) return partMats[kind];
-    const steam = kind === 'steam';
-    return partMats[kind] = own(new THREE.ShaderMaterial({
-      uniforms: { map: { value: A.T.puff }, color: { value: new THREE.Color(steam ? '#d4dde2' : '#2f353d') }, opacity: { value: steam ? 0.65 : 0.5 }, uScale: { value: 300 } },
-      vertexShader: PART_VS, fragmentShader: PART_FS, transparent: true, depthWrite: false
-    }));
-  }
-  function emitter(_unused, n, at, kind) {
-    const g = keep(new THREE.BufferGeometry());
-    const pos = new Float32Array(n * 3), life = new Float32Array(n), size = new Float32Array(n);
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('aLife', new THREE.BufferAttribute(life, 1)); g.setAttribute('aSize', new THREE.BufferAttribute(size, 1));
-    const pts = new THREE.Points(g, partMat(kind)); pts.frustumCulled = false; root.add(pts);
-    return { g, pos, life, size, vel: new Float32Array(n * 3), dur: new Float32Array(n), n, at, kind, acc: 0, next: 0 };
-  }
-  function emit(e, rate, dt, spawn) {
-    e.acc += rate * dt;
-    while (e.acc >= 1) { e.acc -= 1; const i = e.next; e.next = (e.next + 1) % e.n; spawn(i); }
-  }
-  function stepEmitter(e, dt, buoy) {
-    for (let i = 0; i < e.n; i++) {
-      if (e.life[i] <= 0 || e.life[i] >= 1) { e.life[i] = 0; continue; }
-      e.life[i] += dt / e.dur[i];
-      e.vel[i * 3 + 1] += buoy * dt; e.vel[i * 3] *= 1 - dt * 0.8; e.vel[i * 3 + 2] *= 1 - dt * 0.8;
-      for (let k = 0; k < 3; k++) e.pos[i * 3 + k] += e.vel[i * 3 + k] * dt;
-    }
-    e.g.attributes.position.needsUpdate = true; e.g.attributes.aLife.needsUpdate = true; e.g.attributes.aSize.needsUpdate = true;
-  }
   // ---------------- lived-in detail and machinery ----------------
   const lamps = [], fans = [], smokes = [], signal = [], sparks = [];
   const glowMat = c => (c === 'green' ? M.glowGreen : c === 'violet' ? M.glowViolet : M.glowWarm);
-  for (const d of slice.decor) {
+  for (const d of sec.decor) {
     switch (d.kind) {
       case 'pots':
         for (let i = 0; i < 3; i++) {
@@ -263,7 +270,7 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
       case 'stack': {
         BF.geo('metal', G.cyl, xf(d.x, d.y + d.h / 2, d.z, 0.28, d.h, 0.28), hex3('#5a5650'), THREE);
         BF.geo('metal', G.cyl, xf(d.x, d.y + d.h - 0.1, d.z, 0.33, 0.12, 0.33), hex3('#2c2b2a'), THREE);
-        if (smokes.length < 6) smokes.push(emitter(M.smoke, 26, [d.x, d.y + d.h + 0.1, d.z], 'smoke'));
+        if (smokes.length < 6) smokes.push(emitter(root, keep, 26, [d.x, d.y + d.h + 0.1, d.z], 'smoke'));
         break;
       }
       case 'crossPipe': {
@@ -333,13 +340,13 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
                                     : { shape: 'gableX', x0: d.x - d.w / 2 - 0.2, x1: d.x + d.w / 2 + 0.2, z0: d.z - d.d / 2 - 0.2, z1: d.z + d.d / 2 + 0.2, y0: d.top, ye: d.top + 0.3, yr: d.top + 0.3 + d.d * 0.3, id: (d.z * 3) | 0 };
           roof(BF, rb, k * 0.9);
         }
-        if (d.stack) { BF.geo('metal', G.cyl, xf(d.x, d.top + 3, d.z, 0.5, 6, 0.5), hex3('#3c3a38'), THREE); if (smokes.length < 6) smokes.push(emitter(M.smoke, 26, [d.x, d.top + 6.2, d.z], 'smoke')); }
+        if (d.stack) { BF.geo('metal', G.cyl, xf(d.x, d.top + 3, d.z, 0.5, 6, 0.5), hex3('#3c3a38'), THREE); if (smokes.length < 6) smokes.push(emitter(root, keep, 26, [d.x, d.top + 6.2, d.z], 'smoke')); }
         break;
       }
     }
   }
   // two industrial fans in the alleys, turning
-  for (const [x, y, z, ry] of [[3.6, 0.9, -39, -Math.PI / 2], [-2.6, 1.1, -57.5, Math.PI / 2]]) {
+  for (const [x, y, z, ry] of sec.fans || []) {
     B.box(x - 0.15, x + 0.15, y - 0.75, y + 0.75, z - 0.75, z + 0.75, { top: 'metal', side: 'metal', sideCol: hex3('#3e4648'), topCol: hex3('#4a5355'), uvSide: 1 });
     const hub = new THREE.Group(); hub.position.set(x - Math.sign(x) * 0.17, y, z); hub.rotation.y = ry;
     const mat = M.dark;
@@ -351,94 +358,47 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
 
   const rp = makeRng(5);
   // vents on the great pipe: a stub, a warning lamp, and a column of steam
-  const vents = hazards.vents.map(v => {
+  const vents = hz.vents.map(v => {
     B.geo('metal', G.cyl8, xf(v.x, v.y + 0.04, v.z, 0.16, 0.12, 0.16), hex3('#3a3f42'), THREE);
     B.geo('metal', G.cyl8, xf(v.x, v.y + 0.11, v.z, 0.2, 0.03, 0.2), hex3('#8c3b2c'), THREE);
     const lamp = new THREE.Sprite(M.glowRed); lamp.position.set(v.x, v.y + 0.16, v.z); lamp.scale.setScalar(0.4); root.add(lamp);
-    return { v, lamp, e: emitter(null, 70, [v.x, v.y + 0.12, v.z], 'steam') };
+    return { v, lamp, e: emitter(root, keep, 70, [v.x, v.y + 0.12, v.z], 'steam') };
   });
 
   // ---------------- the objective: fragments, relay, tower ----------------
-  const frags = hazards.fragments.map(f => {
+  const frags = hz.fragments.map(f => {
     const g = new THREE.Group(); g.position.set(f.x, f.y, f.z);
     const m = new THREE.Mesh(keep(new THREE.OctahedronGeometry(0.085, 0)), M.fragment); m.scale.set(0.8, 1.3, 0.8); g.add(m);
     const sp = new THREE.Sprite(M.glowGreen); sp.scale.setScalar(0.9); g.add(sp);
     root.add(g); return { f, g, m, sp, pop: 0 };
   });
-  const wps = hazards.waypoints.map(w => {
+  const wps = hz.waypoints.map(w => {
     for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) B.geo('metal', G.box, xf(w.x + sx * 0.12, w.y + 1.4, w.z + sz * 0.12, 0.03, 2.8, 0.03, sz * 0.04, 0, -sx * 0.04), hex3('#3c4244'), THREE);
     for (let i = 1; i < 6; i++) B.geo('metal', G.box, xf(w.x, w.y + i * 0.5, w.z, 0.26, 0.025, 0.26), hex3('#3c4244'), THREE);
     B.geo('plain', G.dish, xf(w.x - 0.1, w.y + 2.3, w.z, 0.28, 0.28, 0.1, -0.3, -0.8, Math.PI / 2), hex3('#8a887e'), THREE);
     const lamp = new THREE.Sprite(M.glowRed); lamp.position.set(w.x, w.y + 2.9, w.z); lamp.scale.setScalar(0.35); root.add(lamp);
     return { w, lamp };
   });
-  const R = hazards.relay;
+  const R = hz.relays[0];
   for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) B.geo('metal', G.box, xf(R.x + sx * 0.22, R.y + 1.5, R.z + sz * 0.22, 0.04, 3, 0.04, sz * 0.06, 0, -sx * 0.06), hex3('#3c4244'), THREE);
   for (let i = 1; i < 6; i++) B.geo('metal', G.box, xf(R.x, R.y + i * 0.5, R.z, 0.46 - i * 0.03, 0.03, 0.46 - i * 0.03), hex3('#3c4244'), THREE);
   B.geo('plain', G.dish, xf(R.x + 0.25, R.y + 2.4, R.z, 0.45, 0.45, 0.16, -0.3, -0.9, Math.PI / 2), hex3('#a8a69c'), THREE);
   const relayLamp = new THREE.Sprite(M.glowRed); relayLamp.position.set(R.x, R.y + 3.15, R.z); relayLamp.scale.setScalar(0.9); root.add(relayLamp);
-  const TW = slice.tower, beamMat = own(new THREE.MeshBasicMaterial({ color: PAL.green, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
-  const beam = new THREE.Mesh(G.cyl8, beamMat); root.add(beam);
-  { const a = new THREE.Vector3(R.x, R.y + 3.15, R.z), b = new THREE.Vector3(TW.x, TW.base + TW.height + 2, TW.z), d = b.clone().sub(a);
-    beam.position.copy(a).addScaledVector(d, 0.5); beam.scale.set(0.05, d.length(), 0.05); beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize()); }
-  // the relay tower: a tapering lattice, silhouetted, with its beacon
-  const towerMat = own(new THREE.MeshBasicMaterial({ color: '#121822', fog: false }));
-  const TB = new Batch();
-  const legAt = (t, sx, sz) => { const w = lerp(7, 1.2, t); return new THREE.Vector3(TW.x + sx * w, TW.base + t * TW.height, TW.z + sz * w); };
-  const strut = (a, b2, r) => { const d = b2.clone().sub(a), mid = a.clone().addScaledVector(d, 0.5); _q.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.clone().normalize()); _m.compose(mid, _q, _s.set(r, d.length(), r)); TB.geo('t', G.box, _m, WHITE, THREE); };
-  const C4 = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
-  for (const [sx, sz] of C4) strut(legAt(0, sx, sz), legAt(1, sx, sz), 0.5);
-  for (let i = 0; i < 9; i++) {
-    const t0 = i / 9, t1 = (i + 1) / 9;
-    for (let k = 0; k < 4; k++) { const [ax, az] = C4[k], [bx, bz] = C4[(k + 1) % 4]; strut(legAt(t0, ax, az), legAt(t1, bx, bz), 0.2); strut(legAt(t0, bx, bz), legAt(t1, ax, az), 0.2); strut(legAt(t1, ax, az), legAt(t1, bx, bz), 0.25); }
+  // the signal beam: aimed at the destination tower when this relay wakes
+  const beamMat = own(new THREE.MeshBasicMaterial({ color: PAL.green, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+  const beam = new THREE.Mesh(G.cyl8, beamMat); beam.visible = false; root.add(beam);
+  let beamAimed = false;
+  function aimBeam() {
+    const a = new THREE.Vector3(R.x, R.y + 3.15, R.z), b = tower.beaconPos(), d = b.clone().sub(a);
+    beam.position.copy(a).addScaledVector(d, 0.5); beam.scale.set(0.05, d.length(), 0.05); beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize()); beam.visible = true; beamAimed = true;
   }
-  strut(new THREE.Vector3(TW.x, TW.base + TW.height, TW.z), new THREE.Vector3(TW.x, TW.base + TW.height + 10, TW.z), 0.3);
-  _m.compose(_p.set(TW.x, TW.base + TW.height * 0.62, TW.z), _q.identity(), _s.set(8, 1.2, 8)); TB.geo('t', G.box, _m, WHITE, THREE);
-  const tower = TB.build(THREE, { t: towerMat }); root.add(tower);
-  const beaconMat = own(new THREE.SpriteMaterial({ map: A.T.glow, color: PAL.green, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
-  const beacon = new THREE.Sprite(beaconMat); beacon.position.set(TW.x, TW.base + TW.height + 10, TW.z); beacon.scale.setScalar(16); root.add(beacon);
-  const towerLights = [];
-  for (let i = 1; i < 5; i++) { const sp = new THREE.Sprite(own(new THREE.SpriteMaterial({ map: A.T.glow, color: i % 2 ? PAL.violet : PAL.green, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }))); sp.position.copy(legAt(i / 5, 1, 1)); sp.scale.setScalar(5); root.add(sp); towerLights.push(sp); }
-
   // ---------------- build the static batches ----------------
   const MATS = { tile: M.tile, wall: M.wall, metal: M.metal, grate: M.grate, brick: M.brick, tin: M.tin, concrete: M.concrete, plain: M.plain, dark: M.dark, cable: M.cable };
   const near = B.build(THREE, MATS, { cast: true, receive: true });
   const far = BF.build(THREE, MATS, { cast: false, receive: false });
   root.add(near); root.add(far);
-  // the street, far below, with a few warm lights deep in the alleys
-  const street = new THREE.Mesh(keep(new THREE.PlaneGeometry(500, 700)), M.street);
-  street.rotation.x = -Math.PI / 2; street.position.set(0, STREET_Y, -120); root.add(street);
-  for (let z = 0; z > -95; z -= 13) { const sp = new THREE.Sprite(M.glowWarm); sp.position.set((z % 2 ? -1 : 1) * (2 + rp() * 1.5), STREET_Y + 2.5, z - rp() * 4); sp.scale.setScalar(5); root.add(sp); }
-
-  // ---------------- sky, haze and light ----------------
-  const skyMat = own(new THREE.ShaderMaterial({
-    uniforms: { top: { value: new THREE.Color(PAL.skyTop) }, hor: { value: new THREE.Color(PAL.skyHorizon) }, band: { value: new THREE.Color(PAL.skyBand) }, tdir: { value: new THREE.Vector3(TW.x, 30, TW.z).normalize() }, tcol: { value: new THREE.Color('#2f6b58') } },
-    vertexShader: 'varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position.z = gl_Position.w; }',
-    fragmentShader: 'uniform vec3 top,hor,band,tdir,tcol; varying vec3 vD; void main(){ float h = vD.y; vec3 c = mix(hor, top, pow(clamp(h * 1.8, 0.0, 1.0), 0.6)); c = mix(c, band, exp(-abs(h - 0.03) * 22.0) * 0.55); if (h < 0.0) c = mix(hor, vec3(0.08,0.09,0.11), clamp(-h * 6.0, 0.0, 1.0)); float t = max(dot(normalize(vD), tdir), 0.0); c += tcol * pow(t, 30.0) * 0.5; gl_FragColor = vec4(c, 1.0); }',
-    side: THREE.BackSide, depthWrite: false, fog: false
-  }));
-  const sky = new THREE.Mesh(keep(new THREE.SphereGeometry(350, 24, 12)), skyMat);
-  sky.frustumCulled = false; sky.renderOrder = -1; scene.add(sky);
-  scene.fog = new THREE.FogExp2(PAL.fog, 0.0105);
-  scene.background = new THREE.Color(PAL.skyHorizon);
-  const hemi = new THREE.HemisphereLight('#8a9ab2', '#2a221e', 1.15); scene.add(hemi);
-  const key = new THREE.DirectionalLight('#d8cbb6', 1.7);
-  const KEY = new THREE.Vector3(-0.5, 0.78, -0.42).normalize().multiplyScalar(30);
-  key.shadow.mapSize.set(opts.small ? 1024 : 2048, opts.small ? 1024 : 2048);
-  Object.assign(key.shadow.camera, { left: -10, right: 10, top: 10, bottom: -10, near: 1, far: 70 });
-  key.shadow.bias = -0.0006; key.shadow.normalBias = 0.03;
-  scene.add(key); scene.add(key.target);
-  function setShadows(on) { key.castShadow = on; }
-  setShadows(opts.shadows);
-
-  // ---------------- per frame ----------------
-  let time = 0;
-  const H = TUNING.hazards;
-  function update(dt, focus, camera) {
-    time += dt;
-    key.position.set(focus[0] + KEY.x, focus[1] + KEY.y, focus[2] - 5 + KEY.z);
-    key.target.position.set(focus[0], focus[1], focus[2] - 5); key.target.updateMatrixWorld();
-    sky.position.copy(camera.position);
+  for (let z = sec.z0; z > sec.z0 - sec.length + 8; z -= 13) { const sp = new THREE.Sprite(M.glowWarm); sp.position.set((z % 2 ? -1 : 1) * (2 + rp() * 1.5), STREET_Y + 2.5, z - rp() * 4); sp.scale.setScalar(5); root.add(sp); }
+  function update(dt, time) {
     // steam: wisps at rest, a hiss and a red lamp as warning, then the column
     for (const V of vents) {
       const st = V.v.state, e = V.e;
@@ -459,7 +419,7 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
     }
     // the unstable walkway: shakes as it creaks, then drops
     for (const u of unstableViews) {
-      const st = hazards.unstable.find(x => x.b === u.b);
+      const st = hz.unstable.find(x => x.b === u.b);
       const shake = st.state === 'creak' ? st.shake : 0;
       u.g.position.set((Math.random() - 0.5) * 0.02 * shake, u.b.dy, 0);
       u.g.rotation.z = st.state === 'falling' ? Math.min(0.5, st.t * 0.8) : (Math.random() - 0.5) * 0.03 * shake;
@@ -473,17 +433,16 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
       F.g.position.y = F.f.y + Math.sin(time * 2.4 + F.f.z) * 0.05; F.m.rotation.y += dt * 1.8;
     }
     // the relay: red until reached; then green, and the signal climbs to the tower
-    const on = hazards.relay.active, rt = hazards.relay.t;
+    const on = R.active, rt = R.t;
     relayLamp.material = on ? M.glowGreen : M.glowRed;
     relayLamp.scale.setScalar(on ? 1.4 + 0.3 * Math.sin(time * 6) : 0.7 + 0.2 * Math.sin(time * 2));
-    beamMat.opacity = on ? clamp(rt * 1.5, 0, 0.75) * (0.75 + 0.25 * Math.sin(time * 9)) : 0;
-    beacon.scale.setScalar(on ? 22 + 10 * clamp(rt - 0.4, 0, 1) + 3 * Math.sin(time * 5) : 12 + 2 * Math.sin(time * 1.5));
-    beaconMat.opacity = on ? 1 : 0.55;
-    for (const [i, l] of towerLights.entries()) l.material.opacity = on ? 0.9 : 0.25 + 0.2 * Math.sin(time * 1.3 + i);
+    if (on && !beamAimed) aimBeam();
+    // the beam climbs to the tower, holds while the tower lights, then fades as the next destination appears
+    beamMat.opacity = on ? clamp(rt * 1.5, 0, 0.75) * clamp(1 - (rt - 4) / 2, 0, 1) * (0.75 + 0.25 * Math.sin(time * 9)) : 0;
     for (const f of fans) f.rotation.z += dt * 5;
     for (const br of bridges) br.g.position.x = br.b.dx || 0;
     // the signal line: each segment lights as the relay at its end wakes
-    const woke = hazards.waypoints.map(w => w.active).concat([hazards.relay.active]);
+    const woke = hz.waypoints.map(w => w.active).concat([R.active]);
     signal.forEach((sg, i) => {
       sg.lit = damp(sg.lit, woke[i] ? 1 : 0, 3, dt);
       sg.mat.color.setRGB(lerp(0.086, 0.35, sg.lit), lerp(0.098, 0.95, sg.lit) * (0.85 + 0.15 * Math.sin(time * 6 - i)), lerp(0.114, 0.6, sg.lit));
@@ -494,7 +453,7 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
     }
     for (const [i, sp] of sparks.entries()) { const on = Math.sin(time * 23 + i * 7) > 0.55 || Math.sin(time * 3.1 + i) > 0.97; sp.visible = on; sp.scale.setScalar(0.18 + Math.random() * 0.25); }
     for (const l of lamps) if (l.flicker) l.sp.scale.setScalar(l.base * (0.9 + 0.1 * Math.sin(time * 13 + l.ph) * (Math.sin(time * 0.7 + l.ph) > 0.85 ? 3 : 1)));
-    void H;
+
   }
   function setFaded(ids, dt) {
     for (const [id, f] of fades) {
@@ -504,12 +463,94 @@ function createScene(THREE, A, scene, world, slice, hazards, opts) {
       f.mat.opacity = f.k; f.mat.depthWrite = f.k > 0.99;
     }
   }
+  function dispose() { disposeTree(root); for (const g of ownGeo) g.dispose(); for (const m of ownMat) m.dispose(); }
+  return { update, setFaded, dispose, root, id: sec.index };
+  }
+  // the relay tower: a tapering lattice, silhouetted, with its beacon
+  const towerMat = ownG(new THREE.MeshBasicMaterial({ color: '#121822', fog: false, transparent: true, opacity: 1 }));
+  const TW = { x: 0, z: 0, base: STREET_Y, height: 74 };
+  const towerG = new THREE.Group(); groot.add(towerG);
+  const TB = new Batch();
+  const legAt = (t, sx, sz) => { const w = lerp(7, 1.2, t); return new THREE.Vector3(TW.x + sx * w, TW.base + t * TW.height, TW.z + sz * w); };
+  const strut = (a, b2, r) => { const d = b2.clone().sub(a), mid = a.clone().addScaledVector(d, 0.5); _q.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.clone().normalize()); _m.compose(mid, _q, _s.set(r, d.length(), r)); TB.geo('t', G.box, _m, WHITE, THREE); };
+  const C4 = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+  for (const [sx, sz] of C4) strut(legAt(0, sx, sz), legAt(1, sx, sz), 0.5);
+  for (let i = 0; i < 9; i++) {
+    const t0 = i / 9, t1 = (i + 1) / 9;
+    for (let k = 0; k < 4; k++) { const [ax, az] = C4[k], [bx, bz] = C4[(k + 1) % 4]; strut(legAt(t0, ax, az), legAt(t1, bx, bz), 0.2); strut(legAt(t0, bx, bz), legAt(t1, ax, az), 0.2); strut(legAt(t1, ax, az), legAt(t1, bx, bz), 0.25); }
+  }
+  strut(new THREE.Vector3(TW.x, TW.base + TW.height, TW.z), new THREE.Vector3(TW.x, TW.base + TW.height + 10, TW.z), 0.3);
+  _m.compose(_p.set(TW.x, TW.base + TW.height * 0.62, TW.z), _q.identity(), _s.set(8, 1.2, 8)); TB.geo('t', G.box, _m, WHITE, THREE);
+  towerG.add(TB.build(THREE, { t: towerMat }));
+  const beaconMat = ownG(new THREE.SpriteMaterial({ map: A.T.glow, color: PAL.green, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+  const beacon = new THREE.Sprite(beaconMat); beacon.position.set(TW.x, TW.base + TW.height + 10, TW.z); beacon.scale.setScalar(16); towerG.add(beacon);
+  const towerLights = [];
+  for (let i = 1; i < 5; i++) { const sp = new THREE.Sprite(ownG(new THREE.SpriteMaterial({ map: A.T.glow, color: i % 2 ? PAL.violet : PAL.green, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }))); sp.position.copy(legAt(i / 5, 1, 1)); sp.scale.setScalar(5); towerG.add(sp); towerLights.push(sp); }
+
+  // the destination: one tower, moved deeper into the city each time a relay wakes.
+  // It fades out, moves while unseen, and fades back in at its new place.
+  const tower = {
+    at: new THREE.Vector3(26, 0, -255), next: null, fade: 1, lit: 0,
+    set(x, z) { if (this.at.x === x && this.at.z === z) return; this.next = [x, z]; },
+    place(x, z) { this.at.set(x, 0, z); towerG.position.copy(this.at); this.next = null; this.fade = 1; },
+    beaconPos() { return new THREE.Vector3(this.at.x + TW.x, TW.base + TW.height + 10, this.at.z + TW.z); }
+  };
+  tower.place(26, -255);
+  // the street, far below, with a few warm lights deep in the alleys
+  const street = new THREE.Mesh(keepG(new THREE.PlaneGeometry(500, 700)), M.street);
+  street.rotation.x = -Math.PI / 2; street.position.set(0, STREET_Y, -120); groot.add(street);
+
+  // ---------------- sky, haze and light ----------------
+  const skyMat = ownG(new THREE.ShaderMaterial({
+    uniforms: { top: { value: new THREE.Color(PAL.skyTop) }, hor: { value: new THREE.Color(PAL.skyHorizon) }, band: { value: new THREE.Color(PAL.skyBand) }, tdir: { value: new THREE.Vector3(26, 30, -255).normalize() }, tcol: { value: new THREE.Color('#2f6b58') } },
+    vertexShader: 'varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position.z = gl_Position.w; }',
+    fragmentShader: 'uniform vec3 top,hor,band,tdir,tcol; varying vec3 vD; void main(){ float h = vD.y; vec3 c = mix(hor, top, pow(clamp(h * 1.8, 0.0, 1.0), 0.6)); c = mix(c, band, exp(-abs(h - 0.03) * 22.0) * 0.55); if (h < 0.0) c = mix(hor, vec3(0.08,0.09,0.11), clamp(-h * 6.0, 0.0, 1.0)); float t = max(dot(normalize(vD), tdir), 0.0); c += tcol * pow(t, 30.0) * 0.5; gl_FragColor = vec4(c, 1.0); }',
+    side: THREE.BackSide, depthWrite: false, fog: false
+  }));
+  const sky = new THREE.Mesh(keepG(new THREE.SphereGeometry(350, 24, 12)), skyMat);
+  sky.frustumCulled = false; sky.renderOrder = -1; scene.add(sky);
+  scene.fog = new THREE.FogExp2(PAL.fog, 0.0105);
+  scene.background = new THREE.Color(PAL.skyHorizon);
+  const hemi = new THREE.HemisphereLight('#8a9ab2', '#2a221e', 1.15); scene.add(hemi);
+  const key = new THREE.DirectionalLight('#d8cbb6', 1.7);
+  const KEY = new THREE.Vector3(-0.5, 0.78, -0.42).normalize().multiplyScalar(30);
+  key.shadow.mapSize.set(opts.small ? 1024 : 2048, opts.small ? 1024 : 2048);
+  Object.assign(key.shadow.camera, { left: -10, right: 10, top: 10, bottom: -10, near: 1, far: 70 });
+  key.shadow.bias = -0.0006; key.shadow.normalBias = 0.03;
+  scene.add(key); scene.add(key.target);
+  function setShadows(on) { key.castShadow = on; }
+  setShadows(opts.shadows);
+
+  // ---------------- per frame ----------------
+  let time = 0;
+  const sections = new Map();
+  function update(dt, focus, camera) {
+    time += dt;
+    key.position.set(focus[0] + KEY.x, focus[1] + KEY.y, focus[2] - 5 + KEY.z);
+    key.target.position.set(focus[0], focus[1], focus[2] - 5); key.target.updateMatrixWorld();
+    sky.position.copy(camera.position);
+    street.position.z = focus[2] - 120;
+    // the destination tower: fades out to move, fades back in at its new place
+    if (tower.next) { tower.fade = Math.max(0, tower.fade - dt * 0.8); if (tower.fade === 0) { const [x, z] = tower.next; tower.place(x, z); tower.fade = 0.001; } }
+    else if (tower.fade < 1) tower.fade = Math.min(1, tower.fade + dt * 0.5);
+    tower.lit = Math.max(0, tower.lit - dt * 0.4);
+    towerMat.opacity = tower.fade; towerG.visible = tower.fade > 0.01;
+    beacon.scale.setScalar((12 + 2 * Math.sin(time * 1.5) + 14 * tower.lit) * (0.4 + 0.6 * tower.fade));
+    beaconMat.opacity = (0.55 + 0.45 * tower.lit) * tower.fade;
+    for (const [i, l] of towerLights.entries()) l.material.opacity = (0.25 + 0.2 * Math.sin(time * 1.3 + i) + 0.6 * tower.lit) * tower.fade;
+    for (const s of sections.values()) s.update(dt, time);
+  }
+
+  function addSection(sec, hz) { const s = buildSection(sec, hz); sections.set(sec.index, s); return s; }
+  function removeSection(id) { const s = sections.get(id); if (s) { s.dispose(); sections.delete(id); } }
+  function setFaded(ids, dt) { for (const s of sections.values()) s.setFaded(ids, dt); }
   function dispose() {
-    disposeTree(root); disposeTree(sky);
-    for (const g of ownGeo) g.dispose();
-    for (const m of ownMat) m.dispose();
+    for (const s of sections.values()) s.dispose(); sections.clear();
+    disposeTree(groot); disposeTree(sky);
+    for (const g of gGeo) g.dispose();
+    for (const m of gMat) m.dispose();
     scene.remove(hemi); scene.remove(key); scene.remove(key.target);
   }
   function setPointScale(v) { for (const k in partMats) partMats[k].uniforms.uScale.value = v; }
-  return { update, setFaded, setShadows, setPointScale, dispose, root, key };
+  return { update, setFaded, setShadows, setPointScale, dispose, addSection, removeSection, tower, key, sections };
 }

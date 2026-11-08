@@ -12,9 +12,14 @@ const HUD_CSS = `
 .rr-num{font-size:28px;font-weight:300;line-height:1;font-variant-numeric:tabular-nums;text-shadow:0 1px 10px rgba(20,14,12,.5)}
 .rr-num small{font-size:11px;font-weight:700;letter-spacing:.16em;margin-left:4px;opacity:.8}
 .rr-sub{margin-top:6px;opacity:.8;text-shadow:0 1px 6px rgba(20,14,12,.6)}
-.rr-core{display:flex;gap:6px;align-items:center}
-.rr-core i{width:14px;height:14px;transform:rotate(45deg);border:1.5px solid rgba(125,255,176,.55);background:rgba(10,20,16,.35);transition:background .25s,box-shadow .25s}
-.rr-core i.on{background:#7dffb0;box-shadow:0 0 10px #7dffb0}
+.rr-lives{display:flex;gap:3px;align-items:center}
+.rr-lives svg{width:18px;height:16px;transition:opacity .3s,transform .3s}
+.rr-lives svg.off{opacity:.18;transform:scale(.8)}
+.rr-lives svg.pop{transform:scale(1.35)}
+.rr-toast{position:absolute;left:50%;transform:translateX(-50%);font-size:12px;font-weight:800;letter-spacing:.2em;padding:8px 14px;border-radius:16px;background:rgba(20,16,14,.6);opacity:0;transition:opacity .35s;white-space:nowrap}
+.rr-toast.on{opacity:1}
+.rr-toast.good{color:#7dffb0}.rr-toast.bad{color:#ff8a70}
+.rr-flash{position:absolute;inset:0;box-shadow:inset 0 0 90px rgba(255,70,40,.55);opacity:0;transition:opacity .5s}
 .rr-stats{display:flex;justify-content:space-around;margin:8px 0}
 .rr-stats div{font-size:11px;font-weight:700;letter-spacing:.16em;opacity:.85}
 .rr-stats b{display:block;font-size:28px;font-weight:300;letter-spacing:0;margin-bottom:2px}
@@ -60,8 +65,11 @@ function createHud(ctx) {
   H.fade = el('div', 'rr-fade');
   H.top = el('div', 'rr-top');
   const tl = el('div', '', '', H.top);
-  H.core = el('div', 'rr-core', '<i></i><i></i><i></i>', tl);
-  H.sub = el('div', 'rr-sub rr-lab', 'Power core', tl);
+  const head = '<svg viewBox="0 0 18 16"><path d="M2,15 L2,4 L5.5,7 Q9,5.5 12.5,7 L16,4 L16,15 Q9,17 2,15Z" fill="#f3ece2"/><circle cx="6.3" cy="10.5" r="1.2" fill="#231c19"/><circle cx="11.7" cy="10.5" r="1.2" fill="#231c19"/></svg>';
+  H.lives = el('div', 'rr-lives', head.repeat(TUNING.run.lives), tl);
+  H.sub = el('div', 'rr-sub rr-lab', '', tl);
+  H.flash = el('div', 'rr-flash');
+  H.toast = el('div', 'rr-toast');
   const icons = el('div', 'rr-icons', '', H.top);
   H.labBtn = el('div', 'rr-ib', 'LAB', icons);
   H.pauseBtn = el('div', 'rr-ib', '<svg viewBox="-10 -10 20 20" width="14" height="14"><path d="M-3.5,-6V6M3.5,-6V6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>', icons);
@@ -80,7 +88,7 @@ function createHud(ctx) {
   H.resume = el('button', 'rr-b', 'RESUME', H.pause);
   H.restart = el('button', 'rr-b sec', 'RESTART LAB', H.pause);
   H.result = el('div', 'rr-card');
-  el('div', 'rr-title small', 'SIGNAL RELAYED', H.result);
+  H.resultTitle = el('div', 'rr-title small', 'SEVEN LIVES SPENT', H.result);
   H.resultStats = el('div', 'rr-stats', '', H.result);
   H.resultNote = el('div', 'rr-p', '', H.result);
   H.again = el('button', 'rr-b', 'RUN AGAIN', H.result);
@@ -88,8 +96,8 @@ function createHud(ctx) {
 
   const touchy = (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches);
   H.startText.innerHTML = touchy
-    ? 'Carry the core to the relay.<br><b>Left thumb</b>: steer; pull back to wait. <b>Right thumb</b>: jump.'
-    : 'Carry the core to the relay.<br><b>A / D</b> steer, <b>S</b> wait, <b>W</b> hurry, <b>Space</b> jump (hold: higher).';
+    ? 'Carry the core deeper into the city. Seven lives.<br><b>Left thumb</b>: steer; pull back to wait. <b>Right thumb</b>: jump.'
+    : 'Carry the core deeper into the city. Seven lives.<br><b>A / D</b> steer, <b>S</b> wait, <b>W</b> hurry, <b>Space</b> jump (hold: higher).';
 
   const api = {
     root: ui, H, touchy,
@@ -100,10 +108,19 @@ function createHud(ctx) {
     setPlay(on) { for (const e of [H.top, H.jump]) e.style.display = on ? '' : 'none'; if (!on) H.stick.style.display = 'none'; },
     hints(on) { H.hintL.classList.toggle('on', on); H.hintR.classList.toggle('on', on); H.zone.classList.toggle('hint', on); },
     card(which) { for (const [k, e] of [['start', H.start], ['pause', H.pause], ['result', H.result]]) e.classList.toggle('on', k === which); },
-    charge(n) { if (api._c === n) return; api._c = n; [...H.core.children].forEach((e, i) => e.classList.toggle('on', i < n)); },
-    result(frags, of, secs, best) {
-      H.resultStats.innerHTML = `<div><b>${frags}/${of}</b>FRAGMENTS</div><div><b>${secs.toFixed(1)}s</b>TIME</div>`;
-      H.resultNote.textContent = frags === of ? (best ? 'Full charge. A new best time.' : 'Full charge.') : 'Fragments hide on the harder lines.';
+    status(lives, frags, dist, score) {
+      if (api._lv !== lives) {
+        const prev = api._lv; api._lv = lives;
+        [...H.lives.children].forEach((e, i) => { e.classList.toggle('off', i >= lives); e.classList.toggle('pop', prev !== undefined && lives > prev && i === lives - 1); });
+        clearTimeout(api._pt); api._pt = setTimeout(() => [...H.lives.children].forEach(e => e.classList.remove('pop')), 500);
+      }
+      const t = `◆ ${frags}  ·  ${dist} m  ·  ${score}`; if (api._st !== t) { api._st = t; H.sub.textContent = t; }
+    },
+    toast(text, kind) { H.toast.textContent = text; H.toast.className = 'rr-toast on ' + (kind || ''); clearTimeout(api._tt); api._tt = setTimeout(() => { H.toast.className = 'rr-toast ' + (kind || ''); }, 1800); },
+    hurt() { H.flash.style.transition = 'none'; H.flash.style.opacity = 1; void H.flash.offsetWidth; H.flash.style.transition = 'opacity .6s'; H.flash.style.opacity = 0; },
+    result(r) {
+      H.resultStats.innerHTML = `<div><b>${r.distance} m</b>DISTANCE</div><div><b>${r.relays}</b>RELAYS</div><div><b>${r.fragments}</b>FRAGMENTS</div>`;
+      H.resultNote.innerHTML = `Score <b>${r.score}</b>` + (r.best ? ' · a new best' : r.bestScore ? ` · best ${r.bestScore}` : '');
     },
     fade(v) { H.fade.style.opacity = v; },
     debug(text) { if (api._dbg !== text) { api._dbg = text; H.dbg.textContent = text; } },
@@ -114,6 +131,7 @@ function createHud(ctx) {
       H.top.style.paddingTop = (12 + top) + 'px';
       H.top.style.left = (16 + left) + 'px'; H.top.style.right = (16 + right) + 'px';
       H.dbg.style.top = (top + 80) + 'px'; H.dbg.style.left = (16 + left) + 'px';
+      H.toast.style.top = (top + 60) + 'px';
       const js = Math.round(clamp(Math.min(w, h) * 0.22, 72, 96));
       Object.assign(H.jump.style, { width: js + 'px', height: js + 'px', right: (24 + right) + 'px', bottom: (bot + (portrait ? 16 : 12)) + 'px' });
       H.zone.style.width = (w * TUNING.input.jumpZone) + 'px';

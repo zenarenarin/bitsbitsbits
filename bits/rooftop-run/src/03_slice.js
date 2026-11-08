@@ -23,9 +23,14 @@
 
 const STREET_Y = -16;
 
-function buildSlice(world) {
-  const decor = [], vents = [], fragments = [], unstable = [], bridges = [], waypoints = [];
-  const add = b => world.add(b);
+// opts: { z0, index }. The slice is built at z offset z0 (sections chain
+// toward -z). index 0 is the run's start: later copies drop the terrace's
+// back parapet so the previous section's exit ramp runs straight in.
+const SLICE_LENGTH = 108;
+function buildSlice(world, opts) {
+  const Z = (opts && opts.z0) || 0, index = (opts && opts.index) || 0;
+  const decor = [], vents = [], fragments = [], unstable = [], bridges = [], waypoints = [], boxes = [];
+  const add = b => { b.z0 += Z; b.z1 += Z; b.section = index; boxes.push(b); return world.add(b); };
   const walls = (x0, x1, top, zFar, zNear, tags) => add(boxSpan(x0, x1, STREET_Y, top, zFar, zNear, Object.assign({ kind: 'building' }, tags)));
 
   // ================= ACT 1: ROOFS =================
@@ -33,7 +38,7 @@ function buildSlice(world) {
   walls(-1.7, 1.7, 0, -5, 3, { walk: true, kind: 'terrace' });
   add(boxSpan(-1.7, -1.45, 0, 0.42, -5, 3, { kind: 'parapet', walk: true }));
   add(boxSpan(1.45, 1.7, 0, 0.42, -5, 3, { kind: 'parapet', walk: true }));
-  add(boxSpan(-1.45, 1.45, 0, 0.42, 2.75, 3, { kind: 'parapet', walk: true }));
+  if (index === 0) add(boxSpan(-1.45, 1.45, 0, 0.42, 2.75, 3, { kind: 'parapet', walk: true }));
   decor.push({ kind: 'pots', x: -1.15, y: 0, z: 0.5 }, { kind: 'pots', x: 1.2, y: 0, z: -2.5 });
   decor.push({ kind: 'lamp', x: 1.4, y: 1.6, z: -4.6, color: 'warm' });
   decor.push({ kind: 'bowl', x: -1.0, y: 0, z: -1.2 });             // someone still feeds the strays here
@@ -110,22 +115,34 @@ function buildSlice(world) {
   walls(-3, 3, hY, -101, -87, { walk: true, kind: 'terrace', plaster: 4 });
   add(boxSpan(-3, -2.75, hY, hY + 0.45, -101, -87, { kind: 'parapet', walk: true }));
   add(boxSpan(2.75, 3, hY, hY + 0.45, -101, -87, { kind: 'parapet', walk: true }));
-  add(boxSpan(-2.75, 2.75, hY, hY + 0.45, -101, -100.75, { kind: 'parapet', walk: true }));
-  const relay = { x: 0, y: hY, z: -96 };
+  add(boxSpan(-2.75, -1.25, hY, hY + 0.45, -101, -100.75, { kind: 'parapet', walk: true }));
+  add(boxSpan(1.25, 2.75, hY, hY + 0.45, -101, -100.75, { kind: 'parapet', walk: true }));
+  // the way on: a ramp up from the relay terrace to the next section's terrace
+  walls(-1.25, 1.25, hY - 0.6, -105, -101, { plaster: 1 });
+  add(shed(-1.25, 1.25, hY - 0.6, hY, 0, -105, -101, { kind: 'ramp', surface: 'metal' }));
+  const relay = { x: 1.9, y: hY, z: -96 };          // beside the route: you run past it, not through it
   decor.push({ kind: 'lamp', x: -2.6, y: hY + 1.6, z: -90, color: 'warm' });
 
   // the dead signal line: sagging from relay to relay, snapped where fragments fell
   decor.push({ kind: 'signalLine', points: [[-3.5, 3.2, 4], ...waypoints.map(w => [w.x, w.y + 2.9, w.z]), [relay.x, relay.y + 3.15, relay.z]] });
   for (const f of fragments) decor.push({ kind: 'snapped', x: f.x + 0.35, y: f.y + 1.2, z: f.z + 0.4 });
 
-  scenery(world, decor);
+  scenery(world, decor, add, index);
 
+  // shift everything authored in local coordinates to the section's place
+  const sz = v => v + Z;
+  for (const d of decor) {
+    for (const k of ['z', 'z0', 'z1']) if (d[k] !== undefined) d[k] = sz(d[k]);
+    for (const k of ['a', 'b']) if (d[k]) d[k] = [d[k][0], d[k][1], sz(d[k][2])];
+    if (d.points) d.points = d.points.map(p => [p[0], p[1], sz(p[2])]);
+  }
+  for (const o of [...vents, ...fragments, ...waypoints, relay]) o.z = sz(o.z);
+  const fans = [[3.6, 0.9, -39, -Math.PI / 2], [-2.6, 1.1, -57.5, Math.PI / 2]].map(([x, y, z, ry]) => [x, y, sz(z), ry]);
   return {
-    decor, vents, fragments, unstable, bridges, waypoints, relay,
-    tower: { x: 26, z: -255, base: STREET_Y, height: 74 },
-    spawn: [0, 0, 1.5],
-    endZ: -100,
-    checkpoints: [[0, 0, 1.5], [0.2, 0.5, -15.6], [0.2, 0.5, -31], [-1.3, 1.7, -45.6], [1.9, -1.0, -38], [0, 0.1, -57], [-0.15, 0.1, -63], [-0.15, 0.1, -74], [0, 0.1, -78.6], [0, hY, -88.5]]
+    index, z0: Z, length: SLICE_LENGTH, exitZ: Z - SLICE_LENGTH,
+    boxes, decor, vents, fragments, unstable, bridges, waypoints, relay, fans,
+    spawn: [0, 0, sz(1.5)],
+    checkpoints: [[0, 0, 1.5], [0.2, 0.5, -15.6], [0.2, 0.5, -31], [-1.3, 1.7, -45.6], [1.9, -1.0, -38], [0, 0.1, -57], [-0.15, 0.1, -63], [-0.15, 0.1, -74], [0, 0.1, -78.6], [0, hY, -88.5]].map(([x, y, z]) => [x, y, sz(z)])
   };
 }
 
@@ -134,32 +151,32 @@ function buildSlice(world) {
 // alleys, occasional towers, cables and bridges strung overhead, and far
 // layers climbing toward the tower. Seeded, so the city is the same every
 // visit. All of it is out of reach: landing there counts as a fall.
-function scenery(world, decor) {
-  const rng = makeRng(1702);
+function scenery(world, decor, add, index) {
+  const rng = makeRng(1702 + index * 7919);
   const corridor = z => z > -5 ? 1.9 : z > -30 ? 3 : z > -55 ? 3.2 : z > -78 ? 2.6 : z > -87 ? 2 : 3.3;
   for (const side of [-1, 1]) {
-    let z = 6;
-    while (z > -115) {
+    let z = 3;
+    while (z > -104) {
       const len = 3.5 + rng() * 5.5, zf = z - len;
       const inner = Math.max(corridor(z), corridor(zf), corridor((z + zf) / 2)) + 0.5 + rng() * 1.3;
       const w = 3.5 + rng() * 5;
       const x0 = side < 0 ? -inner - w : inner, x1 = side < 0 ? -inner : inner + w;
       const tower = rng() < 0.14;
       const top = tower ? 6 + rng() * 6 : -5 + rng() * 9;
-      world.add(boxSpan(x0, x1, STREET_Y, top, zf, z, { kind: 'building', far: true, plaster: (rng() * 5) | 0 }));
+      add(boxSpan(x0, x1, STREET_Y, top, zf, z, { kind: 'building', far: true, plaster: (rng() * 5) | 0 }));
       // an extension stacked on top, offset toward the route
       let rt = top, rx0 = x0, rx1 = x1, rz0 = zf, rz1 = z;
       if (!tower && rng() < 0.55) {
         const ew = w * (0.4 + rng() * 0.35), eh = 1.8 + rng() * 1.6;
         rx0 = side < 0 ? x1 - ew : x0; rx1 = side < 0 ? x1 : x0 + ew;
         rz1 = z - rng() * len * 0.3; rz0 = rz1 - len * (0.4 + rng() * 0.4);
-        world.add(boxSpan(rx0, rx1, top, top + eh, rz0, rz1, { kind: 'building', far: true, plaster: (rng() * 5) | 0 }));
+        add(boxSpan(rx0, rx1, top, top + eh, rz0, rz1, { kind: 'building', far: true, plaster: (rng() * 5) | 0 }));
         rt = top + eh;
         if (rng() < 0.5) rng();
       }
       const roof = rng();
-      if (roof < 0.45) world.add(gableZ(rx0 - 0.15, rx1 + 0.15, rt, rt + 0.3, rt + 0.3 + (rx1 - rx0) * 0.32, rz0 - 0.15, rz1 + 0.15, { kind: 'roof', far: true }));
-      else if (roof < 0.75) world.add(gableX(rx0 - 0.15, rx1 + 0.15, rt, rt + 0.3, rt + 0.3 + (rz1 - rz0) * 0.3, rz0 - 0.15, rz1 + 0.15, { kind: 'roof', far: true }));
+      if (roof < 0.45) add(gableZ(rx0 - 0.15, rx1 + 0.15, rt, rt + 0.3, rt + 0.3 + (rx1 - rx0) * 0.32, rz0 - 0.15, rz1 + 0.15, { kind: 'roof', far: true }));
+      else if (roof < 0.75) add(gableX(rx0 - 0.15, rx1 + 0.15, rt, rt + 0.3, rt + 0.3 + (rz1 - rz0) * 0.3, rz0 - 0.15, rz1 + 0.15, { kind: 'roof', far: true }));
       else decor.push({ kind: 'tank', x: (rx0 + rx1) / 2, y: rt, z: (rz0 + rz1) / 2, r: 0.7, h: 1.3 });
       if (rng() < 0.45) decor.push({ kind: 'stack', x: lerp(x0, x1, 0.2 + rng() * 0.6), y: rt, z: lerp(zf, z, 0.3 + rng() * 0.4), h: 1.5 + rng() * 2.5 });
       // scaffolding and boxed-in balconies on the faces that look onto the route
@@ -169,7 +186,7 @@ function scenery(world, decor) {
     }
   }
   // cables and bridges strung across the route, well above the cat and the camera
-  for (let z = 2; z > -112; z -= 2.5 + rng() * 3) {
+  for (let z = 2; z > -104; z -= 2.5 + rng() * 3) {
     const n = 1 + (rng() * 3 | 0);
     for (let i = 0; i < n; i++) decor.push({ kind: 'cable', a: [-4.5 - rng() * 2, 3.4 + rng() * 2.5, z + (rng() - 0.5) * 2], b: [4.5 + rng() * 2, 3.4 + rng() * 2.5, z + (rng() - 0.5) * 2], sag: 0.4 + rng() * 0.6 });
   }
@@ -177,11 +194,11 @@ function scenery(world, decor) {
   for (const [z, y, r] of [[-11.5, 5.4, 0.45], [-34, 6.2, 0.7], [-66, 4.8, 0.38], [-94, 5.8, 0.55]]) decor.push({ kind: 'crossPipe', x0: -12, x1: 12, y, z, r });
   // far rings: rooflines climbing toward the tower
   for (let ring = 0; ring < 3; ring++) {
-    for (let z = 10; z > -245; z -= 7 + ring * 3) {
+    for (let z = 3; z > -104; z -= 7 + ring * 3) {
       for (const side of [-1, 1]) {
         if (rng() < 0.15) continue;
         const x = side * (16 + ring * 14 + rng() * 10), w = 6 + rng() * 6, d = 5 + rng() * 4;
-        const top = -4 + ring * 3 + rng() * 6 + Math.max(0, -z - 80) * 0.03;
+        const top = -4 + ring * 3 + rng() * 6;
         decor.push({ kind: 'farBlock', x, z, w, d, top, roof: rng() < 0.6 ? (rng() < 0.5 ? 'z' : 'x') : null, stack: rng() < 0.25 });
       }
     }

@@ -175,7 +175,7 @@ function createAssets(THREE, renderer, ctx) {
     smoke: new THREE.PointsMaterial({ map: puff, color: '#3a4049', size: 3.2, transparent: true, opacity: 0.35, depthWrite: false, sizeAttenuation: true })
   };
   const T = { tiles, plaster, windows, metal, grate, brick, tin, concrete, fur, glow, puff, blob };
-  return { M, T, THREE, canvases };
+  return { M, T, THREE, canvases, rimmed };
 }
 
 // ---------------------------------------------------------------------

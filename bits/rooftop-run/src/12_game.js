@@ -67,12 +67,19 @@ window.plethoraBit = {
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(54, ctx.width / ctx.height, 0.05, 400);
     const world = new World();
-    const slice = buildSlice(world);
-    const hazards = new Hazards(world, slice);
+    const hazards = new Hazards(world);
     let shadows = true;
-    const view = createScene(THREE, A, scene, world, slice, hazards, { small, shadows });
+    const view = createScene(THREE, A, scene, { small, shadows });
+    // the endless run: sections stream in ahead and out behind; the scene follows
+    const run = new Run(world, hazards, { add: (sec, hz) => view.addSection(sec, hz), remove: id => view.removeSection(id) });
     const cat = new Cat(world);
-    const rig = createCatRig(THREE, A);
+    // the cat: the animated Blender model; the procedural rig only if it cannot load
+    let rig, rigKind = 'glb';
+    try { rig = createGlbCatRig(THREE, A, b64ToBytes(ASSET_CAT)); }
+    catch (e) {
+      rigKind = 'procedural'; rig = createCatRig(THREE, A);
+      try { ctx.platform.error({ stage: 'character', message: String((e && e.message) || e) }); } catch (er) { }
+    }
     scene.add(rig.root);
     const blob = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), A.M.shadow);
     blob.rotation.x = -Math.PI / 2; blob.renderOrder = 2; scene.add(blob);
@@ -80,8 +87,8 @@ window.plethoraBit = {
     const input = createInput(ctx, canvas, hud);
 
     // ---------- state ----------
-    let mode = 'title', frozen = false, acc = 0, cpIdx = 0, respawn = null, contextLost = false, hintT = 0;
-    let runT = 0, finish = null, bestTime = Infinity, attempt = 0;
+    let mode = 'title', frozen = false, acc = 0, respawn = null, contextLost = false, hintT = 0, time = 0;
+    let attempt = 0, bestScore = 0, destT = -1;
     const frameEvents = [];
     const fps = { t: 0, n: 0, v: 0 };
     function haptic(kind) { try { if (caps.haptics) ctx.platform.haptic(kind); } catch (e) { } }
@@ -91,10 +98,17 @@ window.plethoraBit = {
       const g = world.groundAt(p[0], p[2], p[1] + 0.5, 0.05, 0.05);
       if (g.box) { cat.pos[1] = g.y; cat.prev = cat.pos.slice(); cat.grounded = true; cat.ground = g.box; cat.lastGroundY = g.y; }
     }
+    // the destination: a tower beyond the next relay, standing alternately left and right
+    function setDestination(instant) {
+      const r = run.nextRelay(); if (!r) return;
+      const x = (r.section % 2 ? -1 : 1) * 26, z = r.z - 160;
+      if (instant) view.tower.place(x, z); else view.tower.set(x, z);
+    }
     function resetLab() {
-      cpIdx = 0; respawn = null; runT = 0; finish = null;
-      hazards.reset();
-      place(slice.spawn, 0);
+      respawn = null; destT = -1;
+      run.reset();
+      place(run.spawn, 0);
+      setDestination(true);
       cam.reset();
       input.clear();
     }
@@ -109,7 +123,7 @@ window.plethoraBit = {
       hud.card(null); hud.setPlay(true);
       if (hud.touchy) { hintT = 5; hud.hints(true); }
       attempt++;
-      try { ctx.platform.start({ phase: 'vertical-slice' }); } catch (e) { }
+      try { ctx.platform.start({ phase: 'endless' }); } catch (e) { }
     }
     function pause() {
       if (mode !== 'play') return;
@@ -120,17 +134,17 @@ window.plethoraBit = {
     function restart() {
       hud.panel(false); resetLab(); mode = 'paused'; resume(); if (mode !== 'play') return;
       hud.setPlay(true); attempt++;
-      try { ctx.platform.start({ phase: 'vertical-slice', replay: true }); } catch (e) { }
+      try { ctx.platform.start({ phase: 'endless', replay: true }); } catch (e) { }
     }
     const tap = (e, fn) => ctx.listen(e, 'click', ev => { ev.stopPropagation(); fn(ev); });
     tap(hud.H.go, begin); tap(hud.H.resume, resume); tap(hud.H.restart, restart);
-    tap(hud.H.again, () => { if (mode === 'result') { mode = 'paused'; restart(); } });
+    tap(hud.H.again, () => { if (mode === 'over') { mode = 'paused'; restart(); } });
     ctx.listen(hud.H.pauseBtn, 'pointerdown', e => { e.stopPropagation(); if (mode === 'play') pause(); else resume(); });
     ctx.listen(hud.H.labBtn, 'pointerdown', e => { e.stopPropagation(); hud.panel(!hud.panelOpen()); });
     ctx.listen(window, 'keydown', e => {
       if (e.code === 'Escape' || e.code === 'KeyP') { if (mode === 'play') pause(); else if (mode === 'paused') resume(); }
       else if ((e.code === 'Enter' || e.code === 'Space') && mode === 'title' && !hud.H.go.disabled) begin();
-      else if ((e.code === 'Enter' || e.code === 'KeyR') && mode === 'result') { mode = 'paused'; restart(); }
+      else if ((e.code === 'Enter' || e.code === 'KeyR') && mode === 'over') { mode = 'paused'; restart(); }
       else if (e.code === 'Backquote' || e.code === 'KeyL') hud.panel(!hud.panelOpen());
       else if (e.code === 'KeyR' && mode === 'play') restart();
     });
@@ -151,68 +165,68 @@ window.plethoraBit = {
 
     // ---------- simulation ----------
     function step(dt) {
+      time += dt;
+      // a respawn in progress: fade out, place the cat on safe footing, fade back in
       if (respawn) {
         respawn.t += dt;
         hud.fade(clamp(respawn.t / 0.18, 0, 1));
         if (respawn.t >= 0.24 && !respawn.done) {
           respawn.done = true;
           place(respawn.at, TUNING.cat.cruise * 0.55);
-          hazards.resetUnstable();
+          hazards.resetUnstable(); run.respawned();
+          frameEvents.push({ type: 'respawn' });
           cam.reset();
         }
         if (respawn.done) { hud.fade(clamp(1 - (respawn.t - 0.24) / 0.3, 0, 1)); if (respawn.t > 0.54) { respawn = null; hud.fade(0); } }
         if (respawn && !respawn.done) { cat.step(dt, { steer: 0 }); cat.events.length = 0; hazards.step(dt, cat); return; }
       }
       const inp = input.sample(dt);
-      if (mode === 'play' && !finish) runT += dt;
       cat.step(dt, inp);
       for (const e of hazards.step(dt, cat)) cat.events.push(e);
-      for (const e of cat.events) {
+      const evs = cat.events.slice(); cat.events.length = 0;
+      run.step(dt, cat, evs);
+      for (const e of evs.concat(run.events)) {
         frameEvents.push(e);
         if (e.type === 'jump') { try { ctx.platform.interact({ type: 'jump' }); } catch (er) { } }
         else if (e.type === 'land') { if (e.impact > 7) haptic('light'); }
         else if (e.type === 'bump' || e.type === 'scramble') haptic('medium');
-        else if (e.type === 'scald') haptic('warning');
         else if (e.type === 'give') haptic('heavy');
         else if (e.type === 'waypoint') { haptic('light'); try { ctx.platform.milestone('waypoint', { z: Math.round(-e.w.z) }); } catch (er) { } }
-        else if (e.type === 'fragment') { haptic('success'); try { ctx.platform.interact({ type: 'fragment', count: e.count }); ctx.platform.milestone('fragment', { count: e.count }); } catch (er) { } }
-        else if (e.type === 'relay' && !finish) {
-          finish = { t: 0, time: runT, frags: hazards.charge };
-          cat.halt = true; haptic('success');
-          const best = finish.frags === hazards.fragments.length && runT < bestTime; if (best) bestTime = runT;
-          finish.best = best;
-          try { ctx.platform.complete({ fragments: finish.frags, timeMs: Math.round(runT * 1000) }); } catch (er) { }
+        else if (e.type === 'fragment') { haptic('success'); try { ctx.platform.interact({ type: 'fragment', count: run.fragments }); } catch (er) { } }
+        else if (e.type === 'lifeLost') {
+          haptic('warning'); hud.hurt(); hud.toast(e.lives === 1 ? 'LAST LIFE' : `${e.lives} LIVES LEFT`, 'bad');
+          try { ctx.platform.interact({ type: 'life_lost', reason: e.reason, lives: e.lives }); } catch (er) { }
         }
-        else if (e.type === 'fall' && !respawn) {
-          respawn = { t: 0, at: slice.checkpoints[cpIdx] };
-          try { ctx.platform.interact({ type: 'fall', at: Math.round(-cat.pos[2]) }); } catch (er) { }
+        else if (e.type === 'milestone') {
+          haptic('success'); hud.toast(e.lifeGained ? 'SIGNAL RELAYED · +1 LIFE' : 'SIGNAL RELAYED', 'good');
+          view.tower.lit = 1; destT = 3.5;       // the beam reaches the tower; then the next destination appears
+          try { ctx.platform.milestone('relay', { count: run.relays, distance: Math.round(run.distance) }); } catch (er) { }
         }
+        else if (e.type === 'gameOver') gameOver();
       }
-      cat.events.length = 0;
-      // checkpoints only advance on sound footing
-      // checkpoints: routes branch, so take the furthest one reached on sound footing at its height
-      if (cat.grounded && !cat.ground.unstable && cat.ground.dx === undefined)
-        for (let i = cpIdx + 1; i < slice.checkpoints.length; i++) { const c = slice.checkpoints[i]; if (cat.pos[2] < c[2] && Math.abs(cat.pos[1] - c[1]) < 0.6 && Math.abs(cat.pos[0] - c[0]) < 2.2) cpIdx = i; }
-      // the relay is reached: the signal climbs to the tower, then the result
-      if (finish) {
-        finish.t += dt;
-        if (finish.t > 2.2 && mode === 'play') {
-          mode = 'result'; input.clear(); input.state.enabled = false;
-          hud.result(finish.frags, hazards.fragments.length, finish.time, finish.best);
-          hud.card('result'); hud.setPlay(false); hud.hints(false);
-        }
-      }
+      run.events.length = 0;
+      if (run.respawnAt && !respawn && !run.over) respawn = { t: 0, at: run.respawnAt };
+      if (destT > 0) { destT -= dt; if (destT <= 0) { setDestination(false); hud.toast('A NEW SIGNAL, DEEPER IN', 'good'); } }
+    }
+    function gameOver() {
+      mode = 'over'; input.clear(); input.state.enabled = false;
+      const best = run.score > bestScore; if (best) bestScore = run.score;
+      hud.result({ distance: Math.floor(run.distance), relays: run.relays, fragments: run.fragments, score: run.score, best, bestScore });
+      hud.card('result'); hud.setPlay(false); hud.hints(false);
+      try { ctx.platform.fail({ score: run.score, distance: Math.floor(run.distance), relays: run.relays }); } catch (er) { }
     }
 
     // ---------- render ----------
     const rs = { pos: [0, 0, 0], fwd: 0, vx: 0, vy: 0, grounded: true, crouch: 0, teeter: 0, edgeAhead: 0, narrow: 0, scr: null, stumble: 0, assistX: 0, sinceJump: 9, slope: [0, 0], charge: 0, surf: 'flat', sway: 0, events: frameEvents };
     const camCat = { pos: rs.pos, vel: [0, 0, 0], fwd: 0, grounded: true, ground: null, finale: 0 };
     function frame(dt) {
-      const a = mode === 'play' || mode === 'result' ? clamp(acc / SIM_DT, 0, 1) : 1;
+      const a = mode === 'play' ? clamp(acc / SIM_DT, 0, 1) : 1;
       for (let i = 0; i < 3; i++) rs.pos[i] = lerp(cat.prev[i], cat.pos[i], a);
-      Object.assign(rs, { fwd: mode === 'title' ? 0 : cat.fwd, vx: cat.vel[0], vy: cat.vel[1], grounded: cat.grounded, crouch: cat.crouch, teeter: cat.teeter, edgeAhead: cat.edgeAhead, narrow: cat.narrow, scr: cat.scr ? clamp(cat.scr.t, 0, 1) : null, stumble: cat.stumble, assistX: cat.assistX, sinceJump: cat.sinceJump, slope: cat.slope, charge: hazards.charge, surf: cat.surf, sway: cat.grounded && cat.ground && cat.ground.dx !== undefined ? cat.ground.dx : 0 });
+      Object.assign(rs, { fwd: mode === 'title' ? 0 : cat.fwd, vx: cat.vel[0], vy: cat.vel[1], grounded: cat.grounded, crouch: cat.crouch, teeter: cat.teeter, edgeAhead: cat.edgeAhead, narrow: cat.narrow, scr: cat.scr ? clamp(cat.scr.t, 0, 1) : null, stumble: cat.stumble, assistX: cat.assistX, sinceJump: cat.sinceJump, slope: cat.slope, charge: run.fragments, surf: cat.surf, sway: cat.grounded && cat.ground && cat.ground.dx !== undefined ? cat.ground.dx : 0 });
       rig.update(dt, rs);
-      Object.assign(camCat, { vel: cat.vel, fwd: rs.fwd, grounded: cat.grounded, ground: cat.ground, finale: finish ? clamp(finish.t / 1.5, 0, 1) : 0 });
+      // invulnerable: the cat flickers
+      rig.root.visible = !(run.invuln > 0 && mode === 'play' && Math.floor(time * 14) % 2 === 0);
+      Object.assign(camCat, { vel: cat.vel, fwd: rs.fwd, grounded: cat.grounded, ground: cat.ground, finale: 0 });
       cam.update(dt, camCat, ctx.height > ctx.width, frameEvents);
       frameEvents.length = 0;
       view.update(dt, rs.pos, camera);
@@ -225,7 +239,7 @@ window.plethoraBit = {
         blob.scale.set(0.42 * (0.7 + 0.3 * k), 0.75 * (0.7 + 0.3 * k), 1);
         A.M.shadow.opacity = 0.42 * k;
       } else blob.visible = false;
-      hud.charge(hazards.charge);
+      hud.status(run.lives, run.fragments, Math.floor(run.distance), run.score);
       if (hintT > 0) { hintT -= dt; if (hintT <= 0 || input.state.stick) { hintT = 0; hud.hints(false); } }
       fps.t += dt; fps.n++; if (fps.t > 0.5) { fps.v = fps.n / fps.t; fps.t = 0; fps.n = 0; }
       if (hud.H.dbg.classList.contains('on')) {
@@ -259,7 +273,7 @@ window.plethoraBit = {
       if (destroyed) return;
       const dt = Math.min(0.1, Math.max(0, dtMs / 1000));
       if (frozen) return;
-      if (mode === 'play' || mode === 'result') {
+      if (mode === 'play') {
         acc += dt; let n = 0;
         while (acc >= SIM_DT && n < 5) { step(SIM_DT); acc -= SIM_DT; n++; }
         if (n === 5) acc = 0;
@@ -284,14 +298,15 @@ window.plethoraBit = {
 
     if (window.__RR_DEV) {
       window.__rr = {
-        begin, pause, resume, restart, cat, world, slice, hazards, input, camera, renderer, cam, scene, TUNING,
+        glb: { readGLB, b64ToBytes }, THREE, get rig() { return rig; }, rigKind,
+        begin, pause, resume, restart, cat, world, run, hazards, input, camera, renderer, cam, scene, TUNING,
         get mode() { return mode; },
         // drive the real loop deterministically: input = { steer, jump }
         advance(sec, inp) { if (inp !== undefined) input.state.virtual = inp; const n = Math.round(sec / SIM_DT); for (let i = 0; i < n && mode === 'play'; i++) step(SIM_DT); acc = 0; frame(SIM_DT); },
         frame: () => frame(SIM_DT),
         freeze(on) { frozen = on; },
-        sim(inp) { input.state.virtual = inp; if (mode === 'play' || mode === 'result') step(SIM_DT); },
-        warp(i) { place(slice.checkpoints[i], TUNING.cat.cruise); cpIdx = i; cam.reset(); frame(SIM_DT); }
+        sim(inp) { input.state.virtual = inp; if (mode === 'play') step(SIM_DT); },
+        warp(i) { const s = run.sections[0]; place(s.checkpoints[i], TUNING.cat.cruise); cam.reset(); frame(SIM_DT); }
       };
     }
   }

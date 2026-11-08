@@ -23,6 +23,7 @@ class Cat {
     this.slope = [0, 0];
     this.stumble = 0; this.landSlow = 0; this.airTime = 0; this.sinceLand = 9; this.sinceJump = 9; this.scalded = 0;
     this.scr = null; this.assistX = 0; this.halt = false; this.surf = 'flat'; this._rideDx = null;
+    this.invuln = 0;                  // set by the game after a life is lost
     this.lastGroundY = p[1]; this.fallFrom = p[1];
     this.events = [];
     this.stats = { lastJump: null };

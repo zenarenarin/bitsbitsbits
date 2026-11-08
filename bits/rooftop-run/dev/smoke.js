@@ -12,6 +12,7 @@ const shots = process.argv.includes('--no-shots') ? false : true;
   for (const [label, vp] of [['landscape', { width: 844, height: 390 }], ['portrait', { width: 390, height: 844 }]]) {
     const bctx = await browser.newContext({ viewport: vp, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
     const page = await bctx.newPage();
+    page.setDefaultTimeout(240000);   // SwiftShader renders slowly; this is the software renderer, not the game
     const errs = []; page.on('pageerror', e => errs.push(e.message)); page.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
     await page.goto('http://localhost:8765/dev/index.html');
     await page.waitForFunction(() => window.__ready || window.__initError, null, { timeout: 90000 });
@@ -37,34 +38,20 @@ const shots = process.argv.includes('--no-shots') ? false : true;
     await touch('touchEnd', []);
     const released = await page.evaluate(() => ({ stick: !!window.__rr.input.state.stick, held: window.__rr.input.state.jumpHeld }));
     check(`${label}: releasing both clears the input`, !released.stick && !released.held, released);
-    // autopilot through the slice, rendering every step, with a screenshot at each beat
+    // the endless run: autopilot through three sections, then a deliberate run of falls to game over
     await page.evaluate(pilot);
-    await page.evaluate(() => {
-      const r = window.__rr, c = r.cat;
-      window.__falls = 0;
-      window.__runTo = (zt) => {
-        let prev = c.pos[2], crouched = 0;
-        for (let i = 0; i < 60 * 30 && c.pos[2] > zt && r.mode !== 'result'; i++) {
-          r.sim(window.__pilot(c, r.hazards)); if (c.crouch) crouched = 1;
-          if (c.pos[2] > prev + 3) window.__falls++;
-          prev = c.pos[2];
-          if (i % 2 === 0) r.frame();
-        }
-        r.frame();
-        return { z: +c.pos[2].toFixed(2), y: +c.pos[1].toFixed(2), crouched, falls: window.__falls, charge: r.hazards.charge, mode: r.mode };
-      };
-      r.restart();
-    });
-    const beats = [[-8.5, 'roof'], [-19, 'ridge'], [-35, 'junction'], [-40.5, 'climbing-pipe'], [-50, 'rope-bridge'], [-54.4, 'leap'], [-67.8, 'squeeze'], [-70.6, 'unstable'], [-200, 'relay']];
+    await page.evaluate(() => { window.__rr.restart(); window.__rr.freeze(true); });
+    const beats = [[-40.5, 'climbing-pipe'], [-50, 'rope-bridge'], [-67.8, 'squeeze'], [-96.5, 'relay-1'], [-150, 'section-2'], [-205, 'relay-2'], [-320, 'section-4']];
     for (const [z, name] of beats) {
-      const st = await page.evaluate(z => window.__runTo(z), z);
-      if (name === 'squeeze') check(`${label}: squeezes under the low pipe`, st.crouched === 1, st);
+      await page.evaluate(z => { const r = window.__rr, c = r.cat; let n = 0; while (c.pos[2] > z && n++ < 6000 && r.mode === 'play') { r.sim(window.__pilot(c, r.hazards)); if (n % 3 === 0) r.frame(); } for (let i = 0; i < 6; i++) r.frame(); }, z);
       if (shots) await page.screenshot({ path: `${out}/${label}-${name}.png` });
     }
-    const fin = await page.evaluate(() => { const r = window.__rr; for (let i = 0; i < 160; i++) { r.sim(window.__pilot(r.cat, r.hazards)); r.frame(); } return { mode: r.mode, charge: r.hazards.charge, falls: window.__falls }; });
-    check(`${label}: autopilot (high road) reaches the relay with all five fragments and no falls`, fin.mode === 'result' && fin.charge === 5 && fin.falls === 0, fin);
-    if (shots) await page.screenshot({ path: `${out}/${label}-result.png` });
-    const calls = await page.evaluate(() => { const r = window.__rr; r.restart(); r.warp(2); r.frame(); return r.renderer.info.render.calls; });
+    const st = await page.evaluate(() => { const r = window.__rr.run; return { distance: Math.round(r.distance), relays: r.relays, lives: r.lives, sections: r.sections.map(s => s.index), mode: window.__rr.mode, fragments: r.fragments }; });
+    check(`${label}: endless run: three relays passed, no end screen, sections disposed behind`, st.relays >= 3 && st.mode === 'play' && st.sections[0] >= 2 && st.lives === 7, st);
+    const over = await page.evaluate(() => { const r = window.__rr; let n = 0, lost = 0; while (r.mode === 'play' && n++ < 60 * 120) { r.sim({ steer: 1 }); if (n % 10 === 0) r.frame(); } r.frame(); return { mode: r.mode, lives: r.run.lives, card: document.querySelector('.rr-card.on') && document.querySelector('.rr-card.on').textContent.slice(0, 80) }; });
+    check(`${label}: seven lives lost ends the run with the result card`, over.mode === 'over' && over.lives === 0 && /SEVEN LIVES/.test(over.card || ''), over);
+    if (shots) await page.screenshot({ path: `${out}/${label}-game-over.png` });
+    const calls = await page.evaluate(() => { const r = window.__rr; r.restart(); r.freeze(true); r.warp(2); r.frame(); return r.renderer.info.render.calls; });
     check(`${label}: draw calls under 180`, calls < 180, calls);
     check(`${label}: no page errors`, errs.length === 0, errs.slice(0, 3));
     await bctx.close();

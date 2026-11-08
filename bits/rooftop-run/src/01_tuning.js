@@ -49,7 +49,13 @@ const TUNING = {
     creakTime: 0.5, fallGravity: 16, resetTime: 3.5,
     // suspended rope bridges sway and carry the cat sideways
     swayAmp: 0.14, swayRate: 1.7,
-    pickupRadius: 0.55, relayRadius: 1.3, waypointRadius: 3
+    pickupRadius: 0.55, relayReach: 4, waypointRadius: 3
+  },
+  run: {
+    lives: 7, invuln: 1.6,          // seconds of invulnerability after a life is lost
+    relayLife: 1,                   // a relay restores this many lives (up to the maximum)
+    scoreFragment: 50, scoreRelay: 250,
+    ahead: 150, behind: 40          // streaming: metres built ahead, kept behind
   },
   input: {
     jumpMode: 'hold',            // 'hold' (variable height) or 'tap' (always full)

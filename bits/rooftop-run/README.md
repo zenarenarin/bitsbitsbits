@@ -1,3 +1,25 @@
+# THE LAST SIGNAL — Phase 2 in progress: the endless city
+
+See **[PHASE2_PLAN.md](PHASE2_PLAN.md)** for the full plan. Status:
+
+- **Step 1: Blender cat pipeline. Done.**
+  - `blender/cat.py` models, rigs (25 bones), animates (9 clips) and exports the black cat as GLB. It runs headless here with the `bpy` module, or in desktop Blender with `blender -b -P blender/cat.py -- assets/cat.glb`.
+  - `src/07a_glb.js` reads GLB in three.js 0.164.1; Plethora has no GLTFLoader.
+  - `build.js` embeds `assets/cat.glb` (244 KB) as base64.
+  - `src/08b_catanim.js` drives the clips from gameplay. The procedural rig remains only as a fallback.
+- **Step 2: seven lives and a continuous run. Done.**
+  - `src/05b_run.js` streams sections ahead and disposes them behind.
+  - It manages the seven lives, invulnerability, the per-incident latch, safe respawn footing, relays as milestones (checkpoint, +1 life, next destination), score, distance and game over.
+  - So far the only module is the original slice. The module library and generator are Steps 3–5.
+
+```sh
+node dev/test_run.js                         # 10 run checks: 1 km streaming soak, lives, respawn safety, game over
+node dev/glb_test.js vendor/test_rig.glb out.png Sway Bow   # GLB pipeline check
+node dev/cat_view.js vendor/cat.glb <outdir> # contact sheet of the cat's clips
+```
+
+---
+
 # THE LAST SIGNAL — revised Phase 1: vertical slice
 
 A mobile-first 3D traversal Bit for Plethora (`plethora-bit@2`, three.js 0.164.1, SDK 1.7.0).
