@@ -2,6 +2,7 @@
 #
 # Run headless:   blender -b -P cat.py -- <out.glb>
 #   (or with the `bpy` Python module: python cat.py -- <out.glb>)
+# Then shrink it for embedding:  python3 compact_glb.py <out.glb> ../assets/cat.glb
 #
 # Conventions: Blender Z-up, the cat faces +Y (glTF export turns +Y into
 # -Z, the game's forward). Paws rest on Z = 0. Metres. 24 fps.
