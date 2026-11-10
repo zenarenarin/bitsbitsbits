@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "WORDS APART",
+  "description": "Two letters. One word. Five levels. One descent. Complete five increasingly difficult words on one 75-second clock, and every correct answer takes you deeper into a single underground world.",
+  "tags": ["word", "puzzle", "daily", "3d"],
+  "permissions": ["haptics", "audio", "storage"],
+  "dependencies": ["three@0.164.1"],
+  "onboarding": {
+    "kind": "one_line",
+    "version": 1,
+    "message": "Complete the word: you get the first and last letter. Five words, one clock."
+  },
+  "memory": {
+    "records": {
+      "score": {
+        "label": "Daily Score",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": ["daily", "weekly", "all_time"],
+        "scopes": ["following", "global"],
+        "dedupe": "best_per_user"
+      }
+    }
+  }
+}

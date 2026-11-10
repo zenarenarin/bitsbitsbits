@@ -1,0 +1,5 @@
+dev/vendor/
+dev/out/
+dev/out-*.log
+dev/shots.log
+dev/node_modules
