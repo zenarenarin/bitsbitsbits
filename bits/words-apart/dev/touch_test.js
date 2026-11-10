@@ -1,0 +1,30 @@
+// Emulated phone with Plethora's full-screen insets: the on-screen keyboard plays a whole word.
+const { chromium } = require('playwright');
+(async () => {
+  const b = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+  const p = await b.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  const errs = []; p.on('pageerror', e => errs.push(String(e)));
+  await p.goto('http://localhost:8766/dev/index.html?safe');
+  await p.waitForFunction(() => window.__ready, null, { timeout: 60000 });
+  let pass = 0, fail = 0; const ok = (c, m) => { if (c) pass++; else { fail++; console.log('FAIL', m); } };
+  await p.screenshot({ path: 'dev/out/touch-title.png' });
+  await p.tap('.wa-cta');
+  await p.evaluate(() => window.__wa.freeze(true));
+  await p.waitForFunction(() => window.__wa.mode === 'play', null, { timeout: 60000 });
+  ok(await p.evaluate(() => getComputedStyle(document.querySelector('.wa-osk')).display === 'flex'), 'on-screen keyboard shown');
+  ok(await p.evaluate(() => document.activeElement.className !== 'wa-input'), 'no OS keyboard focus on touch');
+  const box = await p.evaluate(() => { const r = document.querySelector('.wa-osk').getBoundingClientRect(), s = document.querySelector('.wa-slots').getBoundingClientRect(); return { kTop: r.top, kBot: r.bottom, sBot: s.bottom }; });
+  ok(box.kBot <= 844 - 108 + 1, 'keyboard clears the logo button ' + JSON.stringify(box));
+  ok(box.sBot < box.kTop - 40, 'puzzle sits above the keyboard');
+  const a = await p.evaluate(() => window.__wa.run.puzzle.answer);
+  const key = async k => { await p.dispatchEvent(`.wa-key[data-k="${k}"]`, 'pointerdown', { bubbles: true }); };
+  await key('Q'); ok(await p.evaluate(() => window.__wa.run.input.middle === 'Q' || window.__wa.run.input.middle === ''), 'key types');
+  await key('Backspace'); ok(await p.evaluate(() => window.__wa.run.input.middle) === '', 'osk backspace');
+  for (const c of a.slice(1, -1)) await key(c);
+  await p.waitForTimeout(400);
+  await p.screenshot({ path: 'dev/out/touch-play.png' });
+  await p.waitForFunction(() => window.__wa.run.solved.length === 1, null, { timeout: 30000 }).catch(() => { });
+  ok(await p.evaluate(() => window.__wa.run.solved.length) === 1, 'solved with on-screen keys');
+  console.log(`${pass} passed, ${fail} failed`, errs);
+  await b.close(); process.exit(fail ? 1 : 0);
+})();

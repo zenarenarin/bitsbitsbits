@@ -16,7 +16,7 @@ const PAL = {
   green: '#a1c58e', greenMuted: '#64866a', white: '#e9e2cf', warm: '#f1e4c4'
 };
 
-function createWorld(THREE, renderer, quality) {
+function createWorld(THREE, renderer, quality, scratch) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(PAL.void);
   scene.fog = new THREE.FogExp2(PAL.fog, 0.016);
@@ -435,14 +435,14 @@ function createWorld(THREE, renderer, quality) {
   const cord = new THREE.Mesh(G.box, M.figure); cord.scale.set(0.012, 0.22, 0.012); cord.position.y = -0.11; lanternPivot.add(cord);
   const lantern = new THREE.Mesh(G.box, M.lantern); lantern.scale.set(0.1, 0.15, 0.1); lantern.position.y = -0.3; lanternPivot.add(lantern);
   const lanternCap = new THREE.Mesh(keep(new THREE.ConeGeometry(0.1, 0.08, 4)), M.figure); lanternCap.position.y = -0.2; lanternCap.rotation.y = Math.PI / 4; lanternPivot.add(lanternCap);
-  const lanternGlow = new THREE.Sprite(keep(new THREE.SpriteMaterial({ map: keep(glowTexture(THREE)), color: '#cfe8b5', transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending })));
+  const lanternGlow = new THREE.Sprite(keep(new THREE.SpriteMaterial({ map: keep(glowTexture(THREE, scratch)), color: '#cfe8b5', transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending })));
   lantern.add(lanternGlow); lanternGlow.scale.set(9, 6, 1);
 
   // ---------- drifting motes near the camera ----------
   const MOTES = quality.motes, mg = new THREE.BufferGeometry(), mp = new Float32Array(MOTES * 3), mseed = new Float32Array(MOTES);
   for (let i = 0; i < MOTES; i++) { mp[i * 3] = R(-14, 14); mp[i * 3 + 1] = R(-14, 14); mp[i * 3 + 2] = R(-14, 14); mseed[i] = rng(); }
   mg.setAttribute('position', new THREE.BufferAttribute(mp, 3)); keep(mg);
-  const motes = new THREE.Points(mg, keep(new THREE.PointsMaterial({ color: '#b9d4a8', size: 0.07, map: keep(glowTexture(THREE)), transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending })));
+  const motes = new THREE.Points(mg, keep(new THREE.PointsMaterial({ color: '#b9d4a8', size: 0.07, map: keep(glowTexture(THREE, scratch)), transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending })));
   motes.frustumCulled = false; scene.add(motes);
 
   // ---------- atmosphere by depth: keyframes along the descent ----------
@@ -530,8 +530,12 @@ function createWorld(THREE, renderer, quality) {
   return { scene, S, update, dispose, slab, fig, lantern, MONO: { th: MONO_TH, r: MONO_R }, STOPS, FINAL_Y };
 }
 
-function glowTexture(THREE) {
-  const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+// A soft round sprite, drawn on the Bit's own hidden scratch canvas and copied into a DataTexture.
+function glowTexture(THREE, scratch) {
+  scratch.width = scratch.height = 64; const g = scratch.getContext('2d', { willReadFrequently: true });
+  g.clearRect(0, 0, 64, 64);
   const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(255,255,255,0.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = gr; g.fillRect(0, 0, 64, 64); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  const t = new THREE.DataTexture(new Uint8Array(g.getImageData(0, 0, 64, 64).data), 64, 64, THREE.RGBAFormat);
+  t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; return t;
 }

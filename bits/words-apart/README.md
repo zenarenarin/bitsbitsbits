@@ -152,6 +152,7 @@ node dev/rules_test.js             # bank + rules: 5,879 checks
 node dev/shots.js dev/out phone win     # screenshots of every beat (needs playwright)
 node dev/shots.js dev/out desktop lose
 node dev/input_test.js             # real keys + soft-keyboard input events: 15 checks
+node dev/touch_test.js             # emulated phone with Plethora insets, on-screen keyboard: 7 checks
 node dev/win_test.js               # all five words through the finale to the results sheet
 node dev/poses.js dev/out phone    # fast composition check of every camera pose
 ```

@@ -1,3 +1,4 @@
+// Plethora Bit · docs and draft upload: https://agent.plethora.studio/v1/agent/start.md
 // WORDS APART: a timed word descent for Plethora.
 // Built from src/ by build.js; edit the sources, not this file.
 (function () {
@@ -305,7 +306,7 @@ const PAL = {
   green: '#a1c58e', greenMuted: '#64866a', white: '#e9e2cf', warm: '#f1e4c4'
 };
 
-function createWorld(THREE, renderer, quality) {
+function createWorld(THREE, renderer, quality, scratch) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(PAL.void);
   scene.fog = new THREE.FogExp2(PAL.fog, 0.016);
@@ -724,14 +725,14 @@ function createWorld(THREE, renderer, quality) {
   const cord = new THREE.Mesh(G.box, M.figure); cord.scale.set(0.012, 0.22, 0.012); cord.position.y = -0.11; lanternPivot.add(cord);
   const lantern = new THREE.Mesh(G.box, M.lantern); lantern.scale.set(0.1, 0.15, 0.1); lantern.position.y = -0.3; lanternPivot.add(lantern);
   const lanternCap = new THREE.Mesh(keep(new THREE.ConeGeometry(0.1, 0.08, 4)), M.figure); lanternCap.position.y = -0.2; lanternCap.rotation.y = Math.PI / 4; lanternPivot.add(lanternCap);
-  const lanternGlow = new THREE.Sprite(keep(new THREE.SpriteMaterial({ map: keep(glowTexture(THREE)), color: '#cfe8b5', transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending })));
+  const lanternGlow = new THREE.Sprite(keep(new THREE.SpriteMaterial({ map: keep(glowTexture(THREE, scratch)), color: '#cfe8b5', transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending })));
   lantern.add(lanternGlow); lanternGlow.scale.set(9, 6, 1);
 
   // ---------- drifting motes near the camera ----------
   const MOTES = quality.motes, mg = new THREE.BufferGeometry(), mp = new Float32Array(MOTES * 3), mseed = new Float32Array(MOTES);
   for (let i = 0; i < MOTES; i++) { mp[i * 3] = R(-14, 14); mp[i * 3 + 1] = R(-14, 14); mp[i * 3 + 2] = R(-14, 14); mseed[i] = rng(); }
   mg.setAttribute('position', new THREE.BufferAttribute(mp, 3)); keep(mg);
-  const motes = new THREE.Points(mg, keep(new THREE.PointsMaterial({ color: '#b9d4a8', size: 0.07, map: keep(glowTexture(THREE)), transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending })));
+  const motes = new THREE.Points(mg, keep(new THREE.PointsMaterial({ color: '#b9d4a8', size: 0.07, map: keep(glowTexture(THREE, scratch)), transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending })));
   motes.frustumCulled = false; scene.add(motes);
 
   // ---------- atmosphere by depth: keyframes along the descent ----------
@@ -819,10 +820,14 @@ function createWorld(THREE, renderer, quality) {
   return { scene, S, update, dispose, slab, fig, lantern, MONO: { th: MONO_TH, r: MONO_R }, STOPS, FINAL_Y };
 }
 
-function glowTexture(THREE) {
-  const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+// A soft round sprite, drawn on the Bit's own hidden scratch canvas and copied into a DataTexture.
+function glowTexture(THREE, scratch) {
+  scratch.width = scratch.height = 64; const g = scratch.getContext('2d', { willReadFrequently: true });
+  g.clearRect(0, 0, 64, 64);
   const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(255,255,255,0.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = gr; g.fillRect(0, 0, 64, 64); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  const t = new THREE.DataTexture(new Uint8Array(g.getImageData(0, 0, 64, 64).data), 64, 64, THREE.RGBAFormat);
+  t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; return t;
 }
 
 // ---- 05_director.js ----
@@ -1035,6 +1040,14 @@ const UI_CSS = `
 .wa-board{background:rgba(8,11,9,.9);justify-content:center;padding:24px 16px}
 .wa-toast{position:absolute;left:50%;transform:translate(-50%,10px);padding:10px 16px;border-radius:18px;background:rgba(233,226,207,.95);color:#101311;font-size:12px;font-weight:700;letter-spacing:.06em;opacity:0;transition:opacity .3s,transform .3s;pointer-events:none}
 .wa-toast.on{opacity:1;transform:translate(-50%,0)}
+.wa-osk{position:absolute;left:0;right:0;display:none;flex-direction:column;align-items:center;gap:7px;padding:0 4px;transition:opacity .45s}
+.wa-osk.on{display:flex}
+.wa-row{display:flex;gap:5px;justify-content:center;width:100%}
+.wa-key{flex:1 1 0;max-width:44px;height:48px;border-radius:7px;background:rgba(233,226,207,.10);border:1px solid rgba(233,226,207,.12);color:var(--white);font-family:var(--sans);font-weight:700;font-size:17px;touch-action:manipulation;transition:background .08s,transform .08s;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.wa-key.wide{flex:1.55 1 0;max-width:68px;font-size:12px;letter-spacing:.12em;text-transform:uppercase}
+.wa-key.enter{background:rgba(161,197,142,.22);border-color:rgba(161,197,142,.35);color:var(--green)}
+.wa-key.down{background:rgba(233,226,207,.3);transform:scale(.95)}
+.wa-board .b-sub{width:100%;color:var(--muted);margin-top:6px}
 .wa-boot{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--dim);font-size:14px;line-height:1.5}
 `;
 const ICONS = {
@@ -1042,17 +1055,18 @@ const ICONS = {
   mute: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>',
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>'
 };
-function grainURL() {
-  const c = document.createElement('canvas'); c.width = c.height = 160; const g = c.getContext('2d'), im = g.createImageData(160, 160);
+function grainURL(c) {
+  c.width = c.height = 160; const g = c.getContext('2d', { willReadFrequently: true }), im = g.createImageData(160, 160);
   for (let i = 0; i < im.data.length; i += 4) { const v = Math.random() * 255; im.data[i] = im.data[i + 1] = im.data[i + 2] = v; im.data[i + 3] = 255; }
   g.putImageData(im, 0, 0); return c.toDataURL();
 }
-function buildUI(root) {
+const OSK_ROWS = ['QWERTYUIOP', 'ASDFGHJKL', '>ZXCVBNM<'];
+function buildUI(root, scratch) {
   const st = document.createElement('style'); st.textContent = UI_CSS; root.appendChild(st);
   const el = (tag, cls, html, parent) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; (parent || root).appendChild(e); return e; };
   const H = { el };
   H.fx = el('div', 'wa-fx'); H.vig = el('div', 'wa-vig', '', H.fx); H.heat = el('div', 'wa-heat', '', H.fx);
-  H.grain = el('div', 'wa-grain', '', H.fx); H.grain.style.backgroundImage = `url(${grainURL()})`;
+  H.grain = el('div', 'wa-grain', '', H.fx); try { H.grain.style.backgroundImage = `url(${grainURL(scratch)})`; } catch (e) { }
   H.scrim = el('div', 'wa-scrim'); H.scrim.style.opacity = 0;
   H.top = el('div', 'wa-top');
   H.mark = el('div', 'wa-mark', 'WORDS <i>APART</i>', H.top);
@@ -1071,6 +1085,16 @@ function buildUI(root) {
   H.pop = el('div', 'wa-pop', '<b></b><span class="wa-lab"></span>', H.stage);
   H.foot = el('div', 'wa-foot wa-lab', '<span class="depth">Depth <b>000</b> m</span><span class="wa-tap">Tap the letters to type</span><span class="guide">Type · Enter ↵ · ⌫</span>');
   H.depthB = H.foot.querySelector('b'); H.tap = H.foot.querySelector('.wa-tap'); H.guide = H.foot.querySelector('.guide');
+  // on-screen keyboard for touch screens: a visible control for every key the puzzle needs
+  H.osk = el('div', 'wa-osk');
+  for (const row of OSK_ROWS) {
+    const r = el('div', 'wa-row', '', H.osk);
+    for (const k of row) {
+      const b = el('button', 'wa-btn wa-key' + (k === '>' ? ' wide enter' : k === '<' ? ' wide' : ''), k === '>' ? 'Enter' : k === '<' ? '⌫' : k, r);
+      b.dataset.k = k === '>' ? 'Enter' : k === '<' ? 'Backspace' : k;
+      b.setAttribute('aria-label', k === '>' ? 'Submit' : k === '<' ? 'Delete' : k);
+    }
+  }
   H.input = el('input', 'wa-input');
   for (const [k, v] of Object.entries({ type: 'text', autocomplete: 'off', autocorrect: 'off', autocapitalize: 'characters', spellcheck: 'false', inputmode: 'text', enterkeyhint: 'go', 'aria-label': 'Type the word' })) H.input.setAttribute(k, v);
   // title
@@ -1113,7 +1137,7 @@ function buildUI(root) {
 // WORDS APART: the Plethora entry point. Glues the rules, the world, the camera and the interface.
 const SAVE_KEY = 'words-apart.v1';
 window.plethoraBit = {
-  meta: { title: 'WORDS APART', runtime: 'plethora-bit@2', tags: ['word', 'puzzle', 'daily', '3d'], permissions: ['haptics', 'audio', 'storage'] },
+  meta: { title: 'WORDS APART', runtime: 'plethora-bit@2', tags: ['word', 'puzzle', 'daily', '3d'], permissions: ['haptics', 'audio', 'storage'], keyboardBehavior: 'none' },
 
   async init(ctx) {
     const caps = ctx.capabilities || {};
@@ -1131,9 +1155,11 @@ window.plethoraBit = {
     const canvas = ctx.createCanvas({ touchAction: 'manipulation', layer: 'content' });
     canvas.style.cssText += ';width:100%;height:100%;display:block;background:#080b09';
     const root = ctx.createRoot({ className: 'wa', layer: 'overlay', input: 'passthrough' });
-    const H = buildUI(root);
+    // a hidden 2D canvas owned by the runtime, used only to draw textures (grain, glow sprites)
+    const scratch = ctx.createCanvas2D({ layer: 'background', input: 'passthrough' }); scratch.style.display = 'none';
+    const H = buildUI(root, scratch);
     const coarse = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
-    H.guide.style.display = coarse ? 'none' : '';
+    H.guide.style.display = coarse ? 'none' : ''; H.tap.style.display = 'none';
     for (const e of [H.top, H.hud, H.stage, H.foot]) e.style.opacity = 0;
     H.hud.style.pointerEvents = 'none';
     try { ctx.loadFont('DM Serif Display', 'dm-serif-display', '1.0.0', { weight: '400', style: 'normal' }).catch(() => { }); } catch (e) { }
@@ -1162,7 +1188,7 @@ window.plethoraBit = {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.95;
     renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    const W = createWorld(THREE, renderer, quality);
+    const W = createWorld(THREE, renderer, quality, scratch);
     const camera = new THREE.PerspectiveCamera(50, ctx.width / ctx.height, 0.1, 900);
     const D = createDirector(THREE, W, camera);
     const audio = createAudio(caps.audio !== false);
@@ -1176,7 +1202,7 @@ window.plethoraBit = {
     let urgency = 0;
 
     function showPanel(p) { for (const x of [H.title, H.result, H.board]) x.classList.toggle('on', x === p); }
-    function playHud(on) { for (const e of [H.top, H.hud, H.stage, H.foot]) e.style.opacity = on ? 1 : 0; H.scrim.style.opacity = on ? 1 : 0; H.stage.style.pointerEvents = on ? '' : 'none'; }
+    function playHud(on) { for (const e of [H.top, H.hud, H.stage, H.foot]) e.style.opacity = on ? 1 : 0; H.scrim.style.opacity = on ? 1 : 0; H.stage.style.pointerEvents = on ? '' : 'none'; H.osk.classList.toggle('on', on && coarse); layout(); }
     function toast(msg) { H.toast.textContent = msg; H.toast.classList.add('on'); ctx.timeout(() => H.toast.classList.remove('on'), 1800); }
 
     // ---------- title ----------
@@ -1229,7 +1255,7 @@ window.plethoraBit = {
     }
 
     // ---------- input ----------
-    function focusInput() { if (mode !== 'play') return; try { H.input.focus({ preventScroll: true }); } catch (e) { H.input.focus(); } }
+    function focusInput() { if (mode !== 'play' || coarse) return; /* touch screens use the on-screen keyboard */ try { H.input.focus({ preventScroll: true }); } catch (e) { H.input.focus(); } }
     function typed(ch) {
       if (mode !== 'play' || !run) return;
       if (run.type(ch, now())) { audio.key(run.input.middle.length); renderSlots(true); maybeAuto(); }
@@ -1268,8 +1294,13 @@ window.plethoraBit = {
     });
     ctx.listen(H.slots, 'pointerdown', e => { e.preventDefault(); focusInput(); });
     ctx.listen(canvas, 'pointerdown', () => focusInput());
-    ctx.listen(H.input, 'blur', () => { if (mode === 'play' && coarse) H.tap.classList.add('on'); });
-    ctx.listen(H.input, 'focus', () => H.tap.classList.remove('on'));
+    // on-screen keys act on press, so fast typing never waits for a click
+    ctx.listen(H.osk, 'pointerdown', e => {
+      const b = e.target && e.target.closest ? e.target.closest('.wa-key') : null; if (!b) return;
+      e.preventDefault(); b.classList.add('down'); ctx.timeout(() => b.classList.remove('down'), 110);
+      const k = b.dataset.k; haptic('light');
+      if (k === 'Enter') submit(); else if (k === 'Backspace') backspace(); else typed(k);
+    });
 
     // ---------- the run ----------
     function begin(kind) {
@@ -1415,18 +1446,39 @@ window.plethoraBit = {
     }
     async function share() {
       const text = shareText();
-      try { if (navigator.share) { await navigator.share({ text }); return; } } catch (e) { if (e && e.name === 'AbortError') return; }
+      try { if (ctx.share) { ctx.share({ sceneId: 'result', title: 'WORDS APART', text }); return; } } catch (e) { }
       try { await navigator.clipboard.writeText(text); toast('Result copied'); return; } catch (e) { }
-      try { const ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); toast(ok ? 'Result copied' : 'Could not copy'); } catch (e) { toast('Could not copy'); }
+      toast('Sharing is not available here');
     }
+    let boardReq = 0;
     function showBoard() {
-      const days = Object.entries(save.days).map(([d, r]) => [Number(d), r]).sort((a, b) => b[0] - a[0]).slice(0, 8);
-      H.bHead.textContent = 'Your daily descents';
-      H.bNote.textContent = 'Global rankings for each day live on the WORDS APART leaderboard in Plethora. The list below is your own history, kept on this device.';
-      H.bList.innerHTML = days.length ? days.map(([d, r]) => `<div class="${d === day ? 'me' : ''}"><span>No. ${d}${d === day ? ' · today' : ''}</span><span>${r.solved}/5 · <b>${r.score.toLocaleString()}</b></span></div>`).join('')
-        : '<div><span>No daily descents yet.</span><span></span></div>';
-      if (save.practiceBest) H.bList.innerHTML += `<div><span>Best practice score</span><span><b>${save.practiceBest.toLocaleString()}</b></span></div>`;
+      const req = ++boardReq;
+      H.bHead.textContent = "Today's descent";
+      H.bNote.textContent = runKind === 'practice' && run ? 'Only the first daily descent is ranked.' : 'Daily No. ' + day + ' · global ranking';
+      H.bList.innerHTML = '<div><span>Loading the global board…</span><span></span></div>';
       H.board.classList.add('on');
+      const local = localHistory();
+      if (!scoreRecord || !scoreRecord.leaderboard) { H.bNote.textContent = 'The global board is not available here. Your own descents:'; H.bList.innerHTML = local; return; }
+      Promise.resolve(scoreRecord.leaderboard({ scope: 'global', period: 'daily', limit: 10 })).then(b => {
+        if (destroyed || req !== boardReq) return;
+        const rows = (b && b.rows) || [], me = b && b.viewerRank;
+        const name = r => escapeHtml(r.displayName || r.handle || r.username || (r.user && (r.user.displayName || r.user.handle)) || 'Player');
+        const val = r => Number(r.value != null ? r.value : r.score || 0).toLocaleString();
+        let html = rows.length ? rows.map((r, i) => `<div class="${r.isViewer || r.viewer ? 'me' : ''}"><span>${r.rank || i + 1}. ${name(r)}</span><span><b>${val(r)}</b></span></div>`).join('')
+          : '<div><span>No one has reached the bottom today yet.</span><span></span></div>';
+        if (me && me.rank) html += `<div class="me"><span>You · #${me.rank}${b.totalRanked ? ' of ' + b.totalRanked : ''}</span><span><b>${val(me)}</b></span></div>`;
+        H.bList.innerHTML = html + '<div class="b-sub wa-lab">On this device</div>' + local;
+      }, () => {
+        if (destroyed || req !== boardReq) return;
+        H.bNote.textContent = 'The global board could not be loaded right now. Your own descents:'; H.bList.innerHTML = local;
+      });
+    }
+    function localHistory() {
+      const days = Object.entries(save.days).map(([d, r]) => [Number(d), r]).sort((a, b) => b[0] - a[0]).slice(0, 8);
+      let h = days.length ? days.map(([d, r]) => `<div><span>No. ${d}${d === day ? ' · today' : ''}</span><span>${r.solved}/5 · <b>${r.score.toLocaleString()}</b></span></div>`).join('')
+        : '<div><span>No daily descents yet.</span><span></span></div>';
+      if (save.practiceBest) h += `<div><span>Best practice score</span><span><b>${save.practiceBest.toLocaleString()}</b></span></div>`;
+      return h;
     }
     function toTitle() {
       mode = 'title'; run = null; audio.ambient(false);
@@ -1464,7 +1516,13 @@ window.plethoraBit = {
     // ---------- layout ----------
     let kb = 0;
     function layout() {
-      const w = ctx.width, h = ctx.height, safe = ctx.safeArea || {}, top = safe.top || 0, bot = safe.bottom || 0;
+      if (!renderer) return;
+      const w = ctx.width, h = ctx.height, safe = ctx.contentSafeArea || ctx.safeArea || {}, top = safe.top || 0, bot = safe.bottom || 0;
+      const oskOn = coarse && (mode === 'play' || mode === 'intro');
+      const keyH = Math.round(clamp(h * 0.058, 40, 50));
+      for (const k of H.osk.querySelectorAll('.wa-key')) k.style.height = keyH + 'px';
+      H.osk.style.bottom = (bot + 8) + 'px';
+      kb = oskOn ? keyH * 3 + 14 + 8 + 22 : 0;
       renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
       const short = h < 560, portrait = h > w;
       H.top.style.top = top + 'px';
@@ -1472,15 +1530,15 @@ window.plethoraBit = {
       H.time.style.fontSize = timeSize + 'px';
       H.hud.style.top = (top + (short ? 40 : 52)) + 'px';
       const hudBottom = top + (short ? 40 : 52) + timeSize + 34;
-      const visible = h - kb;
+      const visible = h - bot - kb;
       // the puzzle sits between the HUD and whatever the keyboard leaves, nearer the top on phones
       const stageH = 190, avail = Math.max(stageH, visible - hudBottom - 20);
-      const stageTop = hudBottom + Math.max(8, (avail - stageH) * (portrait ? (kb ? 0.3 : 0.32) : 0.42));
+      const stageTop = hudBottom + Math.max(52, (avail - stageH) * (portrait ? (kb ? 0.3 : 0.32) : 0.42));
       H.stage.style.top = stageTop + 'px';
       H.scrim.style.top = (stageTop + 70) + 'px'; H.scrim.style.width = Math.min(w * 1.1, 760) + 'px'; H.scrim.style.height = '300px';
-      H.foot.style.bottom = (bot + 14) + 'px'; H.foot.style.display = kb ? 'none' : '';
+      H.foot.style.bottom = (bot + 14 + kb) + 'px';
       H.clue.style.fontSize = (w < 420 ? 17 : 20) + 'px';
-      H.pop.style.top = '-58px';
+      H.pop.style.top = '-50px';
       H.input.style.top = (stageTop + 40) + 'px'; H.input.style.left = '50%';
       // title
       const nameSize = Math.round(clamp(Math.min(w * 0.17, h * 0.1), 44, 96));
@@ -1491,15 +1549,10 @@ window.plethoraBit = {
       H.sheet.style.paddingTop = '80px'; H.sheet.style.paddingBottom = (bot + 18) + 'px';
       H.sHead.style.fontSize = (w < 420 ? 26 : 32) + 'px'; H.sScore.style.fontSize = (w < 420 ? 44 : 56) + 'px';
       H.toast.style.bottom = (bot + 24) + 'px';
-      D.shiftTarget = mode === 'over' && run && run.state === 'won' ? -0.16 : portrait ? 0.2 : 0.3;
+      D.shiftTarget = mode === 'over' && run && run.state === 'won' ? -0.16 : kb ? 0.02 : portrait ? 0.2 : 0.3; // with our keyboard up, lift the traveller into the gap above it
       sizeSlots();
     }
     ctx.onResize(() => layout(), { immediate: true });
-    if (window.visualViewport) {
-      const vv = window.visualViewport;
-      const onVV = () => { const k = Math.max(0, window.innerHeight - vv.height - vv.offsetTop); const nk = k > 90 ? k : 0; if (nk !== kb) { kb = nk; layout(); } };
-      ctx.listen(vv, 'resize', onVV); ctx.listen(vv, 'scroll', onVV);
-    }
 
     // ---------- adaptive quality ----------
     let perfT = 0, perfN = 0, perfStage = 0;

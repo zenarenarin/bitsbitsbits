@@ -117,6 +117,14 @@ const UI_CSS = `
 .wa-board{background:rgba(8,11,9,.9);justify-content:center;padding:24px 16px}
 .wa-toast{position:absolute;left:50%;transform:translate(-50%,10px);padding:10px 16px;border-radius:18px;background:rgba(233,226,207,.95);color:#101311;font-size:12px;font-weight:700;letter-spacing:.06em;opacity:0;transition:opacity .3s,transform .3s;pointer-events:none}
 .wa-toast.on{opacity:1;transform:translate(-50%,0)}
+.wa-osk{position:absolute;left:0;right:0;display:none;flex-direction:column;align-items:center;gap:7px;padding:0 4px;transition:opacity .45s}
+.wa-osk.on{display:flex}
+.wa-row{display:flex;gap:5px;justify-content:center;width:100%}
+.wa-key{flex:1 1 0;max-width:44px;height:48px;border-radius:7px;background:rgba(233,226,207,.10);border:1px solid rgba(233,226,207,.12);color:var(--white);font-family:var(--sans);font-weight:700;font-size:17px;touch-action:manipulation;transition:background .08s,transform .08s;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.wa-key.wide{flex:1.55 1 0;max-width:68px;font-size:12px;letter-spacing:.12em;text-transform:uppercase}
+.wa-key.enter{background:rgba(161,197,142,.22);border-color:rgba(161,197,142,.35);color:var(--green)}
+.wa-key.down{background:rgba(233,226,207,.3);transform:scale(.95)}
+.wa-board .b-sub{width:100%;color:var(--muted);margin-top:6px}
 .wa-boot{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--dim);font-size:14px;line-height:1.5}
 `;
 const ICONS = {
@@ -124,17 +132,18 @@ const ICONS = {
   mute: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>',
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>'
 };
-function grainURL() {
-  const c = document.createElement('canvas'); c.width = c.height = 160; const g = c.getContext('2d'), im = g.createImageData(160, 160);
+function grainURL(c) {
+  c.width = c.height = 160; const g = c.getContext('2d', { willReadFrequently: true }), im = g.createImageData(160, 160);
   for (let i = 0; i < im.data.length; i += 4) { const v = Math.random() * 255; im.data[i] = im.data[i + 1] = im.data[i + 2] = v; im.data[i + 3] = 255; }
   g.putImageData(im, 0, 0); return c.toDataURL();
 }
-function buildUI(root) {
+const OSK_ROWS = ['QWERTYUIOP', 'ASDFGHJKL', '>ZXCVBNM<'];
+function buildUI(root, scratch) {
   const st = document.createElement('style'); st.textContent = UI_CSS; root.appendChild(st);
   const el = (tag, cls, html, parent) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; (parent || root).appendChild(e); return e; };
   const H = { el };
   H.fx = el('div', 'wa-fx'); H.vig = el('div', 'wa-vig', '', H.fx); H.heat = el('div', 'wa-heat', '', H.fx);
-  H.grain = el('div', 'wa-grain', '', H.fx); H.grain.style.backgroundImage = `url(${grainURL()})`;
+  H.grain = el('div', 'wa-grain', '', H.fx); try { H.grain.style.backgroundImage = `url(${grainURL(scratch)})`; } catch (e) { }
   H.scrim = el('div', 'wa-scrim'); H.scrim.style.opacity = 0;
   H.top = el('div', 'wa-top');
   H.mark = el('div', 'wa-mark', 'WORDS <i>APART</i>', H.top);
@@ -153,6 +162,16 @@ function buildUI(root) {
   H.pop = el('div', 'wa-pop', '<b></b><span class="wa-lab"></span>', H.stage);
   H.foot = el('div', 'wa-foot wa-lab', '<span class="depth">Depth <b>000</b> m</span><span class="wa-tap">Tap the letters to type</span><span class="guide">Type · Enter ↵ · ⌫</span>');
   H.depthB = H.foot.querySelector('b'); H.tap = H.foot.querySelector('.wa-tap'); H.guide = H.foot.querySelector('.guide');
+  // on-screen keyboard for touch screens: a visible control for every key the puzzle needs
+  H.osk = el('div', 'wa-osk');
+  for (const row of OSK_ROWS) {
+    const r = el('div', 'wa-row', '', H.osk);
+    for (const k of row) {
+      const b = el('button', 'wa-btn wa-key' + (k === '>' ? ' wide enter' : k === '<' ? ' wide' : ''), k === '>' ? 'Enter' : k === '<' ? '⌫' : k, r);
+      b.dataset.k = k === '>' ? 'Enter' : k === '<' ? 'Backspace' : k;
+      b.setAttribute('aria-label', k === '>' ? 'Submit' : k === '<' ? 'Delete' : k);
+    }
+  }
   H.input = el('input', 'wa-input');
   for (const [k, v] of Object.entries({ type: 'text', autocomplete: 'off', autocorrect: 'off', autocapitalize: 'characters', spellcheck: 'false', inputmode: 'text', enterkeyhint: 'go', 'aria-label': 'Type the word' })) H.input.setAttribute(k, v);
   // title

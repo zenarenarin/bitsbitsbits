@@ -4,9 +4,21 @@
   "entry": "main.js",
   "title": "WORDS APART",
   "description": "Two letters. One word. Five levels. One descent. Complete five increasingly difficult words on one 75-second clock, and every correct answer takes you deeper into a single underground world.",
-  "tags": ["word", "puzzle", "daily", "3d"],
-  "permissions": ["haptics", "audio", "storage"],
-  "dependencies": ["three@0.164.1"],
+  "tags": [
+    "word",
+    "puzzle",
+    "daily",
+    "3d"
+  ],
+  "permissions": [
+    "haptics",
+    "audio",
+    "storage"
+  ],
+  "dependencies": [
+    "three@0.164.1"
+  ],
+  "display": "fullscreen",
   "onboarding": {
     "kind": "one_line",
     "version": 1,
@@ -19,8 +31,15 @@
         "valueType": "number",
         "order": "desc",
         "format": "integer",
-        "periods": ["daily", "weekly", "all_time"],
-        "scopes": ["following", "global"],
+        "periods": [
+          "daily",
+          "weekly",
+          "all_time"
+        ],
+        "scopes": [
+          "following",
+          "global"
+        ],
         "dedupe": "best_per_user"
       }
     }

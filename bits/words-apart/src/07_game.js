@@ -1,7 +1,7 @@
 // WORDS APART: the Plethora entry point. Glues the rules, the world, the camera and the interface.
 const SAVE_KEY = 'words-apart.v1';
 window.plethoraBit = {
-  meta: { title: 'WORDS APART', runtime: 'plethora-bit@2', tags: ['word', 'puzzle', 'daily', '3d'], permissions: ['haptics', 'audio', 'storage'] },
+  meta: { title: 'WORDS APART', runtime: 'plethora-bit@2', tags: ['word', 'puzzle', 'daily', '3d'], permissions: ['haptics', 'audio', 'storage'], keyboardBehavior: 'none' },
 
   async init(ctx) {
     const caps = ctx.capabilities || {};
@@ -19,9 +19,11 @@ window.plethoraBit = {
     const canvas = ctx.createCanvas({ touchAction: 'manipulation', layer: 'content' });
     canvas.style.cssText += ';width:100%;height:100%;display:block;background:#080b09';
     const root = ctx.createRoot({ className: 'wa', layer: 'overlay', input: 'passthrough' });
-    const H = buildUI(root);
+    // a hidden 2D canvas owned by the runtime, used only to draw textures (grain, glow sprites)
+    const scratch = ctx.createCanvas2D({ layer: 'background', input: 'passthrough' }); scratch.style.display = 'none';
+    const H = buildUI(root, scratch);
     const coarse = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
-    H.guide.style.display = coarse ? 'none' : '';
+    H.guide.style.display = coarse ? 'none' : ''; H.tap.style.display = 'none';
     for (const e of [H.top, H.hud, H.stage, H.foot]) e.style.opacity = 0;
     H.hud.style.pointerEvents = 'none';
     try { ctx.loadFont('DM Serif Display', 'dm-serif-display', '1.0.0', { weight: '400', style: 'normal' }).catch(() => { }); } catch (e) { }
@@ -50,7 +52,7 @@ window.plethoraBit = {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.95;
     renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    const W = createWorld(THREE, renderer, quality);
+    const W = createWorld(THREE, renderer, quality, scratch);
     const camera = new THREE.PerspectiveCamera(50, ctx.width / ctx.height, 0.1, 900);
     const D = createDirector(THREE, W, camera);
     const audio = createAudio(caps.audio !== false);
@@ -64,7 +66,7 @@ window.plethoraBit = {
     let urgency = 0;
 
     function showPanel(p) { for (const x of [H.title, H.result, H.board]) x.classList.toggle('on', x === p); }
-    function playHud(on) { for (const e of [H.top, H.hud, H.stage, H.foot]) e.style.opacity = on ? 1 : 0; H.scrim.style.opacity = on ? 1 : 0; H.stage.style.pointerEvents = on ? '' : 'none'; }
+    function playHud(on) { for (const e of [H.top, H.hud, H.stage, H.foot]) e.style.opacity = on ? 1 : 0; H.scrim.style.opacity = on ? 1 : 0; H.stage.style.pointerEvents = on ? '' : 'none'; H.osk.classList.toggle('on', on && coarse); layout(); }
     function toast(msg) { H.toast.textContent = msg; H.toast.classList.add('on'); ctx.timeout(() => H.toast.classList.remove('on'), 1800); }
 
     // ---------- title ----------
@@ -117,7 +119,7 @@ window.plethoraBit = {
     }
 
     // ---------- input ----------
-    function focusInput() { if (mode !== 'play') return; try { H.input.focus({ preventScroll: true }); } catch (e) { H.input.focus(); } }
+    function focusInput() { if (mode !== 'play' || coarse) return; /* touch screens use the on-screen keyboard */ try { H.input.focus({ preventScroll: true }); } catch (e) { H.input.focus(); } }
     function typed(ch) {
       if (mode !== 'play' || !run) return;
       if (run.type(ch, now())) { audio.key(run.input.middle.length); renderSlots(true); maybeAuto(); }
@@ -156,8 +158,13 @@ window.plethoraBit = {
     });
     ctx.listen(H.slots, 'pointerdown', e => { e.preventDefault(); focusInput(); });
     ctx.listen(canvas, 'pointerdown', () => focusInput());
-    ctx.listen(H.input, 'blur', () => { if (mode === 'play' && coarse) H.tap.classList.add('on'); });
-    ctx.listen(H.input, 'focus', () => H.tap.classList.remove('on'));
+    // on-screen keys act on press, so fast typing never waits for a click
+    ctx.listen(H.osk, 'pointerdown', e => {
+      const b = e.target && e.target.closest ? e.target.closest('.wa-key') : null; if (!b) return;
+      e.preventDefault(); b.classList.add('down'); ctx.timeout(() => b.classList.remove('down'), 110);
+      const k = b.dataset.k; haptic('light');
+      if (k === 'Enter') submit(); else if (k === 'Backspace') backspace(); else typed(k);
+    });
 
     // ---------- the run ----------
     function begin(kind) {
@@ -303,18 +310,39 @@ window.plethoraBit = {
     }
     async function share() {
       const text = shareText();
-      try { if (navigator.share) { await navigator.share({ text }); return; } } catch (e) { if (e && e.name === 'AbortError') return; }
+      try { if (ctx.share) { ctx.share({ sceneId: 'result', title: 'WORDS APART', text }); return; } } catch (e) { }
       try { await navigator.clipboard.writeText(text); toast('Result copied'); return; } catch (e) { }
-      try { const ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); toast(ok ? 'Result copied' : 'Could not copy'); } catch (e) { toast('Could not copy'); }
+      toast('Sharing is not available here');
     }
+    let boardReq = 0;
     function showBoard() {
-      const days = Object.entries(save.days).map(([d, r]) => [Number(d), r]).sort((a, b) => b[0] - a[0]).slice(0, 8);
-      H.bHead.textContent = 'Your daily descents';
-      H.bNote.textContent = 'Global rankings for each day live on the WORDS APART leaderboard in Plethora. The list below is your own history, kept on this device.';
-      H.bList.innerHTML = days.length ? days.map(([d, r]) => `<div class="${d === day ? 'me' : ''}"><span>No. ${d}${d === day ? ' · today' : ''}</span><span>${r.solved}/5 · <b>${r.score.toLocaleString()}</b></span></div>`).join('')
-        : '<div><span>No daily descents yet.</span><span></span></div>';
-      if (save.practiceBest) H.bList.innerHTML += `<div><span>Best practice score</span><span><b>${save.practiceBest.toLocaleString()}</b></span></div>`;
+      const req = ++boardReq;
+      H.bHead.textContent = "Today's descent";
+      H.bNote.textContent = runKind === 'practice' && run ? 'Only the first daily descent is ranked.' : 'Daily No. ' + day + ' · global ranking';
+      H.bList.innerHTML = '<div><span>Loading the global board…</span><span></span></div>';
       H.board.classList.add('on');
+      const local = localHistory();
+      if (!scoreRecord || !scoreRecord.leaderboard) { H.bNote.textContent = 'The global board is not available here. Your own descents:'; H.bList.innerHTML = local; return; }
+      Promise.resolve(scoreRecord.leaderboard({ scope: 'global', period: 'daily', limit: 10 })).then(b => {
+        if (destroyed || req !== boardReq) return;
+        const rows = (b && b.rows) || [], me = b && b.viewerRank;
+        const name = r => escapeHtml(r.displayName || r.handle || r.username || (r.user && (r.user.displayName || r.user.handle)) || 'Player');
+        const val = r => Number(r.value != null ? r.value : r.score || 0).toLocaleString();
+        let html = rows.length ? rows.map((r, i) => `<div class="${r.isViewer || r.viewer ? 'me' : ''}"><span>${r.rank || i + 1}. ${name(r)}</span><span><b>${val(r)}</b></span></div>`).join('')
+          : '<div><span>No one has reached the bottom today yet.</span><span></span></div>';
+        if (me && me.rank) html += `<div class="me"><span>You · #${me.rank}${b.totalRanked ? ' of ' + b.totalRanked : ''}</span><span><b>${val(me)}</b></span></div>`;
+        H.bList.innerHTML = html + '<div class="b-sub wa-lab">On this device</div>' + local;
+      }, () => {
+        if (destroyed || req !== boardReq) return;
+        H.bNote.textContent = 'The global board could not be loaded right now. Your own descents:'; H.bList.innerHTML = local;
+      });
+    }
+    function localHistory() {
+      const days = Object.entries(save.days).map(([d, r]) => [Number(d), r]).sort((a, b) => b[0] - a[0]).slice(0, 8);
+      let h = days.length ? days.map(([d, r]) => `<div><span>No. ${d}${d === day ? ' · today' : ''}</span><span>${r.solved}/5 · <b>${r.score.toLocaleString()}</b></span></div>`).join('')
+        : '<div><span>No daily descents yet.</span><span></span></div>';
+      if (save.practiceBest) h += `<div><span>Best practice score</span><span><b>${save.practiceBest.toLocaleString()}</b></span></div>`;
+      return h;
     }
     function toTitle() {
       mode = 'title'; run = null; audio.ambient(false);
@@ -352,7 +380,13 @@ window.plethoraBit = {
     // ---------- layout ----------
     let kb = 0;
     function layout() {
-      const w = ctx.width, h = ctx.height, safe = ctx.safeArea || {}, top = safe.top || 0, bot = safe.bottom || 0;
+      if (!renderer) return;
+      const w = ctx.width, h = ctx.height, safe = ctx.contentSafeArea || ctx.safeArea || {}, top = safe.top || 0, bot = safe.bottom || 0;
+      const oskOn = coarse && (mode === 'play' || mode === 'intro');
+      const keyH = Math.round(clamp(h * 0.058, 40, 50));
+      for (const k of H.osk.querySelectorAll('.wa-key')) k.style.height = keyH + 'px';
+      H.osk.style.bottom = (bot + 8) + 'px';
+      kb = oskOn ? keyH * 3 + 14 + 8 + 22 : 0;
       renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
       const short = h < 560, portrait = h > w;
       H.top.style.top = top + 'px';
@@ -360,15 +394,15 @@ window.plethoraBit = {
       H.time.style.fontSize = timeSize + 'px';
       H.hud.style.top = (top + (short ? 40 : 52)) + 'px';
       const hudBottom = top + (short ? 40 : 52) + timeSize + 34;
-      const visible = h - kb;
+      const visible = h - bot - kb;
       // the puzzle sits between the HUD and whatever the keyboard leaves, nearer the top on phones
       const stageH = 190, avail = Math.max(stageH, visible - hudBottom - 20);
-      const stageTop = hudBottom + Math.max(8, (avail - stageH) * (portrait ? (kb ? 0.3 : 0.32) : 0.42));
+      const stageTop = hudBottom + Math.max(52, (avail - stageH) * (portrait ? (kb ? 0.3 : 0.32) : 0.42));
       H.stage.style.top = stageTop + 'px';
       H.scrim.style.top = (stageTop + 70) + 'px'; H.scrim.style.width = Math.min(w * 1.1, 760) + 'px'; H.scrim.style.height = '300px';
-      H.foot.style.bottom = (bot + 14) + 'px'; H.foot.style.display = kb ? 'none' : '';
+      H.foot.style.bottom = (bot + 14 + kb) + 'px';
       H.clue.style.fontSize = (w < 420 ? 17 : 20) + 'px';
-      H.pop.style.top = '-58px';
+      H.pop.style.top = '-50px';
       H.input.style.top = (stageTop + 40) + 'px'; H.input.style.left = '50%';
       // title
       const nameSize = Math.round(clamp(Math.min(w * 0.17, h * 0.1), 44, 96));
@@ -379,15 +413,10 @@ window.plethoraBit = {
       H.sheet.style.paddingTop = '80px'; H.sheet.style.paddingBottom = (bot + 18) + 'px';
       H.sHead.style.fontSize = (w < 420 ? 26 : 32) + 'px'; H.sScore.style.fontSize = (w < 420 ? 44 : 56) + 'px';
       H.toast.style.bottom = (bot + 24) + 'px';
-      D.shiftTarget = mode === 'over' && run && run.state === 'won' ? -0.16 : portrait ? 0.2 : 0.3;
+      D.shiftTarget = mode === 'over' && run && run.state === 'won' ? -0.16 : kb ? 0.02 : portrait ? 0.2 : 0.3; // with our keyboard up, lift the traveller into the gap above it
       sizeSlots();
     }
     ctx.onResize(() => layout(), { immediate: true });
-    if (window.visualViewport) {
-      const vv = window.visualViewport;
-      const onVV = () => { const k = Math.max(0, window.innerHeight - vv.height - vv.offsetTop); const nk = k > 90 ? k : 0; if (nk !== kb) { kb = nk; layout(); } };
-      ctx.listen(vv, 'resize', onVV); ctx.listen(vv, 'scroll', onVV);
-    }
 
     // ---------- adaptive quality ----------
     let perfT = 0, perfN = 0, perfStage = 0;
