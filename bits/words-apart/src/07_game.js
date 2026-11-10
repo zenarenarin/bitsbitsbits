@@ -241,7 +241,7 @@ window.plethoraBit = {
       if (r.kind === 'ok') {
         audio.hint(); haptic('light');
         H.clue.innerHTML = '<small class="wa-lab">Nudge</small>' + escapeHtml(r.hint);
-        H.nudge.style.display = 'none'; requestAnimationFrame(() => H.clue.classList.add('on'));
+        H.nudge.style.display = 'none'; ctx.timeout(() => H.clue.classList.add('on'), 30);
         H.pen.classList.remove('on'); void H.pen.offsetWidth; H.pen.classList.add('on');
         plat('interact', { type: 'hint', level: run.level + 1 });
       } else if (r.kind === 'denied') { audio.nudgeBlocked(); H.nudge.disabled = true; H.nudge.textContent = 'Too late for a nudge'; }

@@ -231,7 +231,7 @@ function createAudio(enabled) {
       amb = { out, lp, d1, d2, dg, nodes: [s, lfo, d1, d2] };
     } else if (!on && amb) {
       const t = ac.currentTime, a = amb; amb = null; a.out.gain.setTargetAtTime(0.0001, t, 0.6);
-      setTimeout(() => { try { a.nodes.forEach(n => n.stop()); a.out.disconnect(); } catch (e) { } }, 3000);
+      try { a.nodes.forEach(n => n.stop(t + 3)); } catch (e) { } // scheduled on the audio clock: no timers needed
     }
   };
   // depth 0..1 lowers the room tone as the player descends
@@ -1377,7 +1377,7 @@ window.plethoraBit = {
       if (r.kind === 'ok') {
         audio.hint(); haptic('light');
         H.clue.innerHTML = '<small class="wa-lab">Nudge</small>' + escapeHtml(r.hint);
-        H.nudge.style.display = 'none'; requestAnimationFrame(() => H.clue.classList.add('on'));
+        H.nudge.style.display = 'none'; ctx.timeout(() => H.clue.classList.add('on'), 30);
         H.pen.classList.remove('on'); void H.pen.offsetWidth; H.pen.classList.add('on');
         plat('interact', { type: 'hint', level: run.level + 1 });
       } else if (r.kind === 'denied') { audio.nudgeBlocked(); H.nudge.disabled = true; H.nudge.textContent = 'Too late for a nudge'; }

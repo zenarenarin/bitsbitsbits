@@ -53,7 +53,7 @@ function createAudio(enabled) {
       amb = { out, lp, d1, d2, dg, nodes: [s, lfo, d1, d2] };
     } else if (!on && amb) {
       const t = ac.currentTime, a = amb; amb = null; a.out.gain.setTargetAtTime(0.0001, t, 0.6);
-      setTimeout(() => { try { a.nodes.forEach(n => n.stop()); a.out.disconnect(); } catch (e) { } }, 3000);
+      try { a.nodes.forEach(n => n.stop(t + 3)); } catch (e) { } // scheduled on the audio clock: no timers needed
     }
   };
   // depth 0..1 lowers the room tone as the player descends
