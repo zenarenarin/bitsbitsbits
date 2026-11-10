@@ -769,11 +769,24 @@ const ThemeEngine = {
 // Board rendering (Canvas2D vector paths): GameBoard, OrbitRing, RingSegment,
 // the ground, the hub and every material/lighting pass. Reads state, never writes it.
 
+// Offscreen scratch surfaces (textures, layers, thumbnails). Plethora mounts
+// visible canvases only through ctx.createCanvas2D, so these never touch the DOM.
 function makeCanvas(w, h) {
-  const c = document.createElement('canvas');
-  c.width = Math.max(1, Math.ceil(w));
-  c.height = Math.max(1, Math.ceil(h));
-  return c;
+  return new OffscreenCanvas(Math.max(1, Math.ceil(w)), Math.max(1, Math.ceil(h)));
+}
+
+// Show an offscreen surface in the DOM as an <img> (filled once encoded).
+function surfaceToImage(surface, sizeCss) {
+  const img = document.createElement('img');
+  img.alt = '';
+  img.width = img.height = sizeCss;
+  img.style.width = img.style.height = sizeCss + 'px';
+  surface.convertToBlob({ type: 'image/png' }).then(blob => {
+    const url = URL.createObjectURL(blob);
+    img.onload = img.onerror = () => URL.revokeObjectURL(url);
+    img.src = url;
+  }).catch(() => { });
+  return img;
 }
 
 // ---- Geometry -----------------------------------------------------------------
@@ -1843,12 +1856,12 @@ const HUD_CSS = `
 .orbm .x{position:absolute;width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:var(--dim)}
 .orbm .grid{position:absolute;left:0;right:0;overflow-y:auto;-webkit-overflow-scrolling:touch;display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:18px 12px;padding:8px 20px 28px;touch-action:pan-y}
 .orbm .card{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px}
-.orbm .card canvas,.orbm .card .ph{width:96px;height:96px;border-radius:50%;display:block}
+.orbm .card img,.orbm .card .ph{width:96px;height:96px;border-radius:50%;display:block}
 .orbm .card .ph{border:1px dashed var(--rule);display:flex;align-items:center;justify-content:center;font-family:'Cormorant Garamond',serif;font-style:italic;font-size:26px;color:var(--faint)}
 .orbm .card b{font-family:'Cormorant Garamond',Georgia,serif;font-style:italic;font-weight:300;font-size:15px;line-height:1.1}
 .orbm .card i{font-style:normal;font-family:'Space Mono',monospace;font-size:8.5px;letter-spacing:.14em;color:var(--faint);text-transform:uppercase}
 .orbm .det{position:absolute;left:0;right:0;display:flex;flex-direction:column;align-items:center;text-align:center;padding:0 24px}
-.orbm .det canvas{border-radius:50%}
+.orbm .det img{border-radius:50%}
 .orbm .det h3{margin:16px 0 0;font-family:'Cormorant Garamond',Georgia,serif;font-style:italic;font-weight:300;font-size:30px}
 .orbm .det .meta{font-family:'Space Mono',monospace;font-size:9.5px;letter-spacing:.16em;color:var(--faint);margin-top:6px;text-transform:uppercase}
 .orbm .det p{font-size:12px;line-height:1.55;color:var(--dim);max-width:320px;margin:10px 0 0}
@@ -2104,8 +2117,7 @@ function createHud(ctx, H) {
       for (let n = 0; n < 3 && thumbQueue.length; n++) {
         const q = thumbQueue.shift();
         try {
-          const cv = renderThumbnail(q.it.theme(), q.it.ringCount, 96, pr);
-          cv.style.width = cv.style.height = '96px';
+          const cv = surfaceToImage(renderThumbnail(q.it.theme(), q.it.ringCount, 96, pr), 96);
           q.holder.replaceWith(cv);
         } catch (e) { }
       }
@@ -2123,8 +2135,7 @@ function createHud(ctx, H) {
     det.style.top = (L.area.top + 64) + 'px';
     const theme = it.theme();
     const pr = Math.min(3, ctx.nativeDpr || ctx.dpr || 1);
-    const cv = renderThumbnail(theme, it.ringCount, size, pr);
-    cv.style.width = cv.style.height = size + 'px';
+    const cv = surfaceToImage(renderThumbnail(theme, it.ringCount, size, pr), size);
     det.appendChild(cv);
     const h = el('h3'); h.textContent = theme.name; det.appendChild(h);
     const meta = el('div', 'meta'); meta.textContent = it.sub + ' · ' + theme.universeTitle; det.appendChild(meta);

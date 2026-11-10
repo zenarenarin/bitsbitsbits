@@ -1,11 +1,24 @@
 // Board rendering (Canvas2D vector paths): GameBoard, OrbitRing, RingSegment,
 // the ground, the hub and every material/lighting pass. Reads state, never writes it.
 
+// Offscreen scratch surfaces (textures, layers, thumbnails). Plethora mounts
+// visible canvases only through ctx.createCanvas2D, so these never touch the DOM.
 function makeCanvas(w, h) {
-  const c = document.createElement('canvas');
-  c.width = Math.max(1, Math.ceil(w));
-  c.height = Math.max(1, Math.ceil(h));
-  return c;
+  return new OffscreenCanvas(Math.max(1, Math.ceil(w)), Math.max(1, Math.ceil(h)));
+}
+
+// Show an offscreen surface in the DOM as an <img> (filled once encoded).
+function surfaceToImage(surface, sizeCss) {
+  const img = document.createElement('img');
+  img.alt = '';
+  img.width = img.height = sizeCss;
+  img.style.width = img.style.height = sizeCss + 'px';
+  surface.convertToBlob({ type: 'image/png' }).then(blob => {
+    const url = URL.createObjectURL(blob);
+    img.onload = img.onerror = () => URL.revokeObjectURL(url);
+    img.src = url;
+  }).catch(() => { });
+  return img;
 }
 
 // ---- Geometry -----------------------------------------------------------------
