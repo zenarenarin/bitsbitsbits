@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "ORBIT",
+  "description": "A daily colour-alignment puzzle. Turn five concentric rings until every colour lines up with the centre. Every solve reveals a new visual universe for your collection: porcelain, glass, brushed metal, risograph ink and more.",
+  "tags": ["puzzle", "daily", "colour", "art", "minimal"],
+  "permissions": ["audio", "backgroundMusic", "haptics", "storage"],
+  "dependencies": [],
+  "display": "fullscreen",
+  "onboarding": { "kind": "immersive", "version": 1 },
+  "game": {
+    "progress": {
+      "daily": { "label": "Today's ORBIT", "stateSchemaVersion": 1, "ttlDays": 2 }
+    }
+  },
+  "memory": {
+    "local": {
+      "profile": { "label": "Collection, streak and studies" }
+    },
+    "records": {
+      "solve_time": {
+        "label": "Fastest Solve",
+        "valueType": "duration_ms",
+        "order": "asc",
+        "format": "timer",
+        "periods": ["daily", "weekly", "all_time"],
+        "scopes": ["following", "global"],
+        "dedupe": "best_per_user"
+      },
+      "streak": {
+        "label": "Daily Streak",
+        "valueType": "streak",
+        "order": "desc",
+        "format": "integer",
+        "periods": ["all_time"],
+        "scopes": ["following", "global"],
+        "dedupe": "best_per_user"
+      }
+    }
+  }
+}
