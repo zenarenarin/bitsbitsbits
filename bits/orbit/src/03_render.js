@@ -358,9 +358,10 @@ function createBoardPainter() {
       x.fillStyle = sg; x.fill(P.disc);
     }
 
-    // 7. Selection depth: other rings recede.
-    if (scene.selected > 0 && scene.dimOthers > 0) {
-      x.fillStyle = rgba(theme.bg.base, 0.36 * scene.dimOthers);
+    // 7. Selection depth: other rings recede, but only slightly. Colours are
+    // compared across rings, so a selection must never change how they read.
+    if (scene.selected > 0 && scene.dimOthers > 0 && !(scene.focusT > 0.05)) {
+      x.fillStyle = rgba(theme.bg.base, 0.12 * scene.dimOthers);
       const sel = geom.rings[scene.selected];
       const p = new Path2D();
       p.arc(0, 0, R + 1, 0, TAU);
@@ -419,30 +420,23 @@ function createBoardPainter() {
       }
     }
 
-    // 11. Alignment marks and selection rim, in the interface ink.
+    // 11. Family highlight: every segment of one colour family, outlined, so a
+    // match can be checked by eye rather than by memory.
     const ink = theme.ink;
-    for (let k = 1; k < n; k++) {
-      const ring = geom.rings[k];
-      const al = scene.alignedVis ? scene.alignedVis[k] : 0;
-      if (al > 0.01) {
-        x.strokeStyle = rgba(ink, 0.32 * al);
-        x.lineWidth = 0.9;
-        x.beginPath(); x.arc(0, 0, ring.rOut + geom.g * 0.5, 0, TAU); x.stroke();
-      }
-      const f = scene.flash ? scene.flash[k] : 0;
-      if (f > 0 && f < 1) {
-        // A restrained comet of light runs once around the newly aligned ring.
-        const head = -Math.PI / 2 + easeOutCubic(f) * TAU;
-        const len = 1.4;
-        const steps = 18;
-        for (let s = 0; s < steps; s++) {
-          const a0 = head - len * (s / steps), a1 = head - len * ((s + 1) / steps);
-          x.strokeStyle = rgba(ink, (1 - s / steps) * 0.75 * (1 - f * 0.6));
-          x.lineWidth = 1.6;
-          x.beginPath(); x.arc(0, 0, ring.rOut + geom.g * 0.5, a1, a0); x.stroke();
+    if (scene.famFocus && scene.famFocus.a > 0.01) {
+      const ff = scene.famFocus;
+      x.lineJoin = 'round';
+      for (let k = 0; k < n; k++) {
+        x.save(); x.rotate(scene.angles[k]);
+        for (let i = 0; i < SEGMENTS; i++) {
+          if (scene.families(k, i) !== ff.fam) continue;
+          x.strokeStyle = 'rgba(0,0,0,' + (0.45 * ff.a).toFixed(3) + ')'; x.lineWidth = 4; x.stroke(P.paths[k][i]);
+          x.strokeStyle = rgba(theme.bg.light ? colour(0.15, 0, 0) : colour(1, 0, 0), 0.95 * ff.a); x.lineWidth = 1.8; x.stroke(P.paths[k][i]);
         }
+        x.restore();
       }
     }
+    // 12. Selection rim, in the interface ink.
     if (scene.selected > 0) {
       const ring = geom.rings[scene.selected];
       const s = scene.selectT;
@@ -501,7 +495,7 @@ function paintCompletion(x, theme, geom, scene) {
 }
 
 // The hub: the mechanical axis. A small machined disc with an orbit mark whose
-// planet travels as rings align.
+// planet travels a third of the way round with each stage; three ticks mark them.
 function paintHub(x, theme, geom, orbitA, completeGlow) {
   const h = geom.hubR;
   const t = theme.hubTone, light = theme.bg.light;
@@ -533,6 +527,10 @@ function paintHub(x, theme, geom, orbitA, completeGlow) {
   x.strokeStyle = rgba(ink, 0.55 + completeGlow * 0.4);
   x.lineWidth = 1;
   x.beginPath(); x.arc(0, 0, or, 0, TAU); x.stroke();
+  for (let j = 0; j < 3; j++) {
+    const ta = -Math.PI / 2 + j * TAU / 3;
+    x.beginPath(); x.moveTo(Math.cos(ta) * or * 0.78, Math.sin(ta) * or * 0.78); x.lineTo(Math.cos(ta) * or * 1.22, Math.sin(ta) * or * 1.22); x.stroke();
+  }
   x.fillStyle = rgba(ink, 0.9);
   x.beginPath(); x.arc(0, 0, h * 0.06, 0, TAU); x.fill();
   const pa = orbitA - Math.PI / 2;
@@ -552,7 +550,7 @@ function paintHint(x, theme, geom, hint, now) {
   x.lineWidth = 2; x.lineCap = 'round'; x.lineJoin = 'round';
   for (let i = 0; i < 3; i++) {
     const u = (i + ph) / 3;                         // 0..1 along the run
-    const a = -Math.PI / 2 + hint.dir * (-0.3 + u * 0.6);
+    const a = (hint.a === undefined ? -Math.PI / 2 : hint.a) + hint.dir * (-0.3 + u * 0.6);
     const alpha = Math.sin(Math.PI * u) * hint.alpha;
     const px = Math.cos(a) * ring.mid, py = Math.sin(a) * ring.mid;
     const tx = -Math.sin(a) * hint.dir, ty = Math.cos(a) * hint.dir; // direction of travel
@@ -565,6 +563,127 @@ function paintHint(x, theme, geom, hint, now) {
     x.stroke();
   }
   x.restore();
+}
+
+// ---- Intersection clues ----------------------------------------------------------------
+// Each revealed condition has a marker on the rim at its column and a pin on
+// every ring it reads. Pins are fixed in the world: they frame whatever segment
+// is passing beneath. Markers carry the rule's glyph and its state:
+//   revealed  new, never yet satisfied: a slow halo breathes around it
+//   unsolved  held before, broken now: outline with a partial-progress arc
+//   solved    filled with the interface ink
+function clueGeom(geom) {
+  const R = geom.R;
+  return { Rm: R * 1.135, mr: clamp(R * 0.064, 8.5, 15) };
+}
+function colAngle(pos) { return pos * STEP - Math.PI / 2; }
+
+function paintGlyph(x, type, cx, cy, s, fill, swatch) {
+  x.save();
+  x.translate(cx, cy);
+  x.fillStyle = fill; x.strokeStyle = fill; x.lineWidth = Math.max(1, s * 0.16); x.lineCap = 'round'; x.lineJoin = 'round';
+  const dot = (px, py, r, hollow) => { x.beginPath(); x.arc(px, py, r, 0, TAU); hollow ? x.stroke() : x.fill(); };
+  const d = s * 0.22;
+  switch (type) {
+    case 'triple': dot(0, -s * 0.36, d); dot(-s * 0.36, s * 0.26, d); dot(s * 0.36, s * 0.26, d); break;
+    case 'pair': dot(-s * 0.44, 0, d); dot(0, 0, d); dot(s * 0.44, 0, d * 0.9, true); break;
+    case 'contrast':
+      x.beginPath(); x.arc(0, 0, s * 0.5, 0, TAU); x.stroke();
+      x.beginPath(); x.arc(0, 0, s * 0.5, -Math.PI / 2, Math.PI / 2); x.closePath(); x.fill(); break;
+    case 'odd':
+      dot(-s * 0.46, s * 0.12, d); dot(-s * 0.08, s * 0.12, d);
+      x.beginPath(); x.moveTo(s * 0.4, -s * 0.24); x.lineTo(s * 0.62, s * 0.0); x.lineTo(s * 0.4, s * 0.24); x.lineTo(s * 0.18, 0); x.closePath(); x.fill(); break;
+    case 'sequence':
+      [-1, 0, 1].forEach(j => { const h = s * (0.32 + (j + 1) * 0.22); x.fillRect(j * s * 0.36 - s * 0.1, s * 0.45 - h, s * 0.2, h); }); break;
+    case 'missing':
+      if (swatch) { x.fillStyle = swatch; x.beginPath(); x.arc(0, 0, s * 0.5, 0, TAU); x.fill(); }
+      x.strokeStyle = fill; x.beginPath(); x.arc(0, 0, s * 0.5, 0, TAU); x.stroke();
+      x.beginPath(); x.moveTo(-s * 0.46, s * 0.46); x.lineTo(s * 0.46, -s * 0.46); x.stroke(); break;
+    case 'alldiff':
+      x.beginPath(); x.moveTo(-s * 0.5, -s * 0.18); x.lineTo(s * 0.5, -s * 0.18); x.moveTo(-s * 0.5, s * 0.18); x.lineTo(s * 0.5, s * 0.18);
+      x.moveTo(s * 0.22, -s * 0.52); x.lineTo(-s * 0.22, s * 0.52); x.stroke(); break;
+  }
+  x.restore();
+}
+
+function paintClues(x, theme, geom, scene, now) {
+  const ink = theme.ink, light = theme.bg.light;
+  const cg = clueGeom(geom), Rm = cg.Rm, mr = cg.mr;
+  const pal = theme.paletteFor(geom.n);
+  const shadow = light ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)';
+
+  // Focus: the rest of the board recedes behind the chosen column.
+  if (scene.focusT > 0.01 && scene.focus >= 0 && scene.clues[scene.focus]) {
+    const c = scene.clues[scene.focus], a = colAngle(c.pos), h = STEP / 2;
+    const p = new Path2D();
+    p.arc(0, 0, geom.R + 2, 0, TAU);
+    p.moveTo(Math.cos(a - h) * geom.rings[0].rIn, Math.sin(a - h) * geom.rings[0].rIn);
+    p.arc(0, 0, geom.R + 2, a - h, a + h);
+    p.arc(0, 0, geom.rings[0].rIn, a + h, a - h, true);
+    p.closePath();
+    x.fillStyle = rgba(theme.bg.base, 0.42 * scene.focusT);
+    x.fill(p, 'evenodd');
+    x.strokeStyle = rgba(ink, 0.55 * scene.focusT); x.lineWidth = 1;
+    x.beginPath(); x.arc(0, 0, geom.R + 2.5, a - h, a + h); x.arc(0, 0, geom.rings[0].rIn - 1.5, a + h, a - h, true); x.closePath(); x.stroke();
+  }
+
+  scene.clues.forEach((c, i) => {
+    if (!c || c.appear <= 0.001) return;
+    const a = colAngle(c.pos), ca = Math.cos(a), sa = Math.sin(a);
+    const ap = easeOutCubic(clamp(c.appear, 0, 1));
+    const focused = scene.focus === i;
+    const solved = c.status === 'solved';
+    const lit = Math.max(c.glow || 0, solved ? 1 : 0);
+
+    // Pins.
+    const pinR = clamp(geom.w * 0.2, 2.6, 5.5) * (0.4 + 0.6 * ap);
+    c.rings.forEach((k, j) => {
+      const ring = geom.rings[k], px = ca * ring.mid, py = sa * ring.mid;
+      const diamond = c.type === 'odd' && j === c.odd;
+      const shape = () => {
+        x.beginPath();
+        if (diamond) { const q = pinR * 1.35; x.moveTo(px, py - q); x.lineTo(px + q, py); x.lineTo(px, py + q); x.lineTo(px - q, py); x.closePath(); }
+        else x.arc(px, py, pinR, 0, TAU);
+      };
+      x.globalAlpha = ap;
+      shape(); x.strokeStyle = shadow; x.lineWidth = 3.2; x.stroke();
+      shape(); x.strokeStyle = rgba(ink, solved ? 1 : 0.92); x.lineWidth = 1.5; x.stroke();
+      if (solved) { x.fillStyle = rgba(ink, 0.95); x.beginPath(); x.arc(px, py, pinR * 0.32, 0, TAU); x.fill(); }
+      x.globalAlpha = 1;
+    });
+
+    // A fine tick from the board edge to the marker.
+    x.strokeStyle = rgba(ink, 0.35 * ap); x.lineWidth = 1;
+    x.beginPath(); x.moveTo(ca * (geom.R + 2), sa * (geom.R + 2)); x.lineTo(ca * (Rm - mr - 1), sa * (Rm - mr - 1)); x.stroke();
+
+    // Marker.
+    const mx = ca * Rm, my = sa * Rm, r = mr * (0.6 + 0.4 * ap) * (focused ? 1.12 : 1);
+    x.globalAlpha = ap;
+    if (c.status === 'revealed' && !solved) {
+      const ph = ((now - (c.revealAt || 0)) / 1800) % 1;
+      x.strokeStyle = rgba(ink, 0.35 * (1 - ph)); x.lineWidth = 1;
+      x.beginPath(); x.arc(mx, my, r * (1 + ph * 0.7), 0, TAU); x.stroke();
+    }
+    if (lit > 0.01) {
+      const gr = x.createRadialGradient(mx, my, r * 0.6, mx, my, r * 2.4);
+      gr.addColorStop(0, rgba(ink, 0.22 * lit)); gr.addColorStop(1, rgba(ink, 0));
+      x.fillStyle = gr; x.beginPath(); x.arc(mx, my, r * 2.4, 0, TAU); x.fill();
+    }
+    x.fillStyle = solved ? rgba(ink, 0.96) : rgba(theme.bg.base, 0.9);
+    x.beginPath(); x.arc(mx, my, r, 0, TAU); x.fill();
+    if (!solved) {
+      x.strokeStyle = rgba(ink, focused ? 0.9 : 0.5); x.lineWidth = 1;
+      x.beginPath(); x.arc(mx, my, r, 0, TAU); x.stroke();
+      if (c.progress > 0) {
+        x.strokeStyle = rgba(ink, 0.95); x.lineWidth = 2;
+        x.beginPath(); x.arc(mx, my, r, -Math.PI / 2, -Math.PI / 2 + TAU * c.progress); x.stroke();
+      }
+    }
+    const swatch = c.type === 'missing' ? pal[geom.n - 1][c.fam].css : null;
+    paintGlyph(x, c.type, mx, my, r * 1.05, solved ? theme.bg.base.css : rgba(ink, 0.95), swatch);
+    if (focused) { x.strokeStyle = rgba(ink, 0.9); x.lineWidth = 1; x.beginPath(); x.arc(mx, my, r + 3.5, 0, TAU); x.stroke(); }
+    x.globalAlpha = 1;
+  });
 }
 
 // GameBoard: owns the main canvas, the ground cache and the offscreen board layer.
@@ -638,6 +757,7 @@ function createGameBoard(canvas, bgCanvas) {
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.drawImage(B.layer, Math.round(B.cx * B.pr - S / 2), Math.round(B.cy * B.pr - S / 2));
     g.setTransform(B.pr, 0, 0, B.pr, B.cx * B.pr, B.cy * B.pr);
+    if (scene.clues) paintClues(g, theme, geom, scene, now);
     paintHub(g, theme, geom, scene.orbitA, scene.completeGlow);
     if (scene.hint) paintHint(g, theme, geom, scene.hint, now);
     return geom;
@@ -661,7 +781,7 @@ function createGameBoard(canvas, bgCanvas) {
 }
 
 // A solved, still miniature of a theme for the collection.
-function renderThumbnail(theme, ringCount, sizeCss, pr) {
+function renderThumbnail(theme, ringCount, sizeCss, pr, families) {
   const c = makeCanvas(sizeCss * pr, sizeCss * pr);
   const x = c.getContext('2d');
   x.setTransform(pr, 0, 0, pr, 0, 0);
@@ -673,7 +793,7 @@ function renderThumbnail(theme, ringCount, sizeCss, pr) {
   const layer = makeCanvas(S, S), lx = layer.getContext('2d');
   lx.setTransform(pr, 0, 0, pr, S / 2, S / 2);
   const angles = []; for (let k = 0; k < ringCount; k++) angles.push(0);
-  painter.paint(lx, theme, { ringCount, angles, families: (k, i) => i, selected: -1, completeT: 0, alignedVis: null }, pr);
+  painter.paint(lx, theme, { ringCount, angles, families: families || ((k, i) => i), selected: -1, completeT: 0 }, pr);
   x.setTransform(1, 0, 0, 1, 0, 0);
   x.drawImage(layer, Math.round(sizeCss * pr / 2 - S / 2), Math.round(sizeCss * pr / 2 - S / 2));
   x.setTransform(pr, 0, 0, pr, sizeCss / 2 * pr, sizeCss / 2 * pr);

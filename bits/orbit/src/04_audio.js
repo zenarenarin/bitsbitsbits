@@ -118,6 +118,16 @@ function createSound(ctx) {
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.035, t + 0.25); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
     o.connect(g); g.connect(S.master); o.start(t); o.stop(t + 1.2);
   };
+  // A stage opens: a slow rising fifth under the shimmer.
+  S.stage = function (stage) {
+    if (!live()) return;
+    S.reveal();
+    const t = S.ac.currentTime + 0.35;
+    const f = NOTES[(stage * 2) % NOTES.length];
+    tone(t, f / 2, 0.05, 2.2, 'sine', 0.06);
+    tone(t + 0.18, f * 0.75, 0.04, 2.0, 'sine', 0.06);
+    if (S.music) { try { ctx.music.duck(0.75, 1600); } catch (e) { } }
+  };
   S.setProgress = function (p) {
     if (S.music) { try { ctx.music.setIntensity(0.15 + p * 0.25, { fadeMs: 1500 }); } catch (e) { } }
   };

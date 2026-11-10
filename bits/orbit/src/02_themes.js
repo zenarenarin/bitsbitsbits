@@ -63,11 +63,14 @@ const SEPARATIONS = {
 // ---- Palette laws --------------------------------------------------------------
 // Each law maps family index i (0..11) to OKLCH. `p` holds the drawn parameters.
 const PaletteLaws = {
-  // Full hue circle; lightness follows a gentle wave so warm hues sit brighter.
+  // Full hue circle; lightness follows a gentle wave so warm hues sit brighter,
+  // and alternates light/dark between neighbours so all twelve families stay
+  // unmistakable when a puzzle asks you to match one exactly.
   wheel(i, p) {
     const t = i / SEGMENTS;
     const h = p.h0 + 360 * t * p.dir;
-    return [p.L0 + p.Lamp * Math.cos(TAU * (t - p.Lph)), p.C0 + p.Camp * Math.cos(TAU * (t - p.Cph)), h];
+    const z = (i % 2 ? -1 : 1) * (p.Lz === undefined ? 0.07 : p.Lz);
+    return [p.L0 + z + p.Lamp * Math.cos(TAU * (t - p.Lph)), p.C0 + p.Camp * Math.cos(TAU * (t - p.Cph)), h];
   },
   // Hue swings across an arc while lightness travels the other axis of an ellipse,
   // so every family is unique even though hues repeat.
@@ -107,7 +110,7 @@ U({ id: 'prism', title: 'Prism', law: 'wheel',
   blurb: 'A full turn of the spectrum, tuned so no hue shouts over its neighbours.' });
 
 U({ id: 'pastel', title: 'Pastel', law: 'wheel',
-  params: r => ({ h0: r.range(0, 360), dir: 1, L0: r.range(0.79, 0.81), Lamp: 0.05, Lph: 0.2, C0: r.range(0.1, 0.108), Camp: 0.015, Cph: r.range(0, 1) }),
+  params: r => ({ h0: r.range(0, 360), dir: 1, L0: r.range(0.74, 0.76), Lamp: 0.04, Lph: 0.2, Lz: 0.065, C0: r.range(0.118, 0.128), Camp: 0.015, Cph: r.range(0, 1) }),
   materials: ['matte', 'ceramic', 'satin', 'velvet'], grounds: ['ink', 'aubergine', 'slate'], seps: ['gap', 'fine', 'engraved'],
   names: ['Sugared Almond', 'Morning Chalk', 'Powder Room', 'Macaron Theory', 'Soft Machine', 'Pale Fire'],
   blurb: 'Chalky pastels, all at one lightness, so colour does the talking.' });
@@ -131,7 +134,7 @@ U({ id: 'glass', title: 'Glasswork', law: 'wheel',
   blurb: 'Coloured glass held in light; the ground shows through every segment.' });
 
 U({ id: 'opal', title: 'Opaline', law: 'wheel',
-  params: r => ({ h0: r.range(0, 360), dir: 1, L0: r.range(0.77, 0.79), Lamp: 0.05, Lph: 0.2, C0: r.range(0.105, 0.115), Camp: 0.015, Cph: 0.3 }),
+  params: r => ({ h0: r.range(0, 360), dir: 1, L0: r.range(0.73, 0.75), Lamp: 0.04, Lph: 0.2, C0: r.range(0.12, 0.13), Camp: 0.015, Cph: 0.3 }),
   materials: ['opal', 'holo'], grounds: ['ink', 'aubergine', 'graphite'], seps: ['fine', 'gap'],
   names: ['Mother of Pearl', 'Moonstone', 'Opaline', 'Nacre', 'Fire Opal', 'Abalone'],
   blurb: 'Milky colour with a shifting sheen that moves as the rings turn.' });
@@ -185,7 +188,7 @@ U({ id: 'duotone', title: 'Duotone', law: 'arc',
   blurb: 'Two inks, and every blend between them, run through light and shade.' });
 
 U({ id: 'holo', title: 'Holographic', law: 'wheel',
-  params: r => ({ h0: r.range(0, 360), dir: -1, L0: r.range(0.76, 0.78), Lamp: 0.05, Lph: 0.2, C0: r.range(0.11, 0.12), Camp: 0.015, Cph: 0.4 }),
+  params: r => ({ h0: r.range(0, 360), dir: -1, L0: r.range(0.72, 0.74), Lamp: 0.04, Lph: 0.2, C0: r.range(0.125, 0.135), Camp: 0.015, Cph: 0.4 }),
   materials: ['holo', 'opal'], grounds: ['ink', 'graphite', 'aubergine'], seps: ['fine', 'gap'],
   names: ['Hologram', 'Diffraction', 'Foil Proof', 'Iridescence', 'Interference', 'Light Grating'],
   blurb: 'Diffraction foil: a rainbow that slides across the surface as you turn.' });
@@ -203,7 +206,7 @@ U({ id: 'retro', title: 'Retro-Futurist', law: 'arc',
   blurb: 'Tangerine, avocado and teal, as the 1960s imagined the future.' });
 
 U({ id: 'optical', title: 'Op Art', law: 'optical',
-  params: r => ({ h0: r.range(0, 360), Lhi: r.range(0.86, 0.9), Llo: r.range(0.42, 0.46), Chi: r.range(0.05, 0.07), Clo: r.range(0.12, 0.14) }),
+  params: r => ({ h0: r.range(0, 360), Lhi: r.range(0.83, 0.86), Llo: r.range(0.48, 0.52), Chi: r.range(0.10, 0.115), Clo: r.range(0.145, 0.16) }),
   materials: ['matte', 'satin'], grounds: ['graphite', 'ink'], seps: ['flush', 'fine'],
   names: ['Op Art', 'Current', 'Retinal', 'Moiré Hour', 'Flicker', 'Afterimage'],
   blurb: 'High and low tones alternate so the wheel seems to vibrate.' });
@@ -248,7 +251,8 @@ function buildBase(universe, params) {
   return base;
 }
 
-// Ring variants: same families, slightly different light and chroma, inner to outer.
+// Ring variants: the same family must read as the same colour on every ring
+// (matching across rings is the puzzle), so rings differ only by a whisper.
 function ringVariant(c, t, depth) {
   return colour(c.L + (t - 0.5) * depth.L, c.C * (1 + (t - 0.5) * depth.C), c.h + (t - 0.5) * depth.h);
 }
@@ -256,13 +260,25 @@ function ringVariant(c, t, depth) {
 const QC = {
   minAdjacent: 0.042,   // OKLab distance between neighbouring segments in a ring
   minPair: 0.03,      // any two families in a ring
+  minFamily: 0.085,   // any two families anywhere on the board (puzzle legibility)
+  maxDrift: 0.03,     // one family across rings must stay one colour
   minBoardContrast: 0.17,
   minInkContrast: 4.5
 };
 
 function qcTheme(t) {
   const issues = [];
-  for (let n = 4; n <= 6; n++) {
+  const pal5 = t.paletteFor(5);
+  let minF = 9, maxD = 0;
+  for (let i = 0; i < SEGMENTS; i++) {
+    for (let a = 0; a < 5; a++) for (let b = a; b < 5; b++) {
+      maxD = Math.max(maxD, deltaE(pal5[a][i], pal5[b][i]));
+      for (let j = i + 1; j < SEGMENTS; j++) minF = Math.min(minF, deltaE(pal5[a][i], pal5[b][j]), deltaE(pal5[b][i], pal5[a][j]));
+    }
+  }
+  if (minF < QC.minFamily) issues.push('families too close ' + minF.toFixed(3));
+  if (maxD > QC.maxDrift) issues.push('family drifts across rings ' + maxD.toFixed(3));
+  for (let n = 5; n <= 5; n++) {
     const pal = t.paletteFor(n);
     for (let k = 0; k < n; k++) {
       const row = pal[k];
@@ -293,12 +309,17 @@ const _universeOrder = (function () {
 })();
 
 function gcd(a, b) { return b ? gcd(b, a % b) : a; }
+// Universes whose twelve families form a true colour circle: the puzzle's
+// "steps apart" and "next colour" rules read off the spectrum, so only these
+// are dealt to puzzles for now. The others stay in the registry.
+function puzzleUniverse(u) { return u.law === 'wheel' || u.law === 'optical'; }
 function universeFor(edition, stride) {
-  const n = _universeOrder.length;
+  const order = _universeOrder.filter(i => puzzleUniverse(ThemeRegistry.universes[i]));
+  const n = order.length;
   // The stride must be coprime with the universe count so the walk visits every
   // universe before repeating, and consecutive editions always differ.
   while (gcd(stride, n) !== 1) stride++;
-  return ThemeRegistry.universes[_universeOrder[mod(edition * stride, n)]];
+  return ThemeRegistry.universes[order[mod(edition * stride, n)]];
 }
 
 // Build a complete theme. `key` identifies it (e.g. "daily:10", "level:7").
@@ -348,8 +369,8 @@ function assemble(key, edition, universe, r, authored) {
     grain: r.range(0.025, 0.05)
   };
 
-  const depthL = r.range(0.045, 0.075) * (r.chance(0.5) ? 1 : -1);
-  const depth = { L: depthL, C: r.range(-0.12, 0.18), h: r.range(-6, 6) };
+  const depthL = r.range(0.008, 0.016) * (r.chance(0.5) ? 1 : -1);
+  const depth = { L: depthL, C: r.range(-0.05, 0.05), h: r.range(-1.5, 1.5) };
   const sepId = authored ? authored.sep : r.pick(universe.seps);
 
   const ink = light ? colour(0.24, 0.015, g.h) : colour(0.94, 0.008, g.h);

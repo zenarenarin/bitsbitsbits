@@ -8,17 +8,28 @@ const { chromium } = require('playwright');
   await page.goto('http://localhost:8777/dev/index.html');
   await page.waitForTimeout(600);
   // Solve today + two studies through the engine's committed-move path (taps).
+  // Solve through the stages with the Turn buttons: tap a ring to select it,
+  // then step it toward the current stage's nearest arrangement.
   async function solveViaTaps() {
-    const plan = await page.evaluate(() => { const G = window.__orbit.G; const p = []; for (let k = 1; k < G.puzzle.ringCount; k++) p.push([k, G.eng.stepsToAlign(k)]); return p; });
-    for (const [k, s] of plan) {
-      await page.evaluate(k => { window.__orbit.G.selected = k; window.__orbit.G.selectAt = performance.now(); }, k);
-      for (let i = 0; i < Math.abs(s); i++) { await page.evaluate(d => document.querySelectorAll('.rot')[d > 0 ? 1 : 0].click(), s); await page.waitForTimeout(60); }
-      await page.waitForTimeout(350);
+    for (let guard = 0; guard < 80; guard++) {
+      const mv = await page.evaluate(() => {
+        const G = window.__orbit.G, E = G.eng; if (E.solved) return null;
+        const D = G.puzzle.dist[E.stage], here = D[E.state()];
+        for (let k = 1; k <= 4; k++) for (const d of [1, -1]) { const o = E.rot.slice(); o[k] += d; if (D[window.__orbit.stateIndex(o)] < here) return [k, d]; }
+        return null;
+      });
+      if (!mv) break;
+      const pt = await page.evaluate(k => { const l = window.__orbit.layout(), g = window.__orbit.board.painter.geom; return [l.cx, l.cy + g.rings[k].mid]; }, mv[0]);
+      if (await page.evaluate(() => window.__orbit.G.selected) !== mv[0]) { await page.mouse.click(pt[0], pt[1]); await page.waitForTimeout(120); }
+      await page.evaluate(d => [...document.querySelectorAll('.ctl')].filter(b => b.textContent.includes('Turn'))[d > 0 ? 1 : 0].click(), mv[1]);
+      await page.waitForTimeout(260);
     }
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(3200);
   }
   // make one partial move on the daily, reload, check restored
-  await page.evaluate(() => { window.__orbit.G.selected = 2; document.querySelectorAll('.rot')[1].click(); });
+  { const pt = await page.evaluate(() => { const l = window.__orbit.layout(), g = window.__orbit.board.painter.geom; return [l.cx, l.cy + g.rings[2].mid]; });
+    await page.mouse.click(pt[0], pt[1]); await page.waitForTimeout(150);
+    await page.evaluate(() => [...document.querySelectorAll('.ctl')].filter(b => b.textContent.includes('Turn'))[1].click()); }
   await page.waitForTimeout(500);
   const before = await page.evaluate(() => window.__orbit.G.eng.rot.slice());
   const store1 = await page.evaluate(() => JSON.stringify(window.__store));
@@ -33,11 +44,11 @@ const { chromium } = require('playwright');
   await solveViaTaps();
   ok(await page.evaluate(() => window.__orbit.G.phase === 'done'), 'daily solved');
   for (let i = 0; i < 2; i++) {
-    await page.evaluate(() => [...document.querySelectorAll('.act')].find(b => /Studies|Next study/.test(b.textContent)).click());
+    await page.evaluate(() => [...document.querySelectorAll('.act')].find(b => /Practice|Next puzzle/.test(b.textContent)).click());
     await page.waitForTimeout(2200);
     console.log('  before', await page.evaluate(() => { const G = window.__orbit.G; return G.mode + ' ' + G.level + ' ' + G.phase + ' sel ' + G.selected; }));
     await solveViaTaps();
-    console.log('  after', await page.evaluate(() => { const G = window.__orbit.G; return G.mode + ' ' + G.level + ' ' + G.phase + ' ' + G.eng.alignedCount(); }));
+    console.log('  after', await page.evaluate(() => { const G = window.__orbit.G; return G.mode + ' ' + G.level + ' ' + G.phase + ' ' + G.eng.stage; }));
   }
   const coll = await page.evaluate(() => window.__orbit.scores.profile.coll.slice());
   ok(coll.length === 3, 'three universes collected ' + coll.join(','));

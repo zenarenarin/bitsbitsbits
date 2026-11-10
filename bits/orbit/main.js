@@ -160,196 +160,742 @@ function fmtTime(ms) {
 }
 
 // ---- 01_puzzle.js ----
-// PuzzleGenerator and the core game engine. No rendering, no theme, no SDK.
-// The engine is the single source of truth for ring positions.
+// ORBIT — intersection logic puzzle. Pure logic: no rendering, no theme, no SDK.
+//
+// Board: five concentric rings of twelve segments. Ring 0 (the centre ring) is
+// fixed and carries the spectrum in order, families 0..11 clockwise, so it is
+// also the legend for every "steps apart" and "next colour" rule. Rings 1..4
+// turn independently in 30-degree steps.
+//
+// An intersection is one of the twelve radial columns. A condition says what the
+// pinned rings must show at one column. Conditions are revealed in stages; a
+// stage opens only when every revealed condition holds at the same time.
+//
+// The state space is the four movable offsets: 12^4 = 20,736 states, small
+// enough to search exhaustively, so every puzzle is verified by a BFS solver.
 
 const SEGMENTS = 12;
 const STEP = TAU / SEGMENTS; // 30 degrees
+const RINGS = 5;
+const MOVABLE = RINGS - 1;
+const NSTATES = Math.pow(SEGMENTS, MOVABLE); // 20,736
+const POW = [0, 1, 12, 144, 1728];
+const RING_NAMES = ['centre ring', 'second ring', 'third ring', 'fourth ring', 'outer ring'];
+const HOURS = ['XII', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI'];
 
-// Difficulty presets. `rings` counts the fixed reference ring at the centre.
-const DIFFICULTY = {
-  easy:   { id: 'easy',   label: 'Easy',   rings: 4, minDist: 1, maxDist: 3, minTotal: 5,  minBig: 2 },
-  medium: { id: 'medium', label: 'Medium', rings: 5, minDist: 2, maxDist: 6, minTotal: 13, minBig: 4 },
-  hard:   { id: 'hard',   label: 'Hard',   rings: 6, minDist: 3, maxDist: 6, minTotal: 21, minBig: 5 }
-};
-
-// Shortest signed rotation (in segments) that brings offset `o` back to zero.
+function circDist(a, b) { const d = mod(a - b, SEGMENTS); return Math.min(d, SEGMENTS - d); }
+// Shortest signed rotation (in segments) for an offset difference, in (-6, 6].
 function shortestSteps(o) {
   const m = mod(o, SEGMENTS);
-  return m > SEGMENTS / 2 ? m - SEGMENTS : m; // in (-6, 6]
+  return m > SEGMENTS / 2 ? m - SEGMENTS : m;
 }
 
-const PuzzleGenerator = {
-  // The solved arrangement: every ring carries the same sequence of twelve hue
-  // families in the same angular order, so families line up in radial columns.
-  solvedSequences(ringCount) {
-    const seqs = [];
-    for (let r = 0; r < ringCount; r++) {
-      const s = [];
-      for (let i = 0; i < SEGMENTS; i++) s.push(i);
-      seqs.push(s);
+// ---- State encoding -------------------------------------------------------------
+// state = o1 + 12*o2 + 144*o3 + 1728*o4 (each offset taken mod 12).
+function stateIndex(rot) {
+  let s = 0;
+  for (let k = MOVABLE; k >= 1; k--) s = s * SEGMENTS + mod(rot[k], SEGMENTS);
+  return s;
+}
+function stateOffsets(s) {
+  const o = [0];
+  for (let k = 1; k <= MOVABLE; k++) { o.push(s % SEGMENTS); s = Math.floor(s / SEGMENTS); }
+  return o;
+}
+function stateDistance(a, b) {
+  let d = 0;
+  for (let k = 1; k <= MOVABLE; k++) { d += circDist(a % SEGMENTS, b % SEGMENTS); a = Math.floor(a / SEGMENTS); b = Math.floor(b / SEGMENTS); }
+  return d;
+}
+
+// The family ring k shows at board position p (0 = 12 o'clock, clockwise) when
+// the ring is turned by `off` steps clockwise.
+function famAt(seqs, k, off, p) { return seqs[k][mod(p - off, SEGMENTS)]; }
+
+// ---- Condition library ---------------------------------------------------------------
+// Every condition is a predicate on the family IDs `f` shown by its pinned rings
+// (listed inner to outer) at its position. Appearance never enters into it.
+// Exactly one family appears exactly twice and every other family once, which is
+// the same as: exactly one equal pair among the pins (a triple makes three).
+function pairTest(f) {
+  let eq = 0;
+  for (let i = 0; i < f.length; i++) for (let j = i + 1; j < f.length; j++) if (f[i] === f[j]) eq++;
+  return eq === 1;
+}
+function distinctCount(f) {
+  let n = 0;
+  for (let i = 0; i < f.length; i++) { let dup = false; for (let j = 0; j < i; j++) if (f[j] === f[i]) { dup = true; break; } if (!dup) n++; }
+  return n;
+}
+
+const CONDITION_TYPES = {
+  // A. TRIPLE: the three pinned rings show one family.
+  triple: {
+    label: 'Triple',
+    test: f => f[0] === f[1] && f[1] === f[2],
+    progress: f => (f[0] === f[1] && f[1] === f[2]) ? 1 : (f[0] === f[1] || f[1] === f[2] || f[0] === f[2]) ? 0.5 : 0,
+    text: () => 'All three pins show one colour'
+  },
+  // B. PAIR: exactly two pinned rings share a family; the rest all differ.
+  pair: {
+    label: 'Pair',
+    test: f => pairTest(f),
+    progress: f => pairTest(f) ? 1 : (distinctCount(f) < f.length ? 0.5 : 0),
+    text: c => c.rings.length === 3 ? 'Exactly two of the three pins match' : 'Exactly one pair of pins match; the rest differ'
+  },
+  // C. CONTRAST: the two pinned families are at least d steps apart on the spectrum.
+  contrast: {
+    label: 'Contrast',
+    test: (f, c) => circDist(f[0], f[1]) >= c.d,
+    progress: (f, c) => Math.min(1, circDist(f[0], f[1]) / c.d),
+    text: c => c.d >= 6 ? 'The two pins sit opposite on the centre ring' : 'The two pins are at least ' + c.d + ' steps apart on the centre ring'
+  },
+  // D. ODD ONE: every round pin shows one family; the diamond pin shows another.
+  odd: {
+    label: 'Odd one',
+    test: (f, c) => {
+      let F = -1;
+      for (let i = 0; i < f.length; i++) {
+        if (i === c.odd) continue;
+        if (F < 0) F = f[i]; else if (f[i] !== F) return false;
+      }
+      return f[c.odd] !== F;
+    },
+    progress: (f, c) => {
+      let F = -1, same = true;
+      for (let i = 0; i < f.length; i++) { if (i === c.odd) continue; if (F < 0) F = f[i]; else if (f[i] !== F) same = false; }
+      return same ? (f[c.odd] !== F ? 1 : 0.5) : 0;
+    },
+    text: c => c.rings.length === 3 ? 'The round pins match; the diamond differs' : 'The round pins all match; the diamond differs'
+  },
+  // E. SEQUENCE: inner to outer, each pin is the next family (step +1 = clockwise
+  // on the centre ring, -1 = anticlockwise).
+  sequence: {
+    label: 'Sequence',
+    test: (f, c) => {
+      for (let i = 0; i + 1 < f.length; i++) if (f[i + 1] !== mod(f[i] + c.step, SEGMENTS)) return false;
+      return true;
+    },
+    progress: (f, c) => {
+      let n = 0;
+      for (let i = 0; i + 1 < f.length; i++) if (f[i + 1] === mod(f[i] + c.step, SEGMENTS)) n++;
+      return n / (f.length - 1);
+    },
+    text: c => 'Inside out, each pin is the next colour ' + (c.step > 0 ? 'clockwise' : 'anticlockwise') + ' on the centre ring'
+  },
+  // F. MISSING: family `fam` appears on none of the pinned rings.
+  missing: {
+    label: 'Missing',
+    test: (f, c) => f.indexOf(c.fam) < 0,
+    progress: (f, c) => f.indexOf(c.fam) < 0 ? 1 : 0,
+    text: () => 'This colour appears on none of the pins'
+  },
+  // G. ALL DIFFERENT: every pinned ring shows a different family.
+  alldiff: {
+    label: 'All different',
+    test: f => distinctCount(f) === f.length,
+    progress: f => (distinctCount(f) - 1) / (f.length - 1),
+    text: () => 'Every pin shows a different colour'
+  }
+};
+
+function condFams(seqs, cond, rot) {
+  const f = new Array(cond.rings.length);
+  for (let i = 0; i < cond.rings.length; i++) { const k = cond.rings[i]; f[i] = famAt(seqs, k, k === 0 ? 0 : rot[k], cond.pos); }
+  return f;
+}
+function condHolds(seqs, cond, rot) { return CONDITION_TYPES[cond.type].test(condFams(seqs, cond, rot), cond); }
+
+// Satisfying mask over the whole state space. A condition depends only on the
+// movable rings it pins, so it is evaluated over those rings' offsets (at most
+// 12^3 combinations) and the answer is spread across all 20,736 states.
+function satMask(seqs, cond) {
+  const T = CONDITION_TYPES[cond.type];
+  const n = cond.rings.length;
+  const cols = cond.rings.map(k => { const c = []; for (let o = 0; o < SEGMENTS; o++) c.push(famAt(seqs, k, k === 0 ? 0 : o, cond.pos)); return c; });
+  const mov = cond.rings.filter(k => k > 0);
+  const combos = Math.pow(SEGMENTS, mov.length);
+  const table = new Uint8Array(combos);
+  const f = new Array(n), o = [0, 0, 0, 0, 0];
+  for (let c = 0; c < combos; c++) {
+    let x = c;
+    for (let j = 0; j < mov.length; j++) { o[mov[j]] = x % SEGMENTS; x = Math.floor(x / SEGMENTS); }
+    for (let i = 0; i < n; i++) f[i] = cols[i][o[cond.rings[i]]];
+    table[c] = T.test(f, cond) ? 1 : 0;
+  }
+  const m = new Uint8Array(NSTATES);
+  const mul = mov.map((_, j) => Math.pow(SEGMENTS, j));
+  for (let s = 0; s < NSTATES; s++) {
+    let c = 0;
+    for (let j = 0; j < mov.length; j++) c += (Math.floor(s / POW[mov[j]]) % SEGMENTS) * mul[j];
+    m[s] = table[c];
+  }
+  return m;
+}
+
+// ---- Solver: multi-source BFS over the 20,736 states ------------------------------------
+// One move turns one ring one step either way. Returns the distance from every
+// state to the nearest state in `goal` (a mask), or to a single state index.
+function bfs(goal) {
+  const dist = new Uint8Array(NSTATES).fill(255);
+  const q = new Int32Array(NSTATES);
+  let head = 0, tail = 0;
+  if (typeof goal === 'number') { dist[goal] = 0; q[tail++] = goal; }
+  else for (let s = 0; s < NSTATES; s++) if (goal[s]) { dist[s] = 0; q[tail++] = s; }
+  while (head < tail) {
+    const s = q[head++], d = dist[s] + 1;
+    for (let k = 1; k <= MOVABLE; k++) {
+      const p = POW[k], digit = Math.floor(s / p) % SEGMENTS;
+      const up = digit === SEGMENTS - 1 ? s - (SEGMENTS - 1) * p : s + p;
+      const dn = digit === 0 ? s + (SEGMENTS - 1) * p : s - p;
+      if (dist[up] > d) { dist[up] = d; q[tail++] = up; }
+      if (dist[dn] > d) { dist[dn] = d; q[tail++] = dn; }
     }
-    return seqs;
+  }
+  return dist;
+}
+function andMasks(masks) {
+  const m = new Uint8Array(NSTATES).fill(1);
+  masks.forEach(x => { for (let s = 0; s < NSTATES; s++) m[s] &= x[s]; });
+  return m;
+}
+function countMask(m) { let n = 0; for (let s = 0; s < NSTATES; s++) n += m[s]; return n; }
+
+// ---- Difficulty presets -----------------------------------------------------------------
+// Difficulty comes from how the conditions interact, measured by the solver:
+// how many arrangements satisfy each stage, how far the start is, and how much of
+// a stage's arrangement the next reveal forces you to undo. Not from counts.
+const PUZZLE_PRESETS = {
+  gentle: {
+    id: 'gentle', label: 'Gentle', stages: [3, 2, 2],
+    s1: [40, 1200], s2: [3, 160], s3: [1, 3], ratio2: 0.4, ratio3: 0.75,
+    s1Dist: [3, 8], par: [8, 18], route: [12, 30]
+  },
+  standard: {
+    id: 'standard', label: 'Standard', stages: [3, 2, 2],
+    s1: [16, 700], s2: [2, 90], s3: [1, 2], ratio2: 0.3, ratio3: 0.6,
+    s1Dist: [4, 10], par: [11, 22], route: [18, 40]
+  },
+  deep: {
+    id: 'deep', label: 'Deep', stages: [3, 2, 2],
+    s1: [8, 400], s2: [2, 50], s3: [1, 1], ratio2: 0.25, ratio3: 0.5,
+    s1Dist: [5, 11], par: [13, 24], route: [22, 48]
+  }
+};
+
+// Condition types the planner draws from, weighted. Which clue lands in which
+// stage is decided afterwards by the solver, not by type.
+const PLAN_POOL = { triple: 3, contrast: 3, odd: 3, pair: 2, sequence: 2, alldiff: 2, missing: 2 };
+const STRONG = { triple: 1, sequence: 1 };
+
+function weightedPick(r, weights, exclude) {
+  const keys = Object.keys(weights).filter(k => !exclude || !exclude(k));
+  let sum = 0; keys.forEach(k => { sum += weights[k]; });
+  let x = r() * sum;
+  for (let i = 0; i < keys.length; i++) { x -= weights[keys[i]]; if (x <= 0) return keys[i]; }
+  return keys[keys.length - 1];
+}
+// Rings for a condition, favouring rings that so far take part in fewest
+// conditions, so every ring ends up shared between clues.
+function sampleRings(r, n, allowCentre, usage) {
+  const pool = allowCentre ? [0, 1, 2, 3, 4] : [1, 2, 3, 4];
+  const keyed = pool.map(k => ({ k, w: r() + (usage ? usage[k] * 0.45 : 0) }));
+  keyed.sort((x, y) => x.w - y.w);
+  return keyed.slice(0, n).map(x => x.k).sort((a, b) => a - b);
+}
+
+// Propose families for a condition's pinned cells that make it true, respecting
+// the fixed centre ring and each ring's unused families. null if none found.
+function proposeCells(r, cond, used) {
+  const n = cond.rings.length, T = CONDITION_TYPES[cond.type];
+  for (let attempt = 0; attempt < 400; attempt++) {
+    const v = new Array(n);
+    const F = r.int(0, SEGMENTS - 1), G = r.int(0, SEGMENTS - 1);
+    for (let i = 0; i < n; i++) {
+      switch (cond.type) {
+        case 'triple': v[i] = F; break;
+        case 'odd': v[i] = i === cond.odd ? G : F; break;
+        case 'sequence': v[i] = mod(F + i * cond.step, SEGMENTS); break;
+        case 'pair': v[i] = (i === cond.pa || i === cond.pb) ? F : r.int(0, SEGMENTS - 1); break;
+        default: v[i] = r.int(0, SEGMENTS - 1);
+      }
+    }
+    let ok = true;
+    for (let i = 0; i < n && ok; i++) {
+      const k = cond.rings[i];
+      if (k === 0) { if (v[i] !== cond.pos) ok = false; }
+      else if (used[k][v[i]]) ok = false;
+    }
+    if (ok && cond.type === 'missing') {
+      // The missing family is one the pins do not show, chosen so it matters:
+      // prefer a family the outer pins could easily turn to.
+      const avail = []; for (let x = 0; x < SEGMENTS; x++) if (v.indexOf(x) < 0) avail.push(x);
+      cond.fam = r.pick(avail);
+    }
+    if (ok && T.test(v, cond)) return v;
+  }
+  return null;
+}
+
+// A ring sequence reads as its own colour composition, not a rainbow fragment:
+// no three spectrum-neighbours in a row, either direction.
+function hasRun(row) {
+  for (let i = 0; i < SEGMENTS; i++) {
+    const a = row[i], b = row[(i + 1) % SEGMENTS], c = row[(i + 2) % SEGMENTS];
+    const d1 = mod(b - a, SEGMENTS), d2 = mod(c - b, SEGMENTS);
+    if ((d1 === 1 && d2 === 1) || (d1 === SEGMENTS - 1 && d2 === SEGMENTS - 1)) return true;
+  }
+  return false;
+}
+// No two rings may be near-copies at any relative turn (too many coincidences
+// would let one move satisfy everything at once).
+function maxCoincidence(a, b) {
+  let best = 0;
+  for (let d = 0; d < SEGMENTS; d++) {
+    let n = 0;
+    for (let i = 0; i < SEGMENTS; i++) if (a[i] === b[(i + d) % SEGMENTS]) n++;
+    if (n > best) best = n;
+  }
+  return best;
+}
+
+// One candidate: a solved board and seven conditions true on it. Returns null
+// when the plan cannot be realised.
+function planBoard(r, preset) {
+  const total = preset.stages.reduce((a, b) => a + b, 0);
+  // Positions: distinct columns, so every pin belongs to exactly one condition.
+  const cols = []; for (let p = 0; p < SEGMENTS; p++) cols.push(p);
+  for (let i = cols.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); const t = cols[i]; cols[i] = cols[j]; cols[j] = t; }
+
+  const B = [];
+  for (let k = 0; k < RINGS; k++) B.push(new Array(SEGMENTS).fill(-1));
+  for (let p = 0; p < SEGMENTS; p++) B[0][p] = p;
+  const used = []; for (let k = 0; k < RINGS; k++) used.push(new Array(SEGMENTS).fill(false));
+
+  const conds = [];
+  const typeCount = {};
+  let idx = 0;
+  const usage = [0, 0, 0, 0, 0];
+  let strong = 0;
+  {
+    for (let j = 0; j < total; j++, idx++) {
+      const st = 0;
+      const type = weightedPick(r, PLAN_POOL, k => (typeCount[k] || 0) >= 2 || (STRONG[k] && strong >= 2));
+      if (STRONG[type]) strong++;
+      typeCount[type] = (typeCount[type] || 0) + 1;
+      const pos = cols[idx];
+      let n = 3;
+      if (type === 'contrast') n = 2;
+      else if (type === 'pair' || type === 'odd') n = r.chance(0.3) ? 4 : 3;
+      else if (type === 'missing') n = r.chance(0.5) ? 5 : 4;
+      else if (type === 'alldiff') n = r.chance(0.5) ? 5 : 4;
+      const cond = { id: idx, type, pos, stage: st, rings: sampleRings(r, n, n === 5 || r.chance(0.3), usage) };
+      cond.rings.forEach(k => { usage[k]++; });
+      if (type === 'contrast') cond.d = r.pick([4, 5, 5, 5, 6]);
+      if (type === 'sequence') cond.step = r.chance(0.5) ? 1 : -1;
+      if (type === 'odd') cond.odd = r.int(0, n - 1);
+      if (type === 'pair') { cond.pa = r.int(0, n - 1); do { cond.pb = r.int(0, n - 1); } while (cond.pb === cond.pa); }
+      const v = proposeCells(r, cond, used);
+      if (!v) return null;
+      cond.rings.forEach((k, i) => { if (k > 0) { B[k][pos] = v[i]; used[k][v[i]] = true; } });
+      delete cond.pa; delete cond.pb;
+      conds.push(cond);
+    }
+  }
+  if (Object.keys(typeCount).length < 4) return null;
+
+  // Every movable ring takes part in at least two conditions, so moves conflict.
+  for (let k = 1; k <= MOVABLE; k++) {
+    if (conds.filter(c => c.rings.indexOf(k) >= 0).length < 2) return null;
+  }
+  if (conds.filter(c => c.rings.indexOf(0) >= 0).length > 3) return null;
+
+  // Fill the remaining cells; keep the sequences composed.
+  for (let k = 1; k <= MOVABLE; k++) {
+    let ok = false;
+    for (let t = 0; t < 30 && !ok; t++) {
+      const free = []; for (let x = 0; x < SEGMENTS; x++) if (!used[k][x]) free.push(x);
+      for (let i = free.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); const tt = free[i]; free[i] = free[j]; free[j] = tt; }
+      const row = B[k].slice();
+      let fi = 0;
+      for (let p = 0; p < SEGMENTS; p++) if (row[p] < 0) row[p] = free[fi++];
+      if (hasRun(row)) continue;
+      let coincide = false;
+      for (let j = 0; j < k && !coincide; j++) if (maxCoincidence(B[j], row) > 3) coincide = true;
+      if (coincide) continue;
+      B[k] = row; ok = true;
+    }
+    if (!ok) return null;
+  }
+  return { B, conds, total };
+}
+
+// Rejection reasons are kept for the dev report.
+const PuzzleGenerator = {
+  presets: PUZZLE_PRESETS,
+
+  // Deterministic: same key and preset -> same puzzle on every device.
+  generate(seedKey, presetId) {
+    const preset = PUZZLE_PRESETS[presetId] || PUZZLE_PRESETS.standard;
+    const rng = makeRng('orbit2-puzzle:' + seedKey + ':' + preset.id);
+    const reasons = {};
+    const reject = why => { reasons[why] = (reasons[why] || 0) + 1; return null; };
+    for (let attempt = 1; attempt <= 300; attempt++) {
+      const p = PuzzleGenerator.tryBuild(rng, preset, reject);
+      if (p) { p.key = seedKey; p.attempts = attempt; p.reasons = reasons; return p; }
+    }
+    // Every preset is exercised across thousands of keys in dev/test_puzzle.js;
+    // this is a last resort with a fixed, verified seed.
+    if (seedKey === 'orbit-fallback') throw new Error('ORBIT generator exhausted');
+    const p = PuzzleGenerator.generate('orbit-fallback', 'gentle');
+    p.key = seedKey; p.fallback = true;
+    return p;
   },
 
-  // Does this offset vector satisfy the difficulty contract?
-  check(offsets, diff) {
-    const dists = offsets.map(o => Math.abs(shortestSteps(o)));
-    if (dists.some(d => d === 0)) return 'ring already aligned';
-    if (dists.some(d => d < diff.minDist || d > diff.maxDist)) return 'distance out of range';
-    const total = dists.reduce((a, b) => a + b, 0);
-    if (total < diff.minTotal) return 'too few moves';
-    if (Math.max.apply(null, dists) < diff.minBig) return 'no long rotation';
-    for (let i = 1; i < offsets.length; i++) {
-      // Neighbouring rings with identical offsets read as one block: not interesting.
-      if (mod(offsets[i], SEGMENTS) === mod(offsets[i - 1], SEGMENTS)) return 'neighbours move together';
-    }
-    if (diff.rings - 1 >= 3) {
-      const dirs = offsets.map(o => Math.sign(shortestSteps(o)));
-      if (dirs.every(d => d === dirs[0])) return 'all one direction';
+  tryBuild(r, preset, reject) {
+    const plan = planBoard(r, preset);
+    if (!plan) return reject('plan');
+    const { B } = plan;
+
+    // Steps 1-3: choose the solution turn of each ring; the sequences are the
+    // solved board turned back by it, so every planned condition holds there.
+    const sol = [0];
+    for (let k = 1; k <= MOVABLE; k++) sol.push(r.int(0, SEGMENTS - 1));
+    const seqs = B.map((row, k) => { const q = []; for (let i = 0; i < SEGMENTS; i++) q.push(row[mod(i + sol[k], SEGMENTS)]); return q; });
+    for (let i = 0; i < plan.conds.length; i++) if (!condHolds(seqs, plan.conds[i], sol)) return reject('construction');
+
+    const masks = plan.conds.map(c => satMask(seqs, c));
+    for (let i = 0; i < masks.length; i++) if (countMask(masks[i]) > NSTATES * 0.75) return reject('weak clue');
+    const bits = masks.map(toBits);
+
+    // Steps 4-5 and 10: distribute the clues across the stages. Every split of the
+    // planned clues is measured; the solver's numbers decide, not the clue types.
+    const cum = []; let acc = 0;
+    preset.stages.forEach(n => { acc += n; cum.push(acc); });
+    const total = acc;
+    const splits = [];
+    // Intersections are shared between splits (stage one has only 35 choices),
+    // so each distinct set of clues is intersected and counted once.
+    const memo = {};
+    const sizeOf = idx => {
+      const key = idx.slice().sort((x, y) => x - y).join(',');
+      if (memo[key] === undefined) memo[key] = popBits(andBits(idx.map(i => bits[i])));
+      return memo[key];
+    };
+    const bounds = [preset.s1, preset.s2, preset.s3];
+    stageSplits(total, preset.stages).forEach(order => {
+      const sizes = [];
+      for (let st = 0; st < cum.length; st++) {
+        const n = sizeOf(order.slice(0, cum[st]));
+        if (n < bounds[st][0] || n > bounds[st][1]) return;
+        sizes.push(n);
+      }
+      if (sizes[1] / sizes[0] > preset.ratio2 || sizes[2] / sizes[1] > preset.ratio3) return;
+      // Every clue earns its place in its stage: without it, more arrangements pass.
+      for (let st = 0; st < cum.length; st++) {
+        const set = order.slice(0, cum[st]);
+        for (let i = st ? cum[st - 1] : 0; i < cum[st]; i++) {
+          if (sizeOf(set.filter((_, j) => j !== i)) === sizes[st]) return;
+        }
+      }
+      splits.push({ order, sizes });
+    });
+    if (!splits.length) return reject('no stage split');
+
+    // Steps 6-9: scramble, then verify with the solver.
+    for (let tries = 0; tries < 3 && splits.length; tries++) {
+      const pick = splits.splice(r.int(0, splits.length - 1), 1)[0];
+      const conds = pick.order.map((i, j) => {
+        const c = Object.assign({}, plan.conds[i]);
+        c.id = j; c.stage = cum.findIndex(n => j < n);
+        return c;
+      });
+      const stageMask = cum.map(n => fromBits(andBits(pick.order.slice(0, n).map(i => bits[i]))));
+      const res = PuzzleGenerator.chooseStart(r, preset, conds, pick.order.map(i => masks[i]), stageMask, cum);
+      if (!res) { reject('no fair start'); continue; }
+      const solutions = []; for (let s = 0; s < NSTATES; s++) if (stageMask[2][s]) solutions.push(s);
+      return {
+        preset: preset.id,
+        ringCount: RINGS,
+        seqs,
+        sequences: seqs,
+        conds,
+        stages: preset.stages.slice(),
+        cum,
+        start: res.start,
+        startState: res.s0,
+        solution: sol,
+        solutions,
+        sizes: pick.sizes,
+        par: res.par,
+        route: res.route,
+        budget: res.route + Math.max(8, Math.ceil(res.route * 0.6)),
+        dist: res.dist,
+        sig: hashString(JSON.stringify([seqs, conds, res.start])).toString(36)
+      };
     }
     return null;
   },
 
-  // Deterministic: same key -> same puzzle on every device, every reload.
-  generate(seedKey, diffId) {
-    const diff = DIFFICULTY[diffId] || DIFFICULTY.medium;
-    const rng = makeRng('orbit-puzzle:' + seedKey);
-    const movable = diff.rings - 1;
-    let offsets = null, attempts = 0;
-    while (attempts < 500) {
-      attempts++;
-      const cand = [];
-      for (let i = 0; i < movable; i++) {
-        const d = rng.int(diff.minDist, diff.maxDist);
-        cand.push(mod(rng.chance(0.5) ? d : -d, SEGMENTS));
-      }
-      if (!this.check(cand, diff)) { offsets = cand; break; }
+  // A fair scramble: not solved, not nearly solved, every ring involved, and the
+  // natural route through the stages forces the player to rethink at each reveal.
+  chooseStart(r, preset, conds, masks, stageMask, cum) {
+    const dist = stageMask.map(m => bfs(m));
+    const solutions = []; for (let s = 0; s < NSTATES; s++) if (stageMask[2][s]) solutions.push(stateOffsets(s));
+    for (let t = 0; t < 80; t++) {
+      const s0 = r.int(0, NSTATES - 1);
+      if (stageMask[0][s0]) continue;
+      let holds1 = 0; for (let i = 0; i < cum[0]; i++) if (masks[i][s0]) holds1++;
+      if (holds1 > 1) continue;
+      const par = dist[2][s0];
+      if (par < preset.par[0] || par > preset.par[1]) continue;
+      if (dist[0][s0] < preset.s1Dist[0] || dist[0][s0] > preset.s1Dist[1]) continue;
+      const st0 = stateOffsets(s0);
+      // At least three of the four rings must turn to reach any solution.
+      if (!solutions.every(so => { let n = 0; for (let k = 1; k <= MOVABLE; k++) if (so[k] !== st0[k]) n++; return n >= 3; })) continue;
+      // The route: nearest stage-one arrangement, nearest stage-two arrangement from
+      // there, then the solution. Those nearest arrangements must each break a
+      // newly revealed clue.
+      const from0 = bfs(s0);
+      const d1 = dist[0][s0];
+      const near1 = []; for (let s = 0; s < NSTATES && near1.length < 8; s++) if (stageMask[0][s] && from0[s] === d1) near1.push(s);
+      if (near1.some(s => stageMask[1][s])) continue;
+      let route = Infinity, rethink = true;
+      near1.forEach(s1 => {
+        const d2 = dist[1][s1];
+        const from1 = bfs(s1);
+        for (let s = 0; s < NSTATES; s++) {
+          if (!stageMask[1][s] || from1[s] !== d2) continue;
+          if (stageMask[2][s]) rethink = false;
+          route = Math.min(route, d1 + d2 + dist[2][s]);
+        }
+      });
+      if (!rethink) continue;
+      if (route < preset.route[0] || route > preset.route[1]) continue;
+      return { s0, start: st0, par, route, dist };
     }
-    if (!offsets) {
-      // Unreachable in practice (see dev/test_puzzle.js); a safe valid fallback.
-      offsets = [];
-      for (let i = 0; i < movable; i++) offsets.push(mod((i % 2 ? -1 : 1) * Math.min(diff.maxDist, diff.minDist + 1 + (i % 3)), SEGMENTS));
-    }
-    return {
-      seedKey,
-      difficulty: diff.id,
-      ringCount: diff.rings,
-      sequences: this.solvedSequences(diff.rings),
-      // Index 0 is the reference ring and never moves.
-      scramble: [0].concat(offsets),
-      attempts
-    };
+    return null;
   }
 };
 
-// The engine: integer ring positions, move history, alignment maths.
-function createEngine(puzzle, saved) {
-  const n = puzzle.ringCount;
-  const eng = {
-    puzzle,
-    rot: puzzle.scramble.slice(),  // integer segments; unbounded (multiple revolutions are fine)
-    moves: 0,
-    history: [],                    // { ring, from, to }
-    hints: 0,
-    solved: false
+// ---- Bitsets over the state space (fast stage measurement) --------------------------------
+const WORDS = Math.ceil(NSTATES / 32);
+function toBits(m) { const b = new Uint32Array(WORDS); for (let s = 0; s < NSTATES; s++) if (m[s]) b[s >>> 5] |= 1 << (s & 31); return b; }
+function fromBits(b) { const m = new Uint8Array(NSTATES); for (let s = 0; s < NSTATES; s++) m[s] = (b[s >>> 5] >>> (s & 31)) & 1; return m; }
+function andBits(list) { const o = new Uint32Array(WORDS).fill(0xffffffff); list.forEach(b => { for (let w = 0; w < WORDS; w++) o[w] &= b[w]; }); return o; }
+function popBits(b) { let n = 0; for (let w = 0; w < WORDS; w++) { let v = b[w]; v = v - ((v >>> 1) & 0x55555555); v = (v & 0x33333333) + ((v >>> 2) & 0x33333333); n += (((v + (v >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24; } return n; }
+// Every way to order `total` clue indices into stages of the given sizes
+// (order within a stage does not matter). 7 clues as 3/2/2: 210 splits.
+function stageSplits(total, stages) {
+  const out = [];
+  const rec = (left, st, acc) => {
+    if (st === stages.length) { out.push(acc); return; }
+    combos(left, stages[st]).forEach(pick => rec(left.filter(x => pick.indexOf(x) < 0), st + 1, acc.concat(pick)));
   };
+  rec(Array.from({ length: total }, (_, i) => i), 0, []);
+  return out;
+}
+function combos(arr, k) {
+  if (k === 0) return [[]];
+  const out = [];
+  for (let i = 0; i <= arr.length - k; i++) combos(arr.slice(i + 1), k - 1).forEach(c => out.push([arr[i]].concat(c)));
+  return out;
+}
 
-  // Which hue family is visible in angular slot `slot` of ring `r`.
-  // Rotating clockwise by one step moves every segment forward one slot.
-  eng.familyAt = function (r, slot) {
-    return puzzle.sequences[r][mod(slot - eng.rot[r], SEGMENTS)];
-  };
+// ---- Plain-language help --------------------------------------------------------------
+function condTitle(c) { return HOURS[c.pos] + ' · ' + CONDITION_TYPES[c.type].label; }
+function condText(c) { return CONDITION_TYPES[c.type].text(c); }
 
-  // A ring is aligned when all twelve slots show the reference ring's family.
-  eng.isAligned = function (r, rotOverride) {
-    if (r === 0) return true;
-    const saved = eng.rot[r];
-    if (rotOverride !== undefined) eng.rot[r] = rotOverride;
-    let ok = true;
-    for (let s = 0; s < SEGMENTS; s++) {
-      if (eng.familyAt(r, s) !== eng.familyAt(0, s)) { ok = false; break; }
-    }
-    eng.rot[r] = saved;
-    return ok;
-  };
-  eng.alignedCount = function () {
-    let c = 0;
-    for (let r = 1; r < n; r++) if (eng.isAligned(r)) c++;
-    return c;
-  };
-  eng.checkSolved = function () {
-    for (let r = 1; r < n; r++) if (!eng.isAligned(r)) return false;
-    return true;
-  };
-  // Smallest signed number of steps that aligns ring r, found by search over
-  // the twelve rotations rather than read from the scramble.
-  eng.stepsToAlign = function (r) {
-    let best = null;
-    for (let d = -5; d <= 6; d++) {
-      if (eng.isAligned(r, eng.rot[r] + d)) {
-        if (best === null || Math.abs(d) < Math.abs(best)) best = d;
+// What a second-level hint says: the relationship, read against the board now.
+function condExplain(seqs, c, rot) {
+  const f = condFams(seqs, c, rot);
+  const nm = i => RING_NAMES[c.rings[i]];
+  const same = (i, j) => f[i] === f[j];
+  switch (c.type) {
+    case 'triple': {
+      const n = f.length;
+      for (let i = 0; i < n; i++) {
+        const others = []; for (let j = 0; j < n; j++) if (j !== i) others.push(j);
+        if (same(others[0], others[1]) && !same(i, others[0])) return 'Two pins already agree. The ' + nm(i) + ' needs their colour.';
       }
+      return 'No two pins agree yet. Choose one colour and bring all three rings to it.';
     }
+    case 'pair': {
+      const k = distinctCount(f);
+      if (k === f.length) return 'Every pin differs. Turn one ring so its pin copies another.';
+      return 'Too many pins agree. Exactly two may share a colour.';
+    }
+    case 'contrast': {
+      const d = circDist(f[0], f[1]);
+      return 'These colours are ' + d + (d === 1 ? ' step' : ' steps') + ' apart on the centre ring; they need ' + (c.d >= 6 ? 'to be opposite (6)' : 'at least ' + c.d) + '.';
+    }
+    case 'odd': {
+      const round = []; for (let i = 0; i < f.length; i++) if (i !== c.odd) round.push(i);
+      const roundSame = round.every(i => f[i] === f[round[0]]);
+      if (!roundSame) return 'The round pins (' + round.map(nm).join(', ') + ') must all match.';
+      return 'The round pins match. The diamond on the ' + nm(c.odd) + ' must show a different colour.';
+    }
+    case 'sequence': {
+      for (let i = 0; i + 1 < f.length; i++) if (f[i + 1] !== mod(f[i] + c.step, SEGMENTS)) {
+        return 'The ' + nm(i + 1) + ' pin should be the colour ' + (c.step > 0 ? 'clockwise' : 'anticlockwise') + ' of the ' + nm(i) + ' pin, read on the centre ring.';
+      }
+      return 'The sequence holds.';
+    }
+    case 'missing': {
+      const i = f.indexOf(c.fam);
+      return i >= 0 ? 'The forbidden colour is on the ' + nm(i) + ' right now.' : 'The forbidden colour is absent.';
+    }
+    case 'alldiff': {
+      for (let i = 0; i < f.length; i++) for (let j = i + 1; j < f.length; j++) if (f[i] === f[j]) return 'The ' + nm(i) + ' and ' + nm(j) + ' pins repeat a colour.';
+      return 'Every pin differs.';
+    }
+  }
+  return '';
+}
+
+// ---- Engine -------------------------------------------------------------------------------
+// The single source of truth for ring positions, moves, stage and hints.
+// A move is one 30-degree step of one ring. moves always equals the total steps
+// in the history, so undo reverses exactly the last action and its moves.
+function createGame(puzzle, saved) {
+  const P = puzzle, nC = P.conds.length;
+  const E = {
+    puzzle: P,
+    rot: P.start.slice(),
+    moves: 0,
+    history: [],
+    hints: 0,
+    hintLevel: new Array(nC).fill(0),
+    stage: 0,
+    everSat: new Array(nC).fill(false),
+    solved: false,
+    par: P.par,
+    route: P.route,
+    budget: P.budget
+  };
+  E.lastStage = P.cum.length - 1;
+  E.revealed = () => P.cum[E.stage];
+  E.state = () => stateIndex(E.rot);
+  E.fams = i => condFams(P.seqs, P.conds[i], E.rot);
+  E.holds = i => CONDITION_TYPES[P.conds[i].type].test(E.fams(i), P.conds[i]);
+  E.progress = i => CONDITION_TYPES[P.conds[i].type].progress(E.fams(i), P.conds[i]);
+  // 'solved' | 'unsolved' (has held before) | 'revealed' (new, never held yet)
+  E.status = i => E.holds(i) ? 'solved' : E.everSat[i] ? 'unsolved' : 'revealed';
+  E.satisfiedCount = () => { let n = 0; for (let i = 0; i < E.revealed(); i++) if (E.holds(i)) n++; return n; };
+  E.allRevealedHold = () => E.satisfiedCount() === E.revealed();
+  E.familyAt = (k, p) => famAt(P.seqs, k, k === 0 ? 0 : E.rot[k], p);
+  E.isSolutionState = () => P.dist[E.lastStage][E.state()] === 0;
+
+  function refreshSeen() { for (let i = 0; i < E.revealed(); i++) if (E.holds(i)) E.everSat[i] = true; }
+
+  // Open the next stage when every revealed condition holds. One stage at a time:
+  // the caller animates the reveal and calls again afterwards.
+  E.advance = function () {
+    if (E.solved || !E.allRevealedHold()) return null;
+    if (E.stage < E.lastStage) { E.stage++; refreshSeen(); return 'stage'; }
+    E.solved = true;
+    return 'solved';
+  };
+
+  E.rotate = function (k, steps) {
+    if (E.solved || k < 1 || k >= RINGS || !steps) return null;
+    const from = E.rot[k];
+    E.rot[k] = from + steps;
+    E.moves += Math.abs(steps);
+    E.history.push({ ring: k, from, to: E.rot[k], steps });
+    if (E.history.length > 400) E.history.shift();
+    refreshSeen();
+    return { ring: k, from, to: E.rot[k], steps, event: E.advance() };
+  };
+  E.undo = function () {
+    if (E.solved || !E.history.length) return null;
+    const h = E.history.pop();
+    E.rot[h.ring] = h.from;
+    E.moves = Math.max(0, E.moves - Math.abs(h.steps));
+    refreshSeen();
+    return Object.assign({ event: E.advance() }, h);
+  };
+  // Back to the scramble. What has been revealed stays revealed.
+  E.reset = function () {
+    if (E.solved) return;
+    E.rot = P.start.slice();
+    E.history = [];
+    E.moves = 0;
+  };
+
+  // Which condition a hint is about: the requested one if it is unsolved, else
+  // the revealed condition furthest from holding.
+  E.hintTarget = function (pref) {
+    if (pref >= 0 && pref < E.revealed() && !E.holds(pref)) return pref;
+    let best = -1, bp = 2;
+    for (let i = 0; i < E.revealed(); i++) { if (E.holds(i)) continue; const p = E.progress(i); if (p < bp) { bp = p; best = i; } }
     return best;
   };
-  // Fewest moves that solve the board from the starting scramble ("par").
-  eng.par = (function () {
-    let p = 0;
-    for (let r = 1; r < n; r++) p += Math.abs(shortestSteps(puzzle.scramble[r]));
-    return p;
-  })();
-
-  // Rotate ring r by `steps` (positive = clockwise). Counts |steps| moves.
-  eng.rotate = function (r, steps) {
-    steps = Math.round(steps);
-    if (r <= 0 || r >= n || !steps || eng.solved) return null;
-    const from = eng.rot[r];
-    eng.rot[r] = from + steps;
-    eng.moves += Math.abs(steps);
-    eng.history.push({ ring: r, from, to: eng.rot[r] });
-    eng.solved = eng.checkSolved();
-    return { ring: r, from, to: eng.rot[r], aligned: eng.isAligned(r), solved: eng.solved };
+  // A direction worth investigating: a single step that brings the board closer
+  // to an arrangement satisfying the current stage. Prefers the condition's rings.
+  E.direction = function (ci) {
+    const D = P.dist[E.stage], s = E.state(), here = D[s];
+    const rings = ci >= 0 ? P.conds[ci].rings.filter(k => k > 0) : [];
+    const order = rings.concat([1, 2, 3, 4].filter(k => rings.indexOf(k) < 0));
+    for (let j = 0; j < order.length; j++) {
+      const k = order[j];
+      for (const dir of [1, -1]) {
+        const o = E.rot.slice(); o[k] += dir;
+        if (D[stateIndex(o)] < here) return { ring: k, dir };
+      }
+    }
+    return null;
   };
-  // Undo restores the previous position and removes that action's moves.
-  eng.undo = function () {
-    if (eng.solved || !eng.history.length) return null;
-    const h = eng.history.pop();
-    eng.rot[h.ring] = h.from;
-    eng.moves -= Math.abs(h.to - h.from);
+  // Hints escalate per condition: 1 = which rings, 2 = the relationship, 3 = a direction.
+  E.hint = function (pref) {
+    if (E.solved) return null;
+    const ci = E.hintTarget(pref);
+    if (ci < 0) return null;
+    E.hints++;
+    E.hintLevel[ci] = Math.min(3, E.hintLevel[ci] + 1);
+    const level = E.hintLevel[ci];
+    const c = P.conds[ci];
+    const h = { cond: ci, level, rings: c.rings.slice() };
+    if (level >= 2) h.text = condExplain(P.seqs, c, E.rot);
+    if (level >= 3) h.dir = E.direction(ci);
     return h;
   };
-  eng.reset = function () {
-    eng.rot = puzzle.scramble.slice();
-    eng.moves = 0;
-    eng.history = [];
-    eng.solved = false;
-  };
-  eng.hint = function () {
-    // Prefer the ring closest to alignment so a hint is a nudge, not the answer.
-    let best = -1, bestSteps = 0;
-    for (let r = 1; r < n; r++) {
-      if (eng.isAligned(r)) continue;
-      const s = eng.stepsToAlign(r);
-      if (best < 0 || Math.abs(s) < Math.abs(bestSteps)) { best = r; bestSteps = s; }
-    }
-    if (best < 0) return null;
-    eng.hints++;
-    return { ring: best, dir: Math.sign(bestSteps), steps: bestSteps };
-  };
-  eng.serialize = function () {
-    return { v: 1, rot: eng.rot.slice(), moves: eng.moves, history: eng.history.slice(-60), hints: eng.hints };
+
+  // Show the finished arrangement (solved on another device, or a gallery view):
+  // the solution nearest the current rings, every clue revealed.
+  E.forceSolved = function () {
+    let best = P.solutions[0], bd = 99;
+    const here = E.state();
+    P.solutions.forEach(s => { const d = stateDistance(s, here); if (d < bd) { bd = d; best = s; } });
+    const o = stateOffsets(best);
+    for (let k = 1; k < RINGS; k++) E.rot[k] += shortestSteps(o[k] - E.rot[k]);
+    E.stage = E.lastStage;
+    E.everSat = E.everSat.map(() => true);
+    E.solved = true;
   };
 
-  if (saved && saved.v === 1 && Array.isArray(saved.rot) && saved.rot.length === n &&
-      saved.rot.every(x => Number.isInteger(x)) && saved.rot[0] === 0) {
-    eng.rot = saved.rot.slice();
-    eng.moves = Math.max(0, saved.moves | 0);
-    eng.history = Array.isArray(saved.history) ? saved.history.filter(h => h && h.ring > 0 && h.ring < n && Number.isInteger(h.from) && Number.isInteger(h.to)) : [];
-    eng.hints = Math.max(0, saved.hints | 0);
-    eng.solved = eng.checkSolved();
+  E.serialize = function () {
+    return { sig: P.sig, rot: E.rot.slice(), moves: E.moves, history: E.history.slice(-120), hints: E.hints, hintLevel: E.hintLevel.slice(), stage: E.stage, everSat: E.everSat.slice(), solved: E.solved };
+  };
+  function restore(s) {
+    if (!s || s.sig !== P.sig || !Array.isArray(s.rot) || s.rot.length !== RINGS) return false;
+    if (!s.rot.every(v => Number.isInteger(v) && Math.abs(v) < 1e6) || s.rot[0] !== 0) return false;
+    if (!Number.isInteger(s.stage) || s.stage < 0 || s.stage > E.lastStage) return false;
+    if (!Number.isInteger(s.moves) || s.moves < 0 || !Array.isArray(s.history)) return false;
+    E.rot = s.rot.slice();
+    E.moves = s.moves;
+    E.history = s.history.filter(h => h && h.ring >= 1 && h.ring < RINGS && Number.isInteger(h.from) && Number.isInteger(h.to) && Number.isInteger(h.steps));
+    E.hints = Math.max(0, s.hints | 0);
+    if (Array.isArray(s.hintLevel) && s.hintLevel.length === nC) E.hintLevel = s.hintLevel.map(v => clamp(v | 0, 0, 3));
+    E.stage = s.stage;
+    if (Array.isArray(s.everSat) && s.everSat.length === nC) E.everSat = s.everSat.map(Boolean);
+    // Solved is re-derived from the arrangement, never trusted on its own.
+    E.solved = !!s.solved && E.stage === E.lastStage && E.allRevealedHold();
+    refreshSeen();
+    return true;
   }
-  return eng;
+  if (saved) restore(saved);
+  return E;
 }
 
 // ---- 02_themes.js ----
@@ -418,11 +964,14 @@ const SEPARATIONS = {
 // ---- Palette laws --------------------------------------------------------------
 // Each law maps family index i (0..11) to OKLCH. `p` holds the drawn parameters.
 const PaletteLaws = {
-  // Full hue circle; lightness follows a gentle wave so warm hues sit brighter.
+  // Full hue circle; lightness follows a gentle wave so warm hues sit brighter,
+  // and alternates light/dark between neighbours so all twelve families stay
+  // unmistakable when a puzzle asks you to match one exactly.
   wheel(i, p) {
     const t = i / SEGMENTS;
     const h = p.h0 + 360 * t * p.dir;
-    return [p.L0 + p.Lamp * Math.cos(TAU * (t - p.Lph)), p.C0 + p.Camp * Math.cos(TAU * (t - p.Cph)), h];
+    const z = (i % 2 ? -1 : 1) * (p.Lz === undefined ? 0.07 : p.Lz);
+    return [p.L0 + z + p.Lamp * Math.cos(TAU * (t - p.Lph)), p.C0 + p.Camp * Math.cos(TAU * (t - p.Cph)), h];
   },
   // Hue swings across an arc while lightness travels the other axis of an ellipse,
   // so every family is unique even though hues repeat.
@@ -462,7 +1011,7 @@ U({ id: 'prism', title: 'Prism', law: 'wheel',
   blurb: 'A full turn of the spectrum, tuned so no hue shouts over its neighbours.' });
 
 U({ id: 'pastel', title: 'Pastel', law: 'wheel',
-  params: r => ({ h0: r.range(0, 360), dir: 1, L0: r.range(0.79, 0.81), Lamp: 0.05, Lph: 0.2, C0: r.range(0.1, 0.108), Camp: 0.015, Cph: r.range(0, 1) }),
+  params: r => ({ h0: r.range(0, 360), dir: 1, L0: r.range(0.74, 0.76), Lamp: 0.04, Lph: 0.2, Lz: 0.065, C0: r.range(0.118, 0.128), Camp: 0.015, Cph: r.range(0, 1) }),
   materials: ['matte', 'ceramic', 'satin', 'velvet'], grounds: ['ink', 'aubergine', 'slate'], seps: ['gap', 'fine', 'engraved'],
   names: ['Sugared Almond', 'Morning Chalk', 'Powder Room', 'Macaron Theory', 'Soft Machine', 'Pale Fire'],
   blurb: 'Chalky pastels, all at one lightness, so colour does the talking.' });
@@ -486,7 +1035,7 @@ U({ id: 'glass', title: 'Glasswork', law: 'wheel',
   blurb: 'Coloured glass held in light; the ground shows through every segment.' });
 
 U({ id: 'opal', title: 'Opaline', law: 'wheel',
-  params: r => ({ h0: r.range(0, 360), dir: 1, L0: r.range(0.77, 0.79), Lamp: 0.05, Lph: 0.2, C0: r.range(0.105, 0.115), Camp: 0.015, Cph: 0.3 }),
+  params: r => ({ h0: r.range(0, 360), dir: 1, L0: r.range(0.73, 0.75), Lamp: 0.04, Lph: 0.2, C0: r.range(0.12, 0.13), Camp: 0.015, Cph: 0.3 }),
   materials: ['opal', 'holo'], grounds: ['ink', 'aubergine', 'graphite'], seps: ['fine', 'gap'],
   names: ['Mother of Pearl', 'Moonstone', 'Opaline', 'Nacre', 'Fire Opal', 'Abalone'],
   blurb: 'Milky colour with a shifting sheen that moves as the rings turn.' });
@@ -540,7 +1089,7 @@ U({ id: 'duotone', title: 'Duotone', law: 'arc',
   blurb: 'Two inks, and every blend between them, run through light and shade.' });
 
 U({ id: 'holo', title: 'Holographic', law: 'wheel',
-  params: r => ({ h0: r.range(0, 360), dir: -1, L0: r.range(0.76, 0.78), Lamp: 0.05, Lph: 0.2, C0: r.range(0.11, 0.12), Camp: 0.015, Cph: 0.4 }),
+  params: r => ({ h0: r.range(0, 360), dir: -1, L0: r.range(0.72, 0.74), Lamp: 0.04, Lph: 0.2, C0: r.range(0.125, 0.135), Camp: 0.015, Cph: 0.4 }),
   materials: ['holo', 'opal'], grounds: ['ink', 'graphite', 'aubergine'], seps: ['fine', 'gap'],
   names: ['Hologram', 'Diffraction', 'Foil Proof', 'Iridescence', 'Interference', 'Light Grating'],
   blurb: 'Diffraction foil: a rainbow that slides across the surface as you turn.' });
@@ -558,7 +1107,7 @@ U({ id: 'retro', title: 'Retro-Futurist', law: 'arc',
   blurb: 'Tangerine, avocado and teal, as the 1960s imagined the future.' });
 
 U({ id: 'optical', title: 'Op Art', law: 'optical',
-  params: r => ({ h0: r.range(0, 360), Lhi: r.range(0.86, 0.9), Llo: r.range(0.42, 0.46), Chi: r.range(0.05, 0.07), Clo: r.range(0.12, 0.14) }),
+  params: r => ({ h0: r.range(0, 360), Lhi: r.range(0.83, 0.86), Llo: r.range(0.48, 0.52), Chi: r.range(0.10, 0.115), Clo: r.range(0.145, 0.16) }),
   materials: ['matte', 'satin'], grounds: ['graphite', 'ink'], seps: ['flush', 'fine'],
   names: ['Op Art', 'Current', 'Retinal', 'Moiré Hour', 'Flicker', 'Afterimage'],
   blurb: 'High and low tones alternate so the wheel seems to vibrate.' });
@@ -603,7 +1152,8 @@ function buildBase(universe, params) {
   return base;
 }
 
-// Ring variants: same families, slightly different light and chroma, inner to outer.
+// Ring variants: the same family must read as the same colour on every ring
+// (matching across rings is the puzzle), so rings differ only by a whisper.
 function ringVariant(c, t, depth) {
   return colour(c.L + (t - 0.5) * depth.L, c.C * (1 + (t - 0.5) * depth.C), c.h + (t - 0.5) * depth.h);
 }
@@ -611,13 +1161,25 @@ function ringVariant(c, t, depth) {
 const QC = {
   minAdjacent: 0.042,   // OKLab distance between neighbouring segments in a ring
   minPair: 0.03,      // any two families in a ring
+  minFamily: 0.085,   // any two families anywhere on the board (puzzle legibility)
+  maxDrift: 0.03,     // one family across rings must stay one colour
   minBoardContrast: 0.17,
   minInkContrast: 4.5
 };
 
 function qcTheme(t) {
   const issues = [];
-  for (let n = 4; n <= 6; n++) {
+  const pal5 = t.paletteFor(5);
+  let minF = 9, maxD = 0;
+  for (let i = 0; i < SEGMENTS; i++) {
+    for (let a = 0; a < 5; a++) for (let b = a; b < 5; b++) {
+      maxD = Math.max(maxD, deltaE(pal5[a][i], pal5[b][i]));
+      for (let j = i + 1; j < SEGMENTS; j++) minF = Math.min(minF, deltaE(pal5[a][i], pal5[b][j]), deltaE(pal5[b][i], pal5[a][j]));
+    }
+  }
+  if (minF < QC.minFamily) issues.push('families too close ' + minF.toFixed(3));
+  if (maxD > QC.maxDrift) issues.push('family drifts across rings ' + maxD.toFixed(3));
+  for (let n = 5; n <= 5; n++) {
     const pal = t.paletteFor(n);
     for (let k = 0; k < n; k++) {
       const row = pal[k];
@@ -648,12 +1210,17 @@ const _universeOrder = (function () {
 })();
 
 function gcd(a, b) { return b ? gcd(b, a % b) : a; }
+// Universes whose twelve families form a true colour circle: the puzzle's
+// "steps apart" and "next colour" rules read off the spectrum, so only these
+// are dealt to puzzles for now. The others stay in the registry.
+function puzzleUniverse(u) { return u.law === 'wheel' || u.law === 'optical'; }
 function universeFor(edition, stride) {
-  const n = _universeOrder.length;
+  const order = _universeOrder.filter(i => puzzleUniverse(ThemeRegistry.universes[i]));
+  const n = order.length;
   // The stride must be coprime with the universe count so the walk visits every
   // universe before repeating, and consecutive editions always differ.
   while (gcd(stride, n) !== 1) stride++;
-  return ThemeRegistry.universes[_universeOrder[mod(edition * stride, n)]];
+  return ThemeRegistry.universes[order[mod(edition * stride, n)]];
 }
 
 // Build a complete theme. `key` identifies it (e.g. "daily:10", "level:7").
@@ -703,8 +1270,8 @@ function assemble(key, edition, universe, r, authored) {
     grain: r.range(0.025, 0.05)
   };
 
-  const depthL = r.range(0.045, 0.075) * (r.chance(0.5) ? 1 : -1);
-  const depth = { L: depthL, C: r.range(-0.12, 0.18), h: r.range(-6, 6) };
+  const depthL = r.range(0.008, 0.016) * (r.chance(0.5) ? 1 : -1);
+  const depth = { L: depthL, C: r.range(-0.05, 0.05), h: r.range(-1.5, 1.5) };
   const sepId = authored ? authored.sep : r.pick(universe.seps);
 
   const ink = light ? colour(0.24, 0.015, g.h) : colour(0.94, 0.008, g.h);
@@ -1126,9 +1693,10 @@ function createBoardPainter() {
       x.fillStyle = sg; x.fill(P.disc);
     }
 
-    // 7. Selection depth: other rings recede.
-    if (scene.selected > 0 && scene.dimOthers > 0) {
-      x.fillStyle = rgba(theme.bg.base, 0.36 * scene.dimOthers);
+    // 7. Selection depth: other rings recede, but only slightly. Colours are
+    // compared across rings, so a selection must never change how they read.
+    if (scene.selected > 0 && scene.dimOthers > 0 && !(scene.focusT > 0.05)) {
+      x.fillStyle = rgba(theme.bg.base, 0.12 * scene.dimOthers);
       const sel = geom.rings[scene.selected];
       const p = new Path2D();
       p.arc(0, 0, R + 1, 0, TAU);
@@ -1187,30 +1755,23 @@ function createBoardPainter() {
       }
     }
 
-    // 11. Alignment marks and selection rim, in the interface ink.
+    // 11. Family highlight: every segment of one colour family, outlined, so a
+    // match can be checked by eye rather than by memory.
     const ink = theme.ink;
-    for (let k = 1; k < n; k++) {
-      const ring = geom.rings[k];
-      const al = scene.alignedVis ? scene.alignedVis[k] : 0;
-      if (al > 0.01) {
-        x.strokeStyle = rgba(ink, 0.32 * al);
-        x.lineWidth = 0.9;
-        x.beginPath(); x.arc(0, 0, ring.rOut + geom.g * 0.5, 0, TAU); x.stroke();
-      }
-      const f = scene.flash ? scene.flash[k] : 0;
-      if (f > 0 && f < 1) {
-        // A restrained comet of light runs once around the newly aligned ring.
-        const head = -Math.PI / 2 + easeOutCubic(f) * TAU;
-        const len = 1.4;
-        const steps = 18;
-        for (let s = 0; s < steps; s++) {
-          const a0 = head - len * (s / steps), a1 = head - len * ((s + 1) / steps);
-          x.strokeStyle = rgba(ink, (1 - s / steps) * 0.75 * (1 - f * 0.6));
-          x.lineWidth = 1.6;
-          x.beginPath(); x.arc(0, 0, ring.rOut + geom.g * 0.5, a1, a0); x.stroke();
+    if (scene.famFocus && scene.famFocus.a > 0.01) {
+      const ff = scene.famFocus;
+      x.lineJoin = 'round';
+      for (let k = 0; k < n; k++) {
+        x.save(); x.rotate(scene.angles[k]);
+        for (let i = 0; i < SEGMENTS; i++) {
+          if (scene.families(k, i) !== ff.fam) continue;
+          x.strokeStyle = 'rgba(0,0,0,' + (0.45 * ff.a).toFixed(3) + ')'; x.lineWidth = 4; x.stroke(P.paths[k][i]);
+          x.strokeStyle = rgba(theme.bg.light ? colour(0.15, 0, 0) : colour(1, 0, 0), 0.95 * ff.a); x.lineWidth = 1.8; x.stroke(P.paths[k][i]);
         }
+        x.restore();
       }
     }
+    // 12. Selection rim, in the interface ink.
     if (scene.selected > 0) {
       const ring = geom.rings[scene.selected];
       const s = scene.selectT;
@@ -1269,7 +1830,7 @@ function paintCompletion(x, theme, geom, scene) {
 }
 
 // The hub: the mechanical axis. A small machined disc with an orbit mark whose
-// planet travels as rings align.
+// planet travels a third of the way round with each stage; three ticks mark them.
 function paintHub(x, theme, geom, orbitA, completeGlow) {
   const h = geom.hubR;
   const t = theme.hubTone, light = theme.bg.light;
@@ -1301,6 +1862,10 @@ function paintHub(x, theme, geom, orbitA, completeGlow) {
   x.strokeStyle = rgba(ink, 0.55 + completeGlow * 0.4);
   x.lineWidth = 1;
   x.beginPath(); x.arc(0, 0, or, 0, TAU); x.stroke();
+  for (let j = 0; j < 3; j++) {
+    const ta = -Math.PI / 2 + j * TAU / 3;
+    x.beginPath(); x.moveTo(Math.cos(ta) * or * 0.78, Math.sin(ta) * or * 0.78); x.lineTo(Math.cos(ta) * or * 1.22, Math.sin(ta) * or * 1.22); x.stroke();
+  }
   x.fillStyle = rgba(ink, 0.9);
   x.beginPath(); x.arc(0, 0, h * 0.06, 0, TAU); x.fill();
   const pa = orbitA - Math.PI / 2;
@@ -1320,7 +1885,7 @@ function paintHint(x, theme, geom, hint, now) {
   x.lineWidth = 2; x.lineCap = 'round'; x.lineJoin = 'round';
   for (let i = 0; i < 3; i++) {
     const u = (i + ph) / 3;                         // 0..1 along the run
-    const a = -Math.PI / 2 + hint.dir * (-0.3 + u * 0.6);
+    const a = (hint.a === undefined ? -Math.PI / 2 : hint.a) + hint.dir * (-0.3 + u * 0.6);
     const alpha = Math.sin(Math.PI * u) * hint.alpha;
     const px = Math.cos(a) * ring.mid, py = Math.sin(a) * ring.mid;
     const tx = -Math.sin(a) * hint.dir, ty = Math.cos(a) * hint.dir; // direction of travel
@@ -1333,6 +1898,127 @@ function paintHint(x, theme, geom, hint, now) {
     x.stroke();
   }
   x.restore();
+}
+
+// ---- Intersection clues ----------------------------------------------------------------
+// Each revealed condition has a marker on the rim at its column and a pin on
+// every ring it reads. Pins are fixed in the world: they frame whatever segment
+// is passing beneath. Markers carry the rule's glyph and its state:
+//   revealed  new, never yet satisfied: a slow halo breathes around it
+//   unsolved  held before, broken now: outline with a partial-progress arc
+//   solved    filled with the interface ink
+function clueGeom(geom) {
+  const R = geom.R;
+  return { Rm: R * 1.135, mr: clamp(R * 0.064, 8.5, 15) };
+}
+function colAngle(pos) { return pos * STEP - Math.PI / 2; }
+
+function paintGlyph(x, type, cx, cy, s, fill, swatch) {
+  x.save();
+  x.translate(cx, cy);
+  x.fillStyle = fill; x.strokeStyle = fill; x.lineWidth = Math.max(1, s * 0.16); x.lineCap = 'round'; x.lineJoin = 'round';
+  const dot = (px, py, r, hollow) => { x.beginPath(); x.arc(px, py, r, 0, TAU); hollow ? x.stroke() : x.fill(); };
+  const d = s * 0.22;
+  switch (type) {
+    case 'triple': dot(0, -s * 0.36, d); dot(-s * 0.36, s * 0.26, d); dot(s * 0.36, s * 0.26, d); break;
+    case 'pair': dot(-s * 0.44, 0, d); dot(0, 0, d); dot(s * 0.44, 0, d * 0.9, true); break;
+    case 'contrast':
+      x.beginPath(); x.arc(0, 0, s * 0.5, 0, TAU); x.stroke();
+      x.beginPath(); x.arc(0, 0, s * 0.5, -Math.PI / 2, Math.PI / 2); x.closePath(); x.fill(); break;
+    case 'odd':
+      dot(-s * 0.46, s * 0.12, d); dot(-s * 0.08, s * 0.12, d);
+      x.beginPath(); x.moveTo(s * 0.4, -s * 0.24); x.lineTo(s * 0.62, s * 0.0); x.lineTo(s * 0.4, s * 0.24); x.lineTo(s * 0.18, 0); x.closePath(); x.fill(); break;
+    case 'sequence':
+      [-1, 0, 1].forEach(j => { const h = s * (0.32 + (j + 1) * 0.22); x.fillRect(j * s * 0.36 - s * 0.1, s * 0.45 - h, s * 0.2, h); }); break;
+    case 'missing':
+      if (swatch) { x.fillStyle = swatch; x.beginPath(); x.arc(0, 0, s * 0.5, 0, TAU); x.fill(); }
+      x.strokeStyle = fill; x.beginPath(); x.arc(0, 0, s * 0.5, 0, TAU); x.stroke();
+      x.beginPath(); x.moveTo(-s * 0.46, s * 0.46); x.lineTo(s * 0.46, -s * 0.46); x.stroke(); break;
+    case 'alldiff':
+      x.beginPath(); x.moveTo(-s * 0.5, -s * 0.18); x.lineTo(s * 0.5, -s * 0.18); x.moveTo(-s * 0.5, s * 0.18); x.lineTo(s * 0.5, s * 0.18);
+      x.moveTo(s * 0.22, -s * 0.52); x.lineTo(-s * 0.22, s * 0.52); x.stroke(); break;
+  }
+  x.restore();
+}
+
+function paintClues(x, theme, geom, scene, now) {
+  const ink = theme.ink, light = theme.bg.light;
+  const cg = clueGeom(geom), Rm = cg.Rm, mr = cg.mr;
+  const pal = theme.paletteFor(geom.n);
+  const shadow = light ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)';
+
+  // Focus: the rest of the board recedes behind the chosen column.
+  if (scene.focusT > 0.01 && scene.focus >= 0 && scene.clues[scene.focus]) {
+    const c = scene.clues[scene.focus], a = colAngle(c.pos), h = STEP / 2;
+    const p = new Path2D();
+    p.arc(0, 0, geom.R + 2, 0, TAU);
+    p.moveTo(Math.cos(a - h) * geom.rings[0].rIn, Math.sin(a - h) * geom.rings[0].rIn);
+    p.arc(0, 0, geom.R + 2, a - h, a + h);
+    p.arc(0, 0, geom.rings[0].rIn, a + h, a - h, true);
+    p.closePath();
+    x.fillStyle = rgba(theme.bg.base, 0.42 * scene.focusT);
+    x.fill(p, 'evenodd');
+    x.strokeStyle = rgba(ink, 0.55 * scene.focusT); x.lineWidth = 1;
+    x.beginPath(); x.arc(0, 0, geom.R + 2.5, a - h, a + h); x.arc(0, 0, geom.rings[0].rIn - 1.5, a + h, a - h, true); x.closePath(); x.stroke();
+  }
+
+  scene.clues.forEach((c, i) => {
+    if (!c || c.appear <= 0.001) return;
+    const a = colAngle(c.pos), ca = Math.cos(a), sa = Math.sin(a);
+    const ap = easeOutCubic(clamp(c.appear, 0, 1));
+    const focused = scene.focus === i;
+    const solved = c.status === 'solved';
+    const lit = Math.max(c.glow || 0, solved ? 1 : 0);
+
+    // Pins.
+    const pinR = clamp(geom.w * 0.2, 2.6, 5.5) * (0.4 + 0.6 * ap);
+    c.rings.forEach((k, j) => {
+      const ring = geom.rings[k], px = ca * ring.mid, py = sa * ring.mid;
+      const diamond = c.type === 'odd' && j === c.odd;
+      const shape = () => {
+        x.beginPath();
+        if (diamond) { const q = pinR * 1.35; x.moveTo(px, py - q); x.lineTo(px + q, py); x.lineTo(px, py + q); x.lineTo(px - q, py); x.closePath(); }
+        else x.arc(px, py, pinR, 0, TAU);
+      };
+      x.globalAlpha = ap;
+      shape(); x.strokeStyle = shadow; x.lineWidth = 3.2; x.stroke();
+      shape(); x.strokeStyle = rgba(ink, solved ? 1 : 0.92); x.lineWidth = 1.5; x.stroke();
+      if (solved) { x.fillStyle = rgba(ink, 0.95); x.beginPath(); x.arc(px, py, pinR * 0.32, 0, TAU); x.fill(); }
+      x.globalAlpha = 1;
+    });
+
+    // A fine tick from the board edge to the marker.
+    x.strokeStyle = rgba(ink, 0.35 * ap); x.lineWidth = 1;
+    x.beginPath(); x.moveTo(ca * (geom.R + 2), sa * (geom.R + 2)); x.lineTo(ca * (Rm - mr - 1), sa * (Rm - mr - 1)); x.stroke();
+
+    // Marker.
+    const mx = ca * Rm, my = sa * Rm, r = mr * (0.6 + 0.4 * ap) * (focused ? 1.12 : 1);
+    x.globalAlpha = ap;
+    if (c.status === 'revealed' && !solved) {
+      const ph = ((now - (c.revealAt || 0)) / 1800) % 1;
+      x.strokeStyle = rgba(ink, 0.35 * (1 - ph)); x.lineWidth = 1;
+      x.beginPath(); x.arc(mx, my, r * (1 + ph * 0.7), 0, TAU); x.stroke();
+    }
+    if (lit > 0.01) {
+      const gr = x.createRadialGradient(mx, my, r * 0.6, mx, my, r * 2.4);
+      gr.addColorStop(0, rgba(ink, 0.22 * lit)); gr.addColorStop(1, rgba(ink, 0));
+      x.fillStyle = gr; x.beginPath(); x.arc(mx, my, r * 2.4, 0, TAU); x.fill();
+    }
+    x.fillStyle = solved ? rgba(ink, 0.96) : rgba(theme.bg.base, 0.9);
+    x.beginPath(); x.arc(mx, my, r, 0, TAU); x.fill();
+    if (!solved) {
+      x.strokeStyle = rgba(ink, focused ? 0.9 : 0.5); x.lineWidth = 1;
+      x.beginPath(); x.arc(mx, my, r, 0, TAU); x.stroke();
+      if (c.progress > 0) {
+        x.strokeStyle = rgba(ink, 0.95); x.lineWidth = 2;
+        x.beginPath(); x.arc(mx, my, r, -Math.PI / 2, -Math.PI / 2 + TAU * c.progress); x.stroke();
+      }
+    }
+    const swatch = c.type === 'missing' ? pal[geom.n - 1][c.fam].css : null;
+    paintGlyph(x, c.type, mx, my, r * 1.05, solved ? theme.bg.base.css : rgba(ink, 0.95), swatch);
+    if (focused) { x.strokeStyle = rgba(ink, 0.9); x.lineWidth = 1; x.beginPath(); x.arc(mx, my, r + 3.5, 0, TAU); x.stroke(); }
+    x.globalAlpha = 1;
+  });
 }
 
 // GameBoard: owns the main canvas, the ground cache and the offscreen board layer.
@@ -1406,6 +2092,7 @@ function createGameBoard(canvas, bgCanvas) {
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.drawImage(B.layer, Math.round(B.cx * B.pr - S / 2), Math.round(B.cy * B.pr - S / 2));
     g.setTransform(B.pr, 0, 0, B.pr, B.cx * B.pr, B.cy * B.pr);
+    if (scene.clues) paintClues(g, theme, geom, scene, now);
     paintHub(g, theme, geom, scene.orbitA, scene.completeGlow);
     if (scene.hint) paintHint(g, theme, geom, scene.hint, now);
     return geom;
@@ -1429,7 +2116,7 @@ function createGameBoard(canvas, bgCanvas) {
 }
 
 // A solved, still miniature of a theme for the collection.
-function renderThumbnail(theme, ringCount, sizeCss, pr) {
+function renderThumbnail(theme, ringCount, sizeCss, pr, families) {
   const c = makeCanvas(sizeCss * pr, sizeCss * pr);
   const x = c.getContext('2d');
   x.setTransform(pr, 0, 0, pr, 0, 0);
@@ -1441,7 +2128,7 @@ function renderThumbnail(theme, ringCount, sizeCss, pr) {
   const layer = makeCanvas(S, S), lx = layer.getContext('2d');
   lx.setTransform(pr, 0, 0, pr, S / 2, S / 2);
   const angles = []; for (let k = 0; k < ringCount; k++) angles.push(0);
-  painter.paint(lx, theme, { ringCount, angles, families: (k, i) => i, selected: -1, completeT: 0, alignedVis: null }, pr);
+  painter.paint(lx, theme, { ringCount, angles, families: families || ((k, i) => i), selected: -1, completeT: 0 }, pr);
   x.setTransform(1, 0, 0, 1, 0, 0);
   x.drawImage(layer, Math.round(sizeCss * pr / 2 - S / 2), Math.round(sizeCss * pr / 2 - S / 2));
   x.setTransform(pr, 0, 0, pr, sizeCss / 2 * pr, sizeCss / 2 * pr);
@@ -1570,6 +2257,16 @@ function createSound(ctx) {
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.035, t + 0.25); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
     o.connect(g); g.connect(S.master); o.start(t); o.stop(t + 1.2);
   };
+  // A stage opens: a slow rising fifth under the shimmer.
+  S.stage = function (stage) {
+    if (!live()) return;
+    S.reveal();
+    const t = S.ac.currentTime + 0.35;
+    const f = NOTES[(stage * 2) % NOTES.length];
+    tone(t, f / 2, 0.05, 2.2, 'sine', 0.06);
+    tone(t + 0.18, f * 0.75, 0.04, 2.0, 'sine', 0.06);
+    if (S.music) { try { ctx.music.duck(0.75, 1600); } catch (e) { } }
+  };
   S.setProgress = function (p) {
     if (S.music) { try { ctx.music.setIntensity(0.15 + p * 0.25, { fadeMs: 1500 }); } catch (e) { } }
   };
@@ -1587,14 +2284,16 @@ function createSound(ctx) {
 // ScoreManager and the collection: streak, bests, discovered themes, studies
 // progress and the leaderboard records. Independent of rendering and puzzle logic.
 
-const PROFILE_KEY = 'orbit.profile.v1';
+// v2: the intersection puzzle. Results from the first (alignment) prototype are
+// not comparable, so they are left behind rather than merged.
+const PROFILE_KEY = 'orbit.profile.v2';
 
 function emptyProfile() {
-  return { v: 1, rev: 0, muted: false, seenIntro: false, streak: { count: 0, best: 0, last: 0 }, daily: {}, levels: { reached: 1, best: {} }, coll: [] };
+  return { v: 2, rev: 0, muted: false, seenIntro: false, streak: { count: 0, best: 0, last: 0 }, daily: {}, levels: { reached: 1, best: {} }, coll: [] };
 }
 
 function validProfile(p) {
-  return p && p.v === 1 && typeof p.rev === 'number' && p.streak && typeof p.streak.count === 'number' &&
+  return p && p.v === 2 && typeof p.rev === 'number' && p.streak && typeof p.streak.count === 'number' &&
     p.daily && typeof p.daily === 'object' && p.levels && typeof p.levels.reached === 'number' && Array.isArray(p.coll);
 }
 
@@ -1700,7 +2399,7 @@ function createScoreManager(ctx) {
   M.hasTheme = function (key) { return M.profile.coll.indexOf(key) >= 0; };
 
   // Record a finished daily. Returns what changed, for the completion screen.
-  M.completeDaily = function (day, moves, timeMs, hints, themeKey) {
+  M.completeDaily = function (day, moves, timeMs, hints, themeKey, stars) {
     const p = M.profile;
     const prevBest = M.bestDailyTime();
     const first = !p.daily[day];
@@ -1709,16 +2408,16 @@ function createScoreManager(ctx) {
       if (s.last === day - 1) s.count += 1; else if (s.last !== day) s.count = 1;
       s.last = day;
       s.best = Math.max(s.best, s.count);
-      p.daily[day] = [moves, timeMs, hints];
+      p.daily[day] = [moves, timeMs, hints, stars || 0];
     }
     const newTheme = M.addTheme(themeKey);
     M.save(true);
     return { first, streak: p.streak.count, bestStreak: p.streak.best, prevBest, isBest: first && (prevBest === null || timeMs < prevBest), newTheme };
   };
-  M.completeLevel = function (level, moves, timeMs, themeKey) {
+  M.completeLevel = function (level, moves, timeMs, themeKey, stars) {
     const p = M.profile;
     const prev = p.levels.best[level];
-    if (!prev || timeMs < prev[1]) p.levels.best[level] = [moves, timeMs];
+    if (!prev || timeMs < prev[1]) p.levels.best[level] = [moves, timeMs, 0, stars || 0];
     p.levels.reached = Math.max(p.levels.reached, level + 1);
     const newTheme = M.addTheme(themeKey);
     M.save(true);
@@ -1787,6 +2486,22 @@ const ICONS = {
   next: '<svg viewBox="0 0 24 24"><path d="M5 12h13.5"/><path d="m13.5 7 5 5-5 5"/></svg>'
 };
 
+// Clue glyphs as inline SVG, matching the markers drawn on the board.
+function glyphSvg(type, swatch) {
+  const dot = (x, y, r, hollow) => '<circle cx="' + x + '" cy="' + y + '" r="' + r + '"' + (hollow ? '' : ' class="f"') + '/>';
+  let b = '';
+  switch (type) {
+    case 'triple': b = dot(12, 6.5, 2.6) + dot(6.5, 16, 2.6) + dot(17.5, 16, 2.6); break;
+    case 'pair': b = dot(5.5, 12, 2.6) + dot(12, 12, 2.6) + dot(18.5, 12, 2.3, true); break;
+    case 'contrast': b = '<circle cx="12" cy="12" r="7.5"/><path class="f" d="M12 4.5a7.5 7.5 0 0 1 0 15z"/>'; break;
+    case 'odd': b = dot(5, 13.5, 2.6) + dot(11, 13.5, 2.6) + '<path class="f" d="M18 8l3.6 4.5L18 17l-3.6-4.5z"/>'; break;
+    case 'sequence': b = '<path class="f" d="M4.5 15.5h3.2v4H4.5zM10.4 11h3.2v8.5h-3.2zM16.3 6h3.2v13.5h-3.2z"/>'; break;
+    case 'missing': b = '<circle cx="12" cy="12" r="7.5" style="fill:' + (swatch || 'none') + '"/><path d="M6.7 17.3 17.3 6.7"/>'; break;
+    case 'alldiff': b = '<path d="M5 9.2h14M5 14.8h14M14.6 4.6 9.4 19.4"/>'; break;
+  }
+  return '<svg viewBox="0 0 24 24">' + b + '</svg>';
+}
+
 const HUD_CSS = `
 .orb{position:absolute;inset:0;font-family:'Space Grotesk',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;color:var(--ink);-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;pointer-events:none}
 .orb *{box-sizing:border-box}
@@ -1806,12 +2521,33 @@ const HUD_CSS = `
 .orb .bottom{position:absolute;left:0;right:0;display:flex;flex-direction:column;align-items:center}
 .orb .cap{font-family:'Cormorant Garamond',Georgia,serif;font-style:italic;font-weight:300;font-size:19px;line-height:1.25;text-align:center;color:var(--ink);min-height:24px;padding:0 24px;transition:opacity .35s}
 .orb .cap.small{font-family:'Space Grotesk',sans-serif;font-style:normal;font-size:12px;letter-spacing:.06em;color:var(--dim)}
+.orb .clabel{font-family:'Space Mono',ui-monospace,Menlo,monospace;font-size:9px;letter-spacing:.2em;color:var(--faint);text-transform:uppercase;min-height:12px;text-align:center;white-space:nowrap}
+.orb .cap.two{min-height:46px;display:flex;align-items:flex-start;justify-content:center;max-width:360px;margin-top:4px}
+.orb .chips{display:flex;justify-content:center;align-items:center;gap:4px;margin-top:10px}
+.orb .chip{width:38px;height:46px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--dim);position:relative;transition:opacity .4s}
+.orb .chip .g{width:28px;height:28px;border-radius:50%;border:1px solid var(--rule);display:flex;align-items:center;justify-content:center;transition:background .3s,border-color .3s,color .3s}
+.orb .chip svg{width:17px;height:17px;stroke-width:1.6}
+.orb .chip i{font-style:normal;font-family:'Space Mono',ui-monospace,monospace;font-size:8px;letter-spacing:.04em;color:var(--faint);line-height:1}
+.orb .chip.solved .g{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.orb .chip.unsolved .g{border-color:var(--dim);color:var(--ink)}
+.orb .chip.revealed .g{border-color:var(--ink);color:var(--ink);animation:orbpulse 1.8s ease-in-out infinite}
+.orb .chip.focus .g{outline:1px solid var(--ink);outline-offset:3px}
+.orb .chip.focus i{color:var(--ink)}
+.orb .chip.lock{pointer-events:none}
+.orb .chip.lock .g{border-style:dashed;opacity:.55}
+.orb .chip.lock .g::after{content:'';width:3px;height:3px;border-radius:50%;background:var(--faint)}
+.orb .chip.new{animation:orbin .7s cubic-bezier(.2,.8,.2,1) both}
+.orb .csep{width:1px;height:20px;background:var(--rule);margin:0 5px 12px}
+@keyframes orbpulse{0%,100%{box-shadow:0 0 0 0 var(--rule)}50%{box-shadow:0 0 0 5px var(--rule)}}
+@keyframes orbin{0%{opacity:0;transform:translateY(6px) scale(.7)}100%{opacity:1;transform:none}}
+.orb .stars{font-size:17px;letter-spacing:.32em;padding-left:.32em;margin-top:8px;color:var(--ink);font-family:ui-sans-serif,system-ui,sans-serif}
+.orb .stars s{text-decoration:none;color:var(--faint)}
 .orb .stats{display:flex;justify-content:center;gap:0;margin-top:16px}
 .orb .stat{width:96px;text-align:center}
 .orb .stat+.stat{border-left:1px solid var(--rule)}
 .orb .stat b{display:block;font-family:'Space Mono',ui-monospace,monospace;font-weight:400;font-size:17px;letter-spacing:.02em;color:var(--ink);font-variant-numeric:tabular-nums}
 .orb .stat i{display:block;font-style:normal;font-size:8.5px;letter-spacing:.26em;color:var(--faint);margin-top:5px;text-transform:uppercase;padding-left:.26em}
-.orb .ctrls{display:flex;justify-content:center;gap:34px;margin-top:18px}
+.orb .ctrls{display:flex;justify-content:center;gap:10px;margin-top:14px}
 .orb .ctl{display:flex;flex-direction:column;align-items:center;gap:5px;min-width:52px;min-height:48px;justify-content:center;color:var(--dim);transition:color .2s,opacity .3s}
 .orb .ctl:active{color:var(--ink)}
 .orb .ctl span{font-size:8.5px;letter-spacing:.24em;text-transform:uppercase;padding-left:.24em}
@@ -1840,6 +2576,10 @@ const HUD_CSS = `
 .orb.compact .tdesc,.orb.compact .board3{display:none}
 .orb.compact .tname{font-size:26px}
 .orb.compact .cap{font-size:15px}
+.orb.compact .cap.two{min-height:38px}
+.orb.compact .chip{height:40px}
+.orb.compact .chip .g{width:25px;height:25px}
+.orb.compact .chips{margin-top:6px}
 .orb.compact .cap.small{font-size:11px;letter-spacing:.03em}
 .orb.compact .dstats{margin-top:8px}
 .orb.compact .ctl{min-height:44px}
@@ -1888,7 +2628,7 @@ function createHud(ctx, H) {
   const title = el('div', 'title', 'ORBIT');
   const label = el('div', 'label', 'DAILY PUZZLE');
   const tabs = el('div', 'tabs');
-  const tDaily = el('button', 'tab on', 'Daily'); const tStudy = el('button', 'tab', 'Studies');
+  const tDaily = el('button', 'tab on', 'Daily'); const tStudy = el('button', 'tab', 'Practice');
   tDaily.type = tStudy.type = 'button';
   tabs.appendChild(tDaily); tabs.appendChild(tStudy);
   hdr.appendChild(brand); hdr.appendChild(title); hdr.appendChild(label); hdr.appendChild(tabs);
@@ -1898,32 +2638,31 @@ function createHud(ctx, H) {
   const bMute = el('button', 'corner', ICONS.sound); bMute.setAttribute('aria-label', 'Sound');
   root.appendChild(bColl); root.appendChild(bMute);
 
-  // Play-state bottom block: caption, stats, GameControls
+  // Play-state bottom block: the focused clue, the clue chips, stats, GameControls
   const play = el('div', 'bottom play');
-  const cap = el('div', 'cap small', '');
+  const clabel = el('div', 'clabel', '');
+  const cap = el('div', 'cap two', '');
+  const chips = el('div', 'chips');
   const stats = el('div', 'stats');
   const sMoves = el('div', 'stat', '<b>0</b><i>Moves</i>');
   const sTime = el('div', 'stat', '<b>0:00</b><i>Time</i>');
-  const sAl = el('div', 'stat', '<b>0/4</b><i>Aligned</i>');
+  const sAl = el('div', 'stat', '<b>1/3</b><i>Stage</i>');
   stats.appendChild(sMoves); stats.appendChild(sTime); stats.appendChild(sAl);
   const ctrls = el('div', 'ctrls');
   const bUndo = el('button', 'ctl', ICONS.undo + '<span>Undo</span>');
-  const bReset = el('button', 'ctl', ICONS.reset + '<span>Restart</span>');
+  const rotL = el('button', 'ctl', ICONS.ccw + '<span>Turn</span>'); rotL.setAttribute('aria-label', 'Turn the selected ring anticlockwise');
+  const rotR = el('button', 'ctl', ICONS.cw + '<span>Turn</span>'); rotR.setAttribute('aria-label', 'Turn the selected ring clockwise');
   const bHint = el('button', 'ctl', ICONS.hint + '<span>Hint</span>');
-  [bUndo, bReset, bHint].forEach(b => { b.type = 'button'; ctrls.appendChild(b); });
-  play.appendChild(cap); play.appendChild(stats); play.appendChild(ctrls);
+  const bReset = el('button', 'ctl', ICONS.reset + '<span>Restart</span>');
+  [bUndo, rotL, rotR, bHint, bReset].forEach(b => { b.type = 'button'; ctrls.appendChild(b); });
+  play.appendChild(clabel); play.appendChild(cap); play.appendChild(chips); play.appendChild(stats); play.appendChild(ctrls);
   root.appendChild(play);
-
-  // Tap rotation controls (appear only while a ring is selected)
-  const rotL = el('button', 'rot', ICONS.ccw); rotL.setAttribute('aria-label', 'Rotate anticlockwise');
-  const rotR = el('button', 'rot', ICONS.cw); rotR.setAttribute('aria-label', 'Rotate clockwise');
-  rotL.type = rotR.type = 'button';
-  root.appendChild(rotL); root.appendChild(rotR);
 
   // CompletionScreen
   const done = el('div', 'done');
   const dKick = el('div', 'kick', 'Discovered');
   const dName = el('div', 'tname', '');
+  const dStars = el('div', 'stars', '');
   const dDesc = el('div', 'tdesc', '');
   const dStats = el('div', 'stats dstats');
   const dB = el('div', 'board3', '');
@@ -1932,7 +2671,7 @@ function createHud(ctx, H) {
   const aColl = el('button', 'act', ICONS.coll + '<span>Collection</span>');
   const aNext = el('button', 'act pri', '<span>Next study</span>' + ICONS.next);
   [aShare, aColl, aNext].forEach(b => { b.type = 'button'; acts.appendChild(b); });
-  done.appendChild(dKick); done.appendChild(dName); done.appendChild(dDesc); done.appendChild(dStats); done.appendChild(dB); done.appendChild(acts);
+  done.appendChild(dKick); done.appendChild(dName); done.appendChild(dStars); done.appendChild(dDesc); done.appendChild(dStats); done.appendChild(dB); done.appendChild(acts);
   root.appendChild(done);
 
   const toast = el('div', 'toast', ''); root.appendChild(toast);
@@ -1981,9 +2720,6 @@ function createHud(ctx, H) {
     bMute.style.right = (L.area.right + 8) + 'px'; bMute.style.top = (L.area.top + 4) + 'px';
     play.style.top = L.bottomTop + 'px'; play.style.left = L.colX + 'px'; play.style.width = L.colW + 'px';
     done.style.top = (L.doneTop) + 'px'; done.style.left = L.colX + 'px'; done.style.width = L.colW + 'px';
-    const off = L.R * 0.98;
-    rotL.style.left = (L.cx - off) + 'px'; rotL.style.top = (L.cy + off) + 'px';
-    rotR.style.left = (L.cx + off) + 'px'; rotR.style.top = (L.cy + off) + 'px';
     toast.style.top = (L.cy - L.R * 1.22 - 14) + 'px';
     toast.style.left = (L.cx) + 'px';
     const compact = L.compact;
@@ -1991,7 +2727,7 @@ function createHud(ctx, H) {
     title.style.fontSize = compact ? '24px' : '30px';
     tabs.style.marginTop = compact ? '8px' : '12px';
     stats.style.marginTop = compact ? '10px' : '16px';
-    ctrls.style.marginTop = compact ? '8px' : '18px';
+    ctrls.style.marginTop = compact ? '4px' : '12px';
   };
 
   U.setHeader = function (mode, text, complete) {
@@ -2003,10 +2739,48 @@ function createHud(ctx, H) {
     brand.textContent = complete ? 'ORBIT' : 'PLETHORA';
     tabs.style.visibility = mode === 'gallery' ? 'hidden' : '';
   };
-  U.setStats = function (moves, timeMs, aligned, total) {
-    sMoves.firstChild.textContent = String(moves);
+  U.setStats = function (moves, budget, timeMs, stage, stages) {
+    sMoves.firstChild.textContent = budget ? moves + '/' + budget : String(moves);
+    sMoves.classList.toggle('over', !!budget && moves > budget);
+    sMoves.lastChild.textContent = budget && moves > budget ? 'Over budget' : 'Moves';
     sTime.firstChild.textContent = fmtTime(timeMs);
-    sAl.firstChild.textContent = aligned + '/' + total;
+    sAl.firstChild.textContent = stage + '/' + stages;
+  };
+  // The focused clue: a short label and a one-line rule.
+  U.setClueText = function (label, text) {
+    clabel.textContent = label || '';
+    cap.textContent = text || '';
+    cap.classList.remove('small');
+  };
+  // clues: [{ type, hour, status, locked, focus, swatch, isNew }] grouped by stage.
+  let chipEls = [], chipSig = '';
+  U.setClues = function (clues, stages) {
+    const sig = stages.join(',') + '|' + clues.length;
+    if (sig !== chipSig) {
+      chipSig = sig; chips.innerHTML = ''; chipEls = [];
+      let idx = 0;
+      stages.forEach((n, st) => {
+        if (st) chips.appendChild(el('div', 'csep'));
+        for (let j = 0; j < n; j++, idx++) {
+          const b = el('button', 'chip', '<div class="g"></div><i></i>');
+          b.type = 'button';
+          const i = idx;
+          act(b, () => H.onClue(i));
+          chips.appendChild(b); chipEls.push(b);
+        }
+      });
+    }
+    clues.forEach((c, i) => {
+      const b = chipEls[i]; if (!b) return;
+      const key = [c.type, c.status, c.locked, c.swatch].join('|');
+      if (b._key !== key) {
+        b._key = key;
+        b.firstChild.innerHTML = c.locked ? '' : glyphSvg(c.type, c.swatch);
+        b.lastChild.textContent = c.locked ? '' : c.hour;
+        b.setAttribute('aria-label', c.locked ? 'Hidden clue' : c.hour + ' ' + c.label + ', ' + c.status);
+      }
+      b.className = 'chip ' + (c.locked ? 'lock' : c.status) + (c.focus ? ' focus' : '') + (c.isNew ? ' new' : '');
+    });
   };
   U.setTime = function (ms) { sTime.firstChild.textContent = fmtTime(ms); };
   U.setCaption = function (text, serif) {
@@ -2018,6 +2792,7 @@ function createHud(ctx, H) {
     bReset.disabled = !playing;
     bHint.disabled = !playing;
   };
+  let rotOn = false;
   let resetArmed = 0;
   U.armReset = function (on) {
     resetArmed = on;
@@ -2026,12 +2801,14 @@ function createHud(ctx, H) {
   };
   U.resetArmed = () => resetArmed;
   U.setMuted = function (m) { bMute.innerHTML = m ? ICONS.mute : ICONS.sound; bMute.setAttribute('aria-label', m ? 'Sound off' : 'Sound on'); };
-  U.showRotate = function (on) { rotL.classList.toggle('on', !!on); rotR.classList.toggle('on', !!on); };
-  U.showPlay = function (on) { play.style.opacity = on ? '1' : '0'; play.style.pointerEvents = 'none'; [bUndo, bReset, bHint].forEach(b => { b.style.visibility = on ? '' : 'hidden'; }); };
+  U.showRotate = function (on) { rotOn = !!on; rotL.disabled = rotR.disabled = !on; };
+  U.showPlay = function (on) { play.style.opacity = on ? '1' : '0'; play.style.pointerEvents = 'none'; [bUndo, bReset, bHint, rotL, rotR].concat(chipEls).forEach(b => { b.style.visibility = on ? '' : 'hidden'; }); };
   U.showDone = function (d) {
     if (!d) { done.classList.remove('on'); done.setAttribute('aria-hidden', 'true'); return; }
     dKick.textContent = d.kicker;
     dName.textContent = d.name;
+    dStars.innerHTML = d.stars ? '★'.repeat(d.stars) + '<s>' + '★'.repeat(3 - d.stars) + '</s>' : '';
+    dStars.style.display = d.stars ? '' : 'none';
     dDesc.textContent = d.desc;
     dStats.innerHTML = '';
     d.stats.forEach(s => { const e = el('div', 'stat'); e.innerHTML = '<b></b><i></i>'; e.firstChild.textContent = s[1]; e.lastChild.textContent = s[0]; dStats.appendChild(e); });
@@ -2078,7 +2855,7 @@ function createHud(ctx, H) {
     const L = U.layout;
     modal.innerHTML = '';
     modalOpen = true; const tok = ++mtoken;
-    header('Your collection', items.length + (items.length === 1 ? ' visual universe' : ' visual universes'), 'Every solved puzzle keeps its artwork.');
+    header('Your collection', items.length + (items.length === 1 ? ' visual universe' : ' visual universes'), 'Every solved puzzle keeps the composition it resolved into.');
     const grid = el('div', 'grid');
     grid.style.top = (L.area.top + 110) + 'px';
     grid.style.bottom = (L.H - (L.H - L.area.bottom)) + 'px';
@@ -2114,10 +2891,10 @@ function createHud(ctx, H) {
     const pr = Math.min(2, ctx.nativeDpr || ctx.dpr || 1);
     const pump = () => {
       if (tok !== mtoken || !modalOpen) return;
-      for (let n = 0; n < 3 && thumbQueue.length; n++) {
+      for (let n = 0; n < 1 && thumbQueue.length; n++) {
         const q = thumbQueue.shift();
         try {
-          const cv = surfaceToImage(renderThumbnail(q.it.theme(), q.it.ringCount, 96, pr), 96);
+          const cv = surfaceToImage(renderThumbnail(q.it.theme(), q.it.ringCount, 96, pr, q.it.families && q.it.families()), 96);
           q.holder.replaceWith(cv);
         } catch (e) { }
       }
@@ -2135,7 +2912,7 @@ function createHud(ctx, H) {
     det.style.top = (L.area.top + 64) + 'px';
     const theme = it.theme();
     const pr = Math.min(3, ctx.nativeDpr || ctx.dpr || 1);
-    const cv = surfaceToImage(renderThumbnail(theme, it.ringCount, size, pr), size);
+    const cv = surfaceToImage(renderThumbnail(theme, it.ringCount, size, pr, it.families && it.families()), size);
     det.appendChild(cv);
     const h = el('h3'); h.textContent = theme.name; det.appendChild(h);
     const meta = el('div', 'meta'); meta.textContent = it.sub + ' · ' + theme.universeTitle; det.appendChild(meta);
@@ -2156,13 +2933,13 @@ function createHud(ctx, H) {
 
 // ---- 07_main.js ----
 // ORBIT: wiring. Owns layout, input, animation and the game flow
-// (play -> solving -> done -> next), and talks to the Plethora SDK.
+// (play -> stage reveals -> solving -> done -> next), and talks to the Plethora SDK.
 
 window.plethoraBit = {
   meta: {
     title: 'ORBIT',
     runtime: 'plethora-bit@2',
-    tags: ['puzzle', 'daily', 'colour'],
+    tags: ['puzzle', 'daily', 'logic', 'colour'],
     permissions: ['audio', 'backgroundMusic', 'haptics', 'storage']
   },
 
@@ -2202,15 +2979,37 @@ window.plethoraBit = {
     const todayKey = dateKey(new Date());
     const today = dayNumberFromKey(todayKey);
 
-    // ---- Game state (single source of truth lives in `eng`) -------------------------
+    // Puzzles are deterministic; keep the few we have built this session.
+    const puzzleCache = {};
+    function presetFor(mode, n) {
+      if (mode === 'daily') return 'standard';
+      if (n <= 2) return 'gentle';
+      return n % 4 === 0 ? 'deep' : 'standard';
+    }
+    function puzzleFor(mode, n) {
+      const key = mode === 'daily' ? keyFromDayNumber(n) : 'practice:' + n;
+      const preset = presetFor(mode, n);
+      const ck = key + '|' + preset;
+      if (!puzzleCache[ck]) {
+        const ks = Object.keys(puzzleCache);
+        if (ks.length > 6) delete puzzleCache[ks[0]];
+        puzzleCache[ck] = PuzzleGenerator.generate(key, preset);
+      }
+      return puzzleCache[ck];
+    }
+
+    // ---- Game state (single source of truth for the puzzle lives in `eng`) ----------
     const G = {
       mode: 'daily',        // daily | study | gallery
-      phase: 'play',        // intro | play | solving | done | transition | gallery
+      phase: 'play',        // intro | play | solving | done | transition
       level: 1, day: today,
       puzzle: null, eng: null, theme: null,
       vis: [], tween: [],   // visual angle per ring, active snap tweens
       selected: -1, selectT: 0, selectAt: 0,
-      alignedVis: [], flash: [], wasAligned: [],
+      focus: -1, focusT: 0, focusDimUntil: 0,
+      famFocus: null,
+      clue: [],             // per condition: { appear, glow, revealAt, status, isNew }
+      reveal: null,
       completeT: 0, completeGlow: 0, completeAt: 0,
       orbitA: 0,
       hint: null,
@@ -2218,8 +3017,7 @@ window.plethoraBit = {
       clock: null, elapsedFallback: 0,
       restoredSolved: false,
       transition: null,
-      prev: null,           // previous mode state when visiting the gallery
-      nudge: null,
+      prev: null,
       dirty: true,
       result: null
     };
@@ -2236,6 +3034,7 @@ window.plethoraBit = {
       onReset: () => doReset(),
       onHint: () => doHint(),
       onRotate: d => tapRotate(d),
+      onClue: i => focusClue(i, true),
       onShare: () => doShare(),
       onNext: () => doNext()
     });
@@ -2243,6 +3042,8 @@ window.plethoraBit = {
     ctx.surface.place(hud.modal, { layer: 'modal', input: 'passthrough' });
 
     // ---- Layout ----------------------------------------------------------------------------
+    // The board is the centre of the piece; clue markers sit just outside its rim.
+    const RIM = 1.22;
     let L = null;
     function computeLayout() {
       const W = Math.max(1, ctx.width), H = Math.max(1, ctx.height);
@@ -2252,27 +3053,27 @@ window.plethoraBit = {
       const wide = W > H * 1.15 && W >= 620;
       const lay = { W, H, area, wide };
       if (!wide) {
-        const compact = (bot - top) < 640;
-        const headerH = compact ? 92 : 122;
-        const bottomH = compact ? 176 : 252;
+        const compact = (bot - top) < 680;
+        const headerH = compact ? 112 : 118;
+        const bottomH = compact ? 208 : 268;
         const availTop = top + headerH, availBot = bot - bottomH;
-        let R = Math.min((W - 28) / 2 / 1.15, (availBot - availTop) / 2 / 1.15, 260);
+        let R = Math.min((W - 20) / 2 / RIM, (availBot - availTop) / 2 / RIM, 250);
         R = Math.max(60, R);
         lay.compact = compact;
         lay.R = R; lay.cx = W / 2;
         lay.cy = (availTop + availBot) / 2;
         lay.headerTop = top + (compact ? 4 : 10);
         lay.colX = 0; lay.colW = W;
-        lay.bottomTop = Math.min(lay.cy + R * 1.17 + 4, availBot + 8);
+        lay.bottomTop = Math.min(lay.cy + R * RIM + 2, availBot + 6);
         lay.doneTop = lay.bottomTop - 2;
       } else {
-        const R = Math.max(60, Math.min((bot - top - 24) / 2 / 1.15, (W * 0.56 - 32) / 2 / 1.15, 300));
-        lay.compact = (bot - top) < 560;
+        const R = Math.max(60, Math.min((bot - top - 24) / 2 / RIM, (W * 0.56 - 32) / 2 / RIM, 290));
+        lay.compact = (bot - top) < 600;
         lay.R = R; lay.cx = area.left + W * 0.29; lay.cy = (top + bot) / 2;
         lay.colX = W * 0.56; lay.colW = W * 0.44 - area.right;
-        const colH = 122 + 236;
+        const colH = 118 + 268;
         lay.headerTop = Math.max(top + 10, (top + bot) / 2 - colH / 2);
-        lay.bottomTop = lay.headerTop + 128;
+        lay.bottomTop = lay.headerTop + 124;
         lay.doneTop = lay.bottomTop;
       }
       return lay;
@@ -2286,23 +3087,19 @@ window.plethoraBit = {
     }
 
     // ---- Puzzle setup --------------------------------------------------------------------
-    function diffForLevel(l) {
-      if (l <= 2) return 'easy';
-      if (l <= 6) return 'medium';
-      return l % 3 === 0 ? 'hard' : 'medium';
-    }
     function loadPuzzle(mode, n, saved) {
       G.mode = mode;
-      if (mode === 'daily') { G.day = n; G.puzzle = PuzzleGenerator.generate(keyFromDayNumber(n), 'medium'); G.theme = ThemeEngine.forDaily(n); }
-      else { G.level = n; G.puzzle = PuzzleGenerator.generate('level:' + n, diffForLevel(n)); G.theme = ThemeEngine.forLevel(n); }
-      G.eng = createEngine(G.puzzle, saved && saved.eng);
+      if (mode === 'daily') { G.day = n; G.theme = ThemeEngine.forDaily(n); }
+      else { G.level = n; G.theme = ThemeEngine.forLevel(n); }
+      G.puzzle = puzzleFor(mode, n);
+      G.eng = createGame(G.puzzle, saved && saved.eng);
       const nr = G.puzzle.ringCount;
       G.vis = G.eng.rot.map(r => r * STEP);
       G.tween = new Array(nr).fill(null);
-      G.flash = new Array(nr).fill(0);
-      G.wasAligned = []; G.alignedVis = [];
-      for (let k = 0; k < nr; k++) { const a = G.eng.isAligned(k); G.wasAligned.push(a); G.alignedVis.push(k > 0 && a ? 1 : 0); }
-      G.selected = -1; G.selectT = 0; G.hint = null;
+      G.clue = G.puzzle.conds.map((c, i) => ({ appear: i < G.eng.revealed() ? 1 : 0, glow: 0, revealAt: 0, status: '', isNew: false }));
+      G.reveal = null;
+      G.selected = -1; G.selectT = 0; G.hint = null; G.famFocus = null;
+      G.focus = G.eng.hintTarget(-1); G.focusT = 0; G.focusDimUntil = 0;
       G.completeT = 0; G.completeGlow = 0; G.result = null;
       G.started = false; G.interacted = false;
       G.orbitA = orbitTarget();
@@ -2313,6 +3110,7 @@ window.plethoraBit = {
         try { G.clock = ctx.game.stopwatch({ elapsedMs: G.elapsedFallback }); } catch (e) { G.clock = null; }
       }
       hud.applyTheme(G.theme);
+      hud.showRotate(false);
       G.phase = 'play';
       G.dirty = true;
       syncHud();
@@ -2320,56 +3118,82 @@ window.plethoraBit = {
     function elapsed() { return G.clock ? G.clock.elapsedMs : G.elapsedFallback; }
     function clockStart() { if (G.clock) G.clock.start(); G.running = true; }
     function clockPause() { if (G.clock) G.clock.pause(); G.running = false; }
-
-    function movable() { return G.puzzle.ringCount - 1; }
-    function orbitTarget() { return G.eng ? (G.eng.alignedCount() / movable()) * TAU : 0; }
+    function stages() { return G.puzzle.cum.length; }
+    function orbitTarget() { return G.eng ? (G.eng.solved ? TAU : (G.eng.stage / stages()) * TAU) : 0; }
 
     function editionLabel() {
       if (G.mode === 'daily') return 'DAILY PUZZLE · NO. ' + pad3(G.day) + ' · ' + prettyDate(keyFromDayNumber(G.day));
-      if (G.mode === 'study') return 'STUDY NO. ' + pad3(G.level) + ' · ' + DIFFICULTY[G.puzzle.difficulty].label.toUpperCase() + ' · ' + movable() + ' RINGS';
+      if (G.mode === 'study') return 'PRACTICE NO. ' + pad3(G.level) + ' · ' + PUZZLE_PRESETS[G.puzzle.preset].label.toUpperCase();
       return 'COLLECTION · ' + (G.galleryItem ? G.galleryItem.sub : '');
     }
+
+    // ---- Caption: the focused clue, or a short message held for a moment ------------------
     let captionHoldUntil = 0;
-    function flashCaption(text) {
-      captionHoldUntil = now() + 2600;
-      hud.setCaption(text, false);
-      ctx.timeout(() => { if (now() >= captionHoldUntil - 5) syncHud(); }, 2650);
+    function flashCaption(label, text, ms) {
+      captionHoldUntil = now() + (ms || 2800);
+      hud.setClueText(label, text);
+      ctx.timeout(() => { if (now() >= captionHoldUntil - 5) syncHud(); }, (ms || 2800) + 50);
+    }
+    function clueLabel(i) {
+      const c = G.puzzle.conds[i];
+      const st = G.eng.status(i);
+      const word = st === 'solved' ? 'HOLDS' : st === 'revealed' ? 'NEW' : 'BROKEN';
+      return HOURS[c.pos] + ' · ' + CONDITION_TYPES[c.type].label.toUpperCase() + ' · ' + word;
     }
     function syncHud() {
-      const playing = G.phase === 'play';
+      if (!G.eng) return;
+      const playing = G.phase === 'play' || G.phase === 'intro';
       hud.setHeader(G.mode, editionLabel(), G.phase === 'done' && G.mode !== 'gallery');
-      hud.setStats(G.eng.moves, elapsed(), G.eng.alignedCount(), movable());
+      hud.setStats(G.eng.moves, G.mode === 'gallery' ? 0 : G.eng.budget, elapsed(), Math.min(G.eng.stage + 1, stages()), stages());
       hud.setControls(G.eng.history.length > 0, playing);
+      hud.setClues(G.puzzle.conds.map((c, i) => ({
+        type: c.type, label: CONDITION_TYPES[c.type].label, hour: HOURS[c.pos],
+        status: G.eng.status(i), locked: i >= G.eng.revealed(), focus: i === G.focus,
+        swatch: c.type === 'missing' ? G.theme.paletteFor(G.puzzle.ringCount)[G.puzzle.ringCount - 1][c.fam].css : '',
+        isNew: G.clue[i] && G.clue[i].isNew
+      })), G.puzzle.stages);
       if (playing && now() >= captionHoldUntil) {
-        const a = G.eng.alignedCount(), m = movable();
-        if (!scores.profile.seenIntro && !G.interacted) hud.setCaption('Turn each ring until its colours meet the centre ring', false);
-        else if (a === 0) hud.setCaption('Untitled No. ' + pad3(G.mode === 'daily' ? G.day : G.level) + ' — match each ring to the centre', false);
-        else hud.setCaption(a + ' of ' + m + ' rings aligned', false);
+        if (!scores.profile.seenIntro && !G.interacted) {
+          hud.setClueText('STAGE 1 OF ' + stages(), 'Turn the rings until every marked intersection holds at once');
+        } else if (G.focus >= 0) {
+          hud.setClueText(clueLabel(G.focus), condText(G.puzzle.conds[G.focus]));
+        } else {
+          hud.setClueText('STAGE ' + (G.eng.stage + 1) + ' OF ' + stages(), G.eng.satisfiedCount() + ' of ' + G.eng.revealed() + ' intersections hold');
+        }
       }
+    }
+    function focusClue(i, byUser) {
+      if (!G.eng || i < 0 || i >= G.eng.revealed()) return;
+      if (byUser) { sound.unlock(); G.interacted = true; }
+      G.focus = i;
+      G.focusDimUntil = now() + (byUser ? 2600 : 0);
+      captionHoldUntil = 0;
+      G.dirty = true;
+      syncHud();
     }
 
     // ---- Persistence of the current puzzle --------------------------------------------
     // Device copy on every committed move (cheap, synchronous); Continue Playing
     // progress at bounded checkpoints only.
-    const DAY_KEY = 'orbit.day.v1', STUDY_KEY = 'orbit.study.v1';
-    function snapshot() { return { v: 1, edition: G.mode === 'daily' ? G.day : G.level, eng: G.eng.serialize(), elapsedMs: Math.round(elapsed()) }; }
+    const DAY_KEY = 'orbit.day.v2', STUDY_KEY = 'orbit.study.v2';
+    function snapshot() { return { v: 2, edition: G.mode === 'daily' ? G.day : G.level, eng: G.eng.serialize(), elapsedMs: Math.round(elapsed()) }; }
     function saveLocal() {
       if (G.mode === 'gallery' || !caps.storage || !ctx.storage) return;
       try { ctx.storage.set(G.mode === 'daily' ? DAY_KEY : STUDY_KEY, snapshot()); } catch (e) { }
     }
-    let lastProgressSave = 0, progressDirty = false, progressBlocked = false;
+    let lastProgressSave = 0, progressDirty = false;
     function saveProgress(force) {
-      if (G.mode !== 'daily' || progressBlocked || !ctx.game || !ctx.game.progress) return;
-      const now = performance.now();
-      if (!force && now - lastProgressSave < 12000) { progressDirty = true; return; }
-      lastProgressSave = now; progressDirty = false;
+      if (G.mode !== 'daily' || !ctx.game || !ctx.game.progress) return;
+      const t = performance.now();
+      if (!force && t - lastProgressSave < 12000) { progressDirty = true; return; }
+      lastProgressSave = t; progressDirty = false;
       const s = snapshot();
       try {
         ctx.game.progress.save('daily', {
           state: s,
-          label: 'No. ' + pad3(G.day) + ' · ' + G.eng.alignedCount() + ' of ' + movable() + ' aligned',
-          percent: G.eng.alignedCount() / movable(),
-          stateSchemaVersion: 1
+          label: 'No. ' + pad3(G.day) + ' · stage ' + (G.eng.stage + 1) + ' of ' + stages(),
+          percent: Math.min(0.99, (G.eng.stage + G.eng.satisfiedCount() / G.eng.revealed()) / stages()),
+          stateSchemaVersion: 2
         }).catch(err => { try { ctx.platform.error({ stage: 'progress_save', message: String(err && err.message || err) }); } catch (e) { } });
       } catch (e) { }
     }
@@ -2377,7 +3201,7 @@ window.plethoraBit = {
       try {
         if (!caps.storage || !ctx.storage) return null;
         const s = ctx.storage.get(key);
-        if (s && s.v === 1 && s.edition === edition && s.eng) return s;
+        if (s && s.v === 2 && s.edition === edition && s.eng) return s;
       } catch (e) { }
       return null;
     }
@@ -2395,38 +3219,43 @@ window.plethoraBit = {
       if (k === G.selected) return;
       G.selected = k;
       G.selectAt = now();
-      hud.showRotate(k > 0 && G.phase === 'play');
+      hud.showRotate(k > 0 && (G.phase === 'play' || G.phase === 'intro'));
       G.dirty = true;
     }
 
     // ---- Committed moves ----------------------------------------------------------------
     function commit(k, steps, viaDrag) {
+      const before = statuses();
       const res = G.eng.rotate(k, steps);
       if (!res) return null;
       lastAction = now();
       if (G.hint && G.hint.ring === k) G.hint.until = Math.min(G.hint.until, now() + 400);
-      tweenRing(k, res.to * STEP, 0, () => afterSeat(k, res));
+      tweenRing(k, res.to * STEP, 0, () => afterSeat(before, res.event));
       ctx.platform.interact({ action: viaDrag ? 'drag' : 'tap', ring: k, steps });
       onFirstMove();
       saveLocal();
       syncHud();
       return res;
     }
-    function afterSeat(k, res) {
+    function statuses() { const a = []; for (let i = 0; i < G.eng.revealed(); i++) a.push(G.eng.holds(i)); return a; }
+    // After a ring seats: chime for clues that now hold, then any stage event.
+    function afterSeat(before, event) {
       sound.snap();
-      const nowAligned = G.eng.isAligned(k);
-      if (nowAligned && !G.wasAligned[k]) {
-        G.flash[k] = 0.0001;
-        sound.align(k);
-        haptic('success');
-        ctx.platform.milestone('ring_aligned', { ring: k, aligned: G.eng.alignedCount() });
-        saveProgress(true);
-      } else {
-        saveProgress(false);
+      let gained = 0;
+      before.forEach((was, i) => {
+        if (!was && G.eng.holds(i)) { gained++; G.clue[i].glow = 1; sound.align(i); }
+      });
+      if (gained) haptic('light');
+      sound.setProgress((G.eng.stage + G.eng.satisfiedCount() / G.eng.revealed()) / stages());
+      saveProgress(false);
+      // Keep the caption on something worth solving.
+      if (G.focus >= 0 && G.eng.holds(G.focus) && now() > G.focusDimUntil) {
+        const next = G.eng.hintTarget(-1);
+        if (next >= 0) G.focus = next;
       }
-      G.wasAligned[k] = nowAligned;
-      sound.setProgress(G.eng.alignedCount() / movable());
-      if (G.eng.solved && G.phase === 'play') beginSolved();
+      if (event === 'stage') startReveal();
+      else if (event === 'solved' && G.phase === 'play') beginSolved();
+      syncHud();
     }
     function onFirstMove() {
       if (!scores.profile.seenIntro) scores.setFlag('seenIntro', true);
@@ -2442,11 +3271,55 @@ window.plethoraBit = {
     // The first real gesture of an attempt starts it (and the clock).
     function beginAttempt() {
       sound.unlock();
-      if (G.started || G.phase !== 'play' || G.mode === 'gallery') return;
+      if (G.started || (G.phase !== 'play' && G.phase !== 'intro') || G.mode === 'gallery') return;
       G.started = true;
       G.attempt = scores.newAttempt();
       try { ctx.platform.start({ mode: G.mode, edition: G.mode === 'daily' ? G.day : G.level }); } catch (e) { }
       clockStart();
+    }
+
+    // ---- Progressive reveal ---------------------------------------------------------------
+    // 1. the intersections that hold light up, 2. a breath, 3. the new markers
+    // grow in around the rim, one after another, 4. play carries on throughout.
+    function startReveal() {
+      const to = G.eng.revealed();
+      const from = G.puzzle.cum[G.eng.stage - 1];
+      const t = now();
+      G.reveal = { t0: t, from, to, shown: false };
+      for (let i = 0; i < from; i++) if (G.eng.holds(i)) G.clue[i].glow = 1;
+      haptic('success');
+      try { ctx.platform.milestone('stage_reached', { stage: G.eng.stage + 1, moves: G.eng.moves }); } catch (e) { }
+      saveProgress(true);
+      flashCaption('STAGE ' + G.eng.stage + ' COMPLETE', 'All ' + from + ' intersections hold at once…', 1000);
+    }
+    function revealStep(t) {
+      const R = G.reveal;
+      if (!R) return false;
+      const u = t - R.t0;
+      if (!R.shown && u >= 850) {
+        R.shown = true;
+        for (let i = R.from; i < R.to; i++) { G.clue[i].revealAt = t + (i - R.from) * 220; G.clue[i].isNew = true; }
+        sound.stage(G.eng.stage);
+        G.focus = R.from;
+        const n = R.to - R.from;
+        flashCaption('STAGE ' + (G.eng.stage + 1) + ' OF ' + stages(), (n === 2 ? 'Two' : String(n)) + ' new intersections. Everything revealed must hold together.', 3200);
+      }
+      if (R.shown) {
+        for (let i = R.from; i < R.to; i++) {
+          const a = clamp((t - G.clue[i].revealAt) / 650, 0, 1);
+          G.clue[i].appear = a;
+        }
+      }
+      if (u > 850 + (R.to - R.from) * 220 + 900) {
+        for (let i = R.from; i < R.to; i++) { G.clue[i].appear = 1; G.clue[i].isNew = false; }
+        G.reveal = null;
+        // Lucky: the new clues may already hold. Then the next stage opens too.
+        const ev = G.eng.advance();
+        if (ev === 'stage') startReveal();
+        else if (ev === 'solved') beginSolved();
+        syncHud();
+      }
+      return true;
     }
 
     // ---- Pointer input: direct manipulation --------------------------------------------
@@ -2463,7 +3336,7 @@ window.plethoraBit = {
       if (!geom) return { k: -2 };
       const dx = px - L.cx, dy = py - L.cy, r = Math.hypot(dx, dy);
       if (r < geom.hubR + geom.g * 0.5) return { k: -1, r };
-      if (r > L.R * 1.2) return { k: -2, r };
+      if (r > L.R * 1.08) return { k: -2, r };
       if (r >= geom.rings[geom.n - 1].rOut) return { k: geom.n - 1, r };
       for (let k = 0; k < geom.n; k++) {
         const ring = geom.rings[k];
@@ -2472,32 +3345,53 @@ window.plethoraBit = {
       }
       return { k: geom.n - 1, r };
     }
+    // A marker under the point, if any.
+    function clueAt(px, py) {
+      const geom = board.painter.geom;
+      if (!geom || !G.eng) return -1;
+      const cg = clueGeom(geom);
+      let best = -1, bd = cg.mr * 1.9;
+      for (let i = 0; i < G.eng.revealed(); i++) {
+        const a = colAngle(G.puzzle.conds[i].pos);
+        const d = Math.hypot(px - (L.cx + Math.cos(a) * cg.Rm), py - (L.cy + Math.sin(a) * cg.Rm));
+        if (d < bd) { bd = d; best = i; }
+      }
+      return best;
+    }
     function angleAt(px, py) { return Math.atan2(py - L.cy, px - L.cx); }
+    function columnAt(px, py) { return mod(Math.round((angleAt(px, py) + Math.PI / 2) / STEP), SEGMENTS); }
+    function highlightFamily(k, px, py) {
+      const fam = G.eng.familyAt(k, columnAt(px, py));
+      G.famFocus = { fam, a: G.famFocus && G.famFocus.fam === fam ? G.famFocus.a : 0, until: now() + 1800 };
+      G.dirty = true;
+    }
 
     ctx.listen(canvas, 'pointerdown', e => {
       if (hud.isModalOpen()) return;
       if (drag) return; // one ring at a time; extra fingers are ignored
       const p = localPoint(e);
-      if (G.phase === 'done' || G.phase === 'gallery' || G.phase === 'transition' || G.phase === 'solving') { sound.unlock(); return; }
+      if (G.phase === 'done' || G.phase === 'transition' || G.phase === 'solving') { sound.unlock(); return; }
       if (e.cancelable) e.preventDefault();
       try { canvas.focus({ preventScroll: true }); } catch (err) { }
+      const ci = Math.hypot(p.x - L.cx, p.y - L.cy) > L.R * 1.04 ? clueAt(p.x, p.y) : -1;
+      if (ci >= 0) { if (G.phase === 'intro') finishIntro(); focusClue(ci, true); return; }
       const hit = ringAt(p.x, p.y);
       if (hit.k === -2) { select(-1); return; }
       if (G.phase === 'intro') finishIntro();
       beginAttempt();
       G.interacted = true;
-      if (G.nudge) { G.nudge = null; }
       if (hit.k === -1) return;
       if (hit.k === 0) {
-        // The centre ring is the fixed reference.
+        // The centre ring is the fixed reference and the spectrum's legend.
         sound.refuse(); haptic('light');
-        flashCaption('The centre ring is fixed — match the others to it');
+        highlightFamily(0, p.x, p.y);
+        flashCaption('CENTRE RING · FIXED', 'The spectrum, read clockwise. Steps and “next colour” are counted on it.', 3200);
         return;
       }
       const k = hit.k;
       // Grab from wherever the ring visually is, even mid-snap.
       if (G.tween[k]) { G.tween[k] = null; }
-      drag = { k, id: e.pointerId, lastA: angleAt(p.x, p.y), base: G.vis[k], accum: 0, moved: false, detent: Math.round(G.vis[k] / STEP), t0: now() };
+      drag = { k, id: e.pointerId, lastA: angleAt(p.x, p.y), base: G.vis[k], accum: 0, moved: false, detent: Math.round(G.vis[k] / STEP), t0: now(), px: p.x, py: p.y };
       try { canvas.setPointerCapture(e.pointerId); } catch (err) { }
       select(k);
       G.dirty = true;
@@ -2514,7 +3408,7 @@ window.plethoraBit = {
         drag.accum += wrapAngle(a - drag.lastA); // unwrapped: no jump across 0/360
         drag.lastA = a;
       }
-      if (!drag.moved && (Math.abs(drag.accum) > 0.035 || Math.hypot(p.x - L.cx, p.y - L.cy) === 0)) drag.moved = true;
+      if (!drag.moved && Math.abs(drag.accum) > 0.035) drag.moved = true;
       G.vis[drag.k] = drag.base + drag.accum;
       const det = Math.round(G.vis[drag.k] / STEP);
       if (det !== drag.detent) { drag.detent = det; sound.tick(drag.k); haptic('light'); }
@@ -2528,10 +3422,8 @@ window.plethoraBit = {
       const current = G.eng.rot[k];
       if (cancelled || !drag.moved) {
         tweenRing(k, current * STEP);
-        if (!cancelled && !drag.moved) {
-          // A tap selects the ring and reveals the step controls.
-          hud.showRotate(true);
-        }
+        // A tap selects the ring (turn buttons) and outlines that colour everywhere.
+        if (!cancelled && !drag.moved) { hud.showRotate(true); highlightFamily(k, drag.px, drag.py); }
       } else {
         const target = Math.round(G.vis[k] / STEP);
         const steps = target - current;
@@ -2546,9 +3438,10 @@ window.plethoraBit = {
     ctx.listen(canvas, 'lostpointercapture', e => { if (drag && e.pointerId === drag.id) endDrag(e, false); });
     ctx.listen(canvas, 'contextmenu', e => e.preventDefault());
 
-    // Keyboard: arrows turn the selected ring, up/down choose a ring, Z undoes.
+    // Keyboard: arrows turn the selected ring, up/down choose a ring, Z undoes,
+    // Tab-free clue cycling with C, H for a hint.
     ctx.listen(canvas, 'keydown', e => {
-      if (G.phase !== 'play' || hud.isModalOpen()) return;
+      if ((G.phase !== 'play' && G.phase !== 'intro') || hud.isModalOpen()) return;
       const n = G.puzzle.ringCount;
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         e.preventDefault();
@@ -2561,10 +3454,13 @@ window.plethoraBit = {
         if (G.selected < 1) select(n - 1);
         tapRotate(e.key === 'ArrowRight' ? 1 : -1);
       } else if (e.key === 'z' || e.key === 'Z' || e.key === 'Backspace') { e.preventDefault(); doUndo(); }
+      else if (e.key === 'c' || e.key === 'C') { e.preventDefault(); focusClue(mod(G.focus + 1, G.eng.revealed()), true); }
+      else if (e.key === 'h' || e.key === 'H') { e.preventDefault(); doHint(); }
     });
 
     function tapRotate(dir) {
-      if (G.phase !== 'play' || G.selected < 1) return;
+      if ((G.phase !== 'play' && G.phase !== 'intro') || G.selected < 1) return;
+      if (G.phase === 'intro') finishIntro();
       beginAttempt();
       G.interacted = true;
       haptic('light');
@@ -2575,14 +3471,16 @@ window.plethoraBit = {
     // ---- Controls ----------------------------------------------------------------------
     function doUndo() {
       if (G.phase !== 'play') return;
+      const before = statuses();
       const h = G.eng.undo();
       if (!h) { sound.refuse(); return; }
       sound.undo(); haptic('light');
-      tweenRing(h.ring, h.from * STEP, 0, () => { G.wasAligned[h.ring] = G.eng.isAligned(h.ring); });
+      tweenRing(h.ring, h.from * STEP, 0, () => afterSeat(before, h.event));
       ctx.platform.interact({ action: 'undo' });
       saveLocal();
       syncHud();
     }
+    let resetSeq = 0;
     function doReset() {
       if (G.phase !== 'play') return;
       if (!hud.resetArmed()) {
@@ -2594,24 +3492,42 @@ window.plethoraBit = {
       resetSeq++;
       hud.armReset(false);
       G.eng.reset();
-      for (let k = 1; k < G.puzzle.ringCount; k++) { tweenRing(k, G.eng.rot[k] * STEP, 420); G.wasAligned[k] = G.eng.isAligned(k); }
+      for (let k = 1; k < G.puzzle.ringCount; k++) tweenRing(k, G.eng.rot[k] * STEP, 420);
       G.hint = null;
       sound.undo();
       ctx.platform.interact({ action: 'restart' });
+      flashCaption('RESTARTED', 'The rings are back where they began. What you have revealed stays revealed.', 2600);
       saveLocal();
       syncHud();
     }
-    let resetSeq = 0;
+    // Hints escalate on the focused clue: which rings, then the relationship read
+    // against the board, then a direction worth trying. Never a move for you.
     function doHint() {
       if (G.phase !== 'play') return;
       beginAttempt();
-      const h = G.eng.hint();
+      const h = G.eng.hint(G.focus);
       if (!h) return;
-      G.hint = { ring: h.ring, dir: h.dir, alpha: 0, until: now() + 3800 };
-      select(h.ring);
-      flashCaption(h.dir > 0 ? 'Try turning the highlighted ring clockwise' : 'Try turning the highlighted ring anticlockwise');
-      ctx.platform.interact({ action: 'hint' });
+      G.focus = h.cond;
+      const c = G.puzzle.conds[h.cond];
+      const label = 'HINT ' + h.level + ' · ' + HOURS[c.pos];
+      if (h.level === 1) {
+        G.focusDimUntil = now() + 4200;
+        const names = c.rings.map(k => RING_NAMES[k]);
+        flashCaption(label, 'This rule reads the ' + (names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0]) + '.', 4200);
+      } else if (h.level === 2) {
+        G.focusDimUntil = now() + 2400;
+        flashCaption(label, h.text, 5200);
+      } else if (h.dir) {
+        G.hint = { ring: h.dir.ring, dir: h.dir.dir, alpha: 0, until: now() + 4200, a: colAngle(c.pos) };
+        select(h.dir.ring);
+        flashCaption(label, 'Worth exploring: the ' + RING_NAMES[h.dir.ring] + ', ' + (h.dir.dir > 0 ? 'clockwise' : 'anticlockwise') + '.', 4200);
+      } else {
+        flashCaption(label, h.text || condText(c), 4200);
+      }
+      ctx.platform.interact({ action: 'hint', level: h.level });
+      G.dirty = true;
       saveLocal();
+      syncHud();
     }
     function toggleMute() {
       const m = !scores.profile.muted;
@@ -2622,37 +3538,48 @@ window.plethoraBit = {
     }
 
     // ---- Completion ----------------------------------------------------------------------
+    // Stars: one for solving, one for an efficient route, one for no hints within
+    // a relaxed time. Efficiency is judged against the progressive route, since
+    // nobody can aim at clues they have not seen yet.
+    function starsFor(moves, timeMs, hints) {
+      const route = G.puzzle.route;
+      const efficient = moves <= Math.ceil(route * 1.25) + 2;
+      const clean = hints === 0 && timeMs <= Math.max(300000, route * 15000);
+      return 1 + (efficient ? 1 : 0) + (clean ? 1 : 0);
+    }
     function beginSolved() {
       G.phase = 'solving';
       clockPause();
       select(-1);
       hud.showRotate(false);
-      G.hint = null;
+      G.hint = null; G.focus = -1; G.reveal = null;
       G.completeAt = now() + 120;
       G.completeT = 0;
       sound.complete(G.puzzle.ringCount);
       haptic('success');
       const timeMs = Math.round(elapsed());
-      const moves = G.eng.moves;
+      const moves = G.eng.moves, hints = G.eng.hints;
+      const stars = starsFor(moves, timeMs, hints);
       let info;
       if (G.mode === 'daily') {
         const isToday = G.day === dayNumberFromKey(dateKey(new Date()));
-        info = scores.completeDaily(G.day, moves, timeMs, G.eng.hints, G.theme.key);
-        G.result = { timeMs, moves, par: G.eng.par, hints: G.eng.hints, streak: scores.currentStreak(G.day), info, board: '' };
+        info = scores.completeDaily(G.day, moves, timeMs, hints, G.theme.key, stars);
+        G.result = { timeMs, moves, par: G.puzzle.route, hints, stars, streak: scores.currentStreak(G.day), info, board: '' };
         // Only a live solve of today's edition goes on the leaderboard.
         if (isToday && info.first && !G.restoredSolved) {
           G.result.board = 'Saving to today’s board…';
           scores.submitDaily(timeMs, moves, G.day, info.streak, r => onBoardResult(r));
         }
         try { ctx.game.progress && ctx.game.progress.complete('daily', { state: snapshot() }).catch(() => { }); } catch (e) { }
-        try { ctx.platform.complete({ mode: 'daily', edition: G.day, timeMs, moves }); } catch (e) { }
+        try { ctx.platform.complete({ mode: 'daily', edition: G.day, timeMs, moves, hints, stars }); } catch (e) { }
       } else {
-        info = scores.completeLevel(G.level, moves, timeMs, G.theme.key);
-        G.result = { timeMs, moves, par: G.eng.par, hints: G.eng.hints, info, board: '' };
-        try { ctx.platform.complete({ mode: 'study', level: G.level, timeMs, moves }); } catch (e) { }
+        info = scores.completeLevel(G.level, moves, timeMs, G.theme.key, stars);
+        G.result = { timeMs, moves, par: G.puzzle.route, hints, stars, info, board: '' };
+        try { ctx.platform.complete({ mode: 'practice', level: G.level, timeMs, moves, hints, stars }); } catch (e) { }
       }
       saveLocal();
-      ctx.timeout(() => showResult(true), 1500);
+      syncHud();
+      ctx.timeout(() => showResult(true), 2200);
     }
     function onBoardResult(r) {
       if (!G.result) return;
@@ -2675,18 +3602,17 @@ window.plethoraBit = {
       const stats = [['Time', fmtTime(R.timeMs)], ['Moves', String(R.moves)], ['Par', String(R.par)]];
       if (G.mode === 'daily') stats.push(['Streak', String(scores.currentStreak(today))]);
       else stats.push(['Hints', String(R.hints)]);
-      const best = G.mode === 'daily' ? scores.bestDailyTime() : null;
-      if (best !== null && G.mode === 'daily') stats.push(['Best', fmtTime(best)]);
       const isNew = R.info && R.info.newTheme;
       hud.showPlay(false);
       hud.setHeader(G.mode, editionLabel(), true);
       hud.showDone({
-        kicker: isNew ? 'New universe discovered' : 'Universe',
+        kicker: (isNew ? 'New universe · ' : '') + 'All seven intersections hold',
         name: t.name,
+        stars: R.stars || 0,
         desc: t.description,
         stats,
         board: R.board,
-        nextLabel: G.mode === 'daily' ? 'Studies' : 'Next study',
+        nextLabel: G.mode === 'daily' ? 'Practice' : 'Next puzzle',
         canShare: true
       });
       if (fresh) {
@@ -2705,11 +3631,9 @@ window.plethoraBit = {
     }
     function shareText() {
       const R = G.result, t = G.theme;
-      const m = movable();
-      const rings = Array.from({ length: m }, () => '●').join(' ');
-      const head = G.mode === 'daily' ? 'ORBIT  No. ' + pad3(G.day) : 'ORBIT  Study ' + pad3(G.level);
-      const perfect = R.moves === R.par ? '  ·  perfect' : '';
-      const lines = [head, '“' + t.name + '”', '◎  ' + rings, fmtTime(R.timeMs) + '  ·  ' + R.moves + ' moves (par ' + R.par + ')' + perfect];
+      const head = (G.mode === 'daily' ? 'ORBIT  No. ' + pad3(G.day) : 'ORBIT  Practice ' + pad3(G.level)) + '  ' + '★'.repeat(R.stars || 1) + '☆'.repeat(3 - (R.stars || 1));
+      const dots = G.puzzle.stages.map(n => '◉'.repeat(n)).join(' ');
+      const lines = [head, '“' + t.name + '”', dots, fmtTime(R.timeMs) + '  ·  ' + R.moves + ' moves (par ' + R.par + ')' + (R.hints ? '  ·  ' + R.hints + (R.hints === 1 ? ' hint' : ' hints') : '')];
       if (G.mode === 'daily' && scores.currentStreak(today) > 1) lines.push('streak ' + scores.currentStreak(today));
       return lines.join('\n');
     }
@@ -2750,18 +3674,14 @@ window.plethoraBit = {
       loadPuzzle(mode, n, saved);
       const done = mode === 'daily' ? scores.dailyResult(n) : null;
       G.restoredSolved = G.eng.solved;
-      // New puzzles start solved, then wind out into their scramble.
-      const scrambled = G.vis.slice();
-      const solvedDailyView = done && G.eng.solved;
-      if (!G.eng.solved) for (let k = 0; k < G.vis.length; k++) G.vis[k] = 0;
+      const target = G.vis.slice();
+      // The rings spin in to their scramble (never through the solution).
+      if (!done && !G.eng.solved) for (let k = 1; k < G.vis.length; k++) G.vis[k] = target[k] + (k % 2 ? -1 : 1) * Math.PI * 0.75;
       G.transition = { from, t0: now(), dur: 950, then: () => {
-        if (solvedDailyView || G.eng.solved) { enterSolvedView(done); return; }
-        for (let k = 1; k < G.vis.length; k++) {
-          const extra = (k % 2 ? -1 : 1) * TAU * 0;
-          G.tween[k] = { from: 0, to: scrambled[k] + extra, t0: now() + k * 70, dur: 700, ease: easeOutQuint };
-        }
+        if (done || G.eng.solved) { enterSolvedView(done); return; }
+        for (let k = 1; k < G.vis.length; k++) G.tween[k] = { from: G.vis[k], to: target[k], t0: now() + k * 70, dur: 760, ease: easeOutQuint };
         G.phase = 'intro';
-        G.introEnd = now() + 700 + G.vis.length * 70;
+        G.introEnd = now() + 760 + G.vis.length * 70;
       } };
       G.phase = 'transition';
       hud.showPlay(true);
@@ -2773,26 +3693,28 @@ window.plethoraBit = {
       G.phase = 'play';
       syncHud();
     }
-    // Re-opening an edition already solved shows the finished artwork.
+    // Re-opening an edition already solved shows the finished composition.
     function enterSolvedView(done) {
-      if (!G.eng.solved) {
-        // Solved elsewhere (another device): show the finished arrangement.
-        for (let k = 1; k < G.puzzle.ringCount; k++) G.eng.rot[k] += G.eng.stepsToAlign(k) || 0;
-        G.eng.solved = G.eng.checkSolved();
-      }
-      for (let k = 0; k < G.vis.length; k++) { G.vis[k] = G.eng.rot[k] * STEP; G.tween[k] = null; G.wasAligned[k] = true; }
+      if (!G.eng.solved) G.eng.forceSolved();
+      for (let k = 0; k < G.vis.length; k++) { G.vis[k] = G.eng.rot[k] * STEP; G.tween[k] = null; }
+      G.clue.forEach(c => { c.appear = 1; c.glow = 0; c.isNew = false; });
       hud.showRotate(false);
       select(-1);
       clockPause();
       G.phase = 'done';
+      G.focus = -1;
       G.completeT = 1; G.completeGlow = 1; G.orbitA = TAU;
-      for (let k = 1; k < G.vis.length; k++) G.alignedVis[k] = 1;
-      const d = done || [G.eng.moves, elapsed(), G.eng.hints];
-      G.result = { timeMs: d[1], moves: d[0], par: G.eng.par, hints: d[2] || 0, info: { newTheme: false }, board: '' };
+      const d = done || [G.eng.moves, elapsed(), G.eng.hints, 0];
+      G.result = { timeMs: d[1], moves: d[0], par: G.puzzle.route, hints: d[2] || 0, stars: d[3] || 0, info: { newTheme: false }, board: '' };
       showResult(false);
     }
 
     // ---- Collection and gallery ---------------------------------------------------------------
+    // Each collected universe keeps the composition its puzzle resolved into.
+    function solvedFamilies(puz) {
+      const o = stateOffsets(puz.solutions[0]);
+      return (k, i) => puz.seqs[k][mod(i - (k ? o[k] : 0), SEGMENTS)];
+    }
     function collectionItems() {
       const items = [];
       scores.profile.coll.slice().reverse().forEach(key => {
@@ -2800,15 +3722,16 @@ window.plethoraBit = {
         if (!m) return;
         const n = +m[2];
         const daily = m[1] === 'daily';
-        let cached = null;
+        let cached = null, fams = null;
         const d = daily ? scores.profile.daily[n] : scores.profile.levels.best[n];
         items.push({
           key, n, daily,
-          title: '', sub: daily ? 'No. ' + pad3(n) + ' · ' + prettyDate(keyFromDayNumber(n)) : 'Study ' + pad3(n),
-          ringCount: daily ? DIFFICULTY.medium.rings : DIFFICULTY[diffForLevel(n)].rings,
+          title: '', sub: daily ? 'No. ' + pad3(n) + ' · ' + prettyDate(keyFromDayNumber(n)) : 'Practice ' + pad3(n),
+          ringCount: RINGS,
           stat: d ? 'Solved in ' + fmtTime(d[1]) + ', ' + d[0] + ' moves.' : '',
           d,
-          theme() { return cached || (cached = ThemeEngine.forKey(key)); }
+          theme() { return cached || (cached = ThemeEngine.forKey(key)); },
+          families() { return fams || (fams = solvedFamilies(puzzleFor(daily ? 'daily' : 'study', n))); }
         });
       });
       items.forEach(it => { it.title = it.theme().name; });
@@ -2820,7 +3743,7 @@ window.plethoraBit = {
       ctx.surface.place(hud.modal, { layer: 'modal', input: 'auto' });
       const items = collectionItems();
       const nextLevel = scores.profile.levels.reached;
-      hud.openCollection(items, { title: 'Undiscovered', sub: 'Study ' + pad3(nextLevel) });
+      hud.openCollection(items, { title: 'Undiscovered', sub: 'Practice ' + pad3(nextLevel) });
       if (G.phase === 'play' && G.started) clockPause();
     }
     function closeModal() {
@@ -2835,13 +3758,14 @@ window.plethoraBit = {
       G.prev = G.prev || { mode: G.mode, n: G.mode === 'daily' ? G.day : G.level };
       G.galleryItem = it;
       const theme = it.theme();
-      const nr = it.ringCount;
-      G.puzzle = { ringCount: nr, sequences: PuzzleGenerator.solvedSequences(nr), scramble: new Array(nr).fill(0) };
-      G.eng = createEngine(G.puzzle);
+      G.puzzle = puzzleFor(it.daily ? 'daily' : 'study', it.n);
+      G.eng = createGame(G.puzzle);
+      G.eng.forceSolved();
       G.theme = theme;
-      G.vis = new Array(nr).fill(0); G.tween = new Array(nr).fill(null); G.flash = new Array(nr).fill(0);
-      G.alignedVis = new Array(nr).fill(1); G.wasAligned = new Array(nr).fill(true);
-      G.mode = 'gallery';
+      const nr = G.puzzle.ringCount;
+      G.vis = G.eng.rot.map(r => r * STEP); G.tween = new Array(nr).fill(null);
+      G.clue = G.puzzle.conds.map(() => ({ appear: 1, glow: 0, revealAt: 0, status: '', isNew: false }));
+      G.mode = 'gallery'; G.focus = -1; G.hint = null; G.famFocus = null;
       G.completeT = 0; G.completeGlow = 1; G.orbitA = TAU;
       hud.applyTheme(theme);
       hud.showDone(null); hud.showPlay(false);
@@ -2850,7 +3774,7 @@ window.plethoraBit = {
         G.completeAt = now(); G.completeT = 0.0001;
         G.result = { timeMs: 0, moves: 0, par: 0, info: {}, board: '' };
         hud.setHeader('gallery', editionLabel(), false);
-        hud.showDone({ kicker: 'From your collection', name: theme.name, desc: theme.description, stats: it.d ? [['Time', fmtTime(it.d[1])], ['Moves', String(it.d[0])]] : [], board: theme.universeTitle.toUpperCase() + ' · ' + theme.material.label.toUpperCase(), nextLabel: 'Back', canShare: false });
+        hud.showDone({ kicker: 'From your collection', name: theme.name, desc: theme.description, stars: it.d && it.d[3] || 0, stats: it.d ? [['Time', fmtTime(it.d[1])], ['Moves', String(it.d[0])]] : [], board: theme.universeTitle.toUpperCase() + ' · ' + theme.material.label.toUpperCase(), nextLabel: 'Back', canShare: false });
       } };
       G.phase = 'transition';
       sound.reveal();
@@ -2858,20 +3782,29 @@ window.plethoraBit = {
 
     // ---- Scene + loop ------------------------------------------------------------------------
     function buildScene() {
-      const seqs = G.puzzle.sequences;
+      const seqs = G.puzzle.seqs;
+      const E = G.eng;
+      const doneView = G.phase === 'done' || G.phase === 'solving' || G.mode === 'gallery';
       return {
         ringCount: G.puzzle.ringCount,
         angles: G.vis.slice(),
         families: (k, i) => seqs[k][i],
         selected: G.selected, selectT: G.selectT, dimOthers: G.selectT * (G.phase === 'play' ? 1 : 0),
-        alignedVis: G.alignedVis.slice(), flash: G.flash.slice(),
         completeT: G.completeT, completeGlow: G.completeGlow,
         orbitA: G.orbitA,
-        hint: G.hint && G.hint.alpha > 0.01 ? { ring: G.hint.ring, dir: G.hint.dir, alpha: G.hint.alpha } : null
+        famFocus: G.famFocus && G.famFocus.a > 0.01 ? G.famFocus : null,
+        focus: G.focus, focusT: G.focusT,
+        clues: G.puzzle.conds.map((c, i) => {
+          if (i >= E.revealed() && !doneView) return null;
+          const v = G.clue[i] || { appear: 1 };
+          const status = doneView ? 'solved' : E.status(i);
+          return { pos: c.pos, type: c.type, rings: c.rings, odd: c.odd, fam: c.fam, appear: v.appear, glow: v.glow, revealAt: v.revealAt, status, progress: status === 'solved' ? 1 : E.progress(i) };
+        }),
+        hint: G.hint && G.hint.alpha > 0.01 ? { ring: G.hint.ring, dir: G.hint.dir, alpha: G.hint.alpha, a: G.hint.a } : null
       };
     }
 
-    let hudTick = 0, idleSince = now();
+    let hudTick = 0;
     function update(dt) {
       if (disposed) return;
       const t = now();
@@ -2891,21 +3824,39 @@ window.plethoraBit = {
       // Selection fade and auto-deselect after a quiet spell.
       const selTarget = G.selected > 0 && (G.phase === 'play') ? 1 : 0;
       if (Math.abs(G.selectT - selTarget) > 0.001) { G.selectT = lerp(G.selectT, selTarget, 1 - Math.exp(-dt / 70)); animating = true; }
-      if (G.selected > 0 && !drag && G.phase === 'play' && t - Math.max(G.selectAt, lastAction) > 5000) { select(-1); }
+      if (G.selected > 0 && !drag && G.phase === 'play' && t - Math.max(G.selectAt, lastAction) > 6000) { select(-1); }
 
-      // Alignment marks and flashes.
-      for (let k = 1; k < G.alignedVis.length; k++) {
-        const target = G.eng.isAligned(k) && !G.tween[k] && !(drag && drag.k === k) ? 1 : 0;
-        if (Math.abs(G.alignedVis[k] - target) > 0.002) { G.alignedVis[k] = lerp(G.alignedVis[k], target, 1 - Math.exp(-dt / 160)); animating = true; }
-        if (G.flash[k] > 0) { G.flash[k] += dt / 900; animating = true; if (G.flash[k] >= 1) G.flash[k] = 0; }
+      // Column focus: the board recedes briefly around the chosen intersection.
+      const fTarget = G.focus >= 0 && t < G.focusDimUntil && G.phase === 'play' ? 1 : 0;
+      if (Math.abs(G.focusT - fTarget) > 0.002) { G.focusT = lerp(G.focusT, fTarget, 1 - Math.exp(-dt / 140)); animating = true; }
+
+      // Family highlight.
+      if (G.famFocus) {
+        const target = t < G.famFocus.until ? 1 : 0;
+        G.famFocus.a = lerp(G.famFocus.a, target, 1 - Math.exp(-dt / 110));
+        if (!target && G.famFocus.a < 0.01) G.famFocus = null;
+        animating = true;
       }
-      const ot = (G.phase === 'done' || G.phase === 'solving') ? TAU : orbitTarget();
-      if (Math.abs(G.orbitA - ot) > 0.0005) { G.orbitA = lerp(G.orbitA, ot, 1 - Math.exp(-dt / 220)); animating = true; }
 
-      // Completion light.
+      // Clue glows decay; new clues breathe.
+      for (let i = 0; i < G.clue.length; i++) {
+        const c = G.clue[i];
+        if (c.glow > 0) { c.glow = Math.max(0, c.glow - dt / 1100); animating = true; }
+      }
+      if (G.eng && G.phase === 'play') for (let i = 0; i < G.eng.revealed(); i++) if (G.eng.status(i) === 'revealed') { animating = true; break; }
+      if (revealStep(t)) animating = true;
+
+      const ot = (G.phase === 'done' || G.phase === 'solving') ? TAU : orbitTarget();
+      if (Math.abs(G.orbitA - ot) > 0.0005) { G.orbitA = lerp(G.orbitA, ot, 1 - Math.exp(-dt / 260)); animating = true; }
+
+      // Completion light; the markers kindle one after another round the rim.
       if ((G.phase === 'solving' || G.phase === 'done') && G.completeT > 0 && G.completeT < 1 || G.phase === 'solving') {
         G.completeT = clamp((t - G.completeAt) / 2400, 0, 1);
         G.completeGlow = Math.min(1, G.completeGlow + dt / 900);
+        if (G.phase === 'solving') {
+          const order = G.puzzle.conds.map((c, i) => i).sort((a, b) => G.puzzle.conds[a].pos - G.puzzle.conds[b].pos);
+          order.forEach((i, j) => { const u = G.completeT * 1.4 - j * 0.12; if (u > 0 && u < 0.08) G.clue[i].glow = 1; });
+        }
         animating = true;
       }
 
@@ -2915,19 +3866,6 @@ window.plethoraBit = {
         G.hint.alpha = lerp(G.hint.alpha, target, 1 - Math.exp(-dt / 140));
         if (!target && G.hint.alpha < 0.01) G.hint = null;
         animating = true;
-      }
-
-      // First-time nudge: the outer ring sways, once, to show it turns.
-      if (G.phase === 'play' && !scores.profile.seenIntro && !G.interacted && !drag) {
-        if (!G.nudge && t - idleSince > 1600) G.nudge = { t0: t };
-        if (G.nudge) {
-          const k = G.puzzle.ringCount - 1;
-          const u = (t - G.nudge.t0) / 1600;
-          const base = G.eng.rot[k] * STEP;
-          G.vis[k] = base + Math.sin(Math.min(1, u) * TAU) * 0.2 * (1 - Math.min(1, u));
-          if (u >= 1) { G.vis[k] = base; G.nudge = null; idleSince = t + 2600; }
-          animating = true;
-        }
       }
 
       // Theme transition.
@@ -2973,7 +3911,16 @@ window.plethoraBit = {
     try { ctx.markVisualReady && ctx.markVisualReady('board'); } catch (e) { }
     try { ctx.platform.ready(); } catch (e) { }
 
-    if (window.__ORBIT_DEV) window.__orbit = { G, layout: () => L, board, scores, goTo, ThemeEngine, renderThumbnail, ThemeRegistry };
+    if (window.__ORBIT_DEV) {
+      // Dev harness only: `step()` makes the next nearest-first move through the real
+      // commit path (used by layout screenshots; e2e tests drive real pointer input).
+      const step = () => {
+        const E = G.eng, D = G.puzzle.dist[E.stage], here = D[E.state()];
+        for (let k = 1; k <= 4; k++) for (const d of [1, -1]) { const o = E.rot.slice(); o[k] += d; if (D[stateIndex(o)] < here) { commit(k, d, false); return true; } }
+        return false;
+      };
+      window.__orbit = { G, layout: () => L, board, scores, goTo, ThemeEngine, renderThumbnail, ThemeRegistry, stateIndex, stateOffsets, NSTATES, step, scene: buildScene };
+    }
     if (ctx.game && ctx.game.loop) ctx.game.loop({ update: dtMs => update(dtMs) });
     else ctx.onFrame(dt => update(dt));
 
@@ -2988,11 +3935,11 @@ window.plethoraBit = {
         ctx.game.progress.load('daily').then(p => {
           if (disposed || G.interacted || G.mode !== 'daily' || G.phase !== 'play') return;
           const s = p && p.state;
-          const eligible = p && (p.resumeEligible === true || (p.resumeEligible === undefined && p.status === 'in_progress' && p.stateSchemaVersion === 1));
-          if (!eligible || !s || s.v !== 1 || s.edition !== today) return;
+          const eligible = p && (p.resumeEligible === true || (p.resumeEligible === undefined && p.status === 'in_progress' && p.stateSchemaVersion === 2));
+          if (!eligible || !s || s.v !== 2 || s.edition !== today) return;
           loadPuzzle('daily', today, s);
           G.dirty = true;
-        }).catch(err => { progressBlocked = false; try { ctx.platform.error({ stage: 'progress_load', message: String(err && err.message || err) }); } catch (e) { } });
+        }).catch(err => { try { ctx.platform.error({ stage: 'progress_load', message: String(err && err.message || err) }); } catch (e) { } });
       } catch (e) { }
     }
   }

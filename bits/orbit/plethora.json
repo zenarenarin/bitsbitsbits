@@ -3,20 +3,40 @@
   "runtime": "plethora-bit@2",
   "entry": "main.js",
   "title": "ORBIT",
-  "description": "A daily colour-alignment puzzle. Turn five concentric rings until every colour lines up with the centre. Every solve reveals a new visual universe for your collection: porcelain, glass, brushed metal, risograph ink and more.",
-  "tags": ["puzzle", "daily", "colour", "art", "minimal"],
-  "permissions": ["audio", "backgroundMusic", "haptics", "storage"],
+  "description": "A daily circular logic puzzle. Turn four colour rings so that marked intersections hold: triples, pairs, contrasts, sequences, the odd one out. Solve three clues and two more appear; solve those and the last two arrive. Find the one arrangement that satisfies all seven.",
+  "tags": [
+    "puzzle",
+    "daily",
+    "logic",
+    "colour",
+    "art"
+  ],
+  "permissions": [
+    "audio",
+    "backgroundMusic",
+    "haptics",
+    "storage"
+  ],
   "dependencies": [],
   "display": "fullscreen",
-  "onboarding": { "kind": "immersive", "version": 1 },
+  "onboarding": {
+    "kind": "immersive",
+    "version": 1
+  },
   "game": {
     "progress": {
-      "daily": { "label": "Today's ORBIT", "stateSchemaVersion": 1, "ttlDays": 2 }
+      "daily": {
+        "label": "Today's ORBIT",
+        "stateSchemaVersion": 2,
+        "ttlDays": 2
+      }
     }
   },
   "memory": {
     "local": {
-      "profile": { "label": "Collection, streak and studies" }
+      "profile": {
+        "label": "Collection, streak and practice"
+      }
     },
     "records": {
       "solve_time": {
@@ -24,8 +44,15 @@
         "valueType": "duration_ms",
         "order": "asc",
         "format": "timer",
-        "periods": ["daily", "weekly", "all_time"],
-        "scopes": ["following", "global"],
+        "periods": [
+          "daily",
+          "weekly",
+          "all_time"
+        ],
+        "scopes": [
+          "following",
+          "global"
+        ],
         "dedupe": "best_per_user"
       },
       "streak": {
@@ -33,8 +60,13 @@
         "valueType": "streak",
         "order": "desc",
         "format": "integer",
-        "periods": ["all_time"],
-        "scopes": ["following", "global"],
+        "periods": [
+          "all_time"
+        ],
+        "scopes": [
+          "following",
+          "global"
+        ],
         "dedupe": "best_per_user"
       }
     }

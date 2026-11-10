@@ -15,6 +15,22 @@ const ICONS = {
   next: '<svg viewBox="0 0 24 24"><path d="M5 12h13.5"/><path d="m13.5 7 5 5-5 5"/></svg>'
 };
 
+// Clue glyphs as inline SVG, matching the markers drawn on the board.
+function glyphSvg(type, swatch) {
+  const dot = (x, y, r, hollow) => '<circle cx="' + x + '" cy="' + y + '" r="' + r + '"' + (hollow ? '' : ' class="f"') + '/>';
+  let b = '';
+  switch (type) {
+    case 'triple': b = dot(12, 6.5, 2.6) + dot(6.5, 16, 2.6) + dot(17.5, 16, 2.6); break;
+    case 'pair': b = dot(5.5, 12, 2.6) + dot(12, 12, 2.6) + dot(18.5, 12, 2.3, true); break;
+    case 'contrast': b = '<circle cx="12" cy="12" r="7.5"/><path class="f" d="M12 4.5a7.5 7.5 0 0 1 0 15z"/>'; break;
+    case 'odd': b = dot(5, 13.5, 2.6) + dot(11, 13.5, 2.6) + '<path class="f" d="M18 8l3.6 4.5L18 17l-3.6-4.5z"/>'; break;
+    case 'sequence': b = '<path class="f" d="M4.5 15.5h3.2v4H4.5zM10.4 11h3.2v8.5h-3.2zM16.3 6h3.2v13.5h-3.2z"/>'; break;
+    case 'missing': b = '<circle cx="12" cy="12" r="7.5" style="fill:' + (swatch || 'none') + '"/><path d="M6.7 17.3 17.3 6.7"/>'; break;
+    case 'alldiff': b = '<path d="M5 9.2h14M5 14.8h14M14.6 4.6 9.4 19.4"/>'; break;
+  }
+  return '<svg viewBox="0 0 24 24">' + b + '</svg>';
+}
+
 const HUD_CSS = `
 .orb{position:absolute;inset:0;font-family:'Space Grotesk',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;color:var(--ink);-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;pointer-events:none}
 .orb *{box-sizing:border-box}
@@ -34,12 +50,33 @@ const HUD_CSS = `
 .orb .bottom{position:absolute;left:0;right:0;display:flex;flex-direction:column;align-items:center}
 .orb .cap{font-family:'Cormorant Garamond',Georgia,serif;font-style:italic;font-weight:300;font-size:19px;line-height:1.25;text-align:center;color:var(--ink);min-height:24px;padding:0 24px;transition:opacity .35s}
 .orb .cap.small{font-family:'Space Grotesk',sans-serif;font-style:normal;font-size:12px;letter-spacing:.06em;color:var(--dim)}
+.orb .clabel{font-family:'Space Mono',ui-monospace,Menlo,monospace;font-size:9px;letter-spacing:.2em;color:var(--faint);text-transform:uppercase;min-height:12px;text-align:center;white-space:nowrap}
+.orb .cap.two{min-height:46px;display:flex;align-items:flex-start;justify-content:center;max-width:360px;margin-top:4px}
+.orb .chips{display:flex;justify-content:center;align-items:center;gap:4px;margin-top:10px}
+.orb .chip{width:38px;height:46px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--dim);position:relative;transition:opacity .4s}
+.orb .chip .g{width:28px;height:28px;border-radius:50%;border:1px solid var(--rule);display:flex;align-items:center;justify-content:center;transition:background .3s,border-color .3s,color .3s}
+.orb .chip svg{width:17px;height:17px;stroke-width:1.6}
+.orb .chip i{font-style:normal;font-family:'Space Mono',ui-monospace,monospace;font-size:8px;letter-spacing:.04em;color:var(--faint);line-height:1}
+.orb .chip.solved .g{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.orb .chip.unsolved .g{border-color:var(--dim);color:var(--ink)}
+.orb .chip.revealed .g{border-color:var(--ink);color:var(--ink);animation:orbpulse 1.8s ease-in-out infinite}
+.orb .chip.focus .g{outline:1px solid var(--ink);outline-offset:3px}
+.orb .chip.focus i{color:var(--ink)}
+.orb .chip.lock{pointer-events:none}
+.orb .chip.lock .g{border-style:dashed;opacity:.55}
+.orb .chip.lock .g::after{content:'';width:3px;height:3px;border-radius:50%;background:var(--faint)}
+.orb .chip.new{animation:orbin .7s cubic-bezier(.2,.8,.2,1) both}
+.orb .csep{width:1px;height:20px;background:var(--rule);margin:0 5px 12px}
+@keyframes orbpulse{0%,100%{box-shadow:0 0 0 0 var(--rule)}50%{box-shadow:0 0 0 5px var(--rule)}}
+@keyframes orbin{0%{opacity:0;transform:translateY(6px) scale(.7)}100%{opacity:1;transform:none}}
+.orb .stars{font-size:17px;letter-spacing:.32em;padding-left:.32em;margin-top:8px;color:var(--ink);font-family:ui-sans-serif,system-ui,sans-serif}
+.orb .stars s{text-decoration:none;color:var(--faint)}
 .orb .stats{display:flex;justify-content:center;gap:0;margin-top:16px}
 .orb .stat{width:96px;text-align:center}
 .orb .stat+.stat{border-left:1px solid var(--rule)}
 .orb .stat b{display:block;font-family:'Space Mono',ui-monospace,monospace;font-weight:400;font-size:17px;letter-spacing:.02em;color:var(--ink);font-variant-numeric:tabular-nums}
 .orb .stat i{display:block;font-style:normal;font-size:8.5px;letter-spacing:.26em;color:var(--faint);margin-top:5px;text-transform:uppercase;padding-left:.26em}
-.orb .ctrls{display:flex;justify-content:center;gap:34px;margin-top:18px}
+.orb .ctrls{display:flex;justify-content:center;gap:10px;margin-top:14px}
 .orb .ctl{display:flex;flex-direction:column;align-items:center;gap:5px;min-width:52px;min-height:48px;justify-content:center;color:var(--dim);transition:color .2s,opacity .3s}
 .orb .ctl:active{color:var(--ink)}
 .orb .ctl span{font-size:8.5px;letter-spacing:.24em;text-transform:uppercase;padding-left:.24em}
@@ -68,6 +105,10 @@ const HUD_CSS = `
 .orb.compact .tdesc,.orb.compact .board3{display:none}
 .orb.compact .tname{font-size:26px}
 .orb.compact .cap{font-size:15px}
+.orb.compact .cap.two{min-height:38px}
+.orb.compact .chip{height:40px}
+.orb.compact .chip .g{width:25px;height:25px}
+.orb.compact .chips{margin-top:6px}
 .orb.compact .cap.small{font-size:11px;letter-spacing:.03em}
 .orb.compact .dstats{margin-top:8px}
 .orb.compact .ctl{min-height:44px}
@@ -116,7 +157,7 @@ function createHud(ctx, H) {
   const title = el('div', 'title', 'ORBIT');
   const label = el('div', 'label', 'DAILY PUZZLE');
   const tabs = el('div', 'tabs');
-  const tDaily = el('button', 'tab on', 'Daily'); const tStudy = el('button', 'tab', 'Studies');
+  const tDaily = el('button', 'tab on', 'Daily'); const tStudy = el('button', 'tab', 'Practice');
   tDaily.type = tStudy.type = 'button';
   tabs.appendChild(tDaily); tabs.appendChild(tStudy);
   hdr.appendChild(brand); hdr.appendChild(title); hdr.appendChild(label); hdr.appendChild(tabs);
@@ -126,32 +167,31 @@ function createHud(ctx, H) {
   const bMute = el('button', 'corner', ICONS.sound); bMute.setAttribute('aria-label', 'Sound');
   root.appendChild(bColl); root.appendChild(bMute);
 
-  // Play-state bottom block: caption, stats, GameControls
+  // Play-state bottom block: the focused clue, the clue chips, stats, GameControls
   const play = el('div', 'bottom play');
-  const cap = el('div', 'cap small', '');
+  const clabel = el('div', 'clabel', '');
+  const cap = el('div', 'cap two', '');
+  const chips = el('div', 'chips');
   const stats = el('div', 'stats');
   const sMoves = el('div', 'stat', '<b>0</b><i>Moves</i>');
   const sTime = el('div', 'stat', '<b>0:00</b><i>Time</i>');
-  const sAl = el('div', 'stat', '<b>0/4</b><i>Aligned</i>');
+  const sAl = el('div', 'stat', '<b>1/3</b><i>Stage</i>');
   stats.appendChild(sMoves); stats.appendChild(sTime); stats.appendChild(sAl);
   const ctrls = el('div', 'ctrls');
   const bUndo = el('button', 'ctl', ICONS.undo + '<span>Undo</span>');
-  const bReset = el('button', 'ctl', ICONS.reset + '<span>Restart</span>');
+  const rotL = el('button', 'ctl', ICONS.ccw + '<span>Turn</span>'); rotL.setAttribute('aria-label', 'Turn the selected ring anticlockwise');
+  const rotR = el('button', 'ctl', ICONS.cw + '<span>Turn</span>'); rotR.setAttribute('aria-label', 'Turn the selected ring clockwise');
   const bHint = el('button', 'ctl', ICONS.hint + '<span>Hint</span>');
-  [bUndo, bReset, bHint].forEach(b => { b.type = 'button'; ctrls.appendChild(b); });
-  play.appendChild(cap); play.appendChild(stats); play.appendChild(ctrls);
+  const bReset = el('button', 'ctl', ICONS.reset + '<span>Restart</span>');
+  [bUndo, rotL, rotR, bHint, bReset].forEach(b => { b.type = 'button'; ctrls.appendChild(b); });
+  play.appendChild(clabel); play.appendChild(cap); play.appendChild(chips); play.appendChild(stats); play.appendChild(ctrls);
   root.appendChild(play);
-
-  // Tap rotation controls (appear only while a ring is selected)
-  const rotL = el('button', 'rot', ICONS.ccw); rotL.setAttribute('aria-label', 'Rotate anticlockwise');
-  const rotR = el('button', 'rot', ICONS.cw); rotR.setAttribute('aria-label', 'Rotate clockwise');
-  rotL.type = rotR.type = 'button';
-  root.appendChild(rotL); root.appendChild(rotR);
 
   // CompletionScreen
   const done = el('div', 'done');
   const dKick = el('div', 'kick', 'Discovered');
   const dName = el('div', 'tname', '');
+  const dStars = el('div', 'stars', '');
   const dDesc = el('div', 'tdesc', '');
   const dStats = el('div', 'stats dstats');
   const dB = el('div', 'board3', '');
@@ -160,7 +200,7 @@ function createHud(ctx, H) {
   const aColl = el('button', 'act', ICONS.coll + '<span>Collection</span>');
   const aNext = el('button', 'act pri', '<span>Next study</span>' + ICONS.next);
   [aShare, aColl, aNext].forEach(b => { b.type = 'button'; acts.appendChild(b); });
-  done.appendChild(dKick); done.appendChild(dName); done.appendChild(dDesc); done.appendChild(dStats); done.appendChild(dB); done.appendChild(acts);
+  done.appendChild(dKick); done.appendChild(dName); done.appendChild(dStars); done.appendChild(dDesc); done.appendChild(dStats); done.appendChild(dB); done.appendChild(acts);
   root.appendChild(done);
 
   const toast = el('div', 'toast', ''); root.appendChild(toast);
@@ -209,9 +249,6 @@ function createHud(ctx, H) {
     bMute.style.right = (L.area.right + 8) + 'px'; bMute.style.top = (L.area.top + 4) + 'px';
     play.style.top = L.bottomTop + 'px'; play.style.left = L.colX + 'px'; play.style.width = L.colW + 'px';
     done.style.top = (L.doneTop) + 'px'; done.style.left = L.colX + 'px'; done.style.width = L.colW + 'px';
-    const off = L.R * 0.98;
-    rotL.style.left = (L.cx - off) + 'px'; rotL.style.top = (L.cy + off) + 'px';
-    rotR.style.left = (L.cx + off) + 'px'; rotR.style.top = (L.cy + off) + 'px';
     toast.style.top = (L.cy - L.R * 1.22 - 14) + 'px';
     toast.style.left = (L.cx) + 'px';
     const compact = L.compact;
@@ -219,7 +256,7 @@ function createHud(ctx, H) {
     title.style.fontSize = compact ? '24px' : '30px';
     tabs.style.marginTop = compact ? '8px' : '12px';
     stats.style.marginTop = compact ? '10px' : '16px';
-    ctrls.style.marginTop = compact ? '8px' : '18px';
+    ctrls.style.marginTop = compact ? '4px' : '12px';
   };
 
   U.setHeader = function (mode, text, complete) {
@@ -231,10 +268,48 @@ function createHud(ctx, H) {
     brand.textContent = complete ? 'ORBIT' : 'PLETHORA';
     tabs.style.visibility = mode === 'gallery' ? 'hidden' : '';
   };
-  U.setStats = function (moves, timeMs, aligned, total) {
-    sMoves.firstChild.textContent = String(moves);
+  U.setStats = function (moves, budget, timeMs, stage, stages) {
+    sMoves.firstChild.textContent = budget ? moves + '/' + budget : String(moves);
+    sMoves.classList.toggle('over', !!budget && moves > budget);
+    sMoves.lastChild.textContent = budget && moves > budget ? 'Over budget' : 'Moves';
     sTime.firstChild.textContent = fmtTime(timeMs);
-    sAl.firstChild.textContent = aligned + '/' + total;
+    sAl.firstChild.textContent = stage + '/' + stages;
+  };
+  // The focused clue: a short label and a one-line rule.
+  U.setClueText = function (label, text) {
+    clabel.textContent = label || '';
+    cap.textContent = text || '';
+    cap.classList.remove('small');
+  };
+  // clues: [{ type, hour, status, locked, focus, swatch, isNew }] grouped by stage.
+  let chipEls = [], chipSig = '';
+  U.setClues = function (clues, stages) {
+    const sig = stages.join(',') + '|' + clues.length;
+    if (sig !== chipSig) {
+      chipSig = sig; chips.innerHTML = ''; chipEls = [];
+      let idx = 0;
+      stages.forEach((n, st) => {
+        if (st) chips.appendChild(el('div', 'csep'));
+        for (let j = 0; j < n; j++, idx++) {
+          const b = el('button', 'chip', '<div class="g"></div><i></i>');
+          b.type = 'button';
+          const i = idx;
+          act(b, () => H.onClue(i));
+          chips.appendChild(b); chipEls.push(b);
+        }
+      });
+    }
+    clues.forEach((c, i) => {
+      const b = chipEls[i]; if (!b) return;
+      const key = [c.type, c.status, c.locked, c.swatch].join('|');
+      if (b._key !== key) {
+        b._key = key;
+        b.firstChild.innerHTML = c.locked ? '' : glyphSvg(c.type, c.swatch);
+        b.lastChild.textContent = c.locked ? '' : c.hour;
+        b.setAttribute('aria-label', c.locked ? 'Hidden clue' : c.hour + ' ' + c.label + ', ' + c.status);
+      }
+      b.className = 'chip ' + (c.locked ? 'lock' : c.status) + (c.focus ? ' focus' : '') + (c.isNew ? ' new' : '');
+    });
   };
   U.setTime = function (ms) { sTime.firstChild.textContent = fmtTime(ms); };
   U.setCaption = function (text, serif) {
@@ -246,6 +321,7 @@ function createHud(ctx, H) {
     bReset.disabled = !playing;
     bHint.disabled = !playing;
   };
+  let rotOn = false;
   let resetArmed = 0;
   U.armReset = function (on) {
     resetArmed = on;
@@ -254,12 +330,14 @@ function createHud(ctx, H) {
   };
   U.resetArmed = () => resetArmed;
   U.setMuted = function (m) { bMute.innerHTML = m ? ICONS.mute : ICONS.sound; bMute.setAttribute('aria-label', m ? 'Sound off' : 'Sound on'); };
-  U.showRotate = function (on) { rotL.classList.toggle('on', !!on); rotR.classList.toggle('on', !!on); };
-  U.showPlay = function (on) { play.style.opacity = on ? '1' : '0'; play.style.pointerEvents = 'none'; [bUndo, bReset, bHint].forEach(b => { b.style.visibility = on ? '' : 'hidden'; }); };
+  U.showRotate = function (on) { rotOn = !!on; rotL.disabled = rotR.disabled = !on; };
+  U.showPlay = function (on) { play.style.opacity = on ? '1' : '0'; play.style.pointerEvents = 'none'; [bUndo, bReset, bHint, rotL, rotR].concat(chipEls).forEach(b => { b.style.visibility = on ? '' : 'hidden'; }); };
   U.showDone = function (d) {
     if (!d) { done.classList.remove('on'); done.setAttribute('aria-hidden', 'true'); return; }
     dKick.textContent = d.kicker;
     dName.textContent = d.name;
+    dStars.innerHTML = d.stars ? '★'.repeat(d.stars) + '<s>' + '★'.repeat(3 - d.stars) + '</s>' : '';
+    dStars.style.display = d.stars ? '' : 'none';
     dDesc.textContent = d.desc;
     dStats.innerHTML = '';
     d.stats.forEach(s => { const e = el('div', 'stat'); e.innerHTML = '<b></b><i></i>'; e.firstChild.textContent = s[1]; e.lastChild.textContent = s[0]; dStats.appendChild(e); });
@@ -306,7 +384,7 @@ function createHud(ctx, H) {
     const L = U.layout;
     modal.innerHTML = '';
     modalOpen = true; const tok = ++mtoken;
-    header('Your collection', items.length + (items.length === 1 ? ' visual universe' : ' visual universes'), 'Every solved puzzle keeps its artwork.');
+    header('Your collection', items.length + (items.length === 1 ? ' visual universe' : ' visual universes'), 'Every solved puzzle keeps the composition it resolved into.');
     const grid = el('div', 'grid');
     grid.style.top = (L.area.top + 110) + 'px';
     grid.style.bottom = (L.H - (L.H - L.area.bottom)) + 'px';
@@ -342,10 +420,10 @@ function createHud(ctx, H) {
     const pr = Math.min(2, ctx.nativeDpr || ctx.dpr || 1);
     const pump = () => {
       if (tok !== mtoken || !modalOpen) return;
-      for (let n = 0; n < 3 && thumbQueue.length; n++) {
+      for (let n = 0; n < 1 && thumbQueue.length; n++) {
         const q = thumbQueue.shift();
         try {
-          const cv = surfaceToImage(renderThumbnail(q.it.theme(), q.it.ringCount, 96, pr), 96);
+          const cv = surfaceToImage(renderThumbnail(q.it.theme(), q.it.ringCount, 96, pr, q.it.families && q.it.families()), 96);
           q.holder.replaceWith(cv);
         } catch (e) { }
       }
@@ -363,7 +441,7 @@ function createHud(ctx, H) {
     det.style.top = (L.area.top + 64) + 'px';
     const theme = it.theme();
     const pr = Math.min(3, ctx.nativeDpr || ctx.dpr || 1);
-    const cv = surfaceToImage(renderThumbnail(theme, it.ringCount, size, pr), size);
+    const cv = surfaceToImage(renderThumbnail(theme, it.ringCount, size, pr, it.families && it.families()), size);
     det.appendChild(cv);
     const h = el('h3'); h.textContent = theme.name; det.appendChild(h);
     const meta = el('div', 'meta'); meta.textContent = it.sub + ' · ' + theme.universeTitle; det.appendChild(meta);
