@@ -84,10 +84,10 @@ window.plethoraBit = {
     }
 
     // ---------- slots ----------
-    let slotEls = [], slotSize = 48;
+    let slotEls = [], slotSize = 48, slotsFor = null;
     function buildSlots(p, enter) {
       H.slots.className = 'wa-slots' + (enter ? ' enter' : '');
-      H.slots.innerHTML = ''; slotEls = [];
+      H.slots.innerHTML = ''; slotEls = []; slotsFor = p;
       for (let i = 0; i < p.length; i++) {
         const s = document.createElement('div'); const give = i === 0 || i === p.length - 1;
         s.className = 'wa-slot ' + (give ? 'give' : 'mid'); s.innerHTML = '<b>' + (give ? (i === 0 ? p.startLetter : p.endLetter) : '') + '</b>';
@@ -105,7 +105,7 @@ window.plethoraBit = {
     }
     let shown = '';
     function renderSlots(animateNew) {
-      if (!run) return;
+      if (!run || slotsFor !== run.puzzle) return; // a solved word stays locked until the next one replaces it
       const mid = run.input.middle, n = slotEls.length;
       for (let i = 1; i < n - 1; i++) {
         const s = slotEls[i], ch = mid[i - 1] || '', b = s.firstChild;
