@@ -409,7 +409,7 @@ window.plethoraBit = {
     function frame(dtMs) {
       if (destroyed) return;
       const dt = Math.min(0.1, Math.max(0, dtMs / 1000)), t = now();
-      if (devFreeze && run && run.state === 'playing') { run.endAt += t - lastNow; run.openAt = Math.min(run.openAt, t + 1); }
+      if (devFreeze && run && run.state === 'playing') { run.endAt += t - lastNow; }
       lastNow = t;
       if (mode === 'intro') { intro += dt; if (intro > 0.7) activate(); }
       if (mode === 'play' && run) {
