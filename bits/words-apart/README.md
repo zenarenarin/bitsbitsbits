@@ -151,6 +151,9 @@ python3 -m http.server 8766        # from this folder, then open http://localhos
 node dev/rules_test.js             # bank + rules: 5,879 checks
 node dev/shots.js dev/out phone win     # screenshots of every beat (needs playwright)
 node dev/shots.js dev/out desktop lose
+node dev/input_test.js             # real keys + soft-keyboard input events: 15 checks
+node dev/win_test.js               # all five words through the finale to the results sheet
+node dev/poses.js dev/out phone    # fast composition check of every camera pose
 ```
 
 ## Known limitations
