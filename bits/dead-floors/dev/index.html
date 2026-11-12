@@ -57,10 +57,11 @@ const ctx = {
   pulse: { complete(o) { log('pulse', o); } },
   memory: { record: () => ({
     rank: async () => (q.has('best') ? { viewerRank: { rank: 4, value: +q.get('best'), userId: 'me' } } : { viewerRank: null }),
-    leaderboard: async () => ({ rows: [{ rank: 1, username: 'grimreaper', value: 48210, userId: 'a' }, { rank: 2, username: 'lastlight', value: 30155, userId: 'b' }, { rank: 3, username: 'ammo_hoarder', value: 22040, userId: 'c' }], viewerRank: { rank: 17, value: window.__lastSubmit || 0, userId: 'me' } }),
+    leaderboard: async () => ({ rows: [{ rank: 1, username: 'grimreaper', value: 1412, displayLabel: '23:32', userId: 'a' }, { rank: 2, username: 'lastlight', value: 905, displayLabel: '15:05', userId: 'b' }, { rank: 3, username: 'ammo_hoarder', value: 611, displayLabel: '10:11', userId: 'c' }], viewerRank: { rank: 17, value: window.__lastSubmit || 0, userId: 'me' } }),
   }) },
   game: {
     loop(o) { let last = performance.now(); let stopped = false; const f = t => { if (stopped) return; try { o.update(Math.min(80, t - last)); } catch (e) { console.error(e); window.__loopError = String(e.stack || e); if (o.onError) o.onError(e); } last = t; requestAnimationFrame(f); }; requestAnimationFrame(f); return { stop() { stopped = true; } }; },
+    stopwatch() { let acc = 0, t0 = null; return { start() { if (t0 == null) t0 = performance.now(); return true; }, pause() { if (t0 != null) { acc += performance.now() - t0; t0 = null; } return true; }, reset(ms = 0) { acc = ms; t0 = null; return true; }, get elapsedMs() { return acc + (t0 != null ? performance.now() - t0 : 0); }, get running() { return t0 != null; } }; },
     score() { let v = 0; return { set: x => { v = x; }, reset: () => { v = 0; }, flush() {}, submit: async (ch, o) => { window.__lastSubmit = v; log('submit', v); return { submitted: true, isPersonalBest: true, value: v }; }, checkpoint: async () => { log('checkpoint', v); return { queued: true }; }, get value() { return v; } }; },
     progress: {
       async load() { const s = q.has('save') ? JSON.parse(q.get('save')) : null; return s ? { status: 'in_progress', resumeEligible: true, state: s, stateSchemaVersion: 1 } : { status: 'empty', resumeEligible: false, state: null }; },

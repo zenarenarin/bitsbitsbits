@@ -143,19 +143,24 @@ function buildGun(spec) {
 let pickupGeo = null;
 function buildPickup(kind) {
   if (!pickupGeo) {
-    pickupGeo = { ammo: new THREE.BoxGeometry(0.46, 0.24, 0.26), med: new THREE.BoxGeometry(0.38, 0.17, 0.27), weapon: new THREE.BoxGeometry(0.9, 0.18, 0.32) };
+    pickupGeo = { ammo: new THREE.BoxGeometry(0.46, 0.24, 0.26), med: new THREE.BoxGeometry(0.38, 0.17, 0.27), weapon: new THREE.BoxGeometry(1.0, 0.34, 0.42), strip: new THREE.BoxGeometry(1.02, 0.04, 0.44) };
     const side = (map) => new THREE.MeshStandardMaterial({ map, roughness: 0.6, metalness: 0.2 });
     MAT.ammoBox = [side(TEX.ammo), side(TEX.ammo), new THREE.MeshStandardMaterial({ color: 0x3a4226, roughness: 0.6 }), new THREE.MeshStandardMaterial({ color: 0x3a4226, roughness: 0.6 }), side(TEX.ammo), side(TEX.ammo)];
     MAT.medBox = [side(TEX.med), side(TEX.med), side(TEX.med), side(TEX.med), side(TEX.med), side(TEX.med)];
     MAT.pickGlowA = new THREE.SpriteMaterial({ map: TEX.soft, color: 0xffd060, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending });
+    MAT.weaponBox = new THREE.MeshStandardMaterial({ map: TEX.crate, color: 0x6a7a6a, roughness: 0.7, metalness: 0.2 });
+    MAT.weaponStrip = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.5, 2.2, 3) });
+    MAT.pickGlowW = new THREE.SpriteMaterial({ map: TEX.soft, color: 0x60d0ff, transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending });
     MAT.pickGlowM = new THREE.SpriteMaterial({ map: TEX.soft, color: 0xff5050, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending });
   }
   const grp = new THREE.Group();
-  const mesh = new THREE.Mesh(pickupGeo[kind], kind === 'med' ? MAT.medBox : MAT.ammoBox);
-  mesh.position.y = 0.2;
+  const mesh = new THREE.Mesh(pickupGeo[kind], kind === 'med' ? MAT.medBox : kind === 'weapon' ? MAT.weaponBox : MAT.ammoBox);
+  mesh.position.y = kind === 'weapon' ? 0.3 : 0.2;
   grp.add(mesh);
-  const glow = new THREE.Sprite(kind === 'med' ? MAT.pickGlowM : MAT.pickGlowA);
-  glow.scale.set(1.2, 1.2, 1); glow.position.y = 0.25;
+  if (kind === 'weapon') { const st = new THREE.Mesh(pickupGeo.strip, MAT.weaponStrip); mesh.add(st); }
+  const glow = new THREE.Sprite(kind === 'med' ? MAT.pickGlowM : kind === 'weapon' ? MAT.pickGlowW : MAT.pickGlowA);
+  const gs = kind === 'weapon' ? 2.4 : 1.2;
+  glow.scale.set(gs, gs, 1); glow.position.y = 0.3;
   grp.add(glow);
   return { grp, mesh };
 }

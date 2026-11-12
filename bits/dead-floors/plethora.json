@@ -3,13 +3,13 @@
   "runtime": "plethora-bit@2",
   "entry": "main.js",
   "title": "DEAD FLOORS",
-  "description": "A first-person zombie shooter in a building that goes down forever. Scavenge ammo, clear each floor to open the elevator, pick up a new gun on every floor and survive a boss every fifth floor. Left thumb moves, drag to aim, hold FIRE.",
+  "description": "A first-person zombie survival shooter. The horde rushes you in a dark, abandoned building and ammo is scarce: scavenge boxes, land headshots, find weapon crates and survive the boss that comes every three minutes. Your score is how long you last. Left thumb moves, drag to aim, hold FIRE.",
   "tags": [
     "shooter",
     "fps",
     "zombies",
+    "survival",
     "3d",
-    "endless",
     "horror",
     "action"
   ],
@@ -25,13 +25,13 @@
   "display": "fullscreen",
   "onboarding": {
     "kind": "one_line",
-    "version": 1,
-    "message": "Left thumb moves, drag right side to aim, hold FIRE to shoot."
+    "version": 2,
+    "message": "Left thumb moves, drag right to aim, hold FIRE. Ammo is scarce: aim for heads."
   },
   "memory": {
     "records": {
-      "score": {
-        "label": "Score",
+      "survival": {
+        "label": "Seconds survived",
         "valueType": "number",
         "order": "desc",
         "format": "integer",
@@ -45,15 +45,6 @@
           "global"
         ],
         "dedupe": "best_per_user"
-      }
-    }
-  },
-  "game": {
-    "progress": {
-      "main": {
-        "label": "Run",
-        "stateSchemaVersion": 1,
-        "ttlDays": 30
       }
     }
   },
@@ -91,7 +82,7 @@
         "apply": "live"
       },
       "difficulty_ramp": {
-        "label": "Difficulty ramp per floor",
+        "label": "How fast the horde grows over time",
         "type": "number",
         "default": 1,
         "min": 0.5,
@@ -102,22 +93,11 @@
         "apply": "restart"
       },
       "ammo_drops": {
-        "label": "Ammo drop rate",
+        "label": "Ammo supply (box respawn and drops)",
         "type": "number",
         "default": 1,
         "min": 0.3,
         "max": 2,
-        "step": 0.1,
-        "group": "difficulty",
-        "intent": "difficulty",
-        "apply": "live"
-      },
-      "threat_build": {
-        "label": "Threat build-up within a floor",
-        "type": "number",
-        "default": 1,
-        "min": 0,
-        "max": 2.5,
         "step": 0.1,
         "group": "difficulty",
         "intent": "difficulty",

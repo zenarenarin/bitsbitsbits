@@ -1,159 +1,128 @@
-// Game state, run and floor flow, player, camera, lighting, saving, records and boot.
+// Game state, the survival run, player, camera, lighting, records and boot.
 const P = { x: 0, z: 0, yaw: 0, pitch: 0, hp: 100, maxHp: 100, vx: 0, vz: 0, kx: 0, kz: 0, shake: 0, hurtT: 0, dead: false, deadT: 0, swayX: 0, swayY: 0, recoilBack: 0, stepT: 0, bob: 0 };
-const RUN = { active: false, floor: 1, score: 0, kills: 0, floorKills: 0, owned: [], ammo: {}, cur: 0, mk: 0, D: null, seed: 0, bossSpawned: false, interacted: false, doorT: 0, scavT: 0 };
-RUN.D = difficulty(1);
+const RUN = { active: false, time: 0, kills: 0, headshots: 0, owned: [], ammo: {}, cur: 0, mk: 0, D: null, seed: 0, interacted: false, doorT: 0, scavT: 0, nextBoss: 180, bossIndex: 0, crate: null, crateT: 0, ammoT: 0, medT: 0, lastSec: -1 };
+RUN.D = difficultyAt(0);
 let mode = 'boot';
-let saved = null, lastSave = null, bestScore = null, threeReady = false;
+let bestScore = null, threeReady = false;
 let attempt = 0;
 let flashlight = null, hemi = null;
 const fade = { v: 0, target: 0 };
-let transT = 0, titleT = 0, titleYaw = 0;
-let scoreTrack = null;
+let titleT = 0, titleYaw = 0;
+let scoreTrack = null, clock = null;
 try { scoreTrack = ctx.game.score(); } catch (e) { scoreTrack = null; }
+const RECORD = 'survival';
+const fmtTime = (sec) => { const s = Math.max(0, Math.floor(sec)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 
-function addScore(n) {
-  RUN.score += Math.round(n);
-  if (scoreTrack) { try { scoreTrack.set(RUN.score); } catch (e) { } }
-  hud.dirty = true;
+// ---------- survival clock (score = whole seconds survived) ----------
+// ctx.game.stopwatch counts active play only; if a host lacks it, fall back to summed frame time.
+function initClock() {
+  try { if (ctx.game.stopwatch) clock = ctx.game.stopwatch(); } catch (e) { clock = null; }
 }
-
-// ---------- progress (Continue Playing) ----------
-const hasProgress = () => !!(ctx.game && ctx.game.progress);
-function validSave(s) {
-  if (!s || s.v !== 1) return false;
-  if (!Number.isInteger(s.floor) || s.floor < 2 || s.floor > 9999) return false;
-  if (!Array.isArray(s.owned) || !s.owned.length || !s.owned.every(id => WBY[id])) return false;
-  if (!s.ammo || typeof s.ammo !== 'object') return false;
-  for (const id of s.owned) { const a = s.ammo[id]; if (!a || !isFinite(a.mag) || !isFinite(a.res) || a.mag < 0 || a.res < 0) return false; }
-  if (!isFinite(s.hp) || s.hp <= 0 || s.hp > 100) return false;
-  if (!Number.isInteger(s.cur) || s.cur < 0 || s.cur >= s.owned.length) return false;
-  if (!Number.isInteger(s.mk) || s.mk < 0) return false;
-  if (!isFinite(s.score) || s.score < 0 || !isFinite(s.kills) || !isFinite(s.seed)) return false;
-  return true;
-}
-function snapshot() {
-  const ammo = {};
-  for (const id of RUN.owned) { const a = ammoOf(id); ammo[id] = { mag: a.mag, res: a.res }; }
-  return { v: 1, floor: RUN.floor, score: RUN.score, kills: RUN.kills, hp: Math.max(1, Math.ceil(P.hp)), owned: RUN.owned.slice(), ammo, cur: RUN.cur, mk: RUN.mk, seed: RUN.seed, bosses: RUN.bossesKilled || 0 };
-}
-function saveProgress() {
-  lastSave = snapshot();
-  if (!hasProgress()) return;
-  const owner = attempt;
-  try {
-    ctx.game.progress.save('main', { state: lastSave, label: 'Floor ' + RUN.floor, percent: 0, stateSchemaVersion: 1, metadata: { floor: RUN.floor } })
-      .catch((e) => { if (!disposed && owner === attempt && DEV) console.warn('progress save failed', e); });
-  } catch (e) { }
-}
-function endProgress(kind) {
-  if (!hasProgress()) return;
-  try { const p = ctx.game.progress[kind]('main'); if (p && p.catch) p.catch(() => { }); } catch (e) { }
-}
-function loadProgress() {
-  if (!hasProgress()) return;
-  try {
-    ctx.game.progress.load('main').then((p) => {
-      if (disposed || RUN.active) return;
-      const eligible = p && (p.resumeEligible === true || (p.resumeEligible === undefined && p.status === 'in_progress' && p.stateSchemaVersion === 1 && (!p.expiresAt || Date.parse(p.expiresAt) > Date.now())));
-      if (eligible && validSave(p.state)) { saved = p.state; lastSave = p.state; renderTitle(); }
-    }).catch(() => { });
-  } catch (e) { }
+function updateTime(dt) {
+  RUN.fallback += dt;
+  RUN.time = clock ? clock.elapsedMs / 1000 : RUN.fallback;
+  const sec = Math.floor(RUN.time);
+  if (sec !== RUN.lastSec) {
+    RUN.lastSec = sec;
+    if (scoreTrack) { try { scoreTrack.set(sec); } catch (e) { } }
+    // A valid survival time so far: checkpoint once a minute.
+    if (sec > 0 && sec % 60 === 0) checkpointScore();
+    hud.dirty = true;
+  }
 }
 
 // ---------- records ----------
 function refreshBest() {
   if (!ctx.memory || !ctx.memory.record) return;
   try {
-    ctx.memory.record('score').rank({ scope: 'global', period: 'all_time' }).then((r) => {
+    ctx.memory.record(RECORD).rank({ scope: 'global', period: 'all_time' }).then((r) => {
       if (disposed) return;
       bestScore = r && r.viewerRank ? r.viewerRank.value : bestScore;
       renderTitle();
+      hud.dirty = true;
     }).catch(() => { });
   } catch (e) { }
 }
-function submitResult() {
-  const owner = attempt, score = RUN.score, floor = RUN.floor;
+function submitResult(showOnScreen) {
+  const owner = attempt, secs = Math.floor(RUN.time);
   const prevBest = bestScore;
-  setT(els.deadPB, prevBest != null && score <= prevBest ? 'BEST ' + fmt(prevBest) : '');
-  boardStatus('Saving score…');
-  if (!scoreTrack) { boardStatus('Leaderboard unavailable'); return; }
-  scoreTrack.submit('score', { label: fmt(score) + ' pts', metadata: { floor, kills: RUN.kills } }).then((res) => {
-    if (disposed || owner !== attempt) return;
+  if (showOnScreen) { setT(els.deadPB, prevBest != null && secs <= prevBest ? 'BEST ' + fmtTime(prevBest) : ''); boardStatus('Saving time…'); }
+  if (!scoreTrack) { if (showOnScreen) boardStatus('Leaderboard unavailable'); return; }
+  try { scoreTrack.set(secs); } catch (e) { }
+  scoreTrack.submit(RECORD, { label: fmtTime(secs), metadata: { kills: RUN.kills, headshots: RUN.headshots } }).then((res) => {
+    if (disposed) return;
+    if (res && res.isPersonalBest) bestScore = Math.max(bestScore || 0, secs);
+    if (!showOnScreen || owner !== attempt) return;
     if (res && res.isPersonalBest) {
       setT(els.deadPB, 'NEW PERSONAL BEST');
-      bestScore = score;
       sting('win');
-      try { ctx.pulse.complete({ score, level: floor, result: 'Reached floor ' + floor, text: `Reached floor ${floor} with ${fmt(score)} points in Dead Floors` }); } catch (e) { }
-    } else if (prevBest != null) setT(els.deadPB, 'BEST ' + fmt(Math.max(prevBest, score)));
+      try { ctx.pulse.complete({ timeMs: secs * 1000, timeLabel: fmtTime(secs), score: secs, result: 'Survived ' + fmtTime(secs), text: `Survived ${fmtTime(secs)} in Dead Floors with ${RUN.kills} kills` }); } catch (e) { }
+    } else if (prevBest != null) setT(els.deadPB, 'BEST ' + fmtTime(Math.max(prevBest, secs)));
     else setT(els.deadPB, '');
     loadBoard(owner);
   }).catch(() => {
-    if (disposed || owner !== attempt) return;
+    if (disposed || !showOnScreen || owner !== attempt) return;
     setT(els.deadPB, '');
-    boardStatus('Score not saved — check your connection');
+    boardStatus('Time not saved — check your connection');
   });
 }
 function boardStatus(text) { els.board.innerHTML = ''; el('div', 'st', els.board, text); }
 function loadBoard(owner) {
   try {
-    ctx.memory.record('score').leaderboard({ scope: 'global', period: 'all_time', limit: 3 }).then((lb) => {
+    ctx.memory.record(RECORD).leaderboard({ scope: 'global', period: 'all_time', limit: 3 }).then((lb) => {
       if (disposed || owner !== attempt) return;
       els.board.innerHTML = '';
       const rows = (lb && lb.rows) || [];
       const me = lb && lb.viewerRank;
       const name = (r) => (r.username || r.displayName || r.name || 'Player');
+      const label = (r) => r.displayLabel ? escapeHtml(String(r.displayLabel)) : fmtTime(r.value || 0);
       rows.slice(0, 3).forEach((r, i) => {
         const row = el('div', 'row' + (me && r.rank === me.rank && r.userId === me.userId ? ' me' : ''), els.board);
         el('span', '', row, '#' + (r.rank || i + 1) + '  ' + escapeHtml(name(r)));
-        el('b', '', row, r.displayLabel ? escapeHtml(String(r.displayLabel)) : fmt(r.value || 0));
+        el('b', '', row, label(r));
       });
       if (me && !rows.slice(0, 3).some(r => r.rank === me.rank && r.userId === me.userId)) {
         const row = el('div', 'row me', els.board);
         el('span', '', row, '#' + me.rank + '  YOU');
-        el('b', '', row, fmt(me.value || 0));
+        el('b', '', row, label(me));
       }
-      if (!rows.length) boardStatus('No scores yet');
-      if (lb && lb.checkpointStatus && lb.checkpointStatus.failed > 0) el('div', 'st', els.board, 'Some floor checkpoints did not save');
-      if (me) { bestScore = me.value; }
+      if (!rows.length) boardStatus('No times yet');
+      if (lb && lb.checkpointStatus && lb.checkpointStatus.failed > 0) el('div', 'st', els.board, 'Some checkpoints did not save');
+      if (me) bestScore = me.value;
     }).catch(() => { if (!disposed && owner === attempt) boardStatus('Leaderboard unavailable'); });
   } catch (e) { boardStatus('Leaderboard unavailable'); }
 }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function checkpointScore() {
-  if (!scoreTrack || RUN.score <= 0) return;
-  try { scoreTrack.checkpoint('score', { metadata: { floor: RUN.floor } }).catch(() => { }); } catch (e) { }
+  if (!scoreTrack) return;
+  try { scoreTrack.checkpoint(RECORD, { metadata: { kills: RUN.kills } }).catch(() => { }); } catch (e) { }
 }
 
-// ---------- run flow ----------
-function startRun(fromSave) {
+// ---------- the run ----------
+function clearProjectiles() { for (const p of projectiles) { scene.remove(p.m); p.m.material.dispose(); } projectiles.length = 0; }
+
+function startRun() {
   if (!threeReady) return;
   attempt++;
-  const s = fromSave && saved && validSave(saved) ? saved : null;
-  try { ctx.platform.start({ floor: s ? s.floor : 1, resumed: !!s }); } catch (e) { }
+  try { ctx.platform.start({ mode: 'survival' }); } catch (e) { }
   unlockAudio(); buildSounds();
-  if (!s && saved) { endProgress('abandon'); }
-  saved = null;
   RUN.active = true;
-  RUN.floor = s ? s.floor : 1; RUN.score = s ? s.score : 0; RUN.kills = s ? s.kills : 0;
-  RUN.owned = s ? s.owned.slice() : []; RUN.ammo = {}; RUN.cur = s ? s.cur : 0; RUN.mk = s ? s.mk : 0;
-  RUN.seed = s ? s.seed : (Math.random() * 4294967295) >>> 0;
-  RUN.bossesKilled = s ? (s.bosses || 0) : 0; RUN.interacted = false; RUN.shots = 0; RUN.scavT = 0;
-  if (s) for (const id of RUN.owned) RUN.ammo[id] = { mag: s.ammo[id].mag, res: s.ammo[id].res };
-  if (scoreTrack) { try { scoreTrack.reset(); scoreTrack.set(RUN.score); } catch (e) { } }
-  P.hp = s ? s.hp : 100;
+  RUN.time = 0; RUN.fallback = 0; RUN.lastSec = -1; RUN.kills = 0; RUN.headshots = 0;
+  RUN.owned = []; RUN.ammo = {}; RUN.cur = 0; RUN.mk = 0;
+  RUN.seed = (Math.random() * 4294967295) >>> 0;
+  RUN.interacted = false; RUN.shots = 0; RUN.scavT = 0; RUN.graceT = 0; RUN.dT = 0;
+  RUN.nextBoss = 180; RUN.bossIndex = 0; RUN.bossesKilled = 0;
+  RUN.crate = null; RUN.crateT = 40; RUN.ammoT = 20; RUN.medT = 60;
+  RUN.D = difficultyAt(0);
+  if (scoreTrack) { try { scoreTrack.reset(); } catch (e) { } }
+  if (clock) { clock.reset(0); }
+  P.hp = 100;
   for (const k in gunModels) gunModels[k].group.visible = false;
   VM.cur = null;
   showScreen(null);
   fade.v = 1; fade.target = 0;
-  enterFloor(RUN.floor, !!s);
-}
-
-function clearProjectiles() { for (const p of projectiles) { scene.remove(p.m); p.m.material.dispose(); } projectiles.length = 0; }
-
-function enterFloor(f, restoring) {
-  RUN.floor = f; RUN.floorKills = 0; RUN.bossSpawned = false; RUN.D = difficulty(f); RUN.heat = 0; RUN.graceT = 0;
   clearZombies(); clearPickups(); clearProjectiles();
-  const Ld = genLevel(f, (RUN.seed + f * 7919) >>> 0);
+  const Ld = genLevel(RUN.seed);
   buildLevel(Ld);
   for (const p of Ld.pickups) spawnPickup(p.kind, p.x, p.z, false);
   P.x = (Ld.start.ex + 0.5) * CELL; P.z = (Ld.start.ey + 0.5) * CELL;
@@ -162,82 +131,50 @@ function enterFloor(f, restoring) {
   doors.start.open = 0; doors.start.target = 0;
   RUN.doorT = 1.0;
   W.reloading = false; W.cool = 0;
+  giveWeapon('pistol');
+  ammoOf('pistol').res = 12;
+  updateFlow();
   populateFloor();
-  let sub;
-  if (!restoring) {
-    if (f <= WEAPONS.length) {
-      giveWeapon(WEAPONS[f - 1].id);
-      sub = f === 1 ? 'KILL ' + RUN.D.quota + ' TO OPEN THE ELEVATOR' : 'NEW WEAPON · ' + WEAPONS[f - 1].name;
-      if (f > 1) { play('weapon', 0.8, 0); sting('powerup'); }
-    } else {
-      RUN.mk++;
-      for (const id of RUN.owned) { const a = ammoOf(id); a.mag = magSize(WBY[id]); a.res += Math.ceil(magSize(WBY[id]) * 0.5); }
-      equip(clamp(RUN.cur, 0, RUN.owned.length - 1), true);
-      sub = 'ALL WEAPONS UPGRADED · MK ' + (RUN.mk + 1);
-      play('weapon', 0.8, 0); sting('powerup');
-    }
-  } else {
-    equip(clamp(RUN.cur, 0, RUN.owned.length - 1), true);
-    sub = 'WELCOME BACK';
-  }
-  if (Ld.boss) sub = (sub && sub.startsWith('NEW') ? sub + ' · ' : '') + 'SOMETHING BIG IS WAITING';
-  showBanner('FLOOR ' + f, sub, Ld.boss ? '#ff6a50' : '#ece6d6');
-  if (f > 1 || restoring) saveProgress();
+  showBanner('SURVIVE', 'AMMO IS SCARCE · AIM FOR THE HEAD', '#ece6d6');
   mode = 'play';
+  if (clock) clock.start();
   musicSet('explore');
   play('ding', 0.7, 0);
   hud.dirty = true;
   try { renderer.compile(scene, camera); } catch (e) { }
 }
 
-function floorComplete() {
-  mode = 'transition';
-  transT = 0;
-  addScore(100 * RUN.floor);
-  doors.exit.target = 0;
-  play('door', 0.9, 0);
-  haptic('success');
-  try { ctx.platform.milestone('floor_clear', { floor: RUN.floor }); } catch (e) { }
-  checkpointScore();
-  releaseAllInput();
-  fade.target = 1;
-}
-function updateTransition(dt) {
-  transT += dt;
-  updateDoor(doors.exit, dt);
-  if (transT > 1.3) enterFloor(RUN.floor + 1, false), fade.target = 0;
-}
-
 function playerDie() {
   P.dead = true; P.deadT = 0;
   mode = 'dying';
+  if (clock) clock.pause();
   releaseAllInput();
   W.reloading = false;
   play('hurt', 1, 0); play('heart', 0.8, 0);
   sting('lose');
   haptic('error');
-  try { ctx.platform.fail({ floor: RUN.floor, score: RUN.score, kills: RUN.kills }); } catch (e) { }
-  endProgress('complete');
-  saved = null; lastSave = null;
+  try { ctx.platform.fail({ seconds: Math.floor(RUN.time), kills: RUN.kills }); } catch (e) { }
   RUN.active = false;
   musicSet('title');
 }
 function updateDying(dt) {
   P.deadT += dt;
   if (P.deadT > 1.8 && !els.dead.classList.contains('show')) {
-    setT(els.deadSub, 'FLOOR ' + RUN.floor + ' · ' + RUN.kills + (RUN.kills === 1 ? ' KILL' : ' KILLS'));
-    setT(els.deadScore, fmt(RUN.score));
+    const hs = RUN.headshots || 0;
+    setT(els.deadSub, RUN.kills + (RUN.kills === 1 ? ' KILL' : ' KILLS') + ' · ' + hs + (hs === 1 ? ' HEADSHOT' : ' HEADSHOTS'));
+    setT(els.deadScore, fmtTime(RUN.time));
     showScreen('dead');
     mode = 'dead';
-    submitResult();
+    submitResult(true);
   }
 }
 
 function pauseGame() {
   if (mode !== 'play') return;
   mode = 'paused';
+  if (clock) clock.pause();
   releaseAllInput();
-  setT(els.pauseInfo, 'FLOOR ' + RUN.floor + ' · ' + fmt(RUN.score) + ' PTS');
+  setT(els.pauseInfo, 'SURVIVED ' + fmtTime(RUN.time) + ' · ' + RUN.kills + ' KILLS');
   setT(els.sndBtn, 'SOUND: ' + (settings.sound ? 'ON' : 'OFF'));
   showScreen('pause');
 }
@@ -245,11 +182,42 @@ function resumeGame() {
   if (mode !== 'paused') return;
   showScreen(null);
   mode = 'play';
+  if (clock) clock.start();
 }
 function quitToMenu() {
-  saved = lastSave && validSave(lastSave) ? lastSave : null;
+  // Leaving ends the run; the time survived still counts.
+  if (RUN.active && RUN.time >= 1) submitResult(false);
   RUN.active = false;
   showScreen('title');
+}
+
+// What the HUD arrow points at: a weapon crate, or the nearest ammo when you're running low.
+let navT = 0;
+function updateNav(dt) {
+  navT -= dt;
+  if (navT > 0) return;
+  navT = 0.2;
+  let tgt = null, label = '';
+  if (RUN.crate) { tgt = RUN.crate; label = 'CRATE'; }
+  else {
+    const w = curW(), a = ammoOf(w.id);
+    if (a.mag + a.res <= magSize(w)) {
+      let bd = 1e9;
+      for (const p of pickups) if (p.kind === 'ammo') { const d = Math.hypot(p.x - P.x, p.z - P.z); if (d < bd) { bd = d; tgt = p; } }
+      label = 'AMMO';
+    }
+  }
+  if (!tgt) { hud.nav = null; return; }
+  const field = navTo(tgt.x, tgt.z);
+  const k = cellOf(P.z) * L.N + cellOf(P.x);
+  let tx = tgt.x, tz = tgt.z;
+  if (!(L.g[k] === 1 && field[k] >= 0 && field[k] <= 1)) {
+    let x = P.x, z = P.z;
+    for (let s = 0; s < 2; s++) { flowStep(field, x, z, _ws); x = _ws.x; z = _ws.z; }
+    tx = x; tz = z;
+  }
+  const steps = field[k] >= 0 ? field[k] : Math.hypot(tgt.x - P.x, tgt.z - P.z) / CELL;
+  hud.nav = { ang: Math.atan2(tx - P.x, tz - P.z), dist: Math.round(steps * CELL), label };
 }
 
 // ---------- player ----------
@@ -268,12 +236,12 @@ function updatePlayer(dt) {
   P.pitch = clamp(P.pitch, -1.2, 1.2);
   P.swayX = lerp(P.swayX, clamp(ldx * 0.0007, -0.035, 0.035), 1 - Math.exp(-dt * 10));
   P.swayY = lerp(P.swayY, clamp(-ldy * 0.0007, -0.03, 0.03), 1 - Math.exp(-dt * 10));
-  // Gentle aim magnetism while firing.
+  // Light aim magnetism while firing; aiming is mostly up to you.
   if (fireHeld() && Math.abs(ldx) < 18) {
-    const t = assistTarget(0.13, 22);
+    const t = assistTarget(0.07, 22);
     if (t) {
       const des = Math.atan2(-(t.x - P.x), -(t.zz - P.z));
-      P.yaw += clamp(angDelta(P.yaw, des), -0.2, 0.2) * Math.min(1, dt * 6) * tune('aim_assist', 1);
+      P.yaw += clamp(angDelta(P.yaw, des), -0.1, 0.1) * Math.min(1, dt * 4) * tune('aim_assist', 1);
     }
   }
   let mx = input.mx, mz = input.mz;
@@ -309,19 +277,14 @@ function updatePlayer(dt) {
     }
   } else if (am.mag === 0 && am.res > 0 && W.cool <= 0) startReload();
   if (fireHeld() && W.cool <= 0 && !W.reloading && VM.swap > 0.85) fire();
-  // Never strand the player with nothing: scavenge pistol rounds slowly.
+  // Completely dry: a pistol round turns up now and then, so a run never hard-locks.
   if (!RUN.owned.some(id => hasAmmo(id))) {
     RUN.scavT += dt;
-    if (RUN.scavT > 1.6) { RUN.scavT = 0; ammoOf('pistol').res += 2; if (curW().id !== 'pistol') equip(RUN.owned.indexOf('pistol'), false); floatNote('SCAVENGED 2 ROUNDS', '#ffd25a'); hud.dirty = true; }
+    if (RUN.scavT > 4) { RUN.scavT = 0; ammoOf('pistol').res += 1; if (curW().id !== 'pistol') equip(RUN.owned.indexOf('pistol'), false); floatNote('SCAVENGED 1 ROUND', '#ffd25a'); hud.dirty = true; }
   } else RUN.scavT = 0;
   updateViewModel(dt, sp > 0.6);
-  // Doors and exit.
   RUN.doorT -= dt;
   if (RUN.doorT <= 0 && doors.start.target === 0) { doors.start.target = 1; play('door', 0.6, 0); }
-  if (exitOpen) {
-    const cx = (L.exit.ex + 0.5) * CELL, cz = (L.exit.ey + 0.5) * CELL;
-    if (Math.abs(P.x - cx) < CELL * 0.4 && Math.abs(P.z - cz) < CELL * 0.4) floorComplete();
-  }
 }
 
 // ---------- camera, lights, rendering ----------
@@ -372,7 +335,7 @@ function updateLights(dt, t) {
     near += f.level / (1 + d * d * 0.12);
   }
   if (gunHemi) gunHemi.intensity = 0.7 + Math.min(1, near) * 1.4;
-  if (exitLight && L) exitLight.intensity = exitOpen ? 3 : 2 + Math.sin(t * 4) * 0.8;
+  if (exitLight && L && L.exit) exitLight.intensity = exitOpen ? 3 : 2 + Math.sin(t * 4) * 0.8;
 }
 
 let dynScale = 1, perfAcc = 0, perfN = 0, perfT = 0;
@@ -400,7 +363,7 @@ function perfTick(dtMs) {
 function render() {
   renderer.autoClear = true;
   renderer.render(scene, camera);
-  if (VM.cur && (mode === 'play' || mode === 'paused' || mode === 'transition' || (mode === 'dying' && P.deadT < 0.4))) {
+  if (VM.cur && (mode === 'play' || mode === 'paused' || (mode === 'dying' && P.deadT < 0.4))) {
     renderer.autoClear = false;
     renderer.clearDepth();
     renderer.render(gunScene, gunCam);
@@ -411,9 +374,8 @@ function render() {
 function setupTitleScene() {
   if (!threeReady) return;
   clearZombies(); clearPickups(); clearProjectiles();
-  RUN.D = difficulty(1);
-  RUN.floor = 1;
-  const Ld = genLevel(1, 90210);
+  RUN.D = difficultyAt(0);
+  const Ld = genLevel(90210);
   buildLevel(Ld);
   for (const p of Ld.pickups) spawnPickup(p.kind, p.x, p.z, false);
   doors.start.open = doors.start.target = 1;
@@ -450,21 +412,22 @@ function frame(dtMs) {
   const t = performance.now() / 1000;
   if (mode === 'title') { updateTitle(dt); updateZombies(dt); updatePickups(dt); }
   else if (mode === 'play') {
+    updateTime(dt);
     updatePlayer(dt);
+    updateNav(dt);
     updateFlow();
     updateDirector(dt);
     updateZombies(dt);
     updateProjectiles(dt);
     updatePickups(dt);
-    updateDoor(doors.start, dt); updateDoor(doors.exit, dt);
+    updateDoor(doors.start, dt);
     // Music follows the fight.
     if (!(boss && !boss.dead)) {
       const close = zombies.some(z => !z.dead && z.aware && Math.hypot(z.x - P.x, z.z - P.z) < 12);
       RUN.combatT = close ? 4 : Math.max(0, (RUN.combatT || 0) - dt);
       musicSet(RUN.combatT > 0 ? 'combat' : 'explore');
     }
-  } else if (mode === 'transition') { updateTransition(dt); updateViewModel(dt, false); }
-  else if (mode === 'dying' || mode === 'dead') { updateDying(dt); updateZombies(dt); updateProjectiles(dt); }
+  } else if (mode === 'dying' || mode === 'dead') { updateDying(dt); updateZombies(dt); updateProjectiles(dt); }
   if (mode !== 'paused') { updateParticles(dt); updateLineFX(dt); }
   fade.v = fade.target > fade.v ? Math.min(fade.target, fade.v + dt * 1.6) : Math.max(fade.target, fade.v - dt * 1.4);
   setS(els.fade, 'opacity', fade.v.toFixed(3));
@@ -520,7 +483,7 @@ async function boot() {
     return;
   }
   if (disposed) return;
-  initWorldTemps(); initWeaponTemps();
+  initWorldTemps(); initWeaponTemps(); initClock();
   try { initRenderer(); buildEnvironment(); }
   catch (e) { bootFail('renderer', e); return; }
   try {
@@ -550,7 +513,6 @@ try { ctx.platform.ready(); } catch (e) { }
 try { ctx.loadFont('DFB', 'bebas-neue', '1.0.0', { weight: '400', style: 'normal' }).catch(() => { }); } catch (e) { }
 try { ctx.loadFont('DFI', 'inter', '1.0.0', { weight: '700', style: 'normal' }).catch(() => { }); } catch (e) { }
 musicSet('title');
-loadProgress();
 refreshBest();
 await boot();
-if (DEV) window.__DF = { gunGroup: () => VM.cur && VM.cur.group, losClear, flowStep, get exitFlow() { return exitFlow; }, get exitOpen() { return exitOpen; }, ammoOf, curW, cycleWeapon, P, RUN, zombies, get mode() { return mode; }, set mode(v) { mode = v; }, startRun, enterFloor, floorComplete, hurtPlayer, setExitOpen, openExit, L: () => L, input, WEAPONS, giveWeapon, renderer: () => renderer, killAll: () => { for (const z of zombies) if (!z.dead) { z.hp = 0; killZombie(z, false, 0, 1); } }, spawnFar, spawnBoss, doors, pauseGame, resumeGame, fireHeld, showScreen, get boss() { return boss; } };
+if (DEV) window.__DF = { gunGroup: () => VM.cur && VM.cur.group, losClear, flowStep, ammoOf, curW, cycleWeapon, P, RUN, zombies, pickups, get mode() { return mode; }, set mode(v) { mode = v; }, startRun, hurtPlayer, L: () => L, input, WEAPONS, giveWeapon, renderer: () => renderer, killAll: () => { for (const z of zombies) if (!z.dead) { z.hp = 0; killZombie(z, false, 0, 1); } }, spawnFar, spawnBoss, spawnCrate, doors, pauseGame, resumeGame, quitToMenu, fireHeld, showScreen, get boss() { return boss; }, get nav() { return hud.nav; }, markHud: () => { hud.dirty = true; } };

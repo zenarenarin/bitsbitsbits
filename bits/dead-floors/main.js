@@ -456,16 +456,16 @@ function floorSignTexture(n) {
 }
 
 // ---- 03_level.js ----
-// Level generation: rooms joined by corridors on a grid, an arrival elevator and an
-// exit elevator in the farthest room. Every fifth floor is a boss arena.
-// Grid values: 0 solid, 1 open, 2 start elevator, 3 exit elevator.
+// Level generation: one big building per run, rooms joined by corridors on a grid,
+// with the arrival elevator in a corner room.
+// Grid values: 0 solid, 1 open, 2 start elevator (3 = exit elevator, unused in survival).
 const DIR4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
-function genLevel(floor, seed) {
+function genLevel(seed) {
   const R = mulberry32(seed);
   const ri = (a, b) => Math.floor(a + R() * (b - a + 1));
-  const boss = floor % 5 === 0;
-  const N = boss ? 21 : Math.min(34, 20 + floor);
+  const floor = 8; // scales clutter and blood
+  const N = 30;
   const g = new Uint8Array(N * N);
   const roomOf = new Int16Array(N * N).fill(-1);
   const rooms = [];
@@ -491,13 +491,13 @@ function genLevel(floor, seed) {
     if (R() < 0.5) { sx(); sy(); } else { sy(); sx(); }
   }
 
-  let startRoom, arena = null;
-  if (!boss) {
+  let startRoom;
+  {
     const corner = ri(0, 3);
     const sxp = corner & 1 ? N - 5 - ri(0, 2) : 2 + ri(0, 2);
     const syp = corner & 2 ? N - 5 - ri(0, 2) : 2 + ri(0, 2);
     startRoom = addRoom(sxp, syp, 3, 3, 'start');
-    const target = Math.min(15, 7 + Math.floor(floor / 2));
+    const target = 15;
     for (let t = 0; t < 600 && rooms.length < target; t++) {
       const w = ri(2, 5), h = ri(2, 5), x = ri(2, N - 2 - w), y = ri(2, N - 2 - h);
       if (free(x, y, w, h)) addRoom(x, y, w, h);
@@ -514,15 +514,6 @@ function genLevel(floor, seed) {
     }
     for (let k = 0; k < Math.floor(rooms.length / 3); k++) { const a = ri(0, rooms.length - 1), b = ri(0, rooms.length - 1); if (a !== b) conn.push([a, b]); }
     for (const [a, b] of conn) carve(rooms[a], rooms[b]);
-  } else {
-    const c = Math.floor(N / 2);
-    arena = addRoom(c - 4, c - 4, 9, 9, 'arena');
-    startRoom = addRoom(2, c - 1, 3, 3, 'start');
-    const side1 = addRoom(c - 1, 2, 3, 2, 'cache');
-    const side2 = addRoom(c - 1, N - 4, 3, 2, 'cache');
-    carve(startRoom, arena); carve(side1, arena); carve(side2, arena);
-    // Pillars for cover.
-    for (const [dx, dy] of [[-2, -2], [2, -2], [-2, 2], [2, 2]]) { g[id(c + dx, c + dy)] = 0; roomOf[id(c + dx, c + dy)] = -1; }
   }
 
   // BFS distances over open cells.
@@ -553,24 +544,14 @@ function genLevel(floor, seed) {
     }
     return c;
   }
-  let exitRoom;
-  if (boss) exitRoom = arena;
-  else {
-    let bd = -1;
-    for (const r of rooms) { if (r === startRoom) continue; const d = dStart[id(Math.round(r.cx), Math.round(r.cy))]; if (d > bd && elevatorSpots(r).length) { bd = d; exitRoom = r; } }
-  }
   const sSpots = elevatorSpots(startRoom);
-  if (!exitRoom || !sSpots.length) return genLevel(floor, (seed + 7777) >>> 0);
+  if (!sSpots.length) return genLevel((seed + 7777) >>> 0);
   const start = sSpots[ri(0, sSpots.length - 1)];
   g[id(start.ex, start.ey)] = 2;
-  let eSpots = elevatorSpots(exitRoom).filter(s => Math.abs(s.ex - start.ex) + Math.abs(s.ey - start.ey) > 3);
-  if (!eSpots.length) eSpots = elevatorSpots(exitRoom);
-  eSpots.sort((a, b) => dStart[id(b.rx, b.ry)] - dStart[id(a.rx, a.ry)]);
-  const exit = eSpots[boss ? 0 : ri(0, Math.min(2, eSpots.length - 1))];
-  g[id(exit.ex, exit.ey)] = 3;
+  const exit = null;
 
   const nearWall = (i, j) => DIR4.some(([dx, dy]) => g[id(i + dx, j + dy)] !== 1);
-  const isDoorCell = (i, j) => (i === start.rx && j === start.ry) || (i === exit.rx && j === exit.ry);
+  const isDoorCell = (i, j) => i === start.rx && j === start.ry;
 
   // Ceiling lights.
   const lights = [];
@@ -590,7 +571,7 @@ function genLevel(floor, seed) {
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
     const k = id(i, j);
     if (g[k] !== 1 || roomOf[k] < 0 || roomOf[k] === startRoom.id || isDoorCell(i, j) || !nearWall(i, j)) continue;
-    if (R() > (boss ? 0.12 : 0.24)) continue;
+    if (R() > 0.24) continue;
     const walls = DIR4.filter(([dx, dy]) => g[id(i + dx, j + dy)] === 0);
     if (!walls.length) continue;
     const [dx, dy] = walls[ri(0, walls.length - 1)];
@@ -620,8 +601,9 @@ function genLevel(floor, seed) {
   const startCells = roomCells.filter(k => roomOf[k] === startRoom.id && !(k % N === start.rx && ((k / N) | 0) === start.ry));
   placePickup('ammo', startCells[ri(0, startCells.length - 1)]);
   const others = roomCells.filter(k => roomOf[k] !== startRoom.id);
-  const nAmmo = boss ? 9 : 2 + Math.round(rooms.length * 0.55);
-  const nMed = boss ? 4 : 1 + Math.round(rooms.length * 0.22);
+  // Scarce: a couple of boxes to start; more appear one at a time during the run.
+  const nAmmo = 2;
+  const nMed = 1;
   for (let a = 0; a < nAmmo; a++) placePickup('ammo', others[ri(0, others.length - 1)]);
   for (let a = 0; a < nMed; a++) placePickup('med', others[ri(0, others.length - 1)]);
 
@@ -644,7 +626,7 @@ function genLevel(floor, seed) {
 
   // Cells where zombies may appear later: open, not the start room, not elevators.
   const spawnCells = openCells.filter(k => roomOf[k] !== startRoom.id && dStart[k] > 3);
-  return { N, g, roomOf, rooms, startRoom, exitRoom, arena, start, exit, boss, floor, lights, props, pickups, decals, spawnCells, dStart };
+  return { N, g, roomOf, rooms, startRoom, start, exit, boss: false, arena: null, lights, props, pickups, decals, spawnCells, dStart, roomCells };
 }
 
 // ---- 04_world.js ----
@@ -663,6 +645,7 @@ const poolLights = [];
 let exitLight = null, exitIndicator = null;
 let decals = null;
 let flow = null, flowCell = -1, exitFlow = null;
+let navField = null, navKey = -1;
 
 function buildMaterials() {
   const std = (o) => new THREE.MeshStandardMaterial(o);
@@ -826,7 +809,7 @@ function buildLevel(Ld) {
 
   // Ceiling fixtures (also lit inside elevators).
   fixtureList = L.lights.slice();
-  for (const e of [L.start, L.exit]) fixtureList.push({ x: (e.ex + 0.5) * CELL, z: (e.ey + 0.5) * CELL, state: 'dim', color: 0xe8f0ff, rot: 0, phase: 0, elev: true });
+  for (const e of [L.start, L.exit].filter(Boolean)) fixtureList.push({ x: (e.ex + 0.5) * CELL, z: (e.ey + 0.5) * CELL, state: 'dim', color: 0xe8f0ff, rot: 0, phase: 0, elev: true });
   fixtures = new THREE.InstancedMesh(G.fixture, MAT.fixture, fixtureList.length);
   fixtures.userData.sharedGeo = true;
   const col = new THREE.Color();
@@ -840,7 +823,8 @@ function buildLevel(Ld) {
   levelGroup.add(fixtures);
 
   buildElevator('start', L.start);
-  buildElevator('exit', L.exit);
+  if (L.exit) buildElevator('exit', L.exit);
+  else { doors.exit = null; if (exitLight) exitLight.intensity = 0; }
 
   // Decals: static blood first, the rest of each ring is for gunfire.
   decals = { blood: [], hole: null, scorch: null, bNext: [0, 0, 0], bStart: [0, 0, 0], hNext: 0, sNext: 0 };
@@ -853,7 +837,8 @@ function buildLevel(Ld) {
   }
   for (let v = 0; v < 3; v++) decals.bStart[v] = decals.bNext[v];
 
-  exitFlow = bfsFrom(L.exit.rx, L.exit.ry);
+  exitFlow = L.exit ? bfsFrom(L.exit.rx, L.exit.ry) : null;
+  navField = null; navKey = -1;
   flow = null; flowCell = -1;
 }
 
@@ -944,7 +929,7 @@ function updateDoor(d, dt) {
   d.blocker.on = d.open < 0.85;
 }
 function setExitOpen() {
-  if (exitOpen) return;
+  if (exitOpen || !doors.exit) return;
   exitOpen = true;
   doors.exit.target = 1;
   if (exitIndicator) exitIndicator.material = MAT.green;
@@ -1067,7 +1052,7 @@ function updateFlow() {
   let i = cellOf(P.x), j = cellOf(P.z);
   const v = (i >= 0 && j >= 0 && i < L.N && j < L.N) ? L.g[j * L.N + i] : 0;
   if (v === 2) { i = L.start.rx; j = L.start.ry; }
-  else if (v === 3) { i = L.exit.rx; j = L.exit.ry; }
+  else if (v === 3 && L.exit) { i = L.exit.rx; j = L.exit.ry; }
   else if (v !== 1) return;
   const k = j * L.N + i;
   if (k === flowCell && flow) return;
@@ -1095,6 +1080,13 @@ function flowStep(field, x, z, out) {
   }
   out.x = (bi + 0.5) * CELL; out.z = (bj + 0.5) * CELL;
   return bi !== i || bj !== j;
+}
+
+// Path field toward an arbitrary point (weapon crate, nearest ammo), cached by target cell.
+function navTo(x, z) {
+  const i = cellOf(x), j = cellOf(z), key = j * L.N + i;
+  if (key !== navKey || !navField) { navKey = key; navField = bfsFrom(i, j); }
+  return navField;
 }
 
 // ---- 05_models.js ----
@@ -1243,19 +1235,24 @@ function buildGun(spec) {
 let pickupGeo = null;
 function buildPickup(kind) {
   if (!pickupGeo) {
-    pickupGeo = { ammo: new THREE.BoxGeometry(0.46, 0.24, 0.26), med: new THREE.BoxGeometry(0.38, 0.17, 0.27), weapon: new THREE.BoxGeometry(0.9, 0.18, 0.32) };
+    pickupGeo = { ammo: new THREE.BoxGeometry(0.46, 0.24, 0.26), med: new THREE.BoxGeometry(0.38, 0.17, 0.27), weapon: new THREE.BoxGeometry(1.0, 0.34, 0.42), strip: new THREE.BoxGeometry(1.02, 0.04, 0.44) };
     const side = (map) => new THREE.MeshStandardMaterial({ map, roughness: 0.6, metalness: 0.2 });
     MAT.ammoBox = [side(TEX.ammo), side(TEX.ammo), new THREE.MeshStandardMaterial({ color: 0x3a4226, roughness: 0.6 }), new THREE.MeshStandardMaterial({ color: 0x3a4226, roughness: 0.6 }), side(TEX.ammo), side(TEX.ammo)];
     MAT.medBox = [side(TEX.med), side(TEX.med), side(TEX.med), side(TEX.med), side(TEX.med), side(TEX.med)];
     MAT.pickGlowA = new THREE.SpriteMaterial({ map: TEX.soft, color: 0xffd060, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending });
+    MAT.weaponBox = new THREE.MeshStandardMaterial({ map: TEX.crate, color: 0x6a7a6a, roughness: 0.7, metalness: 0.2 });
+    MAT.weaponStrip = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.5, 2.2, 3) });
+    MAT.pickGlowW = new THREE.SpriteMaterial({ map: TEX.soft, color: 0x60d0ff, transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending });
     MAT.pickGlowM = new THREE.SpriteMaterial({ map: TEX.soft, color: 0xff5050, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending });
   }
   const grp = new THREE.Group();
-  const mesh = new THREE.Mesh(pickupGeo[kind], kind === 'med' ? MAT.medBox : MAT.ammoBox);
-  mesh.position.y = 0.2;
+  const mesh = new THREE.Mesh(pickupGeo[kind], kind === 'med' ? MAT.medBox : kind === 'weapon' ? MAT.weaponBox : MAT.ammoBox);
+  mesh.position.y = kind === 'weapon' ? 0.3 : 0.2;
   grp.add(mesh);
-  const glow = new THREE.Sprite(kind === 'med' ? MAT.pickGlowM : MAT.pickGlowA);
-  glow.scale.set(1.2, 1.2, 1); glow.position.y = 0.25;
+  if (kind === 'weapon') { const st = new THREE.Mesh(pickupGeo.strip, MAT.weaponStrip); mesh.add(st); }
+  const glow = new THREE.Sprite(kind === 'med' ? MAT.pickGlowM : kind === 'weapon' ? MAT.pickGlowW : MAT.pickGlowA);
+  const gs = kind === 'weapon' ? 2.4 : 1.2;
+  glow.scale.set(gs, gs, 1); glow.position.y = 0.3;
   grp.add(glow);
   return { grp, mesh };
 }
@@ -1509,8 +1506,9 @@ function giveWeapon(id) {
   const w = WBY[id];
   if (!RUN.owned.includes(id)) RUN.owned.push(id);
   const a = ammoOf(id);
+  // Found guns come with one magazine and half a spare: ammo stays scarce.
   a.mag = Math.max(a.mag, magSize(w));
-  a.res = Math.max(a.res, w.start);
+  a.res = Math.max(a.res, Math.ceil(magSize(w) * 0.5));
   equip(RUN.owned.indexOf(id), true);
 }
 function equip(index, instant) {
@@ -1582,7 +1580,7 @@ function fire() {
   camera.getWorldDirection(_fw);
   _right.set(1, 0, 0).applyQuaternion(camera.quaternion);
   _up.set(0, 1, 0).applyQuaternion(camera.quaternion);
-  const assist = assistTarget(0.075 * tune('aim_assist', 1), 30);
+  const assist = assistTarget(0.04 * tune('aim_assist', 1), 30);
   const base = new THREE.Vector3().copy(_fw);
   if (assist && !w.pellets) {
     base.set(assist.x - camera.position.x, assist.y - camera.position.y, assist.zz - camera.position.z).normalize();
@@ -1800,10 +1798,10 @@ function updateViewModel(dt, moving) {
 // ---- 08_enemies.js ----
 // Zombies, bosses, the spawn director, pickups and player damage.
 const ZT = {
-  walker: { hp: 70, speed: 1.3, dmg: 10, scale: 1, radius: 0.32, score: 10, reach: 1.05, turn: 3.5 },
-  runner: { hp: 48, speed: 3.5, dmg: 7, scale: 0.96, radius: 0.3, score: 15, reach: 1.0, turn: 6 },
-  brute: { hp: 330, speed: 1.15, dmg: 24, scale: 1.38, radius: 0.46, score: 40, reach: 1.35, turn: 2.5 },
-  spitter: { hp: 110, speed: 1.6, dmg: 12, scale: 1.0, radius: 0.32, score: 25, reach: 1.05, turn: 3.5, ranged: true },
+  walker: { hp: 70, speed: 1.65, dmg: 10, scale: 1, radius: 0.32, score: 10, reach: 1.05, turn: 3.5 },
+  runner: { hp: 48, speed: 3.7, dmg: 7, scale: 0.96, radius: 0.3, score: 15, reach: 1.0, turn: 6 },
+  brute: { hp: 330, speed: 1.4, dmg: 24, scale: 1.38, radius: 0.46, score: 40, reach: 1.35, turn: 2.5 },
+  spitter: { hp: 110, speed: 1.75, dmg: 12, scale: 1.0, radius: 0.32, score: 25, reach: 1.05, turn: 3.5, ranged: true },
   butcher: { hp: 1900, speed: 1.75, dmg: 30, scale: 2.05, radius: 0.8, score: 600, reach: 2.3, turn: 2.2, boss: true, name: 'THE BUTCHER' },
   brood: { hp: 2300, speed: 0.95, dmg: 18, scale: 1.75, radius: 0.85, score: 700, reach: 2.0, turn: 1.8, boss: true, name: 'THE BROODMOTHER' },
 };
@@ -1811,25 +1809,19 @@ const zombies = [];
 const zpool = {};
 let boss = null;
 
-// Gradual difficulty. A smooth level per floor: the first floors ramp gently, the slope
-// reaches full strength by floor 7, and the floors after each boss give a fading breather.
-function difficultyLevel(f) {
-  const d = Math.max(0, f - 1);
-  let e = d * (0.55 + 0.45 * Math.min(1, d / 6));
-  if (f > 5) { const k = (f - 1) % 5; e -= 0.8 * (1 - k / 4); }
-  return Math.max(0, e) * tune('difficulty_ramp', 1);
-}
-function difficulty(f) {
-  const d = difficultyLevel(f);
+// Difficulty grows smoothly with time survived: gentle for the first minutes, then about
+// one level per 40 seconds (scaled by the difficulty_ramp knob).
+function difficultyAt(t) {
+  const m = Math.max(0, t) / 60;
+  const d = m * (0.6 + 0.4 * Math.min(1, m / 3)) * 1.5 * tune('difficulty_ramp', 1);
   return {
     level: d,
-    hp: 1 + 0.14 * d, spd: 1 + Math.min(0.45, 0.03 * d), dmg: 1 + 0.07 * d,
-    quota: Math.min(40, 8 + Math.round(2 * d)), cap: Math.min(18, 5 + Math.round(d)),
-    interval: Math.max(1.0, 4.6 - 0.24 * d), init: Math.min(14, 4 + Math.round(d * 0.8)),
+    hp: 1 + 0.12 * d, spd: 1 + Math.min(0.5, 0.03 * d), dmg: 1 + 0.06 * d,
+    cap: Math.min(22, 6 + Math.round(d)), interval: Math.max(0.7, 3.2 - 0.2 * d),
   };
 }
-function pickType(f) {
-  const w = [['walker', 10], ['runner', f >= 2 ? Math.min(6, (f - 1) * 1.5) : 0], ['brute', f >= 4 ? Math.min(4, (f - 3) * 0.8) : 0], ['spitter', f >= 7 ? Math.min(4, (f - 6) * 0.8) : 0]];
+function pickType(lv) {
+  const w = [['walker', 10], ['runner', lv >= 0.8 ? Math.min(7, (lv - 0.5) * 1.5) : 0], ['brute', lv >= 3 ? Math.min(4, (lv - 2.5) * 0.8) : 0], ['spitter', lv >= 5 ? Math.min(4, (lv - 4.5) * 0.8) : 0]];
   let tot = 0; for (const [, v] of w) tot += v;
   let r = Math.random() * tot;
   for (const [k, v] of w) { if ((r -= v) <= 0) return k; }
@@ -1847,10 +1839,10 @@ function spawnZombie(type, x, z, aware) {
   model.head.visible = true;
   scene.add(model.root);
   const D = RUN.D;
-  const hpMul = def.boss ? (1 + 0.55 * Math.max(0, Math.floor(RUN.floor / 5) - 1)) * (1 + 0.06 * (RUN.floor - 5)) : D.hp;
+  const hpMul = def.boss ? 1 + 0.6 * Math.max(0, (RUN.bossIndex || 1) - 1) : D.hp;
   const zb = {
     type, def, model, x, z, yaw: model.root.rotation.y, hp: def.hp * hpMul, maxHp: def.hp * hpMul,
-    speed: def.speed * (def.boss ? 1 : D.spd * (1 + 0.1 * (RUN.heat || 0))) * rnd(0.88, 1.12), aware: false, atkT: 0, atkCd: 0.5, phase: Math.random() * 10,
+    speed: def.speed * (def.boss ? 1 : D.spd) * rnd(0.88, 1.12), aware: false, atkT: 0, atkCd: 0.5, phase: Math.random() * 10,
     flinch: 0, dead: false, deadT: 0, radius: def.radius, scale: def.scale, seed: Math.random() * 10,
     headR: 0.15 * def.scale, bodyR: (type === 'brood' ? 0.5 : 0.27) * def.scale, chestY: 1.2 * def.scale, bodyTop: 1.48 * def.scale,
     hx: x, hy: 1.6 * def.scale, hz: z, los: false, losT: 0, groanT: rnd(1, 6), wanderT: 0, wanderYaw: 0, wanderGo: false,
@@ -1881,68 +1873,94 @@ function clearZombies() {
 
 function spawnFar(type) {
   if (!L.spawnCells.length) return null;
-  let best = null, bestScore = -1;
+  let best = null, bestScore = -1e9;
   for (let k = 0; k < 14; k++) {
     const c = L.spawnCells[Math.floor(Math.random() * L.spawnCells.length)];
     const x = ((c % L.N) + 0.5) * CELL, z = (((c / L.N) | 0) + 0.5) * CELL;
     const d = Math.hypot(x - P.x, z - P.z);
     if (d < 9) continue;
+    // Out of sight and a short run away along the corridors, so they arrive quickly.
+    const pd = flow && flow[c] >= 0 ? flow[c] * CELL : d;
     const seen = d < 24 && losClear(P.x, P.z, x, z);
-    const score = (seen ? 0 : 30) + Math.min(d, 26);
+    const score = (seen ? 0 : 30) + (pd < 14 ? pd - 14 : pd > 30 ? 30 - pd : 0) * 0.8 + Math.random() * 3;
     if (score > bestScore) { bestScore = score; best = [x, z]; }
   }
   if (!best) return null;
-  return spawnZombie(type || pickType(RUN.floor), best[0] + rnd(-0.6, 0.6), best[1] + rnd(-0.6, 0.6), true);
+  return spawnZombie(type || pickType(RUN.D.level), best[0] + rnd(-0.6, 0.6), best[1] + rnd(-0.6, 0.6), true);
 }
 
-const DIRECTOR = { t: 3, addT: 6 };
+const DIRECTOR = { t: 3 };
+// The opening horde: a few hunters already on their way.
 function populateFloor() {
-  DIRECTOR.t = 4; DIRECTOR.addT = 6;
-  const n = L.boss ? 3 : RUN.D.init;
-  const cells = L.spawnCells.slice();
-  for (let i = 0; i < n && cells.length; i++) {
-    const k = cells.splice(Math.floor(Math.random() * cells.length), 1)[0];
-    spawnZombie(pickType(RUN.floor), ((k % L.N) + 0.5 + rnd(-0.25, 0.25)) * CELL, (((k / L.N) | 0) + 0.5 + rnd(-0.25, 0.25)) * CELL, false);
-  }
+  DIRECTOR.t = 3;
+  for (let i = 0; i < 4; i++) spawnFar('walker');
 }
 function updateDirector(dt) {
+  RUN.dT = (RUN.dT || 0) - dt;
+  if (RUN.dT <= 0) { RUN.dT = 1; RUN.D = difficultyAt(RUN.time); }
   const alive = zombies.reduce((n, z) => n + (z.dead ? 0 : 1), 0);
-  if (L.boss) {
-    if (!RUN.bossSpawned) {
-      const k = cellOf(P.z) * L.N + cellOf(P.x);
-      if (L.arena && L.roomOf[k] === L.arena.id) spawnBoss();
-    } else if (boss && !boss.dead) {
-      DIRECTOR.addT -= dt;
-      if (DIRECTOR.addT <= 0) { DIRECTOR.addT = rnd(6, 9); if (alive < 5) spawnFar(Math.random() < 0.6 ? 'runner' : 'walker'); }
+  const bossAlive = !!(boss && !boss.dead);
+  // A boss every three minutes.
+  if (RUN.time >= RUN.nextBoss && !bossAlive) { RUN.nextBoss += 180; spawnBoss(); }
+  if (RUN.graceT > 0) RUN.graceT -= dt;
+  else {
+    DIRECTOR.t -= dt;
+    if (DIRECTOR.t <= 0) {
+      DIRECTOR.t = RUN.D.interval * (bossAlive ? 1.6 : 1) * rnd(0.7, 1.3);
+      const cap = RUN.D.cap - (bossAlive ? 4 : 0);
+      if (alive < cap) { spawnFar(); if (RUN.D.level > 4 && Math.random() < 0.3 && alive + 1 < cap) spawnFar(); }
     }
-    return;
   }
-  // Threat builds the longer you stay on a floor: faster spawns, more zombies at once.
-  RUN.heat = Math.min(1, (RUN.heat || 0) + dt * tune('threat_build', 1) / 100);
-  if (RUN.graceT > 0) { RUN.graceT -= dt; return; }
-  DIRECTOR.t -= dt;
-  if (DIRECTOR.t <= 0) {
-    DIRECTOR.t = RUN.D.interval * (1 - 0.4 * RUN.heat) * (exitOpen ? 1.15 : 1) * rnd(0.7, 1.3);
-    if (alive < RUN.D.cap + Math.round(3 * RUN.heat)) spawnFar();
+  updateSupplies(dt);
+}
+
+// ---------- scarce supplies ----------
+function countPick(kind) { let n = 0; for (const p of pickups) if (p.kind === kind) n++; return n; }
+// Supplies appear a walk away (measured along corridors), never on top of the player.
+function spawnSupply(kind, minDist, maxDist) {
+  const cells = L.roomCells;
+  let best = null, bestErr = 1e9;
+  for (let k = 0; k < 40; k++) {
+    const c = cells[Math.floor(Math.random() * cells.length)];
+    const x = ((c % L.N) + 0.5 + rnd(-0.25, 0.25)) * CELL, z = (((c / L.N) | 0) + 0.5 + rnd(-0.25, 0.25)) * CELL;
+    const d = flow && flow[c] >= 0 ? flow[c] * CELL : Math.hypot(x - P.x, z - P.z);
+    const err = d < minDist ? minDist - d : d > maxDist ? d - maxDist : 0;
+    if (err < bestErr) { bestErr = err; best = [x, z]; if (err === 0) break; }
+  }
+  return best ? spawnPickup(kind, best[0], best[1], false) : null;
+}
+function updateSupplies(dt) {
+  RUN.ammoT -= dt;
+  if (RUN.ammoT <= 0) { RUN.ammoT = rnd(16, 26) / tune('ammo_drops', 1); if (countPick('ammo') < 3) spawnSupply('ammo', 14, 45); }
+  RUN.medT -= dt;
+  if (RUN.medT <= 0) { RUN.medT = rnd(55, 80); if (countPick('med') < 1) spawnSupply('med', 14, 55); }
+  if (!RUN.crate) {
+    RUN.crateT -= dt;
+    if (RUN.crateT <= 0) { RUN.crateT = rnd(55, 75); spawnCrate(); }
   }
 }
+function spawnCrate() {
+  const next = WEAPONS.find(w => !RUN.owned.includes(w.id));
+  const p = spawnSupply('weapon', 25, 70);
+  if (!p) return;
+  p.weapon = next ? next.id : null;
+  RUN.crate = p;
+  showBanner('WEAPON CRATE', (next ? next.name : 'WEAPON UPGRADE') + ' · FOLLOW THE ARROW', '#7fd8ff');
+  play('ding', 0.7, 0);
+  hud.dirty = true;
+}
 function spawnBoss() {
-  RUN.bossSpawned = true;
-  const kind = (Math.floor(RUN.floor / 5) % 2 === 1) ? 'butcher' : 'brood';
-  const a = L.arena;
-  // Opposite side of the arena from where the player entered.
-  const cx = (a.x + a.w / 2) * CELL, cz = (a.y + a.h / 2) * CELL;
-  const vx = cx - P.x, vz = cz - P.z, vl = Math.hypot(vx, vz) || 1;
-  const bx = clamp(cx + vx / vl * CELL * 2.6, (a.x + 0.7) * CELL, (a.x + a.w - 0.7) * CELL);
-  const bz = clamp(cz + vz / vl * CELL * 2.6, (a.y + 0.7) * CELL, (a.y + a.h - 0.7) * CELL);
-  boss = spawnZombie(kind, bx, bz, true);
-  boss.chargeCd = 3;
+  RUN.bossIndex = (RUN.bossIndex || 0) + 1;
+  const kind = RUN.bossIndex % 2 === 1 ? 'butcher' : 'brood';
+  boss = spawnFar(kind);
+  if (!boss) return;
+  boss.chargeCd = 4;
   play('roar', 1, 0);
   P.shake = Math.max(P.shake, 0.5);
   haptic('heavy');
   sting('danger');
   musicSet('boss');
-  showBanner(ZT[kind].name, 'BOSS · FLOOR ' + RUN.floor, '#ff4a3a');
+  showBanner(ZT[kind].name, "IT'S COMING FOR YOU", '#ff4a3a');
   hud.dirty = true;
 }
 
@@ -1989,32 +2007,22 @@ function killZombie(z, head, dx, dz) {
   addDecal('blood', z.x + dx * 0.5, 0, z.z + dz * 0.5, 0, 1, 0, 1.2 * z.scale, Math.random() * TAU, rint(0, 2));
   play3('zdie', z.x, z.z, 0.85, 60);
   RUN.kills++;
-  addScore(z.def.score * (1 + 0.1 * (RUN.floor - 1)) + (head ? 5 : 0));
-  if (!z.def.boss) RUN.floorKills++;
+  if (head) RUN.headshots = (RUN.headshots || 0) + 1;
   const dropMul = tune('ammo_drops', 1);
   if (z.def.boss) {
-    for (let i = 0; i < 4; i++) spawnPickup('ammo', z.x + rnd(-1.2, 1.2), z.z + rnd(-1.2, 1.2), true);
-    for (let i = 0; i < 2; i++) spawnPickup('med', z.x + rnd(-1.2, 1.2), z.z + rnd(-1.2, 1.2), true);
+    for (let i = 0; i < 3; i++) spawnPickup('ammo', z.x + rnd(-1.2, 1.2), z.z + rnd(-1.2, 1.2), true);
+    spawnPickup('med', z.x + rnd(-1.2, 1.2), z.z + rnd(-1.2, 1.2), true);
     bossDefeated(z);
   } else {
-    // Drops lean toward what the player is short of.
+    // Ammo is scarce: headshot kills are rewarded, body-shot kills rarely drop anything.
     const cw = curW(), ca = ammoOf(cw.id);
-    const ammoP = (ca.mag + ca.res < magSize(cw) ? 0.5 : 0.3) * dropMul;
-    const medP = P.hp < 35 ? 0.18 : 0.06;
+    const ammoP = ((head ? 0.3 : 0.08) + (ca.mag + ca.res < magSize(cw) ? 0.07 : 0)) * dropMul;
+    const medP = P.hp < 35 ? 0.06 : 0.025;
     const r = Math.random();
     if (r < ammoP) spawnPickup('ammo', z.x, z.z, true);
     else if (r < ammoP + medP) spawnPickup('med', z.x, z.z, true);
   }
-  if (!L.boss && !exitOpen && RUN.floorKills >= RUN.D.quota) openExit();
   hud.dirty = true;
-}
-function openExit() {
-  setExitOpen();
-  play('ding', 0.9, 0);
-  play3('door', (L.exit.ex + 0.5) * CELL, (L.exit.ey + 0.5) * CELL, 1, 0);
-  sting('success');
-  showBanner('ELEVATOR OPEN', 'Follow the arrow', '#5dff8a');
-  haptic('success');
 }
 function bossDefeated(z) {
   RUN.bossesKilled = (RUN.bossesKilled || 0) + 1;
@@ -2023,9 +2031,10 @@ function bossDefeated(z) {
   musicSet('explore');
   // Kill the adds with the boss.
   for (const o of zombies) if (!o.dead && o !== z) { o.hp = 0; killZombie(o, false, 0, 1); }
-  openExit();
-  showBanner(z.def.name + ' DOWN', '+' + fmt(z.def.score) + ' · elevator open', '#ffd25a');
-  ctx.platform.milestone && ctx.platform.milestone('boss_defeated', { floor: RUN.floor });
+  sting('success');
+  haptic('success');
+  showBanner(z.def.name + ' DOWN', 'SUPPLIES DROPPED', '#ffd25a');
+  try { ctx.platform.milestone('boss_defeated', { boss: RUN.bossIndex, seconds: Math.floor(RUN.time) }); } catch (e) { }
 }
 
 const _ws = { x: 0, z: 0 };
@@ -2077,6 +2086,8 @@ function updateZombie(z, dt) {
     desYaw = Math.atan2(tx - z.x, tz - z.z);
     moveYaw = desYaw;
     speed = z.speed;
+    // Once they see you up close they lunge.
+    if (!def.boss && !def.ranged && z.los && dist < 8) speed *= 1.3;
     if (def.boss) speed = bossThink(z, dt, dist, dx, dz) ?? speed;
     else if (def.ranged && z.los && dist > 4 && dist < 13) {
       speed = dist > 9 ? z.speed * 0.6 : 0;
@@ -2227,6 +2238,7 @@ function spawnPickup(kind, x, z, dropped) {
   collide(e, 0.25, false);
   e.grp.position.x = e.x; e.grp.position.z = e.z;
   pickups.push(e);
+  return e;
 }
 function clearPickups() { for (const p of pickups) if (p.grp.parent) p.grp.parent.remove(p.grp); pickups.length = 0; }
 function updatePickups(dt) {
@@ -2240,11 +2252,25 @@ function updatePickups(dt) {
     if (Math.hypot(p.x - P.x, p.z - P.z) < 1.0) {
       if (p.kind === 'med') {
         if (P.hp >= P.maxHp) continue;
-        P.hp = Math.min(P.maxHp, P.hp + 35);
+        P.hp = Math.min(P.maxHp, P.hp + 30);
         play('med', 0.8, 0);
-        floatNote('+35 HEALTH', '#ff6b6b');
+        floatNote('+30 HEALTH', '#ff6b6b');
+      } else if (p.kind === 'weapon') {
+        if (p.weapon) {
+          const w = WBY[p.weapon];
+          giveWeapon(p.weapon);
+          showBanner('NEW WEAPON', w.name, '#7fd8ff');
+        } else {
+          RUN.mk++;
+          for (const id of RUN.owned) { const a = ammoOf(id); a.mag = Math.max(a.mag, magSize(WBY[id])); }
+          showBanner('WEAPONS UPGRADED', 'MK ' + (RUN.mk + 1) + ' · MORE DAMAGE', '#7fd8ff');
+        }
+        RUN.crate = null;
+        play('weapon', 0.8, 0); sting('powerup');
       } else {
-        for (const id of RUN.owned) { const w = WBY[id], a = ammoOf(id); a.res += Math.ceil(magSize(w) * (id === curW().id ? 1 : 0.45)); }
+        // Scarce: most of a magazine for the gun in hand, a little for the others.
+        const cur = curW().id;
+        for (const id of RUN.owned) { const w = WBY[id], a = ammoOf(id); a.res += Math.ceil(magSize(w) * (id === cur ? 0.6 : 0.25)); }
         play('pickup', 0.8, 0);
         floatNote('+AMMO', '#ffd25a');
       }
@@ -2259,7 +2285,7 @@ function updatePickups(dt) {
 // ---- 09_hud.js ----
 // HUD, touch controls and menus (DOM over the WebGL canvas).
 let hudRoot = null, touchRoot = null, modalRoot = null;
-const hud = { dirty: true, hit: 0, hitT: 0, dmgT: 0, dmgAngle: 0, xhairKick: 0, bannerT: 0, compassT: 0, compassAng: 0, compassDist: 0 };
+const hud = { dirty: true, hit: 0, hitT: 0, dmgT: 0, dmgAngle: 0, xhairKick: 0, bannerT: 0, nav: null };
 const els = {};
 const UI = { W: 0, H: 0 };
 const input = { mx: 0, mz: 0, lookDX: 0, lookDY: 0, fireIds: new Set(), keys: {}, stick: null, ptr: new Map() };
@@ -2293,12 +2319,11 @@ const CSS = `
 .df-hpbar{width:132px;height:10px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);border-radius:2px;overflow:hidden}
 .df-hpbar i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#c22,#f55);transform-origin:left center}
 .df-hpn{font-size:22px;line-height:1;text-shadow:0 1px 2px #000}
-.df-floor{font-size:15px;margin-top:6px;color:#d9c64a;text-shadow:0 1px 2px #000;letter-spacing:.12em}
+.df-floor{font-size:30px;line-height:1;margin-top:6px;color:#f0e6c8;text-shadow:0 1px 3px #000;letter-spacing:.06em}
+.df-floor small{font-size:11px;font-family:DFI,Inter,sans-serif;font-weight:700;letter-spacing:.14em;color:#d9c64a;margin-left:6px}
 .df-obj{font-size:12px;font-weight:700;margin-top:3px;text-shadow:0 1px 2px #000;letter-spacing:.06em;opacity:.92}
-.df-obj.open{color:#6dff95}
-.df-threat{display:flex;align-items:center;gap:6px;margin-top:5px;font-size:9px;font-weight:700;letter-spacing:.14em;opacity:.85;text-shadow:0 1px 2px #000}
-.df-threat div{width:84px;height:5px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.2);overflow:hidden}
-.df-threat i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#d9c64a,#ff6a2a,#ff2a1a);transform-origin:left center;transform:scaleX(0)}
+.df-obj.warn{color:#ff8a6a}
+.df-comp.ammo b{color:#ffd25a}
 .df-tr{position:absolute;pointer-events:none;text-align:right}
 .df-score{font-size:26px;line-height:1;text-shadow:0 1px 3px #000}
 .df-kills{font-size:11px;font-weight:700;opacity:.75;letter-spacing:.08em}
@@ -2389,8 +2414,6 @@ function buildHUD() {
   els.hpN = el('div', 'df-hpn df-num', hp);
   els.floor = el('div', 'df-floor df-num', els.tl);
   els.obj = el('div', 'df-obj', els.tl);
-  els.threat = el('div', 'df-threat', els.tl, '<span>THREAT</span><div><i></i></div>');
-  els.threatBar = els.threat.querySelector('i');
   els.tr = el('div', 'df-tr', G);
   els.score = el('div', 'df-score df-num', els.tr);
   els.kills = el('div', 'df-kills', els.tr);
@@ -2437,7 +2460,7 @@ function layoutHUD() {
   place(els.fire, UI.fire); place(els.reload, UI.reload); place(els.swap, UI.swap); place(els.pause, UI.pause);
   els.tl.style.left = (a.left + 14) + 'px'; els.tl.style.top = (a.top + 10) + 'px';
   els.tr.style.right = (a.right + 62) + 'px'; els.tr.style.top = (a.top + 12) + 'px';
-  els.comp.style.left = (W / 2) + 'px'; els.comp.style.top = (a.top + 8) + 'px';
+  els.comp.style.left = (W / 2) + 'px'; els.comp.style.top = (H / 2 - 104) + 'px';
   els.boss.style.top = (a.top + 104) + 'px';
   els.banner.style.top = (H * 0.27) + 'px';
   els.ammo.style.right = (a.right + 16) + 'px';
@@ -2546,12 +2569,12 @@ function releaseAllInput() {
 // ---------- per-frame HUD ----------
 function updateHUD(dt) {
   const playing = mode === 'play' || mode === 'paused';
-  setS(els.game, 'display', playing || mode === 'transition' ? 'block' : 'none');
+  setS(els.game, 'display', playing ? 'block' : 'none');
   const hpf = P.hp / P.maxHp;
   setS(els.low, 'opacity', playing && hpf < 0.3 ? String(((0.3 - hpf) / 0.3 * 0.6 + 0.35 * Math.abs(Math.sin(performance.now() / 300))).toFixed(2)) : '0');
   hud.dmgT = Math.max(0, hud.dmgT - dt * 1.6);
   setS(els.dmg, 'opacity', (hud.dmgT * 0.8).toFixed(2));
-  if (!playing && mode !== 'transition') return;
+  if (!playing) return;
   // Crosshair spread.
   hud.xhairKick = Math.max(0, hud.xhairKick - dt * 4);
   const w = curW();
@@ -2574,43 +2597,36 @@ function updateHUD(dt) {
   if (hud.hitT > 0) els.hm.classList.toggle('head', hud.hit === 2);
   setS(els.ddir, 'opacity', (hud.dmgT).toFixed(2));
   if (hud.dmgT > 0) setS(els.ddir, 'transform', `rotate(${relAngle(hud.dmgAngle).toFixed(3)}rad)`);
-  setS(els.threat, 'display', L && !L.boss ? 'flex' : 'none');
-  setS(els.threatBar, 'transform', `scaleX(${clamp(RUN.heat || 0, 0, 1).toFixed(2)})`);
   setS(els.fire, 'transform', fireHeld() ? 'scale(0.94)' : '');
   els.fire.classList.toggle('on', fireHeld());
   hud.bannerT -= dt;
   if (hud.bannerT <= 0) setS(els.banner, 'opacity', '0');
-  // Compass toward the exit.
-  hud.compassT -= dt;
-  if (hud.compassT <= 0 && L && exitFlow) {
-    hud.compassT = 0.15;
-    const i = cellOf(P.x), j = cellOf(P.z);
-    let tx = (L.exit.ex + 0.5) * CELL, tz = (L.exit.ey + 0.5) * CELL;
-    const k = j * L.N + i;
-    if (L.g[k] !== 3 && !(L.g[k] === 1 && exitFlow[k] <= 1)) {
-      let x = P.x, z = P.z;
-      for (let s = 0; s < 2; s++) { flowStep(exitFlow, x, z, _ws); x = _ws.x; z = _ws.z; }
-      tx = x; tz = z;
-    }
-    hud.compassAng = Math.atan2(tx - P.x, tz - P.z);
-    hud.compassDist = Math.round(Math.max(0, (exitFlow[k] >= 0 ? exitFlow[k] : (L.g[k] === 2 ? L.dStart[L.exit.ry * L.N + L.exit.rx] : 0)) * CELL));
-  }
-  const showComp = mode === 'play' && (exitOpen || (L && L.boss && RUN.bossSpawned === false));
-  setS(els.comp, 'display', showComp ? 'block' : 'none');
-  if (showComp) {
-    setS(els.compArrow, 'transform', `rotate(${relAngle(hud.compassAng).toFixed(2)}rad)`);
-    setT(els.compTxt, exitOpen ? (hud.compassDist > 0 ? hud.compassDist + 'm' : 'EXIT') : 'ARENA');
+  // Arrow toward the weapon crate, or the nearest ammo when running low.
+  const nav = mode === 'play' ? hud.nav : null;
+  setS(els.comp, 'display', nav ? 'block' : 'none');
+  if (nav) {
+    setS(els.compArrow, 'transform', `rotate(${relAngle(nav.ang).toFixed(2)}rad)`);
+    setT(els.compTxt, nav.label + ' ' + nav.dist + 'm');
+    els.comp.classList.toggle('ammo', nav.label === 'AMMO');
   }
   if (!hud.dirty) return;
   hud.dirty = false;
   els.hpBar.style.transform = `scaleX(${clamp(hpf, 0, 1)})`;
   setT(els.hpN, String(Math.ceil(P.hp)));
-  setT(els.floor, 'FLOOR ' + RUN.floor + (RUN.mk > 0 ? ' · MK ' + (RUN.mk + 1) : ''));
-  if (L && L.boss) setT(els.obj, exitOpen ? 'ELEVATOR OPEN' : (RUN.bossSpawned ? 'KILL ' + (boss ? boss.def.name : 'THE BOSS') : 'FIND THE ARENA'));
-  else setT(els.obj, exitOpen ? 'ELEVATOR OPEN' : `KILLS ${Math.min(RUN.floorKills, RUN.D.quota)} / ${RUN.D.quota} TO OPEN ELEVATOR`);
-  els.obj.classList.toggle('open', exitOpen);
-  setT(els.score, fmt(RUN.score));
-  setT(els.kills, RUN.kills + (RUN.kills === 1 ? ' KILL' : ' KILLS'));
+  const tm = fmtTime(RUN.time);
+  if (els.floor._v !== tm) { els.floor._v = tm; els.floor.innerHTML = tm + '<small>SURVIVED</small>'; }
+  const toBoss = Math.max(0, RUN.nextBoss - RUN.time);
+  const lowAmmo = (() => { const w = curW(); if (!w) return false; const a = ammoOf(w.id); return a.mag + a.res <= magSize(w); })();
+  let status, warn = false;
+  if (boss && !boss.dead) { status = 'KILL ' + boss.def.name; warn = true; }
+  else if (RUN.crate) status = 'WEAPON CRATE SPOTTED';
+  else if (lowAmmo) { status = 'LOW AMMO · FIND SOME'; warn = true; }
+  else if (toBoss < 30) { status = 'BOSS IN ' + Math.ceil(toBoss) + 's'; warn = true; }
+  else status = 'MK ' + (RUN.mk + 1) + ' · ' + RUN.owned.length + (RUN.owned.length === 1 ? ' GUN' : ' GUNS');
+  setT(els.obj, status);
+  els.obj.classList.toggle('warn', warn);
+  setT(els.score, String(RUN.kills));
+  setT(els.kills, (RUN.kills === 1 ? 'KILL' : 'KILLS') + (bestScore != null ? ' · BEST ' + fmtTime(bestScore) : ''));
   if (boss && !boss.dead) { setS(els.boss, 'display', 'block'); setT(els.bossName, boss.def.name); els.bossBar.style.transform = `scaleX(${clamp(boss.hp / boss.maxHp, 0, 1)})`; }
   else setS(els.boss, 'display', 'none');
   if (w) {
@@ -2641,11 +2657,9 @@ function buildScreens() {
   // Title
   const T = els.title = el('div', 'df-modal df-title', modalRoot);
   el('div', 'df-logo', T, '<span>DEAD</span><span>FLOORS</span>');
-  el('div', 'df-tag', T, 'HOW DEEP CAN YOU GO?');
-  els.startBtn = btn(T, 'LOADING…', 'primary', () => startRun(false));
+  el('div', 'df-tag', T, 'HOW LONG CAN YOU SURVIVE?');
+  els.startBtn = btn(T, 'LOADING…', 'primary', () => startRun());
   els.startBtn.disabled = true;
-  els.contBtn = btn(T, 'CONTINUE', '', () => startRun(true));
-  els.contBtn.style.display = 'none';
   els.load = el('div', 'df-load', T);
   els.best = el('div', 'df-best', T);
   el('div', 'df-help', T, '<div><b>◎</b>LEFT THUMB<br>MOVES</div><div><b>↔</b>DRAG RIGHT<br>TO AIM</div><div><b>●</b>HOLD FIRE<br>TO SHOOT</div>');
@@ -2673,7 +2687,7 @@ function buildScreens() {
   els.deadPB = el('div', 'df-pb', D, '');
   els.board = el('div', 'df-board', D, '');
   const row = el('div', 'df-row', D);
-  btn(row, 'AGAIN', 'primary small', () => startRun(false));
+  btn(row, 'AGAIN', 'primary small', () => startRun());
   btn(row, 'MENU', 'small', () => showScreen('title'));
   refreshSensText();
 }
@@ -2684,10 +2698,8 @@ function showScreen(name) {
 }
 function renderTitle() {
   if (!els.title) return;
-  if (threeReady) { els.startBtn.disabled = false; setT(els.startBtn, saved ? 'NEW RUN' : 'START'); }
-  if (saved) { els.contBtn.style.display = ''; setT(els.contBtn, 'CONTINUE · FLOOR ' + saved.floor); }
-  else els.contBtn.style.display = 'none';
-  setT(els.best, bestScore != null ? 'BEST ' + fmt(bestScore) : '');
+  if (threeReady) { els.startBtn.disabled = false; setT(els.startBtn, 'START'); }
+  setT(els.best, bestScore != null ? 'BEST TIME ' + fmtTime(bestScore) : '');
 }
 function toggleSound() {
   settings.sound = !settings.sound;
@@ -2701,162 +2713,131 @@ function setSens(d) { settings.sens = clamp(Math.round((settings.sens + d) * 10)
 function refreshSensText() { if (els.sensTxt) setT(els.sensTxt, 'AIM SPEED ' + settings.sens.toFixed(1)); }
 
 // ---- 10_game.js ----
-// Game state, run and floor flow, player, camera, lighting, saving, records and boot.
+// Game state, the survival run, player, camera, lighting, records and boot.
 const P = { x: 0, z: 0, yaw: 0, pitch: 0, hp: 100, maxHp: 100, vx: 0, vz: 0, kx: 0, kz: 0, shake: 0, hurtT: 0, dead: false, deadT: 0, swayX: 0, swayY: 0, recoilBack: 0, stepT: 0, bob: 0 };
-const RUN = { active: false, floor: 1, score: 0, kills: 0, floorKills: 0, owned: [], ammo: {}, cur: 0, mk: 0, D: null, seed: 0, bossSpawned: false, interacted: false, doorT: 0, scavT: 0 };
-RUN.D = difficulty(1);
+const RUN = { active: false, time: 0, kills: 0, headshots: 0, owned: [], ammo: {}, cur: 0, mk: 0, D: null, seed: 0, interacted: false, doorT: 0, scavT: 0, nextBoss: 180, bossIndex: 0, crate: null, crateT: 0, ammoT: 0, medT: 0, lastSec: -1 };
+RUN.D = difficultyAt(0);
 let mode = 'boot';
-let saved = null, lastSave = null, bestScore = null, threeReady = false;
+let bestScore = null, threeReady = false;
 let attempt = 0;
 let flashlight = null, hemi = null;
 const fade = { v: 0, target: 0 };
-let transT = 0, titleT = 0, titleYaw = 0;
-let scoreTrack = null;
+let titleT = 0, titleYaw = 0;
+let scoreTrack = null, clock = null;
 try { scoreTrack = ctx.game.score(); } catch (e) { scoreTrack = null; }
+const RECORD = 'survival';
+const fmtTime = (sec) => { const s = Math.max(0, Math.floor(sec)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 
-function addScore(n) {
-  RUN.score += Math.round(n);
-  if (scoreTrack) { try { scoreTrack.set(RUN.score); } catch (e) { } }
-  hud.dirty = true;
+// ---------- survival clock (score = whole seconds survived) ----------
+// ctx.game.stopwatch counts active play only; if a host lacks it, fall back to summed frame time.
+function initClock() {
+  try { if (ctx.game.stopwatch) clock = ctx.game.stopwatch(); } catch (e) { clock = null; }
 }
-
-// ---------- progress (Continue Playing) ----------
-const hasProgress = () => !!(ctx.game && ctx.game.progress);
-function validSave(s) {
-  if (!s || s.v !== 1) return false;
-  if (!Number.isInteger(s.floor) || s.floor < 2 || s.floor > 9999) return false;
-  if (!Array.isArray(s.owned) || !s.owned.length || !s.owned.every(id => WBY[id])) return false;
-  if (!s.ammo || typeof s.ammo !== 'object') return false;
-  for (const id of s.owned) { const a = s.ammo[id]; if (!a || !isFinite(a.mag) || !isFinite(a.res) || a.mag < 0 || a.res < 0) return false; }
-  if (!isFinite(s.hp) || s.hp <= 0 || s.hp > 100) return false;
-  if (!Number.isInteger(s.cur) || s.cur < 0 || s.cur >= s.owned.length) return false;
-  if (!Number.isInteger(s.mk) || s.mk < 0) return false;
-  if (!isFinite(s.score) || s.score < 0 || !isFinite(s.kills) || !isFinite(s.seed)) return false;
-  return true;
-}
-function snapshot() {
-  const ammo = {};
-  for (const id of RUN.owned) { const a = ammoOf(id); ammo[id] = { mag: a.mag, res: a.res }; }
-  return { v: 1, floor: RUN.floor, score: RUN.score, kills: RUN.kills, hp: Math.max(1, Math.ceil(P.hp)), owned: RUN.owned.slice(), ammo, cur: RUN.cur, mk: RUN.mk, seed: RUN.seed, bosses: RUN.bossesKilled || 0 };
-}
-function saveProgress() {
-  lastSave = snapshot();
-  if (!hasProgress()) return;
-  const owner = attempt;
-  try {
-    ctx.game.progress.save('main', { state: lastSave, label: 'Floor ' + RUN.floor, percent: 0, stateSchemaVersion: 1, metadata: { floor: RUN.floor } })
-      .catch((e) => { if (!disposed && owner === attempt && DEV) console.warn('progress save failed', e); });
-  } catch (e) { }
-}
-function endProgress(kind) {
-  if (!hasProgress()) return;
-  try { const p = ctx.game.progress[kind]('main'); if (p && p.catch) p.catch(() => { }); } catch (e) { }
-}
-function loadProgress() {
-  if (!hasProgress()) return;
-  try {
-    ctx.game.progress.load('main').then((p) => {
-      if (disposed || RUN.active) return;
-      const eligible = p && (p.resumeEligible === true || (p.resumeEligible === undefined && p.status === 'in_progress' && p.stateSchemaVersion === 1 && (!p.expiresAt || Date.parse(p.expiresAt) > Date.now())));
-      if (eligible && validSave(p.state)) { saved = p.state; lastSave = p.state; renderTitle(); }
-    }).catch(() => { });
-  } catch (e) { }
+function updateTime(dt) {
+  RUN.fallback += dt;
+  RUN.time = clock ? clock.elapsedMs / 1000 : RUN.fallback;
+  const sec = Math.floor(RUN.time);
+  if (sec !== RUN.lastSec) {
+    RUN.lastSec = sec;
+    if (scoreTrack) { try { scoreTrack.set(sec); } catch (e) { } }
+    // A valid survival time so far: checkpoint once a minute.
+    if (sec > 0 && sec % 60 === 0) checkpointScore();
+    hud.dirty = true;
+  }
 }
 
 // ---------- records ----------
 function refreshBest() {
   if (!ctx.memory || !ctx.memory.record) return;
   try {
-    ctx.memory.record('score').rank({ scope: 'global', period: 'all_time' }).then((r) => {
+    ctx.memory.record(RECORD).rank({ scope: 'global', period: 'all_time' }).then((r) => {
       if (disposed) return;
       bestScore = r && r.viewerRank ? r.viewerRank.value : bestScore;
       renderTitle();
+      hud.dirty = true;
     }).catch(() => { });
   } catch (e) { }
 }
-function submitResult() {
-  const owner = attempt, score = RUN.score, floor = RUN.floor;
+function submitResult(showOnScreen) {
+  const owner = attempt, secs = Math.floor(RUN.time);
   const prevBest = bestScore;
-  setT(els.deadPB, prevBest != null && score <= prevBest ? 'BEST ' + fmt(prevBest) : '');
-  boardStatus('Saving score…');
-  if (!scoreTrack) { boardStatus('Leaderboard unavailable'); return; }
-  scoreTrack.submit('score', { label: fmt(score) + ' pts', metadata: { floor, kills: RUN.kills } }).then((res) => {
-    if (disposed || owner !== attempt) return;
+  if (showOnScreen) { setT(els.deadPB, prevBest != null && secs <= prevBest ? 'BEST ' + fmtTime(prevBest) : ''); boardStatus('Saving time…'); }
+  if (!scoreTrack) { if (showOnScreen) boardStatus('Leaderboard unavailable'); return; }
+  try { scoreTrack.set(secs); } catch (e) { }
+  scoreTrack.submit(RECORD, { label: fmtTime(secs), metadata: { kills: RUN.kills, headshots: RUN.headshots } }).then((res) => {
+    if (disposed) return;
+    if (res && res.isPersonalBest) bestScore = Math.max(bestScore || 0, secs);
+    if (!showOnScreen || owner !== attempt) return;
     if (res && res.isPersonalBest) {
       setT(els.deadPB, 'NEW PERSONAL BEST');
-      bestScore = score;
       sting('win');
-      try { ctx.pulse.complete({ score, level: floor, result: 'Reached floor ' + floor, text: `Reached floor ${floor} with ${fmt(score)} points in Dead Floors` }); } catch (e) { }
-    } else if (prevBest != null) setT(els.deadPB, 'BEST ' + fmt(Math.max(prevBest, score)));
+      try { ctx.pulse.complete({ timeMs: secs * 1000, timeLabel: fmtTime(secs), score: secs, result: 'Survived ' + fmtTime(secs), text: `Survived ${fmtTime(secs)} in Dead Floors with ${RUN.kills} kills` }); } catch (e) { }
+    } else if (prevBest != null) setT(els.deadPB, 'BEST ' + fmtTime(Math.max(prevBest, secs)));
     else setT(els.deadPB, '');
     loadBoard(owner);
   }).catch(() => {
-    if (disposed || owner !== attempt) return;
+    if (disposed || !showOnScreen || owner !== attempt) return;
     setT(els.deadPB, '');
-    boardStatus('Score not saved — check your connection');
+    boardStatus('Time not saved — check your connection');
   });
 }
 function boardStatus(text) { els.board.innerHTML = ''; el('div', 'st', els.board, text); }
 function loadBoard(owner) {
   try {
-    ctx.memory.record('score').leaderboard({ scope: 'global', period: 'all_time', limit: 3 }).then((lb) => {
+    ctx.memory.record(RECORD).leaderboard({ scope: 'global', period: 'all_time', limit: 3 }).then((lb) => {
       if (disposed || owner !== attempt) return;
       els.board.innerHTML = '';
       const rows = (lb && lb.rows) || [];
       const me = lb && lb.viewerRank;
       const name = (r) => (r.username || r.displayName || r.name || 'Player');
+      const label = (r) => r.displayLabel ? escapeHtml(String(r.displayLabel)) : fmtTime(r.value || 0);
       rows.slice(0, 3).forEach((r, i) => {
         const row = el('div', 'row' + (me && r.rank === me.rank && r.userId === me.userId ? ' me' : ''), els.board);
         el('span', '', row, '#' + (r.rank || i + 1) + '  ' + escapeHtml(name(r)));
-        el('b', '', row, r.displayLabel ? escapeHtml(String(r.displayLabel)) : fmt(r.value || 0));
+        el('b', '', row, label(r));
       });
       if (me && !rows.slice(0, 3).some(r => r.rank === me.rank && r.userId === me.userId)) {
         const row = el('div', 'row me', els.board);
         el('span', '', row, '#' + me.rank + '  YOU');
-        el('b', '', row, fmt(me.value || 0));
+        el('b', '', row, label(me));
       }
-      if (!rows.length) boardStatus('No scores yet');
-      if (lb && lb.checkpointStatus && lb.checkpointStatus.failed > 0) el('div', 'st', els.board, 'Some floor checkpoints did not save');
-      if (me) { bestScore = me.value; }
+      if (!rows.length) boardStatus('No times yet');
+      if (lb && lb.checkpointStatus && lb.checkpointStatus.failed > 0) el('div', 'st', els.board, 'Some checkpoints did not save');
+      if (me) bestScore = me.value;
     }).catch(() => { if (!disposed && owner === attempt) boardStatus('Leaderboard unavailable'); });
   } catch (e) { boardStatus('Leaderboard unavailable'); }
 }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function checkpointScore() {
-  if (!scoreTrack || RUN.score <= 0) return;
-  try { scoreTrack.checkpoint('score', { metadata: { floor: RUN.floor } }).catch(() => { }); } catch (e) { }
+  if (!scoreTrack) return;
+  try { scoreTrack.checkpoint(RECORD, { metadata: { kills: RUN.kills } }).catch(() => { }); } catch (e) { }
 }
 
-// ---------- run flow ----------
-function startRun(fromSave) {
+// ---------- the run ----------
+function clearProjectiles() { for (const p of projectiles) { scene.remove(p.m); p.m.material.dispose(); } projectiles.length = 0; }
+
+function startRun() {
   if (!threeReady) return;
   attempt++;
-  const s = fromSave && saved && validSave(saved) ? saved : null;
-  try { ctx.platform.start({ floor: s ? s.floor : 1, resumed: !!s }); } catch (e) { }
+  try { ctx.platform.start({ mode: 'survival' }); } catch (e) { }
   unlockAudio(); buildSounds();
-  if (!s && saved) { endProgress('abandon'); }
-  saved = null;
   RUN.active = true;
-  RUN.floor = s ? s.floor : 1; RUN.score = s ? s.score : 0; RUN.kills = s ? s.kills : 0;
-  RUN.owned = s ? s.owned.slice() : []; RUN.ammo = {}; RUN.cur = s ? s.cur : 0; RUN.mk = s ? s.mk : 0;
-  RUN.seed = s ? s.seed : (Math.random() * 4294967295) >>> 0;
-  RUN.bossesKilled = s ? (s.bosses || 0) : 0; RUN.interacted = false; RUN.shots = 0; RUN.scavT = 0;
-  if (s) for (const id of RUN.owned) RUN.ammo[id] = { mag: s.ammo[id].mag, res: s.ammo[id].res };
-  if (scoreTrack) { try { scoreTrack.reset(); scoreTrack.set(RUN.score); } catch (e) { } }
-  P.hp = s ? s.hp : 100;
+  RUN.time = 0; RUN.fallback = 0; RUN.lastSec = -1; RUN.kills = 0; RUN.headshots = 0;
+  RUN.owned = []; RUN.ammo = {}; RUN.cur = 0; RUN.mk = 0;
+  RUN.seed = (Math.random() * 4294967295) >>> 0;
+  RUN.interacted = false; RUN.shots = 0; RUN.scavT = 0; RUN.graceT = 0; RUN.dT = 0;
+  RUN.nextBoss = 180; RUN.bossIndex = 0; RUN.bossesKilled = 0;
+  RUN.crate = null; RUN.crateT = 40; RUN.ammoT = 20; RUN.medT = 60;
+  RUN.D = difficultyAt(0);
+  if (scoreTrack) { try { scoreTrack.reset(); } catch (e) { } }
+  if (clock) { clock.reset(0); }
+  P.hp = 100;
   for (const k in gunModels) gunModels[k].group.visible = false;
   VM.cur = null;
   showScreen(null);
   fade.v = 1; fade.target = 0;
-  enterFloor(RUN.floor, !!s);
-}
-
-function clearProjectiles() { for (const p of projectiles) { scene.remove(p.m); p.m.material.dispose(); } projectiles.length = 0; }
-
-function enterFloor(f, restoring) {
-  RUN.floor = f; RUN.floorKills = 0; RUN.bossSpawned = false; RUN.D = difficulty(f); RUN.heat = 0; RUN.graceT = 0;
   clearZombies(); clearPickups(); clearProjectiles();
-  const Ld = genLevel(f, (RUN.seed + f * 7919) >>> 0);
+  const Ld = genLevel(RUN.seed);
   buildLevel(Ld);
   for (const p of Ld.pickups) spawnPickup(p.kind, p.x, p.z, false);
   P.x = (Ld.start.ex + 0.5) * CELL; P.z = (Ld.start.ey + 0.5) * CELL;
@@ -2865,82 +2846,50 @@ function enterFloor(f, restoring) {
   doors.start.open = 0; doors.start.target = 0;
   RUN.doorT = 1.0;
   W.reloading = false; W.cool = 0;
+  giveWeapon('pistol');
+  ammoOf('pistol').res = 12;
+  updateFlow();
   populateFloor();
-  let sub;
-  if (!restoring) {
-    if (f <= WEAPONS.length) {
-      giveWeapon(WEAPONS[f - 1].id);
-      sub = f === 1 ? 'KILL ' + RUN.D.quota + ' TO OPEN THE ELEVATOR' : 'NEW WEAPON · ' + WEAPONS[f - 1].name;
-      if (f > 1) { play('weapon', 0.8, 0); sting('powerup'); }
-    } else {
-      RUN.mk++;
-      for (const id of RUN.owned) { const a = ammoOf(id); a.mag = magSize(WBY[id]); a.res += Math.ceil(magSize(WBY[id]) * 0.5); }
-      equip(clamp(RUN.cur, 0, RUN.owned.length - 1), true);
-      sub = 'ALL WEAPONS UPGRADED · MK ' + (RUN.mk + 1);
-      play('weapon', 0.8, 0); sting('powerup');
-    }
-  } else {
-    equip(clamp(RUN.cur, 0, RUN.owned.length - 1), true);
-    sub = 'WELCOME BACK';
-  }
-  if (Ld.boss) sub = (sub && sub.startsWith('NEW') ? sub + ' · ' : '') + 'SOMETHING BIG IS WAITING';
-  showBanner('FLOOR ' + f, sub, Ld.boss ? '#ff6a50' : '#ece6d6');
-  if (f > 1 || restoring) saveProgress();
+  showBanner('SURVIVE', 'AMMO IS SCARCE · AIM FOR THE HEAD', '#ece6d6');
   mode = 'play';
+  if (clock) clock.start();
   musicSet('explore');
   play('ding', 0.7, 0);
   hud.dirty = true;
   try { renderer.compile(scene, camera); } catch (e) { }
 }
 
-function floorComplete() {
-  mode = 'transition';
-  transT = 0;
-  addScore(100 * RUN.floor);
-  doors.exit.target = 0;
-  play('door', 0.9, 0);
-  haptic('success');
-  try { ctx.platform.milestone('floor_clear', { floor: RUN.floor }); } catch (e) { }
-  checkpointScore();
-  releaseAllInput();
-  fade.target = 1;
-}
-function updateTransition(dt) {
-  transT += dt;
-  updateDoor(doors.exit, dt);
-  if (transT > 1.3) enterFloor(RUN.floor + 1, false), fade.target = 0;
-}
-
 function playerDie() {
   P.dead = true; P.deadT = 0;
   mode = 'dying';
+  if (clock) clock.pause();
   releaseAllInput();
   W.reloading = false;
   play('hurt', 1, 0); play('heart', 0.8, 0);
   sting('lose');
   haptic('error');
-  try { ctx.platform.fail({ floor: RUN.floor, score: RUN.score, kills: RUN.kills }); } catch (e) { }
-  endProgress('complete');
-  saved = null; lastSave = null;
+  try { ctx.platform.fail({ seconds: Math.floor(RUN.time), kills: RUN.kills }); } catch (e) { }
   RUN.active = false;
   musicSet('title');
 }
 function updateDying(dt) {
   P.deadT += dt;
   if (P.deadT > 1.8 && !els.dead.classList.contains('show')) {
-    setT(els.deadSub, 'FLOOR ' + RUN.floor + ' · ' + RUN.kills + (RUN.kills === 1 ? ' KILL' : ' KILLS'));
-    setT(els.deadScore, fmt(RUN.score));
+    const hs = RUN.headshots || 0;
+    setT(els.deadSub, RUN.kills + (RUN.kills === 1 ? ' KILL' : ' KILLS') + ' · ' + hs + (hs === 1 ? ' HEADSHOT' : ' HEADSHOTS'));
+    setT(els.deadScore, fmtTime(RUN.time));
     showScreen('dead');
     mode = 'dead';
-    submitResult();
+    submitResult(true);
   }
 }
 
 function pauseGame() {
   if (mode !== 'play') return;
   mode = 'paused';
+  if (clock) clock.pause();
   releaseAllInput();
-  setT(els.pauseInfo, 'FLOOR ' + RUN.floor + ' · ' + fmt(RUN.score) + ' PTS');
+  setT(els.pauseInfo, 'SURVIVED ' + fmtTime(RUN.time) + ' · ' + RUN.kills + ' KILLS');
   setT(els.sndBtn, 'SOUND: ' + (settings.sound ? 'ON' : 'OFF'));
   showScreen('pause');
 }
@@ -2948,11 +2897,42 @@ function resumeGame() {
   if (mode !== 'paused') return;
   showScreen(null);
   mode = 'play';
+  if (clock) clock.start();
 }
 function quitToMenu() {
-  saved = lastSave && validSave(lastSave) ? lastSave : null;
+  // Leaving ends the run; the time survived still counts.
+  if (RUN.active && RUN.time >= 1) submitResult(false);
   RUN.active = false;
   showScreen('title');
+}
+
+// What the HUD arrow points at: a weapon crate, or the nearest ammo when you're running low.
+let navT = 0;
+function updateNav(dt) {
+  navT -= dt;
+  if (navT > 0) return;
+  navT = 0.2;
+  let tgt = null, label = '';
+  if (RUN.crate) { tgt = RUN.crate; label = 'CRATE'; }
+  else {
+    const w = curW(), a = ammoOf(w.id);
+    if (a.mag + a.res <= magSize(w)) {
+      let bd = 1e9;
+      for (const p of pickups) if (p.kind === 'ammo') { const d = Math.hypot(p.x - P.x, p.z - P.z); if (d < bd) { bd = d; tgt = p; } }
+      label = 'AMMO';
+    }
+  }
+  if (!tgt) { hud.nav = null; return; }
+  const field = navTo(tgt.x, tgt.z);
+  const k = cellOf(P.z) * L.N + cellOf(P.x);
+  let tx = tgt.x, tz = tgt.z;
+  if (!(L.g[k] === 1 && field[k] >= 0 && field[k] <= 1)) {
+    let x = P.x, z = P.z;
+    for (let s = 0; s < 2; s++) { flowStep(field, x, z, _ws); x = _ws.x; z = _ws.z; }
+    tx = x; tz = z;
+  }
+  const steps = field[k] >= 0 ? field[k] : Math.hypot(tgt.x - P.x, tgt.z - P.z) / CELL;
+  hud.nav = { ang: Math.atan2(tx - P.x, tz - P.z), dist: Math.round(steps * CELL), label };
 }
 
 // ---------- player ----------
@@ -2971,12 +2951,12 @@ function updatePlayer(dt) {
   P.pitch = clamp(P.pitch, -1.2, 1.2);
   P.swayX = lerp(P.swayX, clamp(ldx * 0.0007, -0.035, 0.035), 1 - Math.exp(-dt * 10));
   P.swayY = lerp(P.swayY, clamp(-ldy * 0.0007, -0.03, 0.03), 1 - Math.exp(-dt * 10));
-  // Gentle aim magnetism while firing.
+  // Light aim magnetism while firing; aiming is mostly up to you.
   if (fireHeld() && Math.abs(ldx) < 18) {
-    const t = assistTarget(0.13, 22);
+    const t = assistTarget(0.07, 22);
     if (t) {
       const des = Math.atan2(-(t.x - P.x), -(t.zz - P.z));
-      P.yaw += clamp(angDelta(P.yaw, des), -0.2, 0.2) * Math.min(1, dt * 6) * tune('aim_assist', 1);
+      P.yaw += clamp(angDelta(P.yaw, des), -0.1, 0.1) * Math.min(1, dt * 4) * tune('aim_assist', 1);
     }
   }
   let mx = input.mx, mz = input.mz;
@@ -3012,19 +2992,14 @@ function updatePlayer(dt) {
     }
   } else if (am.mag === 0 && am.res > 0 && W.cool <= 0) startReload();
   if (fireHeld() && W.cool <= 0 && !W.reloading && VM.swap > 0.85) fire();
-  // Never strand the player with nothing: scavenge pistol rounds slowly.
+  // Completely dry: a pistol round turns up now and then, so a run never hard-locks.
   if (!RUN.owned.some(id => hasAmmo(id))) {
     RUN.scavT += dt;
-    if (RUN.scavT > 1.6) { RUN.scavT = 0; ammoOf('pistol').res += 2; if (curW().id !== 'pistol') equip(RUN.owned.indexOf('pistol'), false); floatNote('SCAVENGED 2 ROUNDS', '#ffd25a'); hud.dirty = true; }
+    if (RUN.scavT > 4) { RUN.scavT = 0; ammoOf('pistol').res += 1; if (curW().id !== 'pistol') equip(RUN.owned.indexOf('pistol'), false); floatNote('SCAVENGED 1 ROUND', '#ffd25a'); hud.dirty = true; }
   } else RUN.scavT = 0;
   updateViewModel(dt, sp > 0.6);
-  // Doors and exit.
   RUN.doorT -= dt;
   if (RUN.doorT <= 0 && doors.start.target === 0) { doors.start.target = 1; play('door', 0.6, 0); }
-  if (exitOpen) {
-    const cx = (L.exit.ex + 0.5) * CELL, cz = (L.exit.ey + 0.5) * CELL;
-    if (Math.abs(P.x - cx) < CELL * 0.4 && Math.abs(P.z - cz) < CELL * 0.4) floorComplete();
-  }
 }
 
 // ---------- camera, lights, rendering ----------
@@ -3075,7 +3050,7 @@ function updateLights(dt, t) {
     near += f.level / (1 + d * d * 0.12);
   }
   if (gunHemi) gunHemi.intensity = 0.7 + Math.min(1, near) * 1.4;
-  if (exitLight && L) exitLight.intensity = exitOpen ? 3 : 2 + Math.sin(t * 4) * 0.8;
+  if (exitLight && L && L.exit) exitLight.intensity = exitOpen ? 3 : 2 + Math.sin(t * 4) * 0.8;
 }
 
 let dynScale = 1, perfAcc = 0, perfN = 0, perfT = 0;
@@ -3103,7 +3078,7 @@ function perfTick(dtMs) {
 function render() {
   renderer.autoClear = true;
   renderer.render(scene, camera);
-  if (VM.cur && (mode === 'play' || mode === 'paused' || mode === 'transition' || (mode === 'dying' && P.deadT < 0.4))) {
+  if (VM.cur && (mode === 'play' || mode === 'paused' || (mode === 'dying' && P.deadT < 0.4))) {
     renderer.autoClear = false;
     renderer.clearDepth();
     renderer.render(gunScene, gunCam);
@@ -3114,9 +3089,8 @@ function render() {
 function setupTitleScene() {
   if (!threeReady) return;
   clearZombies(); clearPickups(); clearProjectiles();
-  RUN.D = difficulty(1);
-  RUN.floor = 1;
-  const Ld = genLevel(1, 90210);
+  RUN.D = difficultyAt(0);
+  const Ld = genLevel(90210);
   buildLevel(Ld);
   for (const p of Ld.pickups) spawnPickup(p.kind, p.x, p.z, false);
   doors.start.open = doors.start.target = 1;
@@ -3153,21 +3127,22 @@ function frame(dtMs) {
   const t = performance.now() / 1000;
   if (mode === 'title') { updateTitle(dt); updateZombies(dt); updatePickups(dt); }
   else if (mode === 'play') {
+    updateTime(dt);
     updatePlayer(dt);
+    updateNav(dt);
     updateFlow();
     updateDirector(dt);
     updateZombies(dt);
     updateProjectiles(dt);
     updatePickups(dt);
-    updateDoor(doors.start, dt); updateDoor(doors.exit, dt);
+    updateDoor(doors.start, dt);
     // Music follows the fight.
     if (!(boss && !boss.dead)) {
       const close = zombies.some(z => !z.dead && z.aware && Math.hypot(z.x - P.x, z.z - P.z) < 12);
       RUN.combatT = close ? 4 : Math.max(0, (RUN.combatT || 0) - dt);
       musicSet(RUN.combatT > 0 ? 'combat' : 'explore');
     }
-  } else if (mode === 'transition') { updateTransition(dt); updateViewModel(dt, false); }
-  else if (mode === 'dying' || mode === 'dead') { updateDying(dt); updateZombies(dt); updateProjectiles(dt); }
+  } else if (mode === 'dying' || mode === 'dead') { updateDying(dt); updateZombies(dt); updateProjectiles(dt); }
   if (mode !== 'paused') { updateParticles(dt); updateLineFX(dt); }
   fade.v = fade.target > fade.v ? Math.min(fade.target, fade.v + dt * 1.6) : Math.max(fade.target, fade.v - dt * 1.4);
   setS(els.fade, 'opacity', fade.v.toFixed(3));
@@ -3223,7 +3198,7 @@ async function boot() {
     return;
   }
   if (disposed) return;
-  initWorldTemps(); initWeaponTemps();
+  initWorldTemps(); initWeaponTemps(); initClock();
   try { initRenderer(); buildEnvironment(); }
   catch (e) { bootFail('renderer', e); return; }
   try {
@@ -3253,10 +3228,9 @@ try { ctx.platform.ready(); } catch (e) { }
 try { ctx.loadFont('DFB', 'bebas-neue', '1.0.0', { weight: '400', style: 'normal' }).catch(() => { }); } catch (e) { }
 try { ctx.loadFont('DFI', 'inter', '1.0.0', { weight: '700', style: 'normal' }).catch(() => { }); } catch (e) { }
 musicSet('title');
-loadProgress();
 refreshBest();
 await boot();
-if (DEV) window.__DF = { gunGroup: () => VM.cur && VM.cur.group, losClear, flowStep, get exitFlow() { return exitFlow; }, get exitOpen() { return exitOpen; }, ammoOf, curW, cycleWeapon, P, RUN, zombies, get mode() { return mode; }, set mode(v) { mode = v; }, startRun, enterFloor, floorComplete, hurtPlayer, setExitOpen, openExit, L: () => L, input, WEAPONS, giveWeapon, renderer: () => renderer, killAll: () => { for (const z of zombies) if (!z.dead) { z.hp = 0; killZombie(z, false, 0, 1); } }, spawnFar, spawnBoss, doors, pauseGame, resumeGame, fireHeld, showScreen, get boss() { return boss; } };
+if (DEV) window.__DF = { gunGroup: () => VM.cur && VM.cur.group, losClear, flowStep, ammoOf, curW, cycleWeapon, P, RUN, zombies, pickups, get mode() { return mode; }, set mode(v) { mode = v; }, startRun, hurtPlayer, L: () => L, input, WEAPONS, giveWeapon, renderer: () => renderer, killAll: () => { for (const z of zombies) if (!z.dead) { z.hp = 0; killZombie(z, false, 0, 1); } }, spawnFar, spawnBoss, spawnCrate, doors, pauseGame, resumeGame, quitToMenu, fireHeld, showScreen, get boss() { return boss; }, get nav() { return hud.nav; }, markHud: () => { hud.dirty = true; } };
 
   }
 };

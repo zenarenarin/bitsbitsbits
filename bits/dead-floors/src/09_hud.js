@@ -1,6 +1,6 @@
 // HUD, touch controls and menus (DOM over the WebGL canvas).
 let hudRoot = null, touchRoot = null, modalRoot = null;
-const hud = { dirty: true, hit: 0, hitT: 0, dmgT: 0, dmgAngle: 0, xhairKick: 0, bannerT: 0, compassT: 0, compassAng: 0, compassDist: 0 };
+const hud = { dirty: true, hit: 0, hitT: 0, dmgT: 0, dmgAngle: 0, xhairKick: 0, bannerT: 0, nav: null };
 const els = {};
 const UI = { W: 0, H: 0 };
 const input = { mx: 0, mz: 0, lookDX: 0, lookDY: 0, fireIds: new Set(), keys: {}, stick: null, ptr: new Map() };
@@ -34,12 +34,11 @@ const CSS = `
 .df-hpbar{width:132px;height:10px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);border-radius:2px;overflow:hidden}
 .df-hpbar i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#c22,#f55);transform-origin:left center}
 .df-hpn{font-size:22px;line-height:1;text-shadow:0 1px 2px #000}
-.df-floor{font-size:15px;margin-top:6px;color:#d9c64a;text-shadow:0 1px 2px #000;letter-spacing:.12em}
+.df-floor{font-size:30px;line-height:1;margin-top:6px;color:#f0e6c8;text-shadow:0 1px 3px #000;letter-spacing:.06em}
+.df-floor small{font-size:11px;font-family:DFI,Inter,sans-serif;font-weight:700;letter-spacing:.14em;color:#d9c64a;margin-left:6px}
 .df-obj{font-size:12px;font-weight:700;margin-top:3px;text-shadow:0 1px 2px #000;letter-spacing:.06em;opacity:.92}
-.df-obj.open{color:#6dff95}
-.df-threat{display:flex;align-items:center;gap:6px;margin-top:5px;font-size:9px;font-weight:700;letter-spacing:.14em;opacity:.85;text-shadow:0 1px 2px #000}
-.df-threat div{width:84px;height:5px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.2);overflow:hidden}
-.df-threat i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#d9c64a,#ff6a2a,#ff2a1a);transform-origin:left center;transform:scaleX(0)}
+.df-obj.warn{color:#ff8a6a}
+.df-comp.ammo b{color:#ffd25a}
 .df-tr{position:absolute;pointer-events:none;text-align:right}
 .df-score{font-size:26px;line-height:1;text-shadow:0 1px 3px #000}
 .df-kills{font-size:11px;font-weight:700;opacity:.75;letter-spacing:.08em}
@@ -130,8 +129,6 @@ function buildHUD() {
   els.hpN = el('div', 'df-hpn df-num', hp);
   els.floor = el('div', 'df-floor df-num', els.tl);
   els.obj = el('div', 'df-obj', els.tl);
-  els.threat = el('div', 'df-threat', els.tl, '<span>THREAT</span><div><i></i></div>');
-  els.threatBar = els.threat.querySelector('i');
   els.tr = el('div', 'df-tr', G);
   els.score = el('div', 'df-score df-num', els.tr);
   els.kills = el('div', 'df-kills', els.tr);
@@ -178,7 +175,7 @@ function layoutHUD() {
   place(els.fire, UI.fire); place(els.reload, UI.reload); place(els.swap, UI.swap); place(els.pause, UI.pause);
   els.tl.style.left = (a.left + 14) + 'px'; els.tl.style.top = (a.top + 10) + 'px';
   els.tr.style.right = (a.right + 62) + 'px'; els.tr.style.top = (a.top + 12) + 'px';
-  els.comp.style.left = (W / 2) + 'px'; els.comp.style.top = (a.top + 8) + 'px';
+  els.comp.style.left = (W / 2) + 'px'; els.comp.style.top = (H / 2 - 104) + 'px';
   els.boss.style.top = (a.top + 104) + 'px';
   els.banner.style.top = (H * 0.27) + 'px';
   els.ammo.style.right = (a.right + 16) + 'px';
@@ -287,12 +284,12 @@ function releaseAllInput() {
 // ---------- per-frame HUD ----------
 function updateHUD(dt) {
   const playing = mode === 'play' || mode === 'paused';
-  setS(els.game, 'display', playing || mode === 'transition' ? 'block' : 'none');
+  setS(els.game, 'display', playing ? 'block' : 'none');
   const hpf = P.hp / P.maxHp;
   setS(els.low, 'opacity', playing && hpf < 0.3 ? String(((0.3 - hpf) / 0.3 * 0.6 + 0.35 * Math.abs(Math.sin(performance.now() / 300))).toFixed(2)) : '0');
   hud.dmgT = Math.max(0, hud.dmgT - dt * 1.6);
   setS(els.dmg, 'opacity', (hud.dmgT * 0.8).toFixed(2));
-  if (!playing && mode !== 'transition') return;
+  if (!playing) return;
   // Crosshair spread.
   hud.xhairKick = Math.max(0, hud.xhairKick - dt * 4);
   const w = curW();
@@ -315,43 +312,36 @@ function updateHUD(dt) {
   if (hud.hitT > 0) els.hm.classList.toggle('head', hud.hit === 2);
   setS(els.ddir, 'opacity', (hud.dmgT).toFixed(2));
   if (hud.dmgT > 0) setS(els.ddir, 'transform', `rotate(${relAngle(hud.dmgAngle).toFixed(3)}rad)`);
-  setS(els.threat, 'display', L && !L.boss ? 'flex' : 'none');
-  setS(els.threatBar, 'transform', `scaleX(${clamp(RUN.heat || 0, 0, 1).toFixed(2)})`);
   setS(els.fire, 'transform', fireHeld() ? 'scale(0.94)' : '');
   els.fire.classList.toggle('on', fireHeld());
   hud.bannerT -= dt;
   if (hud.bannerT <= 0) setS(els.banner, 'opacity', '0');
-  // Compass toward the exit.
-  hud.compassT -= dt;
-  if (hud.compassT <= 0 && L && exitFlow) {
-    hud.compassT = 0.15;
-    const i = cellOf(P.x), j = cellOf(P.z);
-    let tx = (L.exit.ex + 0.5) * CELL, tz = (L.exit.ey + 0.5) * CELL;
-    const k = j * L.N + i;
-    if (L.g[k] !== 3 && !(L.g[k] === 1 && exitFlow[k] <= 1)) {
-      let x = P.x, z = P.z;
-      for (let s = 0; s < 2; s++) { flowStep(exitFlow, x, z, _ws); x = _ws.x; z = _ws.z; }
-      tx = x; tz = z;
-    }
-    hud.compassAng = Math.atan2(tx - P.x, tz - P.z);
-    hud.compassDist = Math.round(Math.max(0, (exitFlow[k] >= 0 ? exitFlow[k] : (L.g[k] === 2 ? L.dStart[L.exit.ry * L.N + L.exit.rx] : 0)) * CELL));
-  }
-  const showComp = mode === 'play' && (exitOpen || (L && L.boss && RUN.bossSpawned === false));
-  setS(els.comp, 'display', showComp ? 'block' : 'none');
-  if (showComp) {
-    setS(els.compArrow, 'transform', `rotate(${relAngle(hud.compassAng).toFixed(2)}rad)`);
-    setT(els.compTxt, exitOpen ? (hud.compassDist > 0 ? hud.compassDist + 'm' : 'EXIT') : 'ARENA');
+  // Arrow toward the weapon crate, or the nearest ammo when running low.
+  const nav = mode === 'play' ? hud.nav : null;
+  setS(els.comp, 'display', nav ? 'block' : 'none');
+  if (nav) {
+    setS(els.compArrow, 'transform', `rotate(${relAngle(nav.ang).toFixed(2)}rad)`);
+    setT(els.compTxt, nav.label + ' ' + nav.dist + 'm');
+    els.comp.classList.toggle('ammo', nav.label === 'AMMO');
   }
   if (!hud.dirty) return;
   hud.dirty = false;
   els.hpBar.style.transform = `scaleX(${clamp(hpf, 0, 1)})`;
   setT(els.hpN, String(Math.ceil(P.hp)));
-  setT(els.floor, 'FLOOR ' + RUN.floor + (RUN.mk > 0 ? ' · MK ' + (RUN.mk + 1) : ''));
-  if (L && L.boss) setT(els.obj, exitOpen ? 'ELEVATOR OPEN' : (RUN.bossSpawned ? 'KILL ' + (boss ? boss.def.name : 'THE BOSS') : 'FIND THE ARENA'));
-  else setT(els.obj, exitOpen ? 'ELEVATOR OPEN' : `KILLS ${Math.min(RUN.floorKills, RUN.D.quota)} / ${RUN.D.quota} TO OPEN ELEVATOR`);
-  els.obj.classList.toggle('open', exitOpen);
-  setT(els.score, fmt(RUN.score));
-  setT(els.kills, RUN.kills + (RUN.kills === 1 ? ' KILL' : ' KILLS'));
+  const tm = fmtTime(RUN.time);
+  if (els.floor._v !== tm) { els.floor._v = tm; els.floor.innerHTML = tm + '<small>SURVIVED</small>'; }
+  const toBoss = Math.max(0, RUN.nextBoss - RUN.time);
+  const lowAmmo = (() => { const w = curW(); if (!w) return false; const a = ammoOf(w.id); return a.mag + a.res <= magSize(w); })();
+  let status, warn = false;
+  if (boss && !boss.dead) { status = 'KILL ' + boss.def.name; warn = true; }
+  else if (RUN.crate) status = 'WEAPON CRATE SPOTTED';
+  else if (lowAmmo) { status = 'LOW AMMO · FIND SOME'; warn = true; }
+  else if (toBoss < 30) { status = 'BOSS IN ' + Math.ceil(toBoss) + 's'; warn = true; }
+  else status = 'MK ' + (RUN.mk + 1) + ' · ' + RUN.owned.length + (RUN.owned.length === 1 ? ' GUN' : ' GUNS');
+  setT(els.obj, status);
+  els.obj.classList.toggle('warn', warn);
+  setT(els.score, String(RUN.kills));
+  setT(els.kills, (RUN.kills === 1 ? 'KILL' : 'KILLS') + (bestScore != null ? ' · BEST ' + fmtTime(bestScore) : ''));
   if (boss && !boss.dead) { setS(els.boss, 'display', 'block'); setT(els.bossName, boss.def.name); els.bossBar.style.transform = `scaleX(${clamp(boss.hp / boss.maxHp, 0, 1)})`; }
   else setS(els.boss, 'display', 'none');
   if (w) {
@@ -382,11 +372,9 @@ function buildScreens() {
   // Title
   const T = els.title = el('div', 'df-modal df-title', modalRoot);
   el('div', 'df-logo', T, '<span>DEAD</span><span>FLOORS</span>');
-  el('div', 'df-tag', T, 'HOW DEEP CAN YOU GO?');
-  els.startBtn = btn(T, 'LOADING…', 'primary', () => startRun(false));
+  el('div', 'df-tag', T, 'HOW LONG CAN YOU SURVIVE?');
+  els.startBtn = btn(T, 'LOADING…', 'primary', () => startRun());
   els.startBtn.disabled = true;
-  els.contBtn = btn(T, 'CONTINUE', '', () => startRun(true));
-  els.contBtn.style.display = 'none';
   els.load = el('div', 'df-load', T);
   els.best = el('div', 'df-best', T);
   el('div', 'df-help', T, '<div><b>◎</b>LEFT THUMB<br>MOVES</div><div><b>↔</b>DRAG RIGHT<br>TO AIM</div><div><b>●</b>HOLD FIRE<br>TO SHOOT</div>');
@@ -414,7 +402,7 @@ function buildScreens() {
   els.deadPB = el('div', 'df-pb', D, '');
   els.board = el('div', 'df-board', D, '');
   const row = el('div', 'df-row', D);
-  btn(row, 'AGAIN', 'primary small', () => startRun(false));
+  btn(row, 'AGAIN', 'primary small', () => startRun());
   btn(row, 'MENU', 'small', () => showScreen('title'));
   refreshSensText();
 }
@@ -425,10 +413,8 @@ function showScreen(name) {
 }
 function renderTitle() {
   if (!els.title) return;
-  if (threeReady) { els.startBtn.disabled = false; setT(els.startBtn, saved ? 'NEW RUN' : 'START'); }
-  if (saved) { els.contBtn.style.display = ''; setT(els.contBtn, 'CONTINUE · FLOOR ' + saved.floor); }
-  else els.contBtn.style.display = 'none';
-  setT(els.best, bestScore != null ? 'BEST ' + fmt(bestScore) : '');
+  if (threeReady) { els.startBtn.disabled = false; setT(els.startBtn, 'START'); }
+  setT(els.best, bestScore != null ? 'BEST TIME ' + fmtTime(bestScore) : '');
 }
 function toggleSound() {
   settings.sound = !settings.sound;

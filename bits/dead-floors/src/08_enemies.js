@@ -1,9 +1,9 @@
 // Zombies, bosses, the spawn director, pickups and player damage.
 const ZT = {
-  walker: { hp: 70, speed: 1.3, dmg: 10, scale: 1, radius: 0.32, score: 10, reach: 1.05, turn: 3.5 },
-  runner: { hp: 48, speed: 3.5, dmg: 7, scale: 0.96, radius: 0.3, score: 15, reach: 1.0, turn: 6 },
-  brute: { hp: 330, speed: 1.15, dmg: 24, scale: 1.38, radius: 0.46, score: 40, reach: 1.35, turn: 2.5 },
-  spitter: { hp: 110, speed: 1.6, dmg: 12, scale: 1.0, radius: 0.32, score: 25, reach: 1.05, turn: 3.5, ranged: true },
+  walker: { hp: 70, speed: 1.65, dmg: 10, scale: 1, radius: 0.32, score: 10, reach: 1.05, turn: 3.5 },
+  runner: { hp: 48, speed: 3.7, dmg: 7, scale: 0.96, radius: 0.3, score: 15, reach: 1.0, turn: 6 },
+  brute: { hp: 330, speed: 1.4, dmg: 24, scale: 1.38, radius: 0.46, score: 40, reach: 1.35, turn: 2.5 },
+  spitter: { hp: 110, speed: 1.75, dmg: 12, scale: 1.0, radius: 0.32, score: 25, reach: 1.05, turn: 3.5, ranged: true },
   butcher: { hp: 1900, speed: 1.75, dmg: 30, scale: 2.05, radius: 0.8, score: 600, reach: 2.3, turn: 2.2, boss: true, name: 'THE BUTCHER' },
   brood: { hp: 2300, speed: 0.95, dmg: 18, scale: 1.75, radius: 0.85, score: 700, reach: 2.0, turn: 1.8, boss: true, name: 'THE BROODMOTHER' },
 };
@@ -11,25 +11,19 @@ const zombies = [];
 const zpool = {};
 let boss = null;
 
-// Gradual difficulty. A smooth level per floor: the first floors ramp gently, the slope
-// reaches full strength by floor 7, and the floors after each boss give a fading breather.
-function difficultyLevel(f) {
-  const d = Math.max(0, f - 1);
-  let e = d * (0.55 + 0.45 * Math.min(1, d / 6));
-  if (f > 5) { const k = (f - 1) % 5; e -= 0.8 * (1 - k / 4); }
-  return Math.max(0, e) * tune('difficulty_ramp', 1);
-}
-function difficulty(f) {
-  const d = difficultyLevel(f);
+// Difficulty grows smoothly with time survived: gentle for the first minutes, then about
+// one level per 40 seconds (scaled by the difficulty_ramp knob).
+function difficultyAt(t) {
+  const m = Math.max(0, t) / 60;
+  const d = m * (0.6 + 0.4 * Math.min(1, m / 3)) * 1.5 * tune('difficulty_ramp', 1);
   return {
     level: d,
-    hp: 1 + 0.14 * d, spd: 1 + Math.min(0.45, 0.03 * d), dmg: 1 + 0.07 * d,
-    quota: Math.min(40, 8 + Math.round(2 * d)), cap: Math.min(18, 5 + Math.round(d)),
-    interval: Math.max(1.0, 4.6 - 0.24 * d), init: Math.min(14, 4 + Math.round(d * 0.8)),
+    hp: 1 + 0.12 * d, spd: 1 + Math.min(0.5, 0.03 * d), dmg: 1 + 0.06 * d,
+    cap: Math.min(22, 6 + Math.round(d)), interval: Math.max(0.7, 3.2 - 0.2 * d),
   };
 }
-function pickType(f) {
-  const w = [['walker', 10], ['runner', f >= 2 ? Math.min(6, (f - 1) * 1.5) : 0], ['brute', f >= 4 ? Math.min(4, (f - 3) * 0.8) : 0], ['spitter', f >= 7 ? Math.min(4, (f - 6) * 0.8) : 0]];
+function pickType(lv) {
+  const w = [['walker', 10], ['runner', lv >= 0.8 ? Math.min(7, (lv - 0.5) * 1.5) : 0], ['brute', lv >= 3 ? Math.min(4, (lv - 2.5) * 0.8) : 0], ['spitter', lv >= 5 ? Math.min(4, (lv - 4.5) * 0.8) : 0]];
   let tot = 0; for (const [, v] of w) tot += v;
   let r = Math.random() * tot;
   for (const [k, v] of w) { if ((r -= v) <= 0) return k; }
@@ -47,10 +41,10 @@ function spawnZombie(type, x, z, aware) {
   model.head.visible = true;
   scene.add(model.root);
   const D = RUN.D;
-  const hpMul = def.boss ? (1 + 0.55 * Math.max(0, Math.floor(RUN.floor / 5) - 1)) * (1 + 0.06 * (RUN.floor - 5)) : D.hp;
+  const hpMul = def.boss ? 1 + 0.6 * Math.max(0, (RUN.bossIndex || 1) - 1) : D.hp;
   const zb = {
     type, def, model, x, z, yaw: model.root.rotation.y, hp: def.hp * hpMul, maxHp: def.hp * hpMul,
-    speed: def.speed * (def.boss ? 1 : D.spd * (1 + 0.1 * (RUN.heat || 0))) * rnd(0.88, 1.12), aware: false, atkT: 0, atkCd: 0.5, phase: Math.random() * 10,
+    speed: def.speed * (def.boss ? 1 : D.spd) * rnd(0.88, 1.12), aware: false, atkT: 0, atkCd: 0.5, phase: Math.random() * 10,
     flinch: 0, dead: false, deadT: 0, radius: def.radius, scale: def.scale, seed: Math.random() * 10,
     headR: 0.15 * def.scale, bodyR: (type === 'brood' ? 0.5 : 0.27) * def.scale, chestY: 1.2 * def.scale, bodyTop: 1.48 * def.scale,
     hx: x, hy: 1.6 * def.scale, hz: z, los: false, losT: 0, groanT: rnd(1, 6), wanderT: 0, wanderYaw: 0, wanderGo: false,
@@ -81,68 +75,94 @@ function clearZombies() {
 
 function spawnFar(type) {
   if (!L.spawnCells.length) return null;
-  let best = null, bestScore = -1;
+  let best = null, bestScore = -1e9;
   for (let k = 0; k < 14; k++) {
     const c = L.spawnCells[Math.floor(Math.random() * L.spawnCells.length)];
     const x = ((c % L.N) + 0.5) * CELL, z = (((c / L.N) | 0) + 0.5) * CELL;
     const d = Math.hypot(x - P.x, z - P.z);
     if (d < 9) continue;
+    // Out of sight and a short run away along the corridors, so they arrive quickly.
+    const pd = flow && flow[c] >= 0 ? flow[c] * CELL : d;
     const seen = d < 24 && losClear(P.x, P.z, x, z);
-    const score = (seen ? 0 : 30) + Math.min(d, 26);
+    const score = (seen ? 0 : 30) + (pd < 14 ? pd - 14 : pd > 30 ? 30 - pd : 0) * 0.8 + Math.random() * 3;
     if (score > bestScore) { bestScore = score; best = [x, z]; }
   }
   if (!best) return null;
-  return spawnZombie(type || pickType(RUN.floor), best[0] + rnd(-0.6, 0.6), best[1] + rnd(-0.6, 0.6), true);
+  return spawnZombie(type || pickType(RUN.D.level), best[0] + rnd(-0.6, 0.6), best[1] + rnd(-0.6, 0.6), true);
 }
 
-const DIRECTOR = { t: 3, addT: 6 };
+const DIRECTOR = { t: 3 };
+// The opening horde: a few hunters already on their way.
 function populateFloor() {
-  DIRECTOR.t = 4; DIRECTOR.addT = 6;
-  const n = L.boss ? 3 : RUN.D.init;
-  const cells = L.spawnCells.slice();
-  for (let i = 0; i < n && cells.length; i++) {
-    const k = cells.splice(Math.floor(Math.random() * cells.length), 1)[0];
-    spawnZombie(pickType(RUN.floor), ((k % L.N) + 0.5 + rnd(-0.25, 0.25)) * CELL, (((k / L.N) | 0) + 0.5 + rnd(-0.25, 0.25)) * CELL, false);
-  }
+  DIRECTOR.t = 3;
+  for (let i = 0; i < 4; i++) spawnFar('walker');
 }
 function updateDirector(dt) {
+  RUN.dT = (RUN.dT || 0) - dt;
+  if (RUN.dT <= 0) { RUN.dT = 1; RUN.D = difficultyAt(RUN.time); }
   const alive = zombies.reduce((n, z) => n + (z.dead ? 0 : 1), 0);
-  if (L.boss) {
-    if (!RUN.bossSpawned) {
-      const k = cellOf(P.z) * L.N + cellOf(P.x);
-      if (L.arena && L.roomOf[k] === L.arena.id) spawnBoss();
-    } else if (boss && !boss.dead) {
-      DIRECTOR.addT -= dt;
-      if (DIRECTOR.addT <= 0) { DIRECTOR.addT = rnd(6, 9); if (alive < 5) spawnFar(Math.random() < 0.6 ? 'runner' : 'walker'); }
+  const bossAlive = !!(boss && !boss.dead);
+  // A boss every three minutes.
+  if (RUN.time >= RUN.nextBoss && !bossAlive) { RUN.nextBoss += 180; spawnBoss(); }
+  if (RUN.graceT > 0) RUN.graceT -= dt;
+  else {
+    DIRECTOR.t -= dt;
+    if (DIRECTOR.t <= 0) {
+      DIRECTOR.t = RUN.D.interval * (bossAlive ? 1.6 : 1) * rnd(0.7, 1.3);
+      const cap = RUN.D.cap - (bossAlive ? 4 : 0);
+      if (alive < cap) { spawnFar(); if (RUN.D.level > 4 && Math.random() < 0.3 && alive + 1 < cap) spawnFar(); }
     }
-    return;
   }
-  // Threat builds the longer you stay on a floor: faster spawns, more zombies at once.
-  RUN.heat = Math.min(1, (RUN.heat || 0) + dt * tune('threat_build', 1) / 100);
-  if (RUN.graceT > 0) { RUN.graceT -= dt; return; }
-  DIRECTOR.t -= dt;
-  if (DIRECTOR.t <= 0) {
-    DIRECTOR.t = RUN.D.interval * (1 - 0.4 * RUN.heat) * (exitOpen ? 1.15 : 1) * rnd(0.7, 1.3);
-    if (alive < RUN.D.cap + Math.round(3 * RUN.heat)) spawnFar();
+  updateSupplies(dt);
+}
+
+// ---------- scarce supplies ----------
+function countPick(kind) { let n = 0; for (const p of pickups) if (p.kind === kind) n++; return n; }
+// Supplies appear a walk away (measured along corridors), never on top of the player.
+function spawnSupply(kind, minDist, maxDist) {
+  const cells = L.roomCells;
+  let best = null, bestErr = 1e9;
+  for (let k = 0; k < 40; k++) {
+    const c = cells[Math.floor(Math.random() * cells.length)];
+    const x = ((c % L.N) + 0.5 + rnd(-0.25, 0.25)) * CELL, z = (((c / L.N) | 0) + 0.5 + rnd(-0.25, 0.25)) * CELL;
+    const d = flow && flow[c] >= 0 ? flow[c] * CELL : Math.hypot(x - P.x, z - P.z);
+    const err = d < minDist ? minDist - d : d > maxDist ? d - maxDist : 0;
+    if (err < bestErr) { bestErr = err; best = [x, z]; if (err === 0) break; }
+  }
+  return best ? spawnPickup(kind, best[0], best[1], false) : null;
+}
+function updateSupplies(dt) {
+  RUN.ammoT -= dt;
+  if (RUN.ammoT <= 0) { RUN.ammoT = rnd(16, 26) / tune('ammo_drops', 1); if (countPick('ammo') < 3) spawnSupply('ammo', 14, 45); }
+  RUN.medT -= dt;
+  if (RUN.medT <= 0) { RUN.medT = rnd(55, 80); if (countPick('med') < 1) spawnSupply('med', 14, 55); }
+  if (!RUN.crate) {
+    RUN.crateT -= dt;
+    if (RUN.crateT <= 0) { RUN.crateT = rnd(55, 75); spawnCrate(); }
   }
 }
+function spawnCrate() {
+  const next = WEAPONS.find(w => !RUN.owned.includes(w.id));
+  const p = spawnSupply('weapon', 25, 70);
+  if (!p) return;
+  p.weapon = next ? next.id : null;
+  RUN.crate = p;
+  showBanner('WEAPON CRATE', (next ? next.name : 'WEAPON UPGRADE') + ' · FOLLOW THE ARROW', '#7fd8ff');
+  play('ding', 0.7, 0);
+  hud.dirty = true;
+}
 function spawnBoss() {
-  RUN.bossSpawned = true;
-  const kind = (Math.floor(RUN.floor / 5) % 2 === 1) ? 'butcher' : 'brood';
-  const a = L.arena;
-  // Opposite side of the arena from where the player entered.
-  const cx = (a.x + a.w / 2) * CELL, cz = (a.y + a.h / 2) * CELL;
-  const vx = cx - P.x, vz = cz - P.z, vl = Math.hypot(vx, vz) || 1;
-  const bx = clamp(cx + vx / vl * CELL * 2.6, (a.x + 0.7) * CELL, (a.x + a.w - 0.7) * CELL);
-  const bz = clamp(cz + vz / vl * CELL * 2.6, (a.y + 0.7) * CELL, (a.y + a.h - 0.7) * CELL);
-  boss = spawnZombie(kind, bx, bz, true);
-  boss.chargeCd = 3;
+  RUN.bossIndex = (RUN.bossIndex || 0) + 1;
+  const kind = RUN.bossIndex % 2 === 1 ? 'butcher' : 'brood';
+  boss = spawnFar(kind);
+  if (!boss) return;
+  boss.chargeCd = 4;
   play('roar', 1, 0);
   P.shake = Math.max(P.shake, 0.5);
   haptic('heavy');
   sting('danger');
   musicSet('boss');
-  showBanner(ZT[kind].name, 'BOSS · FLOOR ' + RUN.floor, '#ff4a3a');
+  showBanner(ZT[kind].name, "IT'S COMING FOR YOU", '#ff4a3a');
   hud.dirty = true;
 }
 
@@ -189,32 +209,22 @@ function killZombie(z, head, dx, dz) {
   addDecal('blood', z.x + dx * 0.5, 0, z.z + dz * 0.5, 0, 1, 0, 1.2 * z.scale, Math.random() * TAU, rint(0, 2));
   play3('zdie', z.x, z.z, 0.85, 60);
   RUN.kills++;
-  addScore(z.def.score * (1 + 0.1 * (RUN.floor - 1)) + (head ? 5 : 0));
-  if (!z.def.boss) RUN.floorKills++;
+  if (head) RUN.headshots = (RUN.headshots || 0) + 1;
   const dropMul = tune('ammo_drops', 1);
   if (z.def.boss) {
-    for (let i = 0; i < 4; i++) spawnPickup('ammo', z.x + rnd(-1.2, 1.2), z.z + rnd(-1.2, 1.2), true);
-    for (let i = 0; i < 2; i++) spawnPickup('med', z.x + rnd(-1.2, 1.2), z.z + rnd(-1.2, 1.2), true);
+    for (let i = 0; i < 3; i++) spawnPickup('ammo', z.x + rnd(-1.2, 1.2), z.z + rnd(-1.2, 1.2), true);
+    spawnPickup('med', z.x + rnd(-1.2, 1.2), z.z + rnd(-1.2, 1.2), true);
     bossDefeated(z);
   } else {
-    // Drops lean toward what the player is short of.
+    // Ammo is scarce: headshot kills are rewarded, body-shot kills rarely drop anything.
     const cw = curW(), ca = ammoOf(cw.id);
-    const ammoP = (ca.mag + ca.res < magSize(cw) ? 0.5 : 0.3) * dropMul;
-    const medP = P.hp < 35 ? 0.18 : 0.06;
+    const ammoP = ((head ? 0.3 : 0.08) + (ca.mag + ca.res < magSize(cw) ? 0.07 : 0)) * dropMul;
+    const medP = P.hp < 35 ? 0.06 : 0.025;
     const r = Math.random();
     if (r < ammoP) spawnPickup('ammo', z.x, z.z, true);
     else if (r < ammoP + medP) spawnPickup('med', z.x, z.z, true);
   }
-  if (!L.boss && !exitOpen && RUN.floorKills >= RUN.D.quota) openExit();
   hud.dirty = true;
-}
-function openExit() {
-  setExitOpen();
-  play('ding', 0.9, 0);
-  play3('door', (L.exit.ex + 0.5) * CELL, (L.exit.ey + 0.5) * CELL, 1, 0);
-  sting('success');
-  showBanner('ELEVATOR OPEN', 'Follow the arrow', '#5dff8a');
-  haptic('success');
 }
 function bossDefeated(z) {
   RUN.bossesKilled = (RUN.bossesKilled || 0) + 1;
@@ -223,9 +233,10 @@ function bossDefeated(z) {
   musicSet('explore');
   // Kill the adds with the boss.
   for (const o of zombies) if (!o.dead && o !== z) { o.hp = 0; killZombie(o, false, 0, 1); }
-  openExit();
-  showBanner(z.def.name + ' DOWN', '+' + fmt(z.def.score) + ' · elevator open', '#ffd25a');
-  ctx.platform.milestone && ctx.platform.milestone('boss_defeated', { floor: RUN.floor });
+  sting('success');
+  haptic('success');
+  showBanner(z.def.name + ' DOWN', 'SUPPLIES DROPPED', '#ffd25a');
+  try { ctx.platform.milestone('boss_defeated', { boss: RUN.bossIndex, seconds: Math.floor(RUN.time) }); } catch (e) { }
 }
 
 const _ws = { x: 0, z: 0 };
@@ -277,6 +288,8 @@ function updateZombie(z, dt) {
     desYaw = Math.atan2(tx - z.x, tz - z.z);
     moveYaw = desYaw;
     speed = z.speed;
+    // Once they see you up close they lunge.
+    if (!def.boss && !def.ranged && z.los && dist < 8) speed *= 1.3;
     if (def.boss) speed = bossThink(z, dt, dist, dx, dz) ?? speed;
     else if (def.ranged && z.los && dist > 4 && dist < 13) {
       speed = dist > 9 ? z.speed * 0.6 : 0;
@@ -427,6 +440,7 @@ function spawnPickup(kind, x, z, dropped) {
   collide(e, 0.25, false);
   e.grp.position.x = e.x; e.grp.position.z = e.z;
   pickups.push(e);
+  return e;
 }
 function clearPickups() { for (const p of pickups) if (p.grp.parent) p.grp.parent.remove(p.grp); pickups.length = 0; }
 function updatePickups(dt) {
@@ -440,11 +454,25 @@ function updatePickups(dt) {
     if (Math.hypot(p.x - P.x, p.z - P.z) < 1.0) {
       if (p.kind === 'med') {
         if (P.hp >= P.maxHp) continue;
-        P.hp = Math.min(P.maxHp, P.hp + 35);
+        P.hp = Math.min(P.maxHp, P.hp + 30);
         play('med', 0.8, 0);
-        floatNote('+35 HEALTH', '#ff6b6b');
+        floatNote('+30 HEALTH', '#ff6b6b');
+      } else if (p.kind === 'weapon') {
+        if (p.weapon) {
+          const w = WBY[p.weapon];
+          giveWeapon(p.weapon);
+          showBanner('NEW WEAPON', w.name, '#7fd8ff');
+        } else {
+          RUN.mk++;
+          for (const id of RUN.owned) { const a = ammoOf(id); a.mag = Math.max(a.mag, magSize(WBY[id])); }
+          showBanner('WEAPONS UPGRADED', 'MK ' + (RUN.mk + 1) + ' · MORE DAMAGE', '#7fd8ff');
+        }
+        RUN.crate = null;
+        play('weapon', 0.8, 0); sting('powerup');
       } else {
-        for (const id of RUN.owned) { const w = WBY[id], a = ammoOf(id); a.res += Math.ceil(magSize(w) * (id === curW().id ? 1 : 0.45)); }
+        // Scarce: most of a magazine for the gun in hand, a little for the others.
+        const cur = curW().id;
+        for (const id of RUN.owned) { const w = WBY[id], a = ammoOf(id); a.res += Math.ceil(magSize(w) * (id === cur ? 0.6 : 0.25)); }
         play('pickup', 0.8, 0);
         floatNote('+AMMO', '#ffd25a');
       }

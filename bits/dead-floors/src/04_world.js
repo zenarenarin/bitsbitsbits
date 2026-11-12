@@ -13,6 +13,7 @@ const poolLights = [];
 let exitLight = null, exitIndicator = null;
 let decals = null;
 let flow = null, flowCell = -1, exitFlow = null;
+let navField = null, navKey = -1;
 
 function buildMaterials() {
   const std = (o) => new THREE.MeshStandardMaterial(o);
@@ -176,7 +177,7 @@ function buildLevel(Ld) {
 
   // Ceiling fixtures (also lit inside elevators).
   fixtureList = L.lights.slice();
-  for (const e of [L.start, L.exit]) fixtureList.push({ x: (e.ex + 0.5) * CELL, z: (e.ey + 0.5) * CELL, state: 'dim', color: 0xe8f0ff, rot: 0, phase: 0, elev: true });
+  for (const e of [L.start, L.exit].filter(Boolean)) fixtureList.push({ x: (e.ex + 0.5) * CELL, z: (e.ey + 0.5) * CELL, state: 'dim', color: 0xe8f0ff, rot: 0, phase: 0, elev: true });
   fixtures = new THREE.InstancedMesh(G.fixture, MAT.fixture, fixtureList.length);
   fixtures.userData.sharedGeo = true;
   const col = new THREE.Color();
@@ -190,7 +191,8 @@ function buildLevel(Ld) {
   levelGroup.add(fixtures);
 
   buildElevator('start', L.start);
-  buildElevator('exit', L.exit);
+  if (L.exit) buildElevator('exit', L.exit);
+  else { doors.exit = null; if (exitLight) exitLight.intensity = 0; }
 
   // Decals: static blood first, the rest of each ring is for gunfire.
   decals = { blood: [], hole: null, scorch: null, bNext: [0, 0, 0], bStart: [0, 0, 0], hNext: 0, sNext: 0 };
@@ -203,7 +205,8 @@ function buildLevel(Ld) {
   }
   for (let v = 0; v < 3; v++) decals.bStart[v] = decals.bNext[v];
 
-  exitFlow = bfsFrom(L.exit.rx, L.exit.ry);
+  exitFlow = L.exit ? bfsFrom(L.exit.rx, L.exit.ry) : null;
+  navField = null; navKey = -1;
   flow = null; flowCell = -1;
 }
 
@@ -294,7 +297,7 @@ function updateDoor(d, dt) {
   d.blocker.on = d.open < 0.85;
 }
 function setExitOpen() {
-  if (exitOpen) return;
+  if (exitOpen || !doors.exit) return;
   exitOpen = true;
   doors.exit.target = 1;
   if (exitIndicator) exitIndicator.material = MAT.green;
@@ -417,7 +420,7 @@ function updateFlow() {
   let i = cellOf(P.x), j = cellOf(P.z);
   const v = (i >= 0 && j >= 0 && i < L.N && j < L.N) ? L.g[j * L.N + i] : 0;
   if (v === 2) { i = L.start.rx; j = L.start.ry; }
-  else if (v === 3) { i = L.exit.rx; j = L.exit.ry; }
+  else if (v === 3 && L.exit) { i = L.exit.rx; j = L.exit.ry; }
   else if (v !== 1) return;
   const k = j * L.N + i;
   if (k === flowCell && flow) return;
@@ -445,4 +448,11 @@ function flowStep(field, x, z, out) {
   }
   out.x = (bi + 0.5) * CELL; out.z = (bj + 0.5) * CELL;
   return bi !== i || bj !== j;
+}
+
+// Path field toward an arbitrary point (weapon crate, nearest ammo), cached by target cell.
+function navTo(x, z) {
+  const i = cellOf(x), j = cellOf(z), key = j * L.N + i;
+  if (key !== navKey || !navField) { navKey = key; navField = bfsFrom(i, j); }
+  return navField;
 }

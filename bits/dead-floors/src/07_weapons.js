@@ -72,8 +72,9 @@ function giveWeapon(id) {
   const w = WBY[id];
   if (!RUN.owned.includes(id)) RUN.owned.push(id);
   const a = ammoOf(id);
+  // Found guns come with one magazine and half a spare: ammo stays scarce.
   a.mag = Math.max(a.mag, magSize(w));
-  a.res = Math.max(a.res, w.start);
+  a.res = Math.max(a.res, Math.ceil(magSize(w) * 0.5));
   equip(RUN.owned.indexOf(id), true);
 }
 function equip(index, instant) {
@@ -145,7 +146,7 @@ function fire() {
   camera.getWorldDirection(_fw);
   _right.set(1, 0, 0).applyQuaternion(camera.quaternion);
   _up.set(0, 1, 0).applyQuaternion(camera.quaternion);
-  const assist = assistTarget(0.075 * tune('aim_assist', 1), 30);
+  const assist = assistTarget(0.04 * tune('aim_assist', 1), 30);
   const base = new THREE.Vector3().copy(_fw);
   if (assist && !w.pellets) {
     base.set(assist.x - camera.position.x, assist.y - camera.position.y, assist.zz - camera.position.z).normalize();

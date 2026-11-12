@@ -1,13 +1,13 @@
-// Level generation: rooms joined by corridors on a grid, an arrival elevator and an
-// exit elevator in the farthest room. Every fifth floor is a boss arena.
-// Grid values: 0 solid, 1 open, 2 start elevator, 3 exit elevator.
+// Level generation: one big building per run, rooms joined by corridors on a grid,
+// with the arrival elevator in a corner room.
+// Grid values: 0 solid, 1 open, 2 start elevator (3 = exit elevator, unused in survival).
 const DIR4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
-function genLevel(floor, seed) {
+function genLevel(seed) {
   const R = mulberry32(seed);
   const ri = (a, b) => Math.floor(a + R() * (b - a + 1));
-  const boss = floor % 5 === 0;
-  const N = boss ? 21 : Math.min(34, 20 + floor);
+  const floor = 8; // scales clutter and blood
+  const N = 30;
   const g = new Uint8Array(N * N);
   const roomOf = new Int16Array(N * N).fill(-1);
   const rooms = [];
@@ -33,13 +33,13 @@ function genLevel(floor, seed) {
     if (R() < 0.5) { sx(); sy(); } else { sy(); sx(); }
   }
 
-  let startRoom, arena = null;
-  if (!boss) {
+  let startRoom;
+  {
     const corner = ri(0, 3);
     const sxp = corner & 1 ? N - 5 - ri(0, 2) : 2 + ri(0, 2);
     const syp = corner & 2 ? N - 5 - ri(0, 2) : 2 + ri(0, 2);
     startRoom = addRoom(sxp, syp, 3, 3, 'start');
-    const target = Math.min(15, 7 + Math.floor(floor / 2));
+    const target = 15;
     for (let t = 0; t < 600 && rooms.length < target; t++) {
       const w = ri(2, 5), h = ri(2, 5), x = ri(2, N - 2 - w), y = ri(2, N - 2 - h);
       if (free(x, y, w, h)) addRoom(x, y, w, h);
@@ -56,15 +56,6 @@ function genLevel(floor, seed) {
     }
     for (let k = 0; k < Math.floor(rooms.length / 3); k++) { const a = ri(0, rooms.length - 1), b = ri(0, rooms.length - 1); if (a !== b) conn.push([a, b]); }
     for (const [a, b] of conn) carve(rooms[a], rooms[b]);
-  } else {
-    const c = Math.floor(N / 2);
-    arena = addRoom(c - 4, c - 4, 9, 9, 'arena');
-    startRoom = addRoom(2, c - 1, 3, 3, 'start');
-    const side1 = addRoom(c - 1, 2, 3, 2, 'cache');
-    const side2 = addRoom(c - 1, N - 4, 3, 2, 'cache');
-    carve(startRoom, arena); carve(side1, arena); carve(side2, arena);
-    // Pillars for cover.
-    for (const [dx, dy] of [[-2, -2], [2, -2], [-2, 2], [2, 2]]) { g[id(c + dx, c + dy)] = 0; roomOf[id(c + dx, c + dy)] = -1; }
   }
 
   // BFS distances over open cells.
@@ -95,24 +86,14 @@ function genLevel(floor, seed) {
     }
     return c;
   }
-  let exitRoom;
-  if (boss) exitRoom = arena;
-  else {
-    let bd = -1;
-    for (const r of rooms) { if (r === startRoom) continue; const d = dStart[id(Math.round(r.cx), Math.round(r.cy))]; if (d > bd && elevatorSpots(r).length) { bd = d; exitRoom = r; } }
-  }
   const sSpots = elevatorSpots(startRoom);
-  if (!exitRoom || !sSpots.length) return genLevel(floor, (seed + 7777) >>> 0);
+  if (!sSpots.length) return genLevel((seed + 7777) >>> 0);
   const start = sSpots[ri(0, sSpots.length - 1)];
   g[id(start.ex, start.ey)] = 2;
-  let eSpots = elevatorSpots(exitRoom).filter(s => Math.abs(s.ex - start.ex) + Math.abs(s.ey - start.ey) > 3);
-  if (!eSpots.length) eSpots = elevatorSpots(exitRoom);
-  eSpots.sort((a, b) => dStart[id(b.rx, b.ry)] - dStart[id(a.rx, a.ry)]);
-  const exit = eSpots[boss ? 0 : ri(0, Math.min(2, eSpots.length - 1))];
-  g[id(exit.ex, exit.ey)] = 3;
+  const exit = null;
 
   const nearWall = (i, j) => DIR4.some(([dx, dy]) => g[id(i + dx, j + dy)] !== 1);
-  const isDoorCell = (i, j) => (i === start.rx && j === start.ry) || (i === exit.rx && j === exit.ry);
+  const isDoorCell = (i, j) => i === start.rx && j === start.ry;
 
   // Ceiling lights.
   const lights = [];
@@ -132,7 +113,7 @@ function genLevel(floor, seed) {
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
     const k = id(i, j);
     if (g[k] !== 1 || roomOf[k] < 0 || roomOf[k] === startRoom.id || isDoorCell(i, j) || !nearWall(i, j)) continue;
-    if (R() > (boss ? 0.12 : 0.24)) continue;
+    if (R() > 0.24) continue;
     const walls = DIR4.filter(([dx, dy]) => g[id(i + dx, j + dy)] === 0);
     if (!walls.length) continue;
     const [dx, dy] = walls[ri(0, walls.length - 1)];
@@ -162,8 +143,9 @@ function genLevel(floor, seed) {
   const startCells = roomCells.filter(k => roomOf[k] === startRoom.id && !(k % N === start.rx && ((k / N) | 0) === start.ry));
   placePickup('ammo', startCells[ri(0, startCells.length - 1)]);
   const others = roomCells.filter(k => roomOf[k] !== startRoom.id);
-  const nAmmo = boss ? 9 : 2 + Math.round(rooms.length * 0.55);
-  const nMed = boss ? 4 : 1 + Math.round(rooms.length * 0.22);
+  // Scarce: a couple of boxes to start; more appear one at a time during the run.
+  const nAmmo = 2;
+  const nMed = 1;
   for (let a = 0; a < nAmmo; a++) placePickup('ammo', others[ri(0, others.length - 1)]);
   for (let a = 0; a < nMed; a++) placePickup('med', others[ri(0, others.length - 1)]);
 
@@ -186,5 +168,5 @@ function genLevel(floor, seed) {
 
   // Cells where zombies may appear later: open, not the start room, not elevators.
   const spawnCells = openCells.filter(k => roomOf[k] !== startRoom.id && dStart[k] > 3);
-  return { N, g, roomOf, rooms, startRoom, exitRoom, arena, start, exit, boss, floor, lights, props, pickups, decals, spawnCells, dStart };
+  return { N, g, roomOf, rooms, startRoom, start, exit, boss: false, arena: null, lights, props, pickups, decals, spawnCells, dStart, roomCells };
 }

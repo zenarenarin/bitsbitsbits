@@ -1,9 +1,10 @@
 # DEAD FLOORS
 
-An endless first-person zombie shooter Bit for Plethora (`plethora-bit@2`, three.js 0.164.1).
-Each floor of a derelict building is generated from rooms and corridors. Kill enough zombies to
-open the elevator, ride it down, and get a new weapon on every floor (12 guns, then Mk upgrades).
-Every fifth floor is a boss arena (The Butcher, The Broodmother, alternating and scaling).
+A first-person zombie survival shooter Bit for Plethora (`plethora-bit@2`, three.js 0.164.1).
+Each run takes place in one randomly generated building. The horde hunts you from the moment it
+spawns and grows over time; ammo is scarce (a few respawning boxes, rare drops, better odds on
+headshot kills). Weapon crates appear around the building with the next of 12 guns (then Mk
+upgrades), a boss arrives every three minutes, and your score is the time you survive.
 
 | | Touch | Keyboard |
 |---|---|---|
@@ -12,11 +13,11 @@ Every fifth floor is a boss arena (The Butcher, The Broodmother, alternating and
 | Fire | Hold FIRE | Space / F |
 | Reload / swap | RELOAD / SWAP buttons | R / Q |
 
-- Score leaderboard (`score`, best per user), floor checkpoints, submit at every death.
-- Continue Playing via `game.progress.main` (saved on arrival at each floor from floor 2).
+- Leaderboard `survival`: whole seconds survived (best per user), checkpoint each minute, submit on every death or quit.
+- Survival time uses `ctx.game.stopwatch` (active play only).
 - All textures, models and sound effects are procedural; music from `ctx.music`.
-- Tuning knobs: aim assist, look speed, difficulty ramp, ammo drops.
+- Tuning knobs: aim assist, look speed, horde growth rate, ammo supply.
 
 Edit `src/*.js`, then `node build.js` to regenerate `main.js`.
 Dev: serve this folder, copy three.module.js 0.164.1 to `dev/vendor/`, open `dev/index.html`,
-and run `node dev/smoke.js`, `dev/guns.js`, `dev/bot.js`, `dev/exitwalk.js` (Playwright).
+and run `node dev/smoke.js`, `dev/guns.js`, `dev/bot.js` (Playwright).
