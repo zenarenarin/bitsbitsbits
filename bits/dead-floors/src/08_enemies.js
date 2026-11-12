@@ -12,7 +12,7 @@ const zpool = {};
 let boss = null;
 
 function difficulty(f) {
-  const d = Math.max(0, f - 1) * tune('difficulty', 1);
+  const d = Math.max(0, f - 1) * tune('difficulty_ramp', 1);
   return {
     hp: 1 + 0.15 * d, spd: 1 + Math.min(0.4, 0.03 * d), dmg: 1 + 0.07 * d,
     quota: Math.min(40, 8 + Math.round(2.2 * d)), cap: Math.min(18, 6 + Math.round(d)),
