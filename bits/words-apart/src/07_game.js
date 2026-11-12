@@ -6,7 +6,8 @@ window.plethoraBit = {
   async init(ctx) {
     const caps = ctx.capabilities || {};
     let destroyed = false;
-    const now = () => performance.now(); // the single clock every timer reads from
+    // the single clock every timer reads from (a dev recording harness may substitute a virtual one)
+    const now = () => (window.__WA_DEV && window.__waNow ? window.__waNow() : performance.now());
     const bank = loadBank(PUZZLE_BANK_RAW);
     // ---------- persistence (per device) ----------
     let save = { muted: false, days: {}, practiceBest: 0, runs: 0 };
@@ -346,7 +347,7 @@ window.plethoraBit = {
     }
     function toTitle() {
       mode = 'title'; run = null; audio.ambient(false);
-      W.S.dark = 0; W.S.finale = 0; W.S.celebrate = 0; W.S.urgency = 0; D.reset(); D.shiftTarget = ctx.height > ctx.width ? 0.18 : 0.3;
+      W.S.dark = 0; W.S.finale = 0; W.S.celebrate = 0; W.S.urgency = 0; D.reset(); D.shiftTarget = ctx.height > ctx.width ? 0.08 : 0.3; D.shift = D.shiftTarget;
       playHud(false); renderTitle(); showPanel(H.title);
     }
     ctx.listen(H.begin, 'click', () => begin(save.days[day] ? 'practice' : 'daily'));
@@ -413,7 +414,7 @@ window.plethoraBit = {
       H.sheet.style.paddingTop = '80px'; H.sheet.style.paddingBottom = (bot + 18) + 'px';
       H.sHead.style.fontSize = (w < 420 ? 26 : 32) + 'px'; H.sScore.style.fontSize = (w < 420 ? 44 : 56) + 'px';
       H.toast.style.bottom = (bot + 24) + 'px';
-      D.shiftTarget = mode === 'over' && run && run.state === 'won' ? -0.16 : kb ? 0.02 : portrait ? 0.2 : 0.3; // with our keyboard up, lift the traveller into the gap above it
+      D.shiftTarget = mode === 'over' && run && run.state === 'won' ? -0.16 : kb ? 0.02 : mode === 'title' && portrait ? 0.08 : portrait ? 0.2 : 0.3; // with our keyboard up, lift the traveller into the gap above it
       sizeSlots();
     }
     ctx.onResize(() => layout(), { immediate: true });
@@ -421,7 +422,7 @@ window.plethoraBit = {
     // ---------- adaptive quality ----------
     let perfT = 0, perfN = 0, perfStage = 0;
     function adapt(dt) {
-      if (perfStage > 1 || mode === 'title') return;
+      if (perfStage > 1 || mode === 'title' || (window.__WA_DEV && window.__waNow)) return; // a virtual-clock recording keeps full quality
       perfT += dt; perfN++;
       if (perfT > 2.5) {
         const avg = perfT / perfN; perfT = 0; perfN = 0;
