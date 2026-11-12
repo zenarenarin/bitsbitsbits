@@ -1,6 +1,20 @@
 // Procedural textures: grimy institutional concrete, tiles, steel, skin, cloth and blood.
 const TEX = {};
-function cnv(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+// One hidden SDK-managed canvas is reused to paint every texture; each result is copied
+// into a DataTexture before the next one is painted.
+let scratch = null;
+function cnv(w, h) {
+  if (!scratch) {
+    scratch = ctx.createCanvas2D({ layer: 'background', order: -10, input: 'passthrough', willReadFrequently: true });
+    scratch.style.display = 'none';
+  }
+  scratch.width = w; scratch.height = h;
+  const g = scratch.getContext('2d', { willReadFrequently: true });
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+  g.clearRect(0, 0, w, h);
+  return scratch;
+}
 function grain(g, w, h, amp, R, mono = true) {
   const id = g.getImageData(0, 0, w, h), d = id.data;
   for (let i = 0; i < d.length; i += 4) {
@@ -29,10 +43,17 @@ function crack(g, x, y, len, R, color = 'rgba(20,18,15,0.55)') {
   g.stroke();
 }
 function mkTex(c, srgb = true, rep = true) {
-  const t = new THREE.CanvasTexture(c);
-  if (rep) { t.wrapS = t.wrapT = THREE.RepeatWrapping; }
-  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 4;
+  const w = c.width, h = c.height;
+  const src = c.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, w, h).data;
+  const data = new Uint8Array(w * h * 4), row = w * 4;
+  for (let y = 0; y < h; y++) data.set(src.subarray((h - 1 - y) * row, (h - y) * row), y * row);
+  const t = new THREE.DataTexture(data, w, h, THREE.RGBAFormat);
+  t.wrapS = t.wrapT = rep ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
+  t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+  t.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
   t.needsUpdate = true;
   return t;
 }

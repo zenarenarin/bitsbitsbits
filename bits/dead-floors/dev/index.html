@@ -39,6 +39,7 @@ const ctx = {
   capabilities: { audio: true, backgroundMusic: true, haptics: true, storage: true },
   container: host,
   createCanvas(o) { return place(document.createElement('canvas'), o); },
+  createCanvas2D(o) { return place(document.createElement('canvas'), o); },
   createRoot(o) { return place(document.createElement('div'), o); },
   listen(t, ev, fn, o) { t.addEventListener(ev, fn, o); return () => t.removeEventListener(ev, fn, o); },
   onResize(cb, o) { const f = () => cb({ width: ctx.width, height: ctx.height }); window.addEventListener('resize', f); if (o && o.immediate) f(); },
