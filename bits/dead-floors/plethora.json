@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "DEAD FLOORS",
+  "description": "A first-person zombie shooter in a building that goes down forever. Scavenge ammo, clear each floor to open the elevator, pick up a new gun on every floor and survive a boss every fifth floor. Left thumb moves, drag to aim, hold FIRE.",
+  "tags": [
+    "shooter",
+    "fps",
+    "zombies",
+    "3d",
+    "endless",
+    "horror",
+    "action"
+  ],
+  "permissions": [
+    "audio",
+    "backgroundMusic",
+    "haptics",
+    "storage"
+  ],
+  "dependencies": [
+    "three@0.164.1"
+  ],
+  "display": "fullscreen",
+  "onboarding": {
+    "kind": "one_line",
+    "version": 1,
+    "message": "Left thumb moves, drag right side to aim, hold FIRE to shoot."
+  },
+  "memory": {
+    "records": {
+      "score": {
+        "label": "Score",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": [
+          "daily",
+          "weekly",
+          "all_time"
+        ],
+        "scopes": [
+          "following",
+          "global"
+        ],
+        "dedupe": "best_per_user"
+      }
+    }
+  },
+  "game": {
+    "progress": {
+      "main": {
+        "label": "Run",
+        "stateSchemaVersion": 1,
+        "ttlDays": 30
+      }
+    }
+  },
+  "tuning": {
+    "schemaVersion": 1,
+    "groups": {
+      "feel": { "label": "Feel" },
+      "difficulty": { "label": "Difficulty" }
+    },
+    "knobs": {
+      "aim_assist": { "label": "Aim assist strength", "type": "number", "default": 1, "min": 0, "max": 2, "step": 0.1, "group": "feel", "intent": "feel", "apply": "live" },
+      "look_speed": { "label": "Look sensitivity", "type": "number", "default": 1, "min": 0.5, "max": 2, "step": 0.05, "group": "feel", "intent": "feel", "apply": "live" },
+      "difficulty": { "label": "Difficulty ramp per floor", "type": "number", "default": 1, "min": 0.5, "max": 2, "step": 0.1, "group": "difficulty", "intent": "difficulty", "apply": "restart" },
+      "ammo_drops": { "label": "Ammo drop rate", "type": "number", "default": 1, "min": 0.3, "max": 2, "step": 0.1, "group": "difficulty", "intent": "difficulty", "apply": "live" }
+    }
+  }
+}

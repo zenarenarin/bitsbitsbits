@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>DEAD FLOORS dev harness</title>
+<style>
+  html,body{margin:0;height:100%;background:#111;overflow:hidden}
+  #bit{position:absolute;inset:0;overflow:hidden;touch-action:none}
+</style>
+</head>
+<body>
+<div id="bit"></div>
+<script>window.__DF_DEV = true;</script>
+<script src="../main.js"></script>
+<script type="module">
+// A small stand-in for the Plethora runtime covering only what DEAD FLOORS uses.
+// Serve the repo root and put three.module.js next to this file (dev/vendor/three.module.js).
+const host = document.getElementById('bit');
+const q = new URLSearchParams(location.search);
+const store = {};
+const layerZ = { background: 0, content: 100, overlay: 200, modal: 300 };
+function place(e, o = {}) {
+  e.style.position = 'absolute'; e.style.inset = '0';
+  e.style.zIndex = (layerZ[o.layer] ?? 100) + (o.order || 0);
+  if (o.input === 'passthrough') e.style.pointerEvents = 'none';
+  host.appendChild(e); return e;
+}
+window.__log = [];
+const log = (k, v) => { window.__log.push([k, v]); };
+const ctx = {
+  get width() { return host.clientWidth; },
+  get height() { return host.clientHeight; },
+  dpr: Math.min(3, window.devicePixelRatio || 1),
+  nativeDpr: window.devicePixelRatio || 1,
+  safeArea: { top: 62, right: 0, bottom: 34, left: 0 },
+  contentSafeArea: { top: 62, right: 0, bottom: 108, left: 0 },
+  logoArea: null,
+  capabilities: { audio: true, backgroundMusic: true, haptics: true, storage: true },
+  container: host,
+  createCanvas(o) { return place(document.createElement('canvas'), o); },
+  createRoot(o) { return place(document.createElement('div'), o); },
+  listen(t, ev, fn, o) { t.addEventListener(ev, fn, o); return () => t.removeEventListener(ev, fn, o); },
+  onResize(cb, o) { const f = () => cb({ width: ctx.width, height: ctx.height }); window.addEventListener('resize', f); if (o && o.immediate) f(); },
+  timeout(fn, ms) { setTimeout(fn, ms); },
+  onDestroy() {},
+  markVisualReady(r) { log('visualReady', r); },
+  async importModule(name, version) { log('import', name + '@' + version); if (q.has('failthree') && !window.__failedOnce) { window.__failedOnce = true; throw new Error('simulated'); } return await import('./vendor/three.module.js'); },
+  async loadFont() { return null; },
+  storage: { get: k => (k in store ? JSON.parse(store[k]) : null), set: (k, v) => { store[k] = JSON.stringify(v); } },
+  audio: { play(url, o) { log('sfx', (o && o.volume || 1).toFixed(2)); return { stop() {} }; } },
+  music: { unlock: async () => {}, play: (o) => { log('music', o.preset); return {}; }, setPreset: (p) => log('music', p), setIntensity() {}, setTempo() {}, setVolume() {}, stop() {}, sting: (n) => { log('sting', n); return Promise.resolve(); } },
+  tune: { number: () => undefined },
+  math: {},
+  platform: { error(p) { log('error', p); console.error('platform.error', p); }, ready() { log('ready'); window.__ready = true; }, start(p) { log('start', p); }, interact(p) { log('interact', p); }, milestone(n, p) { log('milestone', n); }, fail(p) { log('fail', p); }, complete() {}, haptic(k) { log('haptic', k); }, setScore() {}, emit() {} },
+  pulse: { complete(o) { log('pulse', o); } },
+  memory: { record: () => ({
+    rank: async () => (q.has('best') ? { viewerRank: { rank: 4, value: +q.get('best'), userId: 'me' } } : { viewerRank: null }),
+    leaderboard: async () => ({ rows: [{ rank: 1, username: 'grimreaper', value: 48210, userId: 'a' }, { rank: 2, username: 'lastlight', value: 30155, userId: 'b' }, { rank: 3, username: 'ammo_hoarder', value: 22040, userId: 'c' }], viewerRank: { rank: 17, value: window.__lastSubmit || 0, userId: 'me' } }),
+  }) },
+  game: {
+    loop(o) { let last = performance.now(); let stopped = false; const f = t => { if (stopped) return; try { o.update(Math.min(80, t - last)); } catch (e) { console.error(e); window.__loopError = String(e.stack || e); if (o.onError) o.onError(e); } last = t; requestAnimationFrame(f); }; requestAnimationFrame(f); return { stop() { stopped = true; } }; },
+    score() { let v = 0; return { set: x => { v = x; }, reset: () => { v = 0; }, flush() {}, submit: async (ch, o) => { window.__lastSubmit = v; log('submit', v); return { submitted: true, isPersonalBest: true, value: v }; }, checkpoint: async () => { log('checkpoint', v); return { queued: true }; }, get value() { return v; } }; },
+    progress: {
+      async load() { const s = q.has('save') ? JSON.parse(q.get('save')) : null; return s ? { status: 'in_progress', resumeEligible: true, state: s, stateSchemaVersion: 1 } : { status: 'empty', resumeEligible: false, state: null }; },
+      async save(ch, p) { log('progress.save', p.state.floor); window.__lastSave = p; return { ok: true }; },
+      async complete() { log('progress.complete'); return {}; },
+      async abandon() { log('progress.abandon'); return {}; },
+    },
+  },
+};
+window.__ctx = ctx;
+window.plethoraBit.init(ctx).catch(e => { console.error(e); window.__initError = String(e && e.stack || e); });
+</script>
+</body>
+</html>
