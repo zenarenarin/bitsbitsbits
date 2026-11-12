@@ -9,8 +9,8 @@
   position: absolute;
   left: 110px;
   top: 64px;
-  font-size: 150px;
-  line-height: 0.88;
+  font-size: 120px;
+  line-height: 0.9;
   margin: 0;
   z-index: 3;
 }
@@ -32,8 +32,8 @@
   position: absolute;
   right: 0;
   bottom: 0;
-  font-size: 150px;
-  line-height: 0.88;
+  font-size: 120px;
+  line-height: 0.9;
   text-align: right;
   white-space: nowrap;
   color: #ff8a6a;

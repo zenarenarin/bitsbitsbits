@@ -129,7 +129,7 @@ export default function Scene01({ beat, replayKey, lite }) {
       gsap.set(q('.s1-sun'), { y: 80, opacity: 0 });
       gsap.set(q('.plant'), { scale: 0, transformOrigin: '50% 100%' });
       gsap.set(q('.s1-kicker, .s1-body'), { opacity: 0, y: 24 });
-      gsap.set(q('.s1-d .split-unit .split-unit'), { yPercent: 110 });
+      gsap.set(q('.s1-d .split-unit .split-unit'), { yPercent: 110, opacity: 0 });
       gsap.set(q('.s1-wall .blk'), { scaleY: 0, transformOrigin: '50% 100%' });
       gsap.set(q('.s1-goal'), { scale: 0, transformOrigin: '50% 100%' });
       gsap.set(q('.s1-easy, .s1-chosen'), { strokeDashoffset: 1400 });
@@ -143,29 +143,29 @@ export default function Scene01({ beat, replayKey, lite }) {
           .to(q('.s1-hill'), { y: 0, opacity: 1, duration: 1.4, ease: 'expo.out', stagger: 0.12 }, 0.05)
           .to(q('.plant'), { scale: 1, duration: 1, ease: 'back.out(1.6)', stagger: { each: 0.04, from: 'random' } }, 0.4)
           .to(q('.s1-kicker'), { opacity: 1, y: 0, duration: 0.8, ease: 'power3.out' }, 0.5)
-          .to(q('.s1-d0 .split-unit .split-unit'), { yPercent: 0, duration: 1, ease: 'expo.out', stagger: 0.035 }, 0.6)
+          .to(q('.s1-d0 .split-unit .split-unit'), { yPercent: 0, opacity: 1, duration: 1, ease: 'expo.out', stagger: 0.035 }, 0.6)
           .to(q('.s1-body0'), { opacity: 1, y: 0, duration: 0.9, ease: 'power3.out' }, 1.1)
           .call(() => chord([0, 4, 7], 293, { vol: 0.1, decay: 1.6 }), null, 0.6);
       },
       (tl, q, { instant }) => {
         // the open meadow gets a goal — and a rule
-        tl.to(q('.s1-d0 .split-unit .split-unit'), { yPercent: -110, duration: 0.5, ease: 'power3.in', stagger: 0.02 }, 0)
+        tl.to(q('.s1-d0 .split-unit .split-unit'), { yPercent: -110, opacity: 0, duration: 0.5, ease: 'power3.in', stagger: 0.02 }, 0)
           .to(q('.s1-body0'), { opacity: 0, y: -16, duration: 0.4 }, 0)
           .to(q('.s1-trail'), { opacity: 0, duration: 0.6 }, 0)
           .to(q('.s1-goal'), { scale: 1, duration: 0.8, ease: 'back.out(2.2)' }, 0.3)
           .to(q('.s1-easy'), { strokeDashoffset: 0, duration: 1, ease: 'power2.inOut' }, 0.5)
           .to(q('.s1-lbl-easy'), { opacity: 1, y: 0, duration: 0.6 }, 0.9)
           .to(q('.s1-wall .blk'), { scaleY: 1, duration: 0.55, ease: 'back.out(2.4)', stagger: 0.14 }, 1.0)
-          .to(q('.s1-d1 .split-unit .split-unit'), { yPercent: 0, duration: 0.9, ease: 'expo.out', stagger: 0.025 }, 0.45)
+          .to(q('.s1-d1 .split-unit .split-unit'), { yPercent: 0, opacity: 1, duration: 0.9, ease: 'expo.out', stagger: 0.025 }, 0.45)
           .to(q('.s1-body1'), { opacity: 1, y: 0, duration: 0.8, ease: 'power3.out' }, 1.0)
           .to(q('.s1-chosen'), { strokeDashoffset: 0, duration: 1.1, ease: 'power2.inOut' }, 2.0)
           .to(q('.s1-lbl-chosen'), { opacity: 1, y: 0, duration: 0.6 }, 2.4);
         if (!instant) [0, 1, 2].forEach((i) => tl.call(() => thump({ freq: 90 + i * 30, vol: 0.2 }), null, 1.05 + i * 0.14));
       },
       (tl, q) => {
-        tl.to(q('.s1-d1 .split-unit .split-unit'), { yPercent: -110, duration: 0.5, ease: 'power3.in', stagger: 0.015 }, 0)
+        tl.to(q('.s1-d1 .split-unit .split-unit'), { yPercent: -110, opacity: 0, duration: 0.5, ease: 'power3.in', stagger: 0.015 }, 0)
           .to(q('.s1-body1'), { opacity: 0, duration: 0.4 }, 0)
-          .to(q('.s1-d2 .split-unit .split-unit'), { yPercent: 0, duration: 0.9, ease: 'expo.out', stagger: 0.025 }, 0.35)
+          .to(q('.s1-d2 .split-unit .split-unit'), { yPercent: 0, opacity: 1, duration: 0.9, ease: 'expo.out', stagger: 0.025 }, 0.35)
           .to(q('.s1-quote'), { opacity: 1, y: 0, duration: 1, ease: 'power3.out' }, 0.7)
           .to(q('.s1-attr'), { opacity: 1, y: 0, duration: 0.8, ease: 'power3.out' }, 1.0)
           .to(q('.s1-hint'), { opacity: 1, y: 0, duration: 0.8 }, 1.6);

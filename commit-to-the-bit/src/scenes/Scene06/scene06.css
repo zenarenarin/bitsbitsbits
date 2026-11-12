@@ -18,7 +18,7 @@
   position: absolute;
   left: 110px;
   bottom: 70px;
-  font-size: 330px;
+  font-size: 220px;
   line-height: 0.86;
   color: var(--cream);
   letter-spacing: -0.02em;
@@ -29,8 +29,8 @@
   position: absolute;
   left: 110px;
   top: 90px;
-  font-size: 170px;
-  line-height: 0.88;
+  font-size: 140px;
+  line-height: 0.9;
   margin: 0;
 }
 

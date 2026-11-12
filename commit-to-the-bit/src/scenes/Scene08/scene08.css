@@ -15,8 +15,8 @@
   position: absolute;
   left: 110px;
   top: 76px;
-  font-size: 170px;
-  line-height: 0.88;
+  font-size: 140px;
+  line-height: 0.9;
   margin: 0;
 }
 
@@ -49,8 +49,8 @@
 }
 
 .s8-legend .t-display {
-  font-size: 76px;
-  line-height: 1;
+  font-size: 60px;
+  line-height: 1.05;
   text-transform: lowercase;
 }
 
@@ -76,7 +76,7 @@
 }
 
 .s8-title {
-  font-size: 210px;
+  font-size: 140px;
   line-height: 0.86;
   margin: 0 0 64px;
   white-space: nowrap;
@@ -100,8 +100,8 @@
 }
 
 .s8-ing .w {
-  font-size: 84px;
-  line-height: 1;
+  font-size: 64px;
+  line-height: 1.05;
   text-transform: lowercase;
 }
 

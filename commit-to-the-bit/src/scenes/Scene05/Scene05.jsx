@@ -10,7 +10,7 @@ import { swayAll, useParallax } from '../../systems/environment/atmosphere.jsx';
 
 // specimens on the table: oversized, pressed-looking, at the edges only
 const SPECIMENS = [
-  { kind: 'frond', x: 1040, y: -40, s: 0.85, r: 192, h: 420, n: 13, leaf: 46, bend: 0.35, fill: 'moss', stem: '#0c3a2c' },
+  { kind: 'frond', x: 1250, y: -40, s: 0.85, r: 192, h: 420, n: 13, leaf: 46, bend: 0.35, fill: 'moss', stem: '#0c3a2c' },
   { kind: 'twig', x: 1560, y: 1110, s: 1, r: -12, h: 300, bend: 0.4, buds: 6, fill: 'coral', stem: '#3a2a1a', seed: 6 },
   { kind: 'blade', x: 1890, y: 1110, r: -24, h: 460, w: 100, bend: -0.3, fill: 'forest' },
   { kind: 'paddle', x: 2010, y: 1140, s: 1, r: -52, h: 460, w: 200, stripes: 6, fill: 'forest', stripe: '#03201a' },

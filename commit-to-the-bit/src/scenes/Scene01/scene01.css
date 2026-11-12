@@ -37,13 +37,14 @@
   position: absolute;
   left: 0;
   top: 0;
-  font-size: 196px;
+  font-size: 150px;
   color: #062a33;
   line-height: 0.86;
 }
 
 .s1-d0 {
-  font-size: 240px;
+  font-size: 190px;
+  white-space: nowrap;
 }
 
 .s1-body {

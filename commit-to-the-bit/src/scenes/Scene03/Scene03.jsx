@@ -273,7 +273,7 @@ export default function Scene03({ beat, replayKey, lite }) {
     },
     init: (q) => {
       gsap.set(q('.s3-kicker'), { opacity: 0, y: 20 });
-      gsap.set(q('.s3-h0 .split-unit .split-unit'), { yPercent: 110 });
+      gsap.set(q('.s3-h0 .split-unit .split-unit'), { yPercent: 110, opacity: 0 });
       gsap.set(q('.s3-stage'), { opacity: 0, yPercent: 60 });
       gsap.set(q('.s3-hint'), { opacity: 0, y: 24 });
       gsap.set(q('.s3-moon'), { y: 60, opacity: 0 });
@@ -289,7 +289,7 @@ export default function Scene03({ beat, replayKey, lite }) {
           .to(q('.plant'), { scale: 1, duration: 1, ease: 'back.out(1.6)', stagger: { each: 0.04, from: 'random' } }, 0.4)
           .to(q('.s3-cup'), { scale: 1, duration: 0.9, ease: 'back.out(2.2)' }, 0.8)
           .to(q('.s3-kicker'), { opacity: 1, y: 0, duration: 0.7 }, 0.3)
-          .to(q('.s3-h0 .split-unit .split-unit'), { yPercent: 0, duration: 1, ease: 'expo.out', stagger: 0.02 }, 0.5)
+          .to(q('.s3-h0 .split-unit .split-unit'), { yPercent: 0, opacity: 1, duration: 1, ease: 'expo.out', stagger: 0.02 }, 0.5)
           .to(q('.s3-stage-0'), { opacity: 1, yPercent: 0, duration: 0.8, ease: 'back.out(2)' }, 1.2),
       // each throw names what it shows: anticipation, then feedback, then achievement
       (tl, q) =>
