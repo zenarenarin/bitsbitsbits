@@ -4,3 +4,4 @@ dev/out-*.log
 dev/shots.log
 dev/node_modules
 dev/rec/
+dev/rec.log
