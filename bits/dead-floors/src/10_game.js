@@ -151,7 +151,7 @@ function startRun(fromSave) {
 function clearProjectiles() { for (const p of projectiles) { scene.remove(p.m); p.m.material.dispose(); } projectiles.length = 0; }
 
 function enterFloor(f, restoring) {
-  RUN.floor = f; RUN.floorKills = 0; RUN.bossSpawned = false; RUN.D = difficulty(f);
+  RUN.floor = f; RUN.floorKills = 0; RUN.bossSpawned = false; RUN.D = difficulty(f); RUN.heat = 0; RUN.graceT = 0;
   clearZombies(); clearPickups(); clearProjectiles();
   const Ld = genLevel(f, (RUN.seed + f * 7919) >>> 0);
   buildLevel(Ld);

@@ -37,6 +37,9 @@ const CSS = `
 .df-floor{font-size:15px;margin-top:6px;color:#d9c64a;text-shadow:0 1px 2px #000;letter-spacing:.12em}
 .df-obj{font-size:12px;font-weight:700;margin-top:3px;text-shadow:0 1px 2px #000;letter-spacing:.06em;opacity:.92}
 .df-obj.open{color:#6dff95}
+.df-threat{display:flex;align-items:center;gap:6px;margin-top:5px;font-size:9px;font-weight:700;letter-spacing:.14em;opacity:.85;text-shadow:0 1px 2px #000}
+.df-threat div{width:84px;height:5px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.2);overflow:hidden}
+.df-threat i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#d9c64a,#ff6a2a,#ff2a1a);transform-origin:left center;transform:scaleX(0)}
 .df-tr{position:absolute;pointer-events:none;text-align:right}
 .df-score{font-size:26px;line-height:1;text-shadow:0 1px 3px #000}
 .df-kills{font-size:11px;font-weight:700;opacity:.75;letter-spacing:.08em}
@@ -127,6 +130,8 @@ function buildHUD() {
   els.hpN = el('div', 'df-hpn df-num', hp);
   els.floor = el('div', 'df-floor df-num', els.tl);
   els.obj = el('div', 'df-obj', els.tl);
+  els.threat = el('div', 'df-threat', els.tl, '<span>THREAT</span><div><i></i></div>');
+  els.threatBar = els.threat.querySelector('i');
   els.tr = el('div', 'df-tr', G);
   els.score = el('div', 'df-score df-num', els.tr);
   els.kills = el('div', 'df-kills', els.tr);
@@ -310,6 +315,8 @@ function updateHUD(dt) {
   if (hud.hitT > 0) els.hm.classList.toggle('head', hud.hit === 2);
   setS(els.ddir, 'opacity', (hud.dmgT).toFixed(2));
   if (hud.dmgT > 0) setS(els.ddir, 'transform', `rotate(${relAngle(hud.dmgAngle).toFixed(3)}rad)`);
+  setS(els.threat, 'display', L && !L.boss ? 'flex' : 'none');
+  setS(els.threatBar, 'transform', `scaleX(${clamp(RUN.heat || 0, 0, 1).toFixed(2)})`);
   setS(els.fire, 'transform', fireHeld() ? 'scale(0.94)' : '');
   els.fire.classList.toggle('on', fireHeld());
   hud.bannerT -= dt;

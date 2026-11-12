@@ -1811,12 +1811,21 @@ const zombies = [];
 const zpool = {};
 let boss = null;
 
+// Gradual difficulty. A smooth level per floor: the first floors ramp gently, the slope
+// reaches full strength by floor 7, and the floors after each boss give a fading breather.
+function difficultyLevel(f) {
+  const d = Math.max(0, f - 1);
+  let e = d * (0.55 + 0.45 * Math.min(1, d / 6));
+  if (f > 5) { const k = (f - 1) % 5; e -= 0.8 * (1 - k / 4); }
+  return Math.max(0, e) * tune('difficulty_ramp', 1);
+}
 function difficulty(f) {
-  const d = Math.max(0, f - 1) * tune('difficulty_ramp', 1);
+  const d = difficultyLevel(f);
   return {
-    hp: 1 + 0.15 * d, spd: 1 + Math.min(0.4, 0.03 * d), dmg: 1 + 0.07 * d,
-    quota: Math.min(40, 8 + Math.round(2.2 * d)), cap: Math.min(18, 6 + Math.round(d)),
-    interval: Math.max(1.0, 4.2 - 0.25 * d), init: Math.min(14, 5 + Math.round(d * 0.8)),
+    level: d,
+    hp: 1 + 0.14 * d, spd: 1 + Math.min(0.45, 0.03 * d), dmg: 1 + 0.07 * d,
+    quota: Math.min(40, 8 + Math.round(2 * d)), cap: Math.min(18, 5 + Math.round(d)),
+    interval: Math.max(1.0, 4.6 - 0.24 * d), init: Math.min(14, 4 + Math.round(d * 0.8)),
   };
 }
 function pickType(f) {
@@ -1841,7 +1850,7 @@ function spawnZombie(type, x, z, aware) {
   const hpMul = def.boss ? (1 + 0.55 * Math.max(0, Math.floor(RUN.floor / 5) - 1)) * (1 + 0.06 * (RUN.floor - 5)) : D.hp;
   const zb = {
     type, def, model, x, z, yaw: model.root.rotation.y, hp: def.hp * hpMul, maxHp: def.hp * hpMul,
-    speed: def.speed * (def.boss ? 1 : D.spd) * rnd(0.88, 1.12), aware: false, atkT: 0, atkCd: 0.5, phase: Math.random() * 10,
+    speed: def.speed * (def.boss ? 1 : D.spd * (1 + 0.1 * (RUN.heat || 0))) * rnd(0.88, 1.12), aware: false, atkT: 0, atkCd: 0.5, phase: Math.random() * 10,
     flinch: 0, dead: false, deadT: 0, radius: def.radius, scale: def.scale, seed: Math.random() * 10,
     headR: 0.15 * def.scale, bodyR: (type === 'brood' ? 0.5 : 0.27) * def.scale, chestY: 1.2 * def.scale, bodyTop: 1.48 * def.scale,
     hx: x, hy: 1.6 * def.scale, hz: z, los: false, losT: 0, groanT: rnd(1, 6), wanderT: 0, wanderYaw: 0, wanderGo: false,
@@ -1908,10 +1917,13 @@ function updateDirector(dt) {
     }
     return;
   }
+  // Threat builds the longer you stay on a floor: faster spawns, more zombies at once.
+  RUN.heat = Math.min(1, (RUN.heat || 0) + dt * tune('threat_build', 1) / 100);
+  if (RUN.graceT > 0) { RUN.graceT -= dt; return; }
   DIRECTOR.t -= dt;
   if (DIRECTOR.t <= 0) {
-    DIRECTOR.t = RUN.D.interval * (exitOpen ? 1.7 : 1) * rnd(0.7, 1.3);
-    if (alive < RUN.D.cap) spawnFar();
+    DIRECTOR.t = RUN.D.interval * (1 - 0.4 * RUN.heat) * (exitOpen ? 1.15 : 1) * rnd(0.7, 1.3);
+    if (alive < RUN.D.cap + Math.round(3 * RUN.heat)) spawnFar();
   }
 }
 function spawnBoss() {
@@ -1939,6 +1951,8 @@ function hurtPlayer(dmg, fx, fz) {
   const d = Math.round(dmg * RUN.D.dmg);
   P.hp -= d;
   P.hurtT = 1;
+  // A short breather after a heavy hit or when nearly dead.
+  if (d >= 15 || P.hp < 30) RUN.graceT = Math.max(RUN.graceT || 0, 2.5);
   hud.dmgAngle = Math.atan2(fx - P.x, fz - P.z);
   hud.dmgT = 1;
   P.shake = Math.max(P.shake, 0.3 + d / 60);
@@ -1983,9 +1997,13 @@ function killZombie(z, head, dx, dz) {
     for (let i = 0; i < 2; i++) spawnPickup('med', z.x + rnd(-1.2, 1.2), z.z + rnd(-1.2, 1.2), true);
     bossDefeated(z);
   } else {
+    // Drops lean toward what the player is short of.
+    const cw = curW(), ca = ammoOf(cw.id);
+    const ammoP = (ca.mag + ca.res < magSize(cw) ? 0.5 : 0.3) * dropMul;
+    const medP = P.hp < 35 ? 0.18 : 0.06;
     const r = Math.random();
-    if (r < 0.3 * dropMul) spawnPickup('ammo', z.x, z.z, true);
-    else if (r < 0.3 * dropMul + 0.06) spawnPickup('med', z.x, z.z, true);
+    if (r < ammoP) spawnPickup('ammo', z.x, z.z, true);
+    else if (r < ammoP + medP) spawnPickup('med', z.x, z.z, true);
   }
   if (!L.boss && !exitOpen && RUN.floorKills >= RUN.D.quota) openExit();
   hud.dirty = true;
@@ -2278,6 +2296,9 @@ const CSS = `
 .df-floor{font-size:15px;margin-top:6px;color:#d9c64a;text-shadow:0 1px 2px #000;letter-spacing:.12em}
 .df-obj{font-size:12px;font-weight:700;margin-top:3px;text-shadow:0 1px 2px #000;letter-spacing:.06em;opacity:.92}
 .df-obj.open{color:#6dff95}
+.df-threat{display:flex;align-items:center;gap:6px;margin-top:5px;font-size:9px;font-weight:700;letter-spacing:.14em;opacity:.85;text-shadow:0 1px 2px #000}
+.df-threat div{width:84px;height:5px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.2);overflow:hidden}
+.df-threat i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#d9c64a,#ff6a2a,#ff2a1a);transform-origin:left center;transform:scaleX(0)}
 .df-tr{position:absolute;pointer-events:none;text-align:right}
 .df-score{font-size:26px;line-height:1;text-shadow:0 1px 3px #000}
 .df-kills{font-size:11px;font-weight:700;opacity:.75;letter-spacing:.08em}
@@ -2368,6 +2389,8 @@ function buildHUD() {
   els.hpN = el('div', 'df-hpn df-num', hp);
   els.floor = el('div', 'df-floor df-num', els.tl);
   els.obj = el('div', 'df-obj', els.tl);
+  els.threat = el('div', 'df-threat', els.tl, '<span>THREAT</span><div><i></i></div>');
+  els.threatBar = els.threat.querySelector('i');
   els.tr = el('div', 'df-tr', G);
   els.score = el('div', 'df-score df-num', els.tr);
   els.kills = el('div', 'df-kills', els.tr);
@@ -2551,6 +2574,8 @@ function updateHUD(dt) {
   if (hud.hitT > 0) els.hm.classList.toggle('head', hud.hit === 2);
   setS(els.ddir, 'opacity', (hud.dmgT).toFixed(2));
   if (hud.dmgT > 0) setS(els.ddir, 'transform', `rotate(${relAngle(hud.dmgAngle).toFixed(3)}rad)`);
+  setS(els.threat, 'display', L && !L.boss ? 'flex' : 'none');
+  setS(els.threatBar, 'transform', `scaleX(${clamp(RUN.heat || 0, 0, 1).toFixed(2)})`);
   setS(els.fire, 'transform', fireHeld() ? 'scale(0.94)' : '');
   els.fire.classList.toggle('on', fireHeld());
   hud.bannerT -= dt;
@@ -2829,7 +2854,7 @@ function startRun(fromSave) {
 function clearProjectiles() { for (const p of projectiles) { scene.remove(p.m); p.m.material.dispose(); } projectiles.length = 0; }
 
 function enterFloor(f, restoring) {
-  RUN.floor = f; RUN.floorKills = 0; RUN.bossSpawned = false; RUN.D = difficulty(f);
+  RUN.floor = f; RUN.floorKills = 0; RUN.bossSpawned = false; RUN.D = difficulty(f); RUN.heat = 0; RUN.graceT = 0;
   clearZombies(); clearPickups(); clearProjectiles();
   const Ld = genLevel(f, (RUN.seed + f * 7919) >>> 0);
   buildLevel(Ld);
