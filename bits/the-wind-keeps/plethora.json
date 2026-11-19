@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "The Wind Keeps",
+  "description": "You are a tiny caretaker in an enormous, gently broken mechanical world. Watch the wind cross the meadow, catch it in the windmill's sails, and send one good moment travelling through pumps, water wheels, lifts and bells until the whole world runs again.",
+  "tags": ["casual", "timing", "3d", "relaxing", "puzzle"],
+  "permissions": ["audio", "haptics"],
+  "dependencies": ["three@0.164.1"],
+  "display": "fullscreen",
+  "onboarding": { "kind": "immersive", "version": 1 },
+  "memory": {
+    "local": {
+      "notebook": { "label": "Field notes" }
+    },
+    "records": {
+      "daily_machine": {
+        "label": "Today's Machine",
+        "valueType": "number",
+        "order": "desc",
+        "format": "integer",
+        "periods": ["daily", "weekly", "all_time"],
+        "scopes": ["following", "global"],
+        "dedupe": "best_per_user"
+      }
+    }
+  }
+}
