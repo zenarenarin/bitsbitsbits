@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "In Passing",
+  "description": "A courier crosses a painted world that never stops moving: ferries, lifts, breathing bellows, great wheels, swinging cranes, cable lines and long-legged striders. You don't make anything move. You learn when to get on. One finger: press to leap, hold to catch a ring, let go to fly.",
+  "tags": ["arcade", "platformer", "timing", "atmospheric", "3d"],
+  "permissions": ["audio", "haptics", "storage"],
+  "dependencies": ["three@0.164.1"],
+  "display": "fullscreen",
+  "onboarding": { "kind": "immersive", "version": 1 },
+  "memory": {
+    "local": {
+      "ledger": { "label": "Journey ledger" }
+    },
+    "records": {
+      "daily_errand": {
+        "label": "Today's errand",
+        "valueType": "duration_ms",
+        "order": "asc",
+        "format": "timer",
+        "periods": ["daily"],
+        "scopes": ["global", "following"],
+        "dedupe": "best_per_user"
+      }
+    }
+  }
+}

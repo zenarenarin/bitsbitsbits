@@ -1,0 +1,66 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>In Passing dev harness</title>
+<style>html,body{margin:0;height:100%;background:#222;overflow:hidden}#bit{position:absolute;inset:0;overflow:hidden;touch-action:none}</style>
+</head>
+<body>
+<div id="bit"></div>
+<script>window.__IP_UNLOCK = location.search.includes("unlock");</script>
+<script src="../main.js"></script>
+<script type="module">
+// A small stand-in for the Plethora runtime, covering what In Passing uses.
+const host = document.getElementById('bit');
+const store = {}, memStore = {};
+const q = new URLSearchParams(location.search);
+const safe = { top: +(q.get('top') || 59), right: 0, bottom: 34, left: 0 };
+const csafe = { top: safe.top, right: 0, bottom: 108, left: 0 };
+const order = { background: 0, content: 100, overlay: 200, modal: 300 };
+const place = (el, o) => { if (o && o.layer) el.style.zIndex = order[o.layer] + (o.order || 0); if (o && (o.input === 'passthrough')) el.style.pointerEvents = 'none'; };
+window.__events = [];
+const ctx = {
+  get width() { return host.clientWidth; }, get height() { return host.clientHeight; },
+  dpr: Math.min(2, window.devicePixelRatio || 1), nativeDpr: window.devicePixelRatio || 1,
+  safeArea: safe, contentSafeArea: csafe, logoArea: null,
+  capabilities: { audio: true, backgroundMusic: false, haptics: true, storage: true },
+  container: host,
+  createCanvas(o) { const c = document.createElement('canvas'); c.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;touch-action:none'; place(c, o); host.appendChild(c); return c; },
+  createRoot(o) { const d = document.createElement('div'); d.className = (o && o.className) || ''; d.style.cssText = 'position:absolute;inset:0'; place(d, o); host.appendChild(d); return d; },
+  listen(t, ev, fn, o) { t.addEventListener(ev, fn, o); },
+  onResize(cb, o) { const f = () => cb({ width: ctx.width, height: ctx.height }); window.addEventListener('resize', f); if (o && o.immediate) f(); },
+  timeout(fn, ms) { setTimeout(fn, ms); },
+  onDestroy() {},
+  markVisualReady() {},
+  async importModule() { return await import('./vendor/three.module.js'); },
+  async loadFont() { return null; },
+  storage: { get: k => (k in store ? JSON.parse(store[k]) : null), set: (k, v) => { store[k] = JSON.stringify(v); } },
+  memory: {
+    local: id => ({ get: async () => ({ value: memStore[id] || null, updatedAt: null }), set: async v => { memStore[id] = v; return { value: v }; } }),
+    record: id => ({ submit: async v => { window.__events.push(['submit', id, v]); return { submitted: true }; }, leaderboard: async () => ({ rows: [{ rank: 1, username: 'odile', value: 61000 }, { rank: 2, username: 'pell', value: 72000 }], viewerRank: { rank: 3 }, totalRanked: 9 }) })
+  },
+  platform: { error(p) { window.__platformError = p; console.error('platform.error', JSON.stringify(p)); }, ready() { window.__ready = true; }, start(p) { window.__events.push(['start', p]); }, interact() {}, milestone(n) { window.__events.push(['milestone', n]); }, fail() {}, complete(p) { window.__events.push(['complete', p]); }, haptic() {}, emit() {} },
+  pulse: { complete(p) { window.__events.push(['pulse', p]); } },
+  game: {
+    loop(o) {
+      let last = performance.now(), acc = 0; const step = 1000 / (o.fixedHz || 60);
+      window.__loopPaused = false;
+      const f = t => {
+        let d = Math.min(o.maxDeltaMs || 80, t - last); last = t;
+        if (window.__loopPaused) { requestAnimationFrame(f); return; }
+        acc += d * (window.__timeScale || 1); let n = 0;
+        while (acc >= step && n < (o.maxSubsteps || 4) * (window.__timeScale || 1)) { o.fixedUpdate && o.fixedUpdate(step); acc -= step; n++; }
+        if (acc > step) acc = 0;
+        o.update && o.update(d); o.render && o.render(acc / step);
+        requestAnimationFrame(f);
+      };
+      requestAnimationFrame(f); return {};
+    }
+  }
+};
+window.__ctx = ctx;
+window.plethoraBit.init(ctx).catch(e => { console.error(e); window.__initError = String(e && e.stack || e); });
+</script>
+</body>
+</html>

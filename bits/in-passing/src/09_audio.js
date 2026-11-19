@@ -72,6 +72,7 @@ function createAudio() {
     g.gain.exponentialRampToValueAtTime(0.0001, t + a + d);
   }
   function noise(t, dur, type, freq, q, peak, pan, a, wet, sweepTo) {
+    a = a || 0.005;
     const s = ac.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
     const f = ac.createBiquadFilter(); f.type = type; f.frequency.setValueAtTime(freq, t); f.Q.value = q;
     if (sweepTo) f.frequency.exponentialRampToValueAtTime(sweepTo, t + dur);
@@ -81,6 +82,7 @@ function createAudio() {
     s.start(t, Math.random() * 1.5); s.stop(t + dur + a + 0.05);
   }
   function tone(t, freq, dur, type, peak, pan, a, wet, bend) {
+    a = a || 0.004;
     const o = ac.createOscillator(); o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t);
     if (bend) o.frequency.exponentialRampToValueAtTime(freq * bend, t + dur);
     const g = out(pan, wet); const gg = ac.createGain(); o.connect(gg); gg.connect(g);

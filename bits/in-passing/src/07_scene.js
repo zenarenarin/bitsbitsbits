@@ -12,7 +12,7 @@ function createStage(THREE, canvas, quality) {
   const camera = new THREE.PerspectiveCamera(30, 1, 1, 900);
   camera.position.set(0, 4, 52);
   scene.add(camera);
-  scene.fog = new THREE.Fog(0xeee4cf, 56, 430);
+  scene.fog = new THREE.Fog(0xeee4cf, 58, 760);
 
   // Sky: a gradient card stuck to the back of the camera.
   const skyMat = new THREE.ShaderMaterial({
@@ -55,10 +55,10 @@ function fitStage(stage, w, h, dpr) {
   const viewH = viewW / aspect;
   const dist = (viewH / 2) / Math.tan(camera.fov * Math.PI / 360);
   stage.dist = dist; stage.viewW = viewW; stage.viewH = viewH;
-  camera.near = 2; camera.far = dist + 600;
+  camera.near = 2; camera.far = dist + 900;
   camera.updateProjectionMatrix();
   // sky card fills the frustum at a fixed depth
-  const sd = dist + 560;
+  const sd = dist + 840;
   const sh = 2 * sd * Math.tan(camera.fov * Math.PI / 360);
   sky.position.set(0, 0, -sd); sky.scale.set(sh * aspect * 0.55, sh * 0.55, 1);
   stage.skyMat.uniforms.aspect.value = aspect;
@@ -117,12 +117,14 @@ function setStrip(m, x0, y0, x1, y1) {
 function buildWorldView(stage, W, regionIdx, opts) {
   const { THREE, scene } = stage;
   const P = PALETTES[regionIdx];
-  const kit = makeTexKit(stage, P, regionIdx);
+  stage.kits = stage.kits || {};
+  const kit = stage.kits[regionIdx] || (stage.kits[regionIdx] = makeTexKit(stage, P, regionIdx));
   const root = new THREE.Group();
   scene.add(root);
   const rng = makeRng((W.spec.seed ^ 0xabcdef) >>> 0);
   const evening = regionIdx === 3;
-  const view = { root, kit, P, sysViews: [], anims: [], letters: [], W };
+  const view = { root, kit, P, sysViews: [], anims: [], letters: [], W, clones: [], mats: [] };
+  kit.mats = view.mats;
 
   // route extents
   let ymin = 1e9, ymax = -1e9;
@@ -139,17 +141,17 @@ function buildWorldView(stage, W, regionIdx, opts) {
   // far monuments
   const monKinds = ['spire', 'discs', 'mesa', 'stair'];
   const monTex = monKinds.map((k, i) => kit.tex('mon' + k, () => paintMonument(100 + i + regionIdx * 10, P, k)));
-  for (let x = x0 - 120, i = 0; x < x1 + 120; x += 55 + rng() * 45, i++) {
+  for (let x = x0 - 200, i = 0; x < x1 + 200; x += 70 + rng() * 60, i++) {
     const k = i % 4 === 3 ? 2 : rng.int(0, 3);
     const t = monTex[k];
-    const scale = 6 + rng() * 5;
-    const m = card(stage, kit, t, 512 / scale / 6.5, 256, 1024);
-    m.position.set(x, ymin - 30 - rng() * 20, -300 - rng() * 60);
+    const hgt = 150 + rng() * 120;
+    const m = card(stage, kit, t, 1024 / hgt, 256, 1024);
+    m.position.set(x, ymin - 70 - rng() * 30, -380 - rng() * 90);
     root.add(m);
   }
   // a distant wheel that never stops, and the giant arm
   const fw = card(stage, kit, kit.tex('farwheel', () => paintFarWheel(7, P)), 512 / 70, 256, 256);
-  fw.position.set(x0 + (x1 - x0) * 0.35, ymin + 30, -260);
+  fw.position.set(x0 + (x1 - x0) * 0.35, ymin + 26, -300);
   root.add(fw);
   view.anims.push(t => { fw.rotation.z = -t * 0.05; });
   // distant kin of the walking house, crossing the horizon
@@ -185,8 +187,8 @@ function buildWorldView(stage, W, regionIdx, opts) {
     root.add(m);
     return m;
   };
-  ridge(ridgeFar, -190, 90, ymin + 52, Math.ceil((x1 - x0 + 600) / 220));
-  ridge(ridgeNear, -95, 60, ymin + 28, Math.ceil((x1 - x0 + 600) / 140));
+  ridge(ridgeFar, -210, 90, ymin + 30, Math.ceil((x1 - x0 + 600) / 240));
+  ridge(ridgeNear, -110, 60, ymin + 12, Math.ceil((x1 - x0 + 600) / 150));
 
   // clouds
   const cloudTex = [0, 1, 2].map(i => kit.tex('cloud' + i, () => paintCloud(300 + i, P)));
@@ -208,12 +210,13 @@ function buildWorldView(stage, W, regionIdx, opts) {
     for (const m of W.modules) { const c = (m.x0 + m.x1) / 2, d = Math.abs(c - x); if (d < bd) { bd = d; best = m.y; } }
     return best;
   };
-  for (let x = x0; x < x1; x += 5 + rng() * 7) {
-    const z = -12 - rng() * 14;
+  for (let x = x0; x < x1; x += 7 + rng() * 9) {
+    const z = -16 - rng() * 20;
     const y = yAtX(x) - 6 - rng() * 4;
     const t = houseTex[rng.int(0, 5)];
-    const m = card(stage, kit, t, 256 / (4.5 + rng() * 2.5), 128, 640);
-    m.position.set(x, y - 6, z);
+    const m = card(stage, kit, t, 256 / (4.5 + rng() * 2.5), 128, 640, { color: mixC('#ffffff', P.far, clamp((-z - 16) / 30, 0, 0.6)) });
+    m.material.alphaMap = fadeTex(stage, kit);
+    m.position.set(x, y - 2, z);
     root.add(m);
     if (rng.chance(0.4)) {
       const tr = card(stage, kit, treeTex[rng.int(0, 2)], 256 / (3 + rng() * 2), 128, 320);
@@ -224,21 +227,26 @@ function buildWorldView(stage, W, regionIdx, opts) {
     }
   }
 
-  // mist below and in front: falling means falling into it
+  // mist below and in front: it hangs at the bottom of the view, and falling
+  // means falling into it
   const mistTex = kit.tex('mist', () => paintMist(11 + regionIdx, P), { repeat: 'x' });
   const mists = [];
-  for (const [z, dy, op] of [[-30, -3, 0.9], [-6, -6.5, 0.95], [3, -9.5, 1]]) {
-    const w = (x1 - x0) + 300, h = 16;
+  const mistCol = mixC(P.haze, '#ffffff', 0.4);
+  for (const [z, dy, op] of [[-34, 3.2, 0.85], [-8, 1.4, 0.9], [4, -0.6, 1]]) {
+    const w = (x1 - x0) + 400, h = 9;
     const m = card(stage, kit, mistTex, 1, 0, 0, { opacity: op });
-    m.geometry.dispose(); m.geometry = new THREE.PlaneGeometry(w, h); m.geometry.translate(w / 2, -h / 2 + 6, 0);
-    m.material.map = mistTex.clone(); m.material.map.needsUpdate = true; m.material.map.repeat.set(w / 60, 1);
-    kit.cache.set('mistc' + z, m.material.map);
-    m.position.set(x0 - 150, ymin + dy, z);
+    m.geometry.dispose(); m.geometry = new THREE.PlaneGeometry(w, h); m.geometry.translate(w / 2, -h / 2 + 4.5, 0);
+    m.material.map = mistTex.clone(); m.material.map.needsUpdate = true; m.material.map.repeat.set(w / 40, 1);
+    view.clones.push(m.material.map);
+    const below = strip(stage, kit, mistCol, 60, { opacity: op });
+    below.scale.x = w; below.position.set(0, -30 - 4.5 + 0.2, 0);
+    m.add(below);
+    m.position.set(x0 - 200, 0, z);
     root.add(m);
-    mists.push(m);
+    mists.push({ m, dy, z });
   }
   view.mists = mists;
-  view.anims.push(t => { mists.forEach((m, i) => { m.material.map.offset.x = t * (0.004 + i * 0.003); }); });
+  view.anims.push(t => { mists.forEach((o, i) => { o.m.material.map.offset.x = t * (0.004 + i * 0.003); }); });
 
   // water bands for ferry crossings
   const waterTex = kit.tex('water', () => paintWater(5, P), { repeat: 'x' });
@@ -248,7 +256,8 @@ function buildWorldView(stage, W, regionIdx, opts) {
       const m = card(stage, kit, waterTex, 1, 0, 0, { opacity: op });
       m.geometry.dispose(); m.geometry = new THREE.PlaneGeometry(w, h); m.geometry.translate(w / 2, -h / 2, 0);
       m.material.map = waterTex.clone(); m.material.map.needsUpdate = true; m.material.map.repeat.set(w / 2.2, 1);
-      kit.cache.set('water' + view.anims.length + z, m.material.map);
+      view.clones.push(m.material.map);
+      m.material.alphaMap = fadeTex(stage, kit);
       m.position.set(wv.x0 - 0.6, wv.y + 0.25 + dy, z);
       root.add(m);
       const mm = m;
@@ -257,16 +266,16 @@ function buildWorldView(stage, W, regionIdx, opts) {
   }
 
   // foreground silhouettes, sparse
-  const fgKinds = ['vines', 'reeds', 'post'];
+  const fgKinds = ['vines', 'reeds'];
   const fgTex = fgKinds.map((k, i) => kit.tex('fg' + k, () => paintForeground(900 + i, P, k)));
   for (let x = x0 + 10; x < x1; x += 22 + rng() * 26) {
-    const k = rng.int(0, 2);
+    const k = rng.int(0, 1);
     const y = yAtX(x);
-    const m = card(stage, kit, fgTex[k], 256 / 5, 128, k === 0 ? 0 : 512, { noFog: true });
+    const m = card(stage, kit, fgTex[k], 256 / 5, 128, k === 0 ? 0 : 512, { noFog: true, opacity: 0.8 });
     m.position.set(x, k === 0 ? y + 14 : y - 7, 10 + rng() * 4);
     root.add(m);
     const ph = rng() * 6;
-    if (k !== 2) view.anims.push(t => { m.rotation.z = Math.sin(t * 0.7 + ph) * 0.02; });
+    view.anims.push(t => { m.rotation.z = Math.sin(t * 0.7 + ph) * 0.02; });
   }
 
   // gameplay systems
@@ -284,7 +293,8 @@ function buildWorldView(stage, W, regionIdx, opts) {
     view.letters.push({ L, m, taken: false, fade: 0 });
   }
 
-  view.update = (t, camX) => {
+  view.update = (t, camX, camY, viewH) => {
+    for (const o of view.mists) { const pz = (stage.dist - o.z) / stage.dist; o.m.position.y = camY - viewH * 0.5 * pz + o.dy; }
     for (const a of view.anims) a(t);
     for (const v of view.sysViews) if (Math.abs(v.cx - camX) < v.reach + 22) { v.group.visible = true; v.update(t); } else v.group.visible = false;
     for (const lv of view.letters) {
@@ -292,7 +302,7 @@ function buildWorldView(stage, W, regionIdx, opts) {
       else { lv.m.position.y = lv.L.y + Math.sin(t * 2 + lv.L.x) * 0.12; lv.m.rotation.z = Math.sin(t * 1.3 + lv.L.x) * 0.08; }
     }
   };
-  view.dispose = () => { scene.remove(root); root.traverse(o => { if (o.geometry) o.geometry.dispose(); }); kit.dispose(); };
+  view.dispose = () => { scene.remove(root); root.traverse(o => { if (o.geometry) o.geometry.dispose(); }); view.clones.forEach(t => t.dispose()); view.mats.forEach(m => m.dispose()); };
   return view;
 }
 
@@ -309,18 +319,12 @@ function buildSystemView(stage, kit, sys, rng, view) {
   if (sys.kind === 'pier') {
     const sf = sys.surfaces[0];
     const stoneTex = kit.tex('stone' + p.style, () => paintStoneTile(61, P, p.style), { repeat: 'xy' });
-    const depth = 9;
+    const depth = 6;
     const body = card(stage, kit, stoneTex, 1, 0, 0);
     body.geometry.dispose(); body.geometry = new THREE.PlaneGeometry(p.len, depth); body.geometry.translate(p.len / 2, -depth / 2, 0);
     body.material.map = stoneTex.clone(); body.material.map.needsUpdate = true; body.material.map.repeat.set(p.len / 2.2, depth / 2.2);
-    kit.cache.set('pierb' + sys.id, body.material.map);
-    if (!kit.fadeTex) {
-      const c = cv(4, 64), gg = c.getContext('2d');
-      const lg = gg.createLinearGradient(0, 0, 0, 64); lg.addColorStop(0, '#fff'); lg.addColorStop(0.55, '#fff'); lg.addColorStop(1, '#000');
-      gg.fillStyle = lg; gg.fillRect(0, 0, 4, 64);
-      kit.fadeTex = new THREE.CanvasTexture(c); kit.cache.set('fade', kit.fadeTex);
-    }
-    body.material.alphaMap = kit.fadeTex;
+    view.clones.push(body.material.map);
+    body.material.alphaMap = fadeTex(stage, kit);
     body.position.set(p.x, p.y - 0.18, -0.35);
     g.add(body);
     // cap
@@ -376,7 +380,7 @@ function buildSystemView(stage, kit, sys, rng, view) {
         const H = topY - lo + 10;
         rail.geometry.dispose(); rail.geometry = new THREE.PlaneGeometry(0.34, H); rail.geometry.translate(0.17, -H / 2, 0);
         rail.material.map = lat.clone(); rail.material.map.needsUpdate = true; rail.material.map.repeat.set(1, H / 0.7);
-        kit.cache.set('rail' + sys.id + rx, rail.material.map);
+        view.clones.push(rail.material.map);
         rail.position.set(rx, topY, -0.5);
         g.add(rail);
       }
@@ -544,4 +548,15 @@ function buildSystemView(stage, kit, sys, rng, view) {
     return v;
   }
   return null;
+}
+
+// Shared alpha ramp: opaque at the top, gone at the bottom.
+function fadeTex(stage, kit) {
+  if (!kit.fadeTex) {
+    const c = cv(4, 64), gg = c.getContext('2d');
+    const lg = gg.createLinearGradient(0, 0, 0, 64); lg.addColorStop(0, '#fff'); lg.addColorStop(0.5, '#fff'); lg.addColorStop(1, '#000');
+    gg.fillStyle = lg; gg.fillRect(0, 0, 4, 64);
+    kit.fadeTex = new stage.THREE.CanvasTexture(c); kit.cache.set('fade', kit.fadeTex);
+  }
+  return kit.fadeTex;
 }

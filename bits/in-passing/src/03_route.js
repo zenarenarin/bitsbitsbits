@@ -39,8 +39,8 @@ function expandSurface(W, sf, s0, t0, opts) {
         if (q.mode === 'ground' || !q.jumped) continue;
         const tr = trace ? [q.x, q.y] : null;
         tt = botFly(W, q, tt, 0, v === 0 ? t + BOT.TAP : Infinity, tt + BOT.AIRMAX, tr);
-        if (q.mode === 'ground') { if (v === 0) out.push({ to: q.surf, s: q.s, t: tt, snap: snapI, kind: 'tap', trace: tr }); }
-        else if (q.mode === 'hang') out.push({ to: q.handle, st: q, t: tt, snap: snapI, kind: 'grab', trace: tr });
+        if (q.mode === 'ground') { if (v === 0) out.push({ to: q.surf, s: q.s, t: tt, ts: t, snap: snapI, kind: 'tap', trace: tr }); }
+        else if (q.mode === 'hang') out.push({ to: q.handle, st: q, t: tt, ts: t, snap: snapI, kind: 'grab', trace: tr });
         else if (trace && v === 0) out.push({ to: null, t: tt, snap: snapI, kind: 'tap', trace: tr });
       }
       nextSnap += BOT.SNAP; snapI++;
@@ -73,8 +73,8 @@ function expandHandle(W, st, t0, opts) {
       const r = cloneP(q);
       const tr = trace ? tr0.slice() : null;
       const t2 = botFly(W, r, t, v === 0 ? 1e9 : t + BOT.REHOLD, v === 0 ? -1 : Infinity, t + BOT.AIRMAX, tr);
-      if (r.mode === 'ground') { if (v === 0) out.push({ to: r.surf, s: r.s, t: t2, snap: relI, kind: 'release', trace: tr }); }
-      else if (r.mode === 'hang' && r.handle !== h) out.push({ to: r.handle, st: r, t: t2, snap: relI, kind: 'regrab', trace: tr });
+      if (r.mode === 'ground') { if (v === 0) out.push({ to: r.surf, s: r.s, t: t2, ts: t, snap: relI, kind: 'release', trace: tr }); }
+      else if (r.mode === 'hang' && r.handle !== h) out.push({ to: r.handle, st: r, t: t2, ts: t, snap: relI, kind: 'regrab', trace: tr });
       else if (trace && v === 0) out.push({ to: null, t: t2, snap: relI, kind: 'release', trace: tr });
     }
     const tEnd = t + BOT.REL;
@@ -371,17 +371,16 @@ function validateModule(pierA, mod, opts) {
 function letterCandidates(collect, goalSf) {
   const cands = [];
   for (const group of collect) {
-    const ok = group.res.filter(r => r.to && r.to !== group.from && r.to.len != null && r.trace && r.trace.length > 6);
+    const ok = group.res.filter(r => r.to && r.to.len != null && r.trace && r.trace.length > 6);
     if (ok.length < 4) continue;
     const apexes = ok.map(r => { let m = -1e9, mx = 0; for (let i = 1; i < r.trace.length; i += 2) if (r.trace[i] > m) { m = r.trace[i]; mx = r.trace[i - 1]; } return { y: m, x: mx, r }; });
-    const ys = apexes.map(a => a.y).sort((a, b) => a - b);
-    const med = ys[Math.floor(ys.length / 2)];
+    const lo = Math.min(...apexes.map(a => a.y));
     for (const a of apexes) {
-      if (a.y < med + 1.0) continue;
-      const near = apexes.filter(b => Math.hypot(b.x - a.x, b.y - a.y) < 0.7);
+      if (a.y < lo + 1.2) continue;
+      const near = apexes.filter(b => Math.hypot(b.x - a.x, b.y - a.y) < 0.6);
       const win = new Set(near.map(b => b.r.snap)).size * BOT.SNAP;
       if (win < 0.15) continue;
-      cands.push({ x: a.x, y: a.y, score: (a.y - med) - win * 0.8 + (a.r.to === goalSf ? 0.5 : 0) });
+      cands.push({ x: a.x, y: a.y, score: (a.y - lo) - win * 0.5 + (a.r.to === goalSf ? 0.5 : 0) });
     }
   }
   cands.sort((a, b) => b.score - a.score);

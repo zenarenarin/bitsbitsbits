@@ -156,7 +156,7 @@ function createUI(ctx, h) {
   ui.showMenu = s => {
     show(menu, true); show(hud, false);
     topright.querySelector('[data-a=pause]').style.display = 'none';
-    ui.menuState(s);
+    if (s && s.index != null) ui.menuState(s);
   };
   ui.menuState = s => {
     const tabs = menu.querySelectorAll('.tab');
@@ -168,7 +168,7 @@ function createUI(ctx, h) {
     const stamps = menu.querySelector('.stamps'), best = menu.querySelector('.best'), go = menu.querySelector('.go');
     if (s.daily) {
       num.textContent = s.dateLabel; region.textContent = 'Today’s errand';
-      to.textContent = 'the same route for everyone, until midnight';
+      to.textContent = 'one route for everyone, today';
       stamps.innerHTML = '';
       best.textContent = s.dailyBest != null ? 'your best today ' + fmtTime(s.dailyBest) : (s.preparing ? 'the errand is being written…' : 'no delivery yet today');
       go.textContent = s.preparing ? 'one moment…' : 'touch the world to set off';
