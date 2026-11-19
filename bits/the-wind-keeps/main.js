@@ -1,3 +1,4 @@
+// Plethora Bit · docs and draft upload: https://agent.plethora.studio/v1/agent/start.md
 // THE WIND KEEPS — a Plethora Bit about catching moments in a mechanical world.
 // Built from src/ by build.js; edit the sources, not this file.
 (function () {

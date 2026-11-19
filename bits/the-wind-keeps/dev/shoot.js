@@ -3,7 +3,7 @@ const { chromium } = require('playwright');
 (async () => {
   const [name = 'shot', w = 402, h = 874, ...steps] = process.argv.slice(2);
   const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
-  const page = await browser.newPage({ viewport: { width: +w, height: +h }, deviceScaleFactor: 1 });
+  const page = await browser.newPage({ viewport: { width: +w, height: +h }, deviceScaleFactor: +(process.env.DSF || 1) });
   const logs = [];
   page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') logs.push(m.type() + ': ' + m.text()); });
   page.on('pageerror', e => logs.push('pageerror: ' + e.message));
