@@ -141,11 +141,11 @@ function paintWheel(seed, P) {
   const rng = makeRng(seed);
   const S = 1024, c = cv(S, S), g = c.getContext('2d');
   const C = S / 2, R = S * 0.47;
-  const col = P.wood;
+  const col = mixC(P.woodLight, P.cloth, 0.25);
   g.lineCap = 'round';
   for (let i = 0; i < 12; i++) {
     const a = i / 12 * TAU;
-    g.strokeStyle = shadeC(col, -0.15); g.lineWidth = 16;
+    g.strokeStyle = shadeC(col, -0.15); g.lineWidth = 10;
     g.beginPath(); g.moveTo(C + Math.cos(a) * 40, C + Math.sin(a) * 40); g.lineTo(C + Math.cos(a) * R, C + Math.sin(a) * R); g.stroke();
     g.strokeStyle = rgba(shadeC(col, 0.25), 0.6); g.lineWidth = 4;
     g.beginPath(); g.moveTo(C + Math.cos(a) * 40, C + Math.sin(a) * 40); g.lineTo(C + Math.cos(a) * R, C + Math.sin(a) * R); g.stroke();

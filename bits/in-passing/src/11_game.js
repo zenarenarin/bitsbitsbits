@@ -533,6 +533,7 @@ const BIT = {
       if (S.mode !== 'paused') worldSounds();
       if ((hudTick += dt) > 0.1 && (S.mode === 'play' || S.mode === 'delivered')) { hudTick = 0; ui.progress(clamp((p.x - S.W.start.xmin) / (S.W.finalX - S.W.start.xmin), 0, 1)); updateHints(); }
       stage.renderer.render(stage.scene, stage.camera);
+      if (window.__IP_INFO) window.__IP_INFO = { calls: stage.renderer.info.render.calls, tris: stage.renderer.info.render.triangles, tex: stage.renderer.info.memory.textures };
       if (!readySent) { readySent = true; ui.loaded(); ctx.platform.ready(); }
       // keep the frame rate smooth on slower phones
       if (dt > 0.026) slowFrames++; else slowFrames = Math.max(0, slowFrames - 1);

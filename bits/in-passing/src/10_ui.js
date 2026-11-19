@@ -23,10 +23,11 @@ const UI_CSS = `
 .ip .hidden{opacity:0;pointer-events:none!important}
 .ip .hidden *{pointer-events:none!important}
 .ip .shadowtxt{text-shadow:0 1px 0 rgba(255,250,238,.65),0 0 14px rgba(255,248,232,.7)}
-.ip .icon{width:40px;height:40px;border-radius:20px;display:flex;align-items:center;justify-content:center;background:rgba(250,244,230,.55);box-shadow:0 1px 0 rgba(34,64,63,.12)}
+.ip .icon{width:40px;height:40px;border-radius:20px;display:flex;align-items:center;justify-content:center;background:rgba(245,237,219,.84);box-shadow:0 1px 0 rgba(34,64,63,.12)}
 .ip .icon svg{width:20px;height:20px;stroke:#22403f;fill:none;stroke-width:1.6;stroke-linecap:round}
 /* menu */
 .ip .title{position:absolute;left:18px;right:70px}
+.ip .topveil{position:absolute;left:0;right:0;top:0;height:300px;background:linear-gradient(rgba(245,237,219,.78),rgba(245,237,219,.45) 55%,rgba(245,237,219,0));pointer-events:none}
 .ip .title h1{margin:0;font-weight:300;font-style:italic;font-size:46px;line-height:.95;letter-spacing:-.01em}
 .ip .title p{margin:8px 0 0;font-size:12px;line-height:1.45;max-width:260px;opacity:.8}
 .ip .ledger{position:absolute;left:14px;right:14px;background:#f5eddb;border-radius:3px;padding:14px 16px 14px;box-shadow:0 10px 30px rgba(40,50,48,.18),0 1px 0 rgba(34,64,63,.15);pointer-events:auto}
@@ -50,7 +51,7 @@ const UI_CSS = `
 @keyframes ipbreath{0%,100%{opacity:.55}50%{opacity:1}}
 .ip .sealed{color:#b55a44}
 /* hud */
-.ip .hud{position:absolute;left:18px;right:70px}
+.ip .hud{position:absolute;left:14px;max-width:calc(100% - 120px);background:rgba(245,237,219,.84);border-radius:3px;padding:8px 12px 9px;box-shadow:0 1px 0 rgba(34,64,63,.14)}
 .ip .hud .rt{font-size:10px}
 .ip .hud .rto{font-family:'Cormorant Garamond',Georgia,serif;font-style:italic;font-size:17px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ip .journey{margin-top:8px;display:flex;align-items:center;gap:10px}
@@ -81,6 +82,7 @@ const UI_CSS = `
 .ip .board{margin-top:10px;font-size:12px}
 .ip .board .row{font-size:12px}
 .ip .note{font-size:11px;opacity:.6;margin-top:6px}
+@media (min-aspect-ratio: 5/4){.ip .ledger{left:auto;right:66px;width:330px}.ip .title h1{font-size:40px}.ip .card{left:auto;right:16px;transform:none}.ip .topveil{right:50%}}
 .ip .loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;background:#eee4cf}
 .ip .loading h1{margin:0;font-family:'Cormorant Garamond',Georgia,serif;font-weight:300;font-style:italic;font-size:44px}
 .ip .loading p{font-size:11px;letter-spacing:.16em;text-transform:uppercase;opacity:.55;margin-top:12px}
@@ -102,6 +104,7 @@ function createUI(ctx, h) {
   const loading = el('loading', '<h1>In Passing</h1><p>painting the world</p>');
   const menu = el('safe fade hidden');
   menu.innerHTML = `
+    <div class="topveil"></div>
     <div class="title shadowtxt"><h1>In Passing</h1><p>A courier's errands through a world that never stops moving. You don't make anything move. You know when to get on.</p></div>
     <div class="ledger">
       <div class="tabs"><button class="tab on" data-a="journey">Journey</button><button class="tab" data-a="daily">Today's errand</button></div>
@@ -115,7 +118,7 @@ function createUI(ctx, h) {
       <button class="go" data-a="start">touch the world to set off</button>
     </div>`;
   const hud = el('safe fade hidden');
-  hud.innerHTML = `<div class="hud shadowtxt"><div class="lbl rt"></div><div class="rto"></div>
+  hud.innerHTML = `<div class="hud"><div class="lbl rt"></div><div class="rto"></div>
     <div class="journey"><svg width="132" height="14" viewBox="0 0 132 14"><path class="jl" d="M2 7 Q 33 3 66 7 T 124 7" stroke="#22403f" stroke-opacity=".35" stroke-width="1.2" fill="none" stroke-dasharray="2 3"/><path class="jd" d="M2 7 Q 33 3 66 7 T 124 7" stroke="#22403f" stroke-width="1.6" fill="none"/><g class="house"><path d="M121 3 l4 -3 l4 3 v5 h-8z" fill="#f5eddb" stroke="#22403f" stroke-width="1"/><path d="M122 8 l-1.5 5 M128 8 l1.5 5" stroke="#22403f" stroke-width="1"/></g><circle class="me" cx="2" cy="7" r="3.2" fill="#d9785f" stroke="#f5eddb" stroke-width="1"/></svg><div class="env"></div></div></div>`;
   const topright = el('topright');
   topright.innerHTML = `<button class="icon" data-a="sound" aria-label="Sound">${ICONS.sound}</button><button class="icon" data-a="pause" aria-label="Pause">${ICONS.pause}</button>`;

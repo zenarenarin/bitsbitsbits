@@ -51,7 +51,7 @@ function fitStage(stage, w, h, dpr) {
   renderer.setSize(w, h, false);
   const aspect = w / h;
   camera.aspect = aspect;
-  const viewW = clamp(aspect * 27, 12.5, 30);
+  const viewW = clamp(aspect * 27, 12.5, 38);
   const viewH = viewW / aspect;
   const dist = (viewH / 2) / Math.tan(camera.fov * Math.PI / 360);
   stage.dist = dist; stage.viewW = viewW; stage.viewH = viewH;
@@ -271,7 +271,7 @@ function buildWorldView(stage, W, regionIdx, opts) {
   for (let x = x0 + 10; x < x1; x += 22 + rng() * 26) {
     const k = rng.int(0, 1);
     const y = yAtX(x);
-    const m = card(stage, kit, fgTex[k], 256 / 5, 128, k === 0 ? 0 : 512, { noFog: true, opacity: 0.8 });
+    const m = card(stage, kit, fgTex[k], 256 / 5, 128, k === 0 ? 0 : 512, { noFog: true, opacity: k === 0 ? 0.75 : 0.42 });
     m.position.set(x, k === 0 ? y + 14 : y - 7, 10 + rng() * 4);
     root.add(m);
     const ph = rng() * 6;
@@ -443,9 +443,9 @@ function buildSystemView(stage, kit, sys, rng, view) {
   if (sys.kind === 'wheel') {
     const wt = kit.tex('wheel', () => paintWheel(8, P));
     const wheel = card(stage, kit, wt, 481 / p.R, 512, 512);
-    wheel.position.set(p.cx, p.cy, -0.35);
-    const stand = card(stage, kit, kit.tex('wstand', () => paintWheelStand(9, P)), 1024 / (p.R + 12), 256, 112);
-    stand.position.set(p.cx, p.cy, -0.5);
+    wheel.position.set(p.cx, p.cy, -0.9);
+    const stand = card(stage, kit, kit.tex('wstand', () => paintWheelStand(9, P)), 1024 / (p.R + 12), 256, 112, { color: '#d8d2c8' });
+    stand.position.set(p.cx, p.cy, -1.4);
     g.add(stand); g.add(wheel);
     const gt = [kit.tex('gond0', () => paintGondola(0, P)), kit.tex('gond1', () => paintGondola(1, P))];
     const gons = sys.surfaces.map((sf, i) => { const m = card(stage, kit, gt[i % 2], 212 / sf.len, 22, 189); g.add(m); return m; });
