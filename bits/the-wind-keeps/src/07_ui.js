@@ -10,6 +10,7 @@ const UI_CSS = `
 .twk .mono{font-family:'TWK Mono','Space Mono',ui-monospace,Menlo,monospace}
 .twk .fade{transition:opacity .6s ease, transform .6s ease}
 .twk .hide{opacity:0!important;pointer-events:none!important}
+.twk .hide *{pointer-events:none!important}
 /* ---- HUD ---- */
 .twk-hud{position:absolute;inset:0;pointer-events:none}
 .twk-label{position:absolute;left:calc(var(--sl) + 18px);top:calc(var(--st) + 14px);display:flex;flex-direction:column;gap:6px;max-width:62%}
@@ -101,6 +102,10 @@ const UI_CSS = `
 .twk-ent.next .t:after{content:' ←';font-style:normal;font-size:12px;opacity:.6}
 .twk-close{position:absolute;right:10px;top:10px;width:36px;height:36px;border:0;background:none;font-size:20px;color:var(--ink);opacity:.6;cursor:pointer}
 .twk-fail{position:absolute;left:0;right:0;top:40%;text-align:center;font-size:18px;padding:0 30px;color:var(--char)}
+.twk-title.land{align-items:flex-start}
+.twk-title.land .head{margin-left:calc(var(--sl) + 7vw);margin-top:calc(var(--st) + 10vh);align-items:flex-start;text-align:left}
+.twk-title.land h1{font-size:clamp(46px,9vh,80px)}
+.twk-title.land .foot{align-items:flex-start;left:calc(var(--sl) + 7vw);bottom:12px}
 .twk-vig{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 55%,rgba(0,0,0,0) 62%,rgba(40,50,62,.16) 100%)}
 .twk-veil{position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,rgba(240,242,236,.55),rgba(240,242,236,0) 40%,rgba(240,242,236,0) 72%,rgba(240,238,228,.72) 100%);opacity:0;transition:opacity .8s}
 .twk-veil.on{opacity:1}

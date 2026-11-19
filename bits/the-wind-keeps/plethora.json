@@ -4,14 +4,30 @@
   "entry": "main.js",
   "title": "The Wind Keeps",
   "description": "You are a tiny caretaker in an enormous, gently broken mechanical world. Watch the wind cross the meadow, catch it in the windmill's sails, and send one good moment travelling through pumps, water wheels, lifts and bells until the whole world runs again.",
-  "tags": ["casual", "timing", "3d", "relaxing", "puzzle"],
-  "permissions": ["audio", "haptics"],
-  "dependencies": ["three@0.164.1"],
+  "tags": [
+    "casual",
+    "timing",
+    "3d",
+    "relaxing",
+    "puzzle"
+  ],
+  "permissions": [
+    "audio",
+    "haptics"
+  ],
+  "dependencies": [
+    "three@0.164.1"
+  ],
   "display": "fullscreen",
-  "onboarding": { "kind": "immersive", "version": 1 },
+  "onboarding": {
+    "kind": "immersive",
+    "version": 1
+  },
   "memory": {
     "local": {
-      "notebook": { "label": "Field notes" }
+      "notebook": {
+        "label": "Field notes"
+      }
     },
     "records": {
       "daily_machine": {
@@ -19,9 +35,86 @@
         "valueType": "number",
         "order": "desc",
         "format": "integer",
-        "periods": ["daily", "weekly", "all_time"],
-        "scopes": ["following", "global"],
+        "periods": [
+          "daily",
+          "weekly",
+          "all_time"
+        ],
+        "scopes": [
+          "following",
+          "global"
+        ],
         "dedupe": "best_per_user"
+      }
+    }
+  },
+  "tuning": {
+    "schemaVersion": 1,
+    "groups": {
+      "feel": {
+        "label": "Feel"
+      },
+      "day": {
+        "label": "Today's machine"
+      },
+      "sound": {
+        "label": "Sound"
+      }
+    },
+    "knobs": {
+      "timing_forgiveness": {
+        "label": "Timing forgiveness (wider catch windows)",
+        "type": "number",
+        "default": 1,
+        "min": 0.7,
+        "max": 1.5,
+        "step": 0.05,
+        "group": "feel",
+        "intent": "difficulty",
+        "apply": "live"
+      },
+      "anticipation_beats": {
+        "label": "How long a gust is visible before it arrives (beats)",
+        "type": "number",
+        "default": 3,
+        "min": 2,
+        "max": 4,
+        "step": 0.25,
+        "group": "feel",
+        "intent": "difficulty",
+        "apply": "restart"
+      },
+      "flow_recovery": {
+        "label": "How quickly Flow builds back up",
+        "type": "number",
+        "default": 1,
+        "min": 0.5,
+        "max": 2,
+        "step": 0.1,
+        "group": "feel",
+        "intent": "feel",
+        "apply": "live"
+      },
+      "daily_seconds": {
+        "label": "Length of today's machine (seconds)",
+        "type": "integer",
+        "default": 90,
+        "min": 60,
+        "max": 150,
+        "step": 5,
+        "group": "day",
+        "intent": "gameplay",
+        "apply": "restart"
+      },
+      "sound_level": {
+        "label": "Overall sound level",
+        "type": "percent",
+        "default": 0.9,
+        "min": 0,
+        "max": 1,
+        "group": "sound",
+        "intent": "audio",
+        "apply": "live"
       }
     }
   }

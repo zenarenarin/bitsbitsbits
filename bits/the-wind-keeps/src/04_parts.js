@@ -5,7 +5,7 @@ function createParts(THREE, P) {
   X.mat = mat;
   const mk = (geo, color, pos, parent, rot) => {
     const b = new P.Builder(color * 7 + 1); b.add(geo, color, { p: [0, 0, 0] }, { vary: 0, shade: 0.12 });
-    const m = new THREE.Mesh(b.build(), mat); m.castShadow = true; if (pos) m.position.set(...pos); if (rot) m.rotation.set(...rot); if (parent) parent.add(m); return m;
+    const m = new THREE.Mesh(b.build(), mat); m.castShadow = false; if (pos) m.position.set(...pos); if (rot) m.rotation.set(...rot); if (parent) parent.add(m); return m;
   };
   X.mk = mk;
 
@@ -84,22 +84,24 @@ function createParts(THREE, P) {
     return C;
   };
 
-  // A flower that blooms when asked. Returns { group, set(t) }.
+  // A flower that blooms when asked: two merged meshes (stem, head).
   X.flower = (petal = 0xe58a72, center = 0xf2c25a, s = 1) => {
     const g = new THREE.Group();
-    const stem = mk(new THREE.CylinderGeometry(0.012 * s, 0.015 * s, 0.32 * s, 4), 0x6f8a55, [0, 0.16 * s, 0], g);
-    const head = new THREE.Group(); head.position.y = 0.32 * s; g.add(head);
-    const petals = [];
-    for (let i = 0; i < 6; i++) { const p = new THREE.Group(); p.rotation.y = (i / 6) * TAU; head.add(p); const m = mk(new THREE.SphereGeometry(0.05 * s, 6, 4), petal, [0, 0, 0.06 * s], p); m.scale.set(0.7, 0.3, 1.2); petals.push(p); }
-    mk(new THREE.SphereGeometry(0.035 * s, 8, 6), center, [0, 0.01, 0], head);
-    const leaf = mk(new THREE.SphereGeometry(0.04 * s, 6, 4), 0x7d9152, [0.04 * s, 0.1 * s, 0], g); leaf.scale.set(1.4, 0.3, 0.7);
+    const sb = new P.Builder(petal % 97 + 3);
+    sb.add(new THREE.CylinderGeometry(0.012 * s, 0.015 * s, 0.32 * s, 4), 0x6f8a55, { p: [0, 0.16 * s, 0] }, { vary: 0 });
+    sb.add(new THREE.SphereGeometry(0.04 * s, 6, 4), 0x7d9152, { p: [0.04 * s, 0.1 * s, 0], s: [1.4, 0.3, 0.7] }, { vary: 0 });
+    const stem = new THREE.Mesh(sb.build(), mat); g.add(stem);
+    const hb = new P.Builder(petal % 89 + 5);
+    for (let i = 0; i < 6; i++) { const a = (i / 6) * TAU; hb.add(new THREE.SphereGeometry(0.05 * s, 6, 4), petal, { p: [Math.sin(a) * 0.06 * s, 0, Math.cos(a) * 0.06 * s], r: [0, a, 0], s: [0.7, 0.3, 1.2] }, { vary: 0.04, shade: 0 }); }
+    hb.add(new THREE.SphereGeometry(0.035 * s, 8, 6), center, { p: [0, 0.012, 0] }, { vary: 0, shade: 0 });
+    const head = new THREE.Mesh(hb.build(), mat); head.position.y = 0.32 * s; g.add(head);
     const F = { group: g, v: 0 };
     F.set = (v) => {
       F.v = v;
       const grow = smooth(v * 2), open = easeOutBack(clamp(v * 2 - 1));
       stem.scale.y = 0.2 + grow * 0.8; head.position.y = 0.32 * s * (0.2 + grow * 0.8);
-      head.scale.setScalar(0.4 + grow * 0.6);
-      for (const p of petals) p.rotation.x = -1.3 + open * 1.15;
+      head.scale.set(0.15 + open * 0.85, 0.5 + grow * 0.5, 0.15 + open * 0.85);
+      head.visible = v > 0.02; g.visible = v > 0.001 || F.always;
     };
     F.set(0);
     return F;

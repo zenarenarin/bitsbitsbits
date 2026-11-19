@@ -109,6 +109,10 @@ window.plethoraBit = {
     ctx.onDestroy(() => audio.close());
     const haptic = k => { try { if (caps.haptics) ctx.platform.haptic(k); } catch (e) { } };
     const scoreTrack = ctx.game && ctx.game.score ? ctx.game.score() : null;
+    // creator knobs (draft-time), with safe defaults when tuning is unavailable
+    const tune = (id, d) => { try { const v = ctx.tune && ctx.tune.get ? ctx.tune.get(id) : undefined; return typeof v === 'number' && isFinite(v) ? v : d; } catch (e) { return d; } };
+    try { if (ctx.tune && ctx.tune.onChange) ctx.tune.onChange(['sound_level'], v => { audio.volume = typeof v === 'number' ? v : 0.9; audio.setMuted(audio.muted); }); } catch (e) { }
+    audio.volume = tune('sound_level', 0.9);
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(45, ctx.width / ctx.height, 0.3, 600);
@@ -164,7 +168,7 @@ window.plethoraBit = {
       const wid = ORDER[seed % ORDER.length];
       const base = Object.assign({}, worlds[wid].levels[worlds[wid].levels.length - 1]);
       base.daily = true; base.world = wid; base.seed = seed;
-      base.goal = { type: 'timed', secs: 90 };
+      base.goal = { type: 'timed', secs: Math.round(tune('daily_seconds', 90)) };
       base.cross = r.range(0.08, 0.3); base.jitter = r.range(0.02, 0.07); base.startW = r.range(0.15, 0.7);
       if (base.N) base.N = r.int(4, 6);
       base.title = r.pick(worlds[wid].dailyTitles || ['Keep it all moving']);
@@ -194,10 +198,13 @@ window.plethoraBit = {
       const orbit = cam.orbit;
       const p = cam.basePos, l = cam.baseLook;
       cam.title = damp(cam.title || 0, mode === 'title' ? 1 : 0, 1.6, dt);
-      const dz = -cam.push * 2.2 + cam.title * 9;
-      const ty = cam.title * 4.2;
-      cam.pos.set(p.x + Math.sin(orbit) * 4 + breathe, p.y + ty + Math.cos(time * 0.17) * 0.08, p.z + dz);
-      cam.look.copy(l).lerp(cam.focus, cam.focusAmt * 0.18); cam.look.y += ty;
+      cam.res = damp(cam.res || 0, mode === 'complete' ? 1 : 0, 1.2, dt);
+      const port = ctx.width < ctx.height;
+      const dz = -cam.push * 2.2 + cam.title * (port ? 9 : 3) + cam.res * (port ? 7 : 2);
+      const ty = cam.title * (port ? 4.2 : 0.5) - cam.res * (port ? 5.5 : 0);
+      const tx = port ? 0 : -cam.title * 6.5 - cam.res * 5;
+      cam.pos.set(p.x + tx + Math.sin(orbit) * 4 + breathe, p.y + ty + Math.cos(time * 0.17) * 0.08, p.z + dz);
+      cam.look.copy(l).lerp(cam.focus, cam.focusAmt * 0.18); cam.look.y += ty; cam.look.x += tx;
       camera.position.copy(cam.pos); camera.lookAt(cam.look);
     }
 
@@ -245,7 +252,7 @@ window.plethoraBit = {
       useWorld(ref.daily ? L.world : ref.world);
       attempt++;
       G.rng = makeRng(ref.daily ? L.seed : ((Date.now() ^ (Math.random() * 1e9)) >>> 0));
-      G.beat = 60 / world.bpm; G.ops = []; G.flow = 0.08;
+      G.beat = 60 / world.bpm; G.ops = []; G.flow = 0.08; G.lead = tune('anticipation_beats', 3);
       G.t0 = G.t + 1.0;
       run = { L, ref, attempt, tStart: G.t, lastFlowT: G.t, score: 0, chain: 0, bestChain: 0, q: [], catches: 0, snags: 0, done: false, finaleT: 0, events: [], idleTaps: [] };
       world.begin(L, G);
@@ -279,7 +286,7 @@ window.plethoraBit = {
     let frameWall = performance.now();
     function tapTime() { return G.t + Math.min(0.05, (performance.now() - frameWall) / 1000) - INPUT_BIAS; }
     function classify(d, L) {
-      const [wf, wg] = L.win || [0.1, 0.22];
+      const k = tune('timing_forgiveness', 1), [wf, wg] = (L.win || [0.1, 0.22]).map(w => w * k);
       const ad = Math.abs(d);
       if (ad <= wf) return 'flow';
       if (ad <= wg) return 'good';
@@ -299,7 +306,7 @@ window.plethoraBit = {
       } else {
         cands.sort((a, b) => Math.abs(t - a.t) - Math.abs(t - b.t));
         const best = cands[0];
-        const [, wg] = L.win || [0.1, 0.22];
+        const wg = (L.win || [0.1, 0.22])[1] * tune('timing_forgiveness', 1);
         // everything that aligns with this moment is caught together
         const hit = cands.filter(o => o === best || Math.abs(t - o.t) <= wg);
         let good = 0;
@@ -326,7 +333,7 @@ window.plethoraBit = {
       if (q !== undefined) run.q.push(q);
       if (r === 'flow' || r === 'good') {
         run.chain++; run.bestChain = Math.max(run.bestChain, run.chain); run.catches++; run.lastFlowT = G.t;
-        G.flow = clamp(G.flow + (r === 'flow' ? 0.1 : 0.05));
+        G.flow = clamp(G.flow + (r === 'flow' ? 0.1 : 0.05) * tune('flow_recovery', 1));
         addScore((r === 'flow' ? 120 : 70) * (1 + Math.min(run.chain, 20) * 0.08 + G.flow * 0.5));
         if (r === 'flow') haptic('light');
         const w = CHAIN_WORDS[run.chain];
@@ -353,6 +360,7 @@ window.plethoraBit = {
         run.events.push(name);
         try { ctx.platform.milestone(name); } catch (e) { }
       } else if (name === 'lift-top') { addScore(150); }
+      else if (name === 'overswing') { run.chain = 0; G.flow = clamp(G.flow - 0.08); haptic('warning'); if (!run.events.includes(name)) say('Too much', 1.8); run.events.push(name); }
       else if (name === 'stall') { if (!run.events.includes('stall')) say('Stillness', 2.4); run.events.push('stall'); }
     }
 
@@ -432,8 +440,9 @@ window.plethoraBit = {
         ${ref.daily ? '<div class="twk-board mono"><div class="st">TODAY · LOADING…</div></div>' : ''}
         <div class="twk-acts"><button class="twk-btn serif" data-a="again">again</button>${nx && unlocked(nx) || (nx && R.kept) ? '<button class="twk-btn serif" data-a="next">next entry →</button>' : '<button class="twk-btn small mono" data-a="notes">FIELD NOTES</button>'}</div>`;
       showSheet();
+      if (isBest && best > 0) { audio.bloom(G.t + 0.4); audio.bell(G.t + 0.9, 9, 0.7); }
       if (ref.daily) submitDaily(R.score);
-      try { if (ctx.pulse && ctx.pulse.complete) ctx.timeout(() => { if (mode === 'complete') ctx.pulse.complete({ score: R.score, level: ref.daily ? 'daily' : ref.index + 1, mode: world.id, result: headline(R) }); }, 900); } catch (e) { }
+      try { if (ctx.pulse && ctx.pulse.complete) ctx.timeout(() => { if (mode === 'complete') ctx.pulse.complete({ score: R.score, timeMs: Math.round(R.time * 1000), level: ref.daily ? 'daily' : ref.index + 1, mode: world.id, result: headline(R) }); }, 900); } catch (e) { }
     }
     function submitDaily(score) {
       const my = ++resultAttempt;
@@ -460,7 +469,7 @@ window.plethoraBit = {
         const w = worlds[wid];
         html += `<div class="twk-sec"><span class="n mono">${w.numeral}.</span><span class="t serif">${w.name}</span></div>`;
         w.levels.forEach((L, i) => {
-          const ref = { world: wid, index: i }, ok = unlocked(ref), d = save.done[wid + '-' + (i + 1)];
+          const ref = { world: wid, index: i }, d = save.done[wid + '-' + (i + 1)], ok = unlocked(ref) || !!d;
           const isNext = ok && !d;
           html += `<div class="twk-ent ${ok ? '' : 'lock'} ${isNext ? 'next' : ''}" ${ok ? `data-w="${wid}" data-i="${i}"` : ''}><span class="n mono">${String(i + 1).padStart(2, '0')}</span><span class="t disp">${ok ? L.title : '· · ·'}</span><span class="m">${d ? d.s.map(v => `<i class="${v ? 'on' : ''}"></i>`).join('') : ''}</span></div>`;
         });
@@ -537,6 +546,7 @@ window.plethoraBit = {
       ui.style.setProperty('--st', (a.top || 0) + 'px'); ui.style.setProperty('--sb', (a.bottom || 0) + 'px');
       ui.style.setProperty('--sl', (a.left || 0) + 'px'); ui.style.setProperty('--sr', (a.right || 0) + 'px');
       renderer.setSize(w, h, false);
+      H.title.classList.toggle('land', w > h);
       if (world) frameCamera();
     }
     ctx.onResize(() => layout(), { immediate: true });
@@ -552,13 +562,13 @@ window.plethoraBit = {
         // ops that slipped by
         for (const op of G.ops) {
           if (op.done) continue;
-          if (autopilot && !op.harmful) {
+          if (autopilot && !op.harmful && (!world.botWants || world.botWants(op))) {
             const err = autopilot === 2 ? 0 : (op.err ?? (op.err = (G.rng() - 0.5) * 0.12 + (G.rng() < 0.08 ? 0.6 : 0)));
-            if (G.t >= op.t + err) { op.done = true; const r = classify(err, run ? run.L : { win: [0.1, 0.22] }); world.resolve(op, r, err, G); if (run) result(r, op); else G.flow = clamp(G.flow + (r === 'flow' ? 0.02 : -0.01), 0.3, 0.75); continue; }
+            if (G.t >= op.t + err) { op.done = true; const r = classify(err, run ? run.L : { win: [0.1, 0.22] }); world.resolve(op, r, err, G); if (run && mode === 'play') result(r, op); else if (!run) G.flow = clamp(G.flow + (r === 'flow' ? 0.02 : -0.01), 0.3, 0.75); continue; }
           }
           if (G.t - op.t > LATE) {
             op.done = true; world.passed(op, G);
-            if (run && mode === 'play') result(op.harmful ? 'weathered' : 'miss', op);
+            if (run && mode === 'play' && !op.optional) result(op.harmful ? 'weathered' : 'miss', op);
           }
         }
         if (G.ops.length > 40) G.ops = G.ops.filter(o => !o.done);
@@ -631,7 +641,7 @@ window.plethoraBit = {
           const n = Math.round(secs * 60);
           for (let i = 0; i < n; i++) {
             if (skill >= 0 && mode === 'play') {
-              for (const o of G.ops) { if (o.done || o.harmful) continue; if (o.bot === undefined) o.bot = Math.random() < skill ? offset + (Math.random() - 0.5) * 2 * noise : null; }
+              for (const o of G.ops) { if (o.done || o.harmful) continue; if (o.bot === undefined) o.bot = Math.random() < skill ? offset + (Math.random() - 0.5) * 2 * noise : null; if (o.bot !== null && world.botWants && G.t > o.t - 0.3 && !o.botChecked) { o.botChecked = true; if (!world.botWants(o)) o.bot = null; } }
               const due = G.ops.find(o => !o.done && !o.harmful && o.bot !== null && G.t + 1 / 60 >= o.t + o.bot + INPUT_BIAS);
               if (due) { frameWall = performance.now(); tap(); }
             }

@@ -442,7 +442,7 @@ function createWindmillWorld(THREE, P, E, X, audio) {
       accept: (x, z, r) => (z < 6 || r() < 0.45) && !(x > 2.4 && x < 10 && z < -0.8 && z > -8) && pathAt(x, z) < 0.3 && Math.hypot(x, z) > 2.5 && !(x > 3 && x < 6.2 && z > 0 && z < 2.3) }));
     // distant layers
     root.add(E.layers([
-      { kind: 'spires', seed: 3, w: 300, y: 30, z: -140, color: 0xc3d3d6 },
+      { kind: 'hills', seed: 3, w: 320, y: 24, z: -140, color: 0xc6d6d6 },
       { kind: 'hills', seed: 7, w: 260, y: 14, z: -110, color: 0xb3c8b8, order: 1 },
       { kind: 'town', seed: 11, w: 200, y: 8, z: -80, color: 0xa7b9a6, order: 2 },
     ]));
@@ -495,7 +495,7 @@ function createWindmillWorld(THREE, P, E, X, audio) {
   function schedule(G) {
     const beat = G.beat;
     // keep two gusts of lookahead
-    while (G.beatTime(st.nextBeat) - LEAD_BEATS * beat < G.t + 0.05) {
+    while (G.beatTime(st.nextBeat) - (G.lead || LEAD_BEATS) * beat < G.t + 0.05) {
       const { p, c } = patternNow();
       const gap = p[st.patIdx % p.length];
       const arrive = G.beatTime(st.nextBeat) + (st.L.jitter ? G.rng.range(-st.L.jitter, st.L.jitter) : 0);
@@ -505,7 +505,7 @@ function createWindmillWorld(THREE, P, E, X, audio) {
     }
   }
   function spawnGust(G, arrive, cross) {
-    const lead = (cross ? 2.6 : LEAD_BEATS) * G.beat;
+    const lead = (cross ? 2.6 : (G.lead || LEAD_BEATS)) * G.beat;
     const gust = { cross, tA: arrive, t0: arrive - lead, curve: cross ? S.crossCurve : S.gustCurve, res: null, resT: 0, strength: 0.8 + G.rng() * 0.4 };
     gust.op = G.addOp(cross ? 'cross' : 'gust', arrive, { gust }, cross);
     S.ribbons.spawn(gust, cross ? 3 : 4, cross ? 0x7d93ab : 0xf3c45a);
