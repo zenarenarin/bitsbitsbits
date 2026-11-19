@@ -44,6 +44,12 @@ const ctx = {
   pulse: { complete(p) { window.__events.push(['pulse', p]); } },
   game: {
     loop(o) {
+      if (location.search.includes('manual')) {
+        // frame-by-frame capture: the test calls __step(ms) to advance and render
+        const step = 1000 / (o.fixedHz || 60); let acc = 0;
+        window.__step = ms => { acc += ms; while (acc >= step) { o.fixedUpdate && o.fixedUpdate(step); acc -= step; } o.update && o.update(ms); o.render && o.render(acc / step); };
+        return {};
+      }
       let last = performance.now(), acc = 0; const step = 1000 / (o.fixedHz || 60);
       window.__loopPaused = false;
       const f = t => {
