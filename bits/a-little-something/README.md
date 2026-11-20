@@ -4,36 +4,52 @@ The first Bit a new Plethora viewer meets. It is a small game: it doesn't explai
 
 A small island sits in a pale turquoise sea. In this world things arrive from the sky on threads: far-off islands hang from them, and so does the piece of the world you are about to place. You tap to let go.
 
-## The beats
+## The journey
 
-1. **The world, already alive.** The island sits in the sea, gulls drift, far islands sway on their threads, and a little house swings above. The editorial title *WELCOME TO PLETHORA / There's a little something here.* sits in the sky. The thread passes behind the letters.
-2. **The demonstration.** After 1.6 s a ghost finger taps the sky, the thread twangs and the house jiggles. *TAP TO LET IT GO* sits between the house and the island. A shadow on the island shows where the piece will land, and for the first two pieces a dotted plumb line joins them.
-3. **You act.** Tap anywhere and the thread snaps (a sound plus a light haptic). The house falls and lands with squash, dust, a note and sprouting grass. The title lifts away.
-4. **Variation.** Seven pieces: house, tree, house, hill, house, tree, lighthouse.
-   - The swing speeds up with each piece.
-   - Houses snap onto houses and stack into towers (*HOUSES STACK*).
-   - A piece of hill grows the land and lifts whatever stands on it (*LAND MAKES MORE ISLAND*).
-   - Misses aren't failures: the sea keeps them as little islets (*THE SEA KEEPS WHAT YOU MISS*).
-   - The landing note is chosen by where the piece lands, so placing pieces plays a small tune.
-5. **The surprise.** After the hill, the island rumbles, tears free of the sea and rises. Water pours off its underside and its roots hang free (*IT FLOATS.*). From then on wind sways the threads, the island bobs, and clouds drift below it.
-6. **Something emerges.** The last piece is a lighthouse. Its lamp flickers on, dusk falls, the windows light one by one and the beam sweeps. The camera frames the island under a plate: *ISLAND Nº n · MADE BY @you · date · 7 PIECES · 2 KEPT BY THE SEA*. Every island is different, because it is the record of your taps.
+1. **On the Bits page.** "WELCOME TO PLETHORA / There's a little something here." sits in the sky. Below it a small island waits in a pale sea, and a little house hangs on a thread from the sky.
+   - Far off, finished islands float. Each one is someone else's.
+   - The house is the tap target. It has a soft glow and two breathing rings, a ghost finger lands on it, and "TAP TO PLAY" sits directly beneath it.
+   - If the host takes that first tap to enter play mode, the mode change counts as the tap and the house drops.
+2. **Play.** Tap to let each of seven pieces go: house, tree, house, hill, house, tree, lighthouse.
+   - The swing quickens with each piece, and a shadow shows where the piece will land.
+   - Houses settle on level plots and stack into towers. Trees grow in the gaps between plots, one per gap. The lighthouse takes a free plot. A piece of hill grows the land.
+   - Misses become islets in the sea.
+   - If you wait, "TAP TO DROP" returns on the hanging piece.
+3. **The surprise.** After the hill, the island tears free of the sea and floats.
+4. **Your island is finished.** The lighthouse lamp comes on, dusk falls, the windows light, and the camera frames your island.
+5. **Like.** "Enjoyed that? / SWIPE RIGHT TO LIKE", with a ghost drag from the real `{ }` logo button to a heart. On a real like, a warm glow passes over the island, the trees blossom, petals rise and gulls circle. Then "It likes you back."
+6. **Capture.** A print frame appears: "A LITTLE SOMETHING / An island you made." Then "Keep your island. / SWIPE LEFT TO CAPTURE". On a real capture the world freezes and flashes, the framed island lifts off like a print, and gets a small date stamp.
+7. **Everyone's islands.** The camera pulls back, and other people's islands gather around yours at different depths, each with a small "@name" beneath it. One line reads "Your island joins everyone else's."
+8. **Scroll to play more.** A finger pushes upward and the whole world nudges up with it, with "SCROLL TO PLAY MORE".
+   - In browse mode the cue moves above the Bit card.
+   - If an upward swipe reaches the Bit in play mode, meaning the host didn't scroll, a hint says "TAP { } FIRST, THEN SCROLL".
+   - Tapping the sky (a tap, not a scroll) starts another island. No copy advertises it.
+
+There are no counters, statistics or hints during play. The island tells the story.
+
+## Composition
+
+- **Three-quarter view.** The island has a visible top surface (grass ringed by beach), a front cliff and a rocky underside.
+- **Grounding.** Everything stands on the middle of that surface, with a contact shadow.
+- **Plots and gaps.** Buildings snap to a 40 px grid of plots. Each plot is levelled before a building sits on it. Trees take the gaps between plots.
+- **Stacks.** A house always stacks onto the top of its column.
+- **Re-grounding.** When the land changes (a hill grows, or the surface deepens as the island widens), every ground-floor piece and its stack is re-seated exactly on the surface.
+
+## Shared world
+
+- **Channel.** `manifest.memory.worlds.islands` is a `points` world: attributed, and limited to 3 islands per user per day.
+- **What gets written.** A finished island is written as one point, `{ id, x, y, d, n }`. `d` is a compact description: seed, hills, and each piece's type, plot, floor and variant. Other viewers rebuild the island from it with the same drawing code, so it looks exactly as the creator made it.
+- **Names.** Attribution comes from the platform's own field when the snapshot provides one, otherwise from the stored display name.
+- **Fallback.** Until there are five other islands, Plethora's own starter islands fill the space, labelled @plethora. No made-up users.
+- **Own islands.** The viewer's own islands are excluded from "everyone else's", using ids kept in `ctx.storage`.
 
 ## Teaching the real platform actions
 
-The Bit never fakes Like, Capture or Navigation. Plethora's logo button (`{ }`) is the real control:
+The Bit never fakes Like or Capture. It listens with `ctx.chrome.on("action")` and `ctx.chrome.on("mode")`, which Plethora gives only to first-party Bits.
 
-| Gesture | Host action | What the Bit does |
-|---|---|---|
-| Swipe the logo left | Capture | Cue: *Keep this one. / SWIPE LEFT TO CAPTURE*, with a ghost finger dragging from the logo to a camera target. On capture the world freezes, a white flash, the plate frame snaps tight, a **CAPTURED** stamp and a shutter sound. |
-| Swipe the logo right | Like | Cue: *Enjoyed that? / SWIPE RIGHT TO LIKE*, with a ghost drag to a heart. On like, a warm coral glow passes over the island, the trees blossom from left to right, petals rise, gulls circle and a soft arpeggio plays. |
-| Tap the logo | Navigation | Cue: a dotted thread (the Bit's own motif) runs from the island down to the logo, which gets soft pulse rings, with *There's a lot more here. / TAP { } TO LOOK AROUND*. When navigation opens, the gulls fly off. |
-
-- **How it hears the host.** The Bit listens with `ctx.chrome.on("action")` and `ctx.chrome.on("mode")`. These are host-restricted and supplied to first-party Bits only.
-- **Action names.** They are matched loosely (`capture|screenshot|camera|comment`, `like|heart`, `nav|menu|browse`), and a `play` → `browse` mode change counts as navigation.
-- **Debugging.** Every host action seen is reported with `ctx.platform.emit("host_action_seen", …)`, so the real names can be confirmed from analytics.
-- **Never trapped.** A cue gives way after 11 s if ignored, so the viewer is never stuck. The navigation cue stays, and *OR TAP THE SKY FOR ANOTHER ISLAND* starts a fresh, randomised island.
-- **Without `ctx.chrome`.** In a creator draft preview the cues still teach the gestures, and the cue sequence advances on its own after 8 s each.
-- **Remembered.** Gestures the viewer has used are kept in `ctx.storage` and not taught again.
+- **Action names.** These are matched loosely (`like|heart`, and `capture|screenshot|camera|comment`). Every action seen is reported with `ctx.platform.emit("host_action_seen", …)`.
+- **Never trapped.** A cue gives way after 11 s if ignored, or after 8 s without `ctx.chrome`.
+- **Remembered.** Gestures the viewer has learned are kept in `ctx.storage` and not taught again.
 
 ## Art direction
 
@@ -70,7 +86,8 @@ The harness emulates Plethora's host:
 node dev/play.js shots/run aim            # full playthrough, every beat screenshotted, host gestures performed
 node dev/play.js shots/miss miss 360x640  # misses into the sea on a small Android-sized screen
 node dev/play.js shots/tab aim 768x1024   # tablet
-node dev/play.js shots/nc aim 430x932 '?nochrome&nologo&user='   # no host chrome: timed fallback
+node dev/play.js shots/nc aim 430x932 '?nochrome&nologo&emptyworld&user='   # no host chrome, empty shared world
+node dev/record.js shots/rec            # full-resolution playthrough video
 node dev/play.js shots/idle idle          # no input: the demonstration keeps repeating
 node dev/perf.js                          # frame pacing at 4x CPU throttle, DPR 3
 ```
@@ -78,5 +95,7 @@ node dev/perf.js                          # frame pacing at 4x CPU throttle, DPR
 ## Still to check on a phone
 
 - The real `ctx.chrome` action names and whether this Bit receives `ctx.chrome` (it must be registered as first-party).
+- Whether the feed scrolls while a Bit is in play mode, or only in browse mode.
+- The live points-world snapshot shape and attribution field (the Bit reads several likely shapes).
 - Whether the first tap in browse mode reaches the Bit or is consumed by the host's switch to play mode.
 - Haptics, the audio unlock, and frame rate on GPU-backed canvas.

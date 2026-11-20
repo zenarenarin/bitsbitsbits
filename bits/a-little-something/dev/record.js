@@ -58,19 +58,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   }
   await waitFor((s) => s.phase === 'outro');
   const lx = vw / 2, ly = vh - 36 - 24;
-  await sleep(3200);
-  await swipe(lx, ly, -95);              // capture
-  await waitFor((s) => s.outro === 'like');
-  await sleep(2600);
-  await swipe(lx, ly, 95);               // like
-  await waitFor((s) => s.outro === 'nav');
-  await sleep(3200);
-  await tap(lx, ly);                     // navigation
-  await sleep(2200);
-  await page.evaluate(() => window.__host.setMode('play', 'back'));
-  await sleep(1500);
-  await tap(vw * 0.5, vh * 0.3);         // another island
   await sleep(3000);
+  await swipe(lx, ly, 95);               // like
+  await waitFor((s) => s.outro === 'capture');
+  await sleep(2600);
+  await swipe(lx, ly, -95);              // capture
+  await waitFor((s) => s.outro === 'scroll');
+  await sleep(4200);                     // the scroll-to-play-more demonstration
+  await tap(lx, ly);                     // into browse mode, where the feed scrolls
+  await sleep(3500);
   await cdp.send('Page.stopScreencast');
   await browser.close();
   // Hold each frame for its real duration.

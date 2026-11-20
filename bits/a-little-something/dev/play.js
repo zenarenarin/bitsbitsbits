@@ -78,24 +78,32 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   }
   await sleep(1300); await shot('07_finale_mid');
   await waitPhase((s) => s.phase === 'outro'); await sleep(1500);
-  await shot('08_capture_cue');
-  // Real host action: swipe the logo left.
+  await shot('08_like_cue');
   const lb = await page.evaluate(() => ({ x: innerWidth / 2, y: innerHeight - 36 - 24 }));
-  await page.mouse.move(lb.x, lb.y); await page.mouse.down(); await page.mouse.move(lb.x - 90, lb.y, { steps: 6 }); await page.mouse.up();
-  await sleep(150); await shot('09_captured_flash');
-  await sleep(900); await shot('10_captured');
-  await waitPhase((s) => s.outro === 'like'); await sleep(1200);
-  await shot('11_like_cue');
+  // Real host action: swipe the logo right to like.
   await page.mouse.move(lb.x, lb.y); await page.mouse.down(); await page.mouse.move(lb.x + 90, lb.y, { steps: 6 }); await page.mouse.up();
-  await sleep(700); await shot('12_liked');
-  await waitPhase((s) => s.outro === 'nav'); await sleep(1600);
-  await shot('13_nav_cue');
+  await sleep(700); await shot('09_liked');
+  await waitPhase((s) => s.outro === 'capture'); await sleep(1300);
+  await shot('10_capture_cue');
+  await page.mouse.move(lb.x, lb.y); await page.mouse.down(); await page.mouse.move(lb.x - 90, lb.y, { steps: 6 }); await page.mouse.up();
+  await sleep(150); await shot('11_captured_flash');
+  await sleep(800); await shot('12_artefact');
+  await waitPhase((s) => s.outro === 'world'); await sleep(2600);
+  await shot('13_world');
+  await waitPhase((s) => s.outro === 'scroll'); await sleep(1100);
+  await shot('14_scroll_cue');
+  // An upward swipe on the Bit in play mode: the host did not take it, so the Bit hints.
+  await page.mouse.move(vw / 2, vh * 0.6); await page.mouse.down(); await page.mouse.move(vw / 2, vh * 0.35, { steps: 6 }); await page.mouse.up();
+  await sleep(400); await shot('15_scroll_hint');
+  console.log('objects', JSON.stringify(await page.evaluate(() => window.__als.objects())));
+  console.log('encoded', await page.evaluate(() => window.__als.encode()));
   await page.mouse.click(lb.x, lb.y);
-  await sleep(600); await shot('14_nav_open');
+  await sleep(1200); await shot('16_browse');
   await page.evaluate(() => window.__host.setMode('play', 'back'));
-  await sleep(1200); await shot('15_back');
+  await sleep(3200);
   await page.mouse.click(vw / 2, vh * 0.3);
-  await sleep(1500); await shot('16_replay');
+  await sleep(1500); await shot('17_replay');
+  console.log('objects', JSON.stringify(await page.evaluate(() => window.__als.objects())));
   console.log('haptics', JSON.stringify(await page.evaluate(() => window.__haptics)));
   console.log('log', JSON.stringify(await page.evaluate(() => window.__log)));
   console.log('errors', JSON.stringify(errors));

@@ -84,6 +84,20 @@ const ctx = {
     await f.load(); document.fonts.add(f); return f;
   },
   storage: { get: k => (k in store ? JSON.parse(store[k]) : null), set: (k, v) => { store[k] = JSON.stringify(v); } },
+  // Shared world stub: a few islands "made by" other people, unless ?emptyworld.
+  memory: {
+    world(id) {
+      const pts = q.has('emptyworld') ? [] : [
+        { id: 'a1', x: 120, y: 400, d: '1|4411|210|H200.0.2,H200.1.0,T180.r,T220.c,L240', by: { username: 'mira' } },
+        { id: 'a2', x: 700, y: 200, d: '1|8820||H160.0.0,T180.c,H200.0.1,T220.n', by: { username: 'tomasz' } },
+        { id: 'a3', x: 500, y: 900, d: '1|3051|180|L160,H200.0.0,H200.1.1,H200.2.0,T220.r', by: { username: 'june.k' } }
+      ];
+      return {
+        async get() { await new Promise(r => setTimeout(r, 300)); return { channel: id, state: { points: pts.slice() }, version: 1 }; },
+        async mutate(m) { pts.push(m); log('world.mutate', JSON.stringify(m)); return { mutated: true, eventId: 'e' + pts.length, snapshot: { state: { points: pts } } }; }
+      };
+    }
+  },
   music: { unlock: async () => {}, play: (o) => { log('music.play', o.preset); return {}; }, setIntensity: () => {}, setScale: () => {}, setVolume: () => {}, sting: async () => {} },
   platform: {
     error(p) { window.__platformError = p; log('ERROR', JSON.stringify(p)); }, ready() { window.__ready = true; }, start() { log('start'); },
