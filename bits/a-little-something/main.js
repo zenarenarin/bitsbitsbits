@@ -1779,44 +1779,60 @@ window.plethoraBit = {
       }
     }
 
-    // Host gesture demonstrations around the real logo button.
-    function drawCameraIcon(x, y, a) {
-      g.strokeStyle = inkFor(a); g.lineWidth = 1.5;
+    // Gesture demonstrations happen on Plethora's own logo button. The Bit draws
+    // no hearts, cameras or buttons of its own: only attention around the real
+    // control, a finger that presses it, and the direction of the swipe.
+    function logoRing(spread, alpha) {
+      const w = logo.width + spread * 2, h = logo.height + spread * 2;
+      const x = logo.cx - w / 2, y = logo.cy - h / 2, r = Math.min(h / 2, 14 + spread * 0.6);
       g.beginPath();
-      g.moveTo(x - 8, y - 4); g.lineTo(x - 4, y - 4); g.lineTo(x - 2.5, y - 6.5); g.lineTo(x + 2.5, y - 6.5); g.lineTo(x + 4, y - 4); g.lineTo(x + 8, y - 4); g.lineTo(x + 8, y + 6); g.lineTo(x - 8, y + 6); g.closePath();
+      if (g.roundRect) g.roundRect(x, y, w, h, r);
+      else g.rect(x, y, w, h);
+      g.strokeStyle = inkFor(alpha);
+      g.lineWidth = 1.4;
       g.stroke();
-      g.beginPath(); g.arc(x, y + 1, 3.2, 0, TAU); g.stroke();
     }
-    function heartPath(x, y, s) {
-      g.beginPath();
-      g.moveTo(x, y + 6 * s);
-      g.bezierCurveTo(x - 9 * s, y - 1 * s, x - 6 * s, y - 8 * s, x, y - 3.5 * s);
-      g.bezierCurveTo(x + 6 * s, y - 8 * s, x + 9 * s, y - 1 * s, x, y + 6 * s);
-      g.closePath();
-    }
-    function ghostSwipe(dir, t, a, icon) {
-      const cx = logo.cx, cy = logo.cy, dist = 96;
-      const appear = sat(t / 0.25), move = E.inOut(win(t, 0.3, 1.15)), gone = win(t, 1.7, 2.05);
-      const alpha = a * appear * (1 - gone);
-      const ix = cx + dir * (dist + 14);
-      g.fillStyle = inkFor(0.1 * a);
-      g.beginPath(); g.arc(ix, cy, 19, 0, TAU); g.fill();
-      if (icon === "camera") drawCameraIcon(ix, cy, (0.45 + 0.5 * move) * a);
-      else {
-        heartPath(ix, cy, 1.15);
-        if (move > 0.9) { g.fillStyle = "rgba(226,82,70," + (0.85 * a).toFixed(3) + ")"; g.fill(); }
-        g.strokeStyle = inkFor((0.45 + 0.5 * move) * a); g.lineWidth = 1.5; g.stroke();
+    function ghostSwipe(dir, t, a) {
+      const cx = logo.cx, cy = logo.cy, dist = 92;
+      // Attention: two rings breathing out from the real control.
+      for (let i = 0; i < 2; i++) {
+        const k = (realNow * 0.6 + i * 0.5) % 1;
+        logoRing(5 + k * 16, 0.5 * (1 - k) * a);
       }
+      const appear = sat(t / 0.25), press = win(t, 0.25, 0.35), move = E.inOut(win(t, 0.35, 1.2)), gone = win(t, 1.6, 2.0);
+      const alpha = a * appear * (1 - gone);
+      // The press happens under Plethora's button, so show it as a pulse at its edge.
+      if (t > 0.2 && t < 0.65) { const pk = win(t, 0.2, 0.65); logoRing(1 + pk * 9, 0.9 * (1 - pk) * a); }
       if (alpha <= 0) return;
       const fx = cx + dir * dist * move;
-      g.strokeStyle = inkFor(0.5 * alpha);
-      g.setLineDash([3, 4]); g.lineWidth = 1.3;
-      g.beginPath(); g.moveTo(cx + dir * 24, cy); g.lineTo(fx, cy); g.stroke();
-      g.setLineDash([]);
-      g.fillStyle = "rgba(255,255,255," + (0.3 * alpha).toFixed(3) + ")";
-      g.beginPath(); g.arc(fx, cy, 14, 0, TAU); g.fill();
-      g.strokeStyle = inkFor(0.75 * alpha); g.lineWidth = 1.5;
-      g.beginPath(); g.arc(fx, cy, 14, 0, TAU); g.stroke();
+      // Direction: a fading trail and three small chevrons ahead of the finger.
+      if (move > 0.02) {
+        const grd = g.createLinearGradient(cx, cy, fx, cy);
+        grd.addColorStop(0, inkFor(0));
+        grd.addColorStop(1, inkFor(0.55 * alpha));
+        g.strokeStyle = grd;
+        g.lineWidth = 2;
+        g.lineCap = "round";
+        g.beginPath(); g.moveTo(cx, cy); g.lineTo(fx, cy); g.stroke();
+      }
+      g.strokeStyle = inkFor(0.7 * alpha * (1 - move * 0.6));
+      g.lineWidth = 1.6;
+      g.lineCap = "round";
+      for (let i = 0; i < 3; i++) {
+        const k = ((realNow * 1.6 + i / 3) % 1);
+        const x = fx + dir * (22 + i * 9 + k * 4);
+        g.globalAlpha = 0.35 + 0.65 * (1 - Math.abs(k - 0.5) * 2);
+        g.beginPath(); g.moveTo(x - dir * 3.5, cy - 5); g.lineTo(x + dir * 1.5, cy); g.lineTo(x - dir * 3.5, cy + 5); g.stroke();
+      }
+      g.globalAlpha = 1;
+      g.lineCap = "butt";
+      // The finger itself: lands on the button, presses, slides.
+      const r = 15 * (1 - press * 0.15 + press * move * 0.15);
+      g.fillStyle = "rgba(255,255,255," + (0.42 * alpha).toFixed(3) + ")";
+      g.beginPath(); g.arc(fx, cy, r, 0, TAU); g.fill();
+      g.strokeStyle = inkFor(0.8 * alpha);
+      g.lineWidth = 1.5;
+      g.beginPath(); g.arc(fx, cy, r, 0, TAU); g.stroke();
     }
     // A finger pushes the world upward: how the Bits feed is scrolled.
     function ghostScroll(t, a, bottomY) {
@@ -1855,10 +1871,10 @@ window.plethoraBit = {
       const ct = (realNow - outro.cycle0) % 2.6;
       if (outro.step === "like") {
         cueLabel("Enjoyed that?", "SWIPE RIGHT TO LIKE", a, labelY);
-        ghostSwipe(1, ct, a, "heart");
+        ghostSwipe(1, ct, a);
       } else if (outro.step === "capture") {
         cueLabel("Keep your island.", "SWIPE LEFT TO CAPTURE", a, labelY);
-        ghostSwipe(-1, ct, a, "camera");
+        ghostSwipe(-1, ct, a);
       } else if (outro.step === "world" || outro.step === "scroll") {
         const wa = sat((realNow - worldAt - 1.2) / 0.8);
         g.font = "400 15px " + F_TEXT; g.textAlign = "center";

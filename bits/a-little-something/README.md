@@ -17,8 +17,8 @@ A small island sits in a pale turquoise sea. In this world things arrive from th
    - If you wait, "TAP TO DROP" returns on the hanging piece.
 3. **The surprise.** After the hill, the island tears free of the sea and floats.
 4. **Your island is finished.** The lighthouse lamp comes on, dusk falls, the windows light, and the camera frames your island.
-5. **Like.** "Enjoyed that? / SWIPE RIGHT TO LIKE", with a ghost drag from the real `{ }` logo button to a heart. On a real like, a warm glow passes over the island, the trees blossom, petals rise and gulls circle. Then "It likes you back."
-6. **Capture.** A print frame appears: "A LITTLE SOMETHING / An island you made." Then "Keep your island. / SWIPE LEFT TO CAPTURE". On a real capture the world freezes and flashes, the framed island lifts off like a print, and gets a small date stamp.
+5. **Like.** "Enjoyed that? / SWIPE RIGHT TO LIKE". The swipe is shown on Plethora's own `{ }` logo button: rings draw attention to it, a pulse at its edge marks the press, and a finger slides out to the right with chevrons showing the direction. The Bit draws no heart, camera or button of its own. On a real like, a warm glow passes over the island, the trees blossom, petals rise and gulls circle. Then "It likes you back."
+6. **Capture.** A print frame appears: "A LITTLE SOMETHING / An island you made." Then "Keep your island. / SWIPE LEFT TO CAPTURE", demonstrated the same way on the real control, to the left. On a real capture the world freezes and flashes, the framed island lifts off like a print, and gets a small date stamp.
 7. **Everyone's islands.** The camera pulls back, and other people's islands gather around yours at different depths, each with a small "@name" beneath it. One line reads "Your island joins everyone else's."
 8. **Scroll to play more.** A finger pushes upward and the whole world nudges up with it, with "SCROLL TO PLAY MORE".
    - In browse mode the cue moves above the Bit card.
