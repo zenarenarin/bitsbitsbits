@@ -102,7 +102,9 @@ window.plethoraBit = {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     ctx.onDestroy(() => { try { renderer.dispose(); } catch (e) { } });
 
-    const P = createPaint(THREE);
+    let scratchCanvas = null;
+    const scratch = () => { if (!scratchCanvas) { scratchCanvas = ctx.createCanvas2D({ layer: 'background', input: 'passthrough', willReadFrequently: true }); scratchCanvas.style.display = 'none'; } return scratchCanvas; };
+    const P = createPaint(THREE, scratch);
     const E = createEnv(THREE, P);
     const X = createParts(THREE, P);
     const audio = createAudio(!!caps.audio);

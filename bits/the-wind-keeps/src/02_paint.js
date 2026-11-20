@@ -1,6 +1,6 @@
 // Painterly materials, procedural textures and a geometry builder that bakes
 // colour into vertices so a whole building can be drawn in one call.
-function createPaint(THREE) {
+function createPaint(THREE, scratch) {
   const P = {};
   // A soft three-band light ramp: shadow, mid, lit. Linear filtering keeps
   // the band edges soft, like a gouache wash rather than cel shading.
@@ -183,7 +183,19 @@ function createPaint(THREE) {
   };
 
   // ---------- canvas textures ----------
-  P.canvas = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d'); draw(g, w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 2; return t; };
+  // Textures are painted on one hidden SDK canvas, then copied out as pixels,
+  // so nothing depends on that canvas afterwards (the host may resize it).
+  P.canvas = (w, h, draw) => {
+    const c = scratch(); c.width = w; c.height = h;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, w, h); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+    draw(g, w, h);
+    const src = g.getImageData(0, 0, w, h).data, out = new Uint8Array(w * h * 4), row = w * 4;
+    for (let y = 0; y < h; y++) out.set(src.subarray(y * row, y * row + row), (h - 1 - y) * row);
+    const t = new THREE.DataTexture(out, w, h, THREE.RGBAFormat);
+    t.colorSpace = THREE.SRGBColorSpace; t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true; t.anisotropy = 2; t.needsUpdate = true;
+    return t;
+  };
   // painted cumulus with a flat, shaded underside
   P.cloudTex = seed => P.canvas(512, 192, (g, w, h) => {
     const r = makeRng(seed * 13 + 1);
