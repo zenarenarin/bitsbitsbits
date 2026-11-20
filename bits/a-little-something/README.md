@@ -27,18 +27,32 @@ A small island sits in a pale turquoise sea. In this world things arrive from th
 
 There are no counters, statistics or hints during play. The island tells the story.
 
-## Composition
+## Visual system
 
-- **Three-quarter view.** The island has a visible top surface (grass ringed by beach), a front cliff and a rocky underside.
-- **Grounding.** Everything stands on the middle of that surface, with a contact shadow.
-- **Plots and gaps.** Buildings snap to a 40 px grid of plots. Each plot is levelled before a building sits on it. Trees take the gaps between plots.
-- **Stacks.** A house always stacks onto the top of its column.
-- **Re-grounding.** When the land changes (a hill grows, or the surface deepens as the island widens), every ground-floor piece and its stack is re-seated exactly on the surface.
+- **One projection.** Moving back in depth always moves the same direction on screen (up and to the right). The island, houses, lighthouse, land blocks, islets and other people's islands all use it.
+- **One light.** It comes from the upper left. Every solid is a prism with three tones: top lightest, front middle, right side darkest. Night colours come from one shared night grade, so everything darkens the same way at dusk.
+- **The island.** It's built from tiers:
+  - a sand beach slab;
+  - an inset grass plateau with a thin grass lip;
+  - raised terraces;
+  - a three-facet rock underside.
+  Every top surface is flat, so grounding is exact by construction. A small jetty gives scale.
+- **Architecture.** Houses are white boxes with pyramid roofs. The lighthouse is a white tapered tower with two orange bands. Trees come in three species: an ochre cone, a lime ball and a yellow cypress. Each tree is split into a lit and a shaded half.
+- **Composition grid.** Buildings take plots 50 units apart and stack in columns. Trees take the gaps between plots, on a back row. Trees never stand on a terrace edge; beside a terrace they step down onto level ground.
+- **Land blocks.** One dropped near an end extends the island by a plot. One dropped on a plot raises a terrace under it.
+- **No free plot.** If every plot is taken, the lighthouse builds its own headland.
+- **Palette.** Mint air, turquoise sea, sand, olive, white and one orange. Coral appears only when the island is liked.
+- **Motion.** In the idle state only a few things move:
+  - the hanging piece;
+  - the sea contour slowly breathing;
+  - two cloud bands drifting;
+  - other people's islands bobbing gently.
+  Landing gets a short squash and a white ring on the surface. The rise is a single eased lift, with water draining from the edge in even dashes. There are no gulls, no constant particles and no screen shake.
 
 ## Shared world
 
 - **Channel.** `manifest.memory.worlds.islands` is a `points` world: attributed, and limited to 3 islands per user per day.
-- **What gets written.** A finished island is written as one point, `{ id, x, y, d, n }`. `d` is a compact description: seed, hills, and each piece's type, plot, floor and variant. Other viewers rebuild the island from it with the same drawing code, so it looks exactly as the creator made it.
+- **What gets written.** A finished island is written as one point, `{ id, x, y, d, n }`. `d` is a compact description (format 2): seed, plot span, terraces, and each piece's type, plot or gap, floor and variant. Other viewers rebuild the island from it with the same drawing code, so it looks exactly as the creator made it.
 - **Names.** Attribution comes from the platform's own field when the snapshot provides one, otherwise from the stored display name.
 - **Fallback.** Until there are five other islands, Plethora's own starter islands fill the space, labelled @plethora. No made-up users.
 - **Own islands.** The viewer's own islands are excluded from "everyone else's", using ids kept in `ctx.storage`.

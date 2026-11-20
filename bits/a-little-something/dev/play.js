@@ -52,7 +52,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     return;
   }
   const n0 = (await state()).placed;
-  const plan = mode === 'miss'
+  const plan = mode === 'terrace' ? ['center', 'land', 'stack', 'center', 'land', 'land', 'land'] : mode === 'miss'
     ? ['water', 'land', 'water', 'land', 'land', 'water', 'land']
     : ['center', 'land', 'stack', 'edge', 'stack', 'land', 'land'];
   for (let i = 0; i < plan.length; i++) {
@@ -62,8 +62,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     await dropWhen((p, s) => {
       if (want === 'water') return p.kind === 'water';
       if (want === 'stack') return p.kind === 'house' || (p.kind === 'land' && Math.abs(p.x - 200) < 10);
-      if (want === 'edge') return p.kind === 'land' && (p.x < s.edgeL + 18 || p.x > s.edgeR - 18);
-      if (want === 'center') return p.kind === 'land' && Math.abs(p.x - 200) < 8;
+      if (want === 'edge') return p.kind === 'extend';
+      if (want === 'center') return (p.kind === 'land' || p.kind === 'terrace') && Math.abs(p.x - 200) < 8;
       return p.kind === 'land' && Math.abs(p.x - 200) < 50;
     });
     await sleep(220);
