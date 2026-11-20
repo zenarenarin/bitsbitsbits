@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "runtime": "plethora-bit@2",
+  "entry": "main.js",
+  "title": "A Little Something",
+  "description": "A tiny island hangs in a pale sea, and the sky keeps lowering pieces of a world on threads. Tap to let each one go: houses stack, hills grow the land, the sea keeps whatever you miss, and something surprising happens halfway. Seven pieces later the island is yours.",
+  "tags": [
+    "toy",
+    "building",
+    "art",
+    "casual",
+    "welcome"
+  ],
+  "permissions": [
+    "audio",
+    "backgroundMusic",
+    "haptics",
+    "storage"
+  ],
+  "dependencies": [],
+  "display": "fullscreen",
+  "onboarding": {
+    "kind": "immersive",
+    "version": 1
+  }
+}

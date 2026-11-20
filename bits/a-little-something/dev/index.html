@@ -1,0 +1,118 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>A Little Something · dev harness</title>
+<style>
+  html,body{margin:0;height:100%;background:#111;overflow:hidden;font-family:system-ui,sans-serif}
+  #bit{position:absolute;inset:0;overflow:hidden;touch-action:none}
+  /* Stand-ins for Plethora's host chrome (not part of the Bit). */
+  #card{position:absolute;left:16px;right:16px;bottom:96px;height:120px;border-radius:18px;background:rgba(14,14,14,.86);color:#fff;padding:14px 18px;box-sizing:border-box;z-index:20;pointer-events:none}
+  #card b{font:600 22px/1 system-ui;letter-spacing:.02em}
+  #nav{position:absolute;left:16px;right:16px;bottom:24px;height:62px;border-radius:31px;background:rgba(14,14,14,.86);z-index:20;pointer-events:none}
+  #pill{position:absolute;top:40px;left:50%;transform:translateX(-50%);background:#111;color:#fff;font:700 18px system-ui;padding:6px 14px;border-radius:16px;z-index:20;pointer-events:none}
+  #logo{position:absolute;left:50%;width:64px;height:48px;margin-left:-32px;bottom:36px;border-radius:12px;background:#0b0b0b;border:2px solid #fff;color:#fff;font:700 20px monospace;display:flex;align-items:center;justify-content:center;z-index:30;touch-action:none;user-select:none}
+  .browse #logo{display:none}
+  body:not(.browse) #card, body:not(.browse) #nav, body:not(.browse) #pill{display:none}
+  #log{position:absolute;left:4px;top:4px;color:#0f0;font:10px monospace;z-index:40;pointer-events:none;white-space:pre;opacity:.7}
+</style>
+</head>
+<body class="browse">
+<div id="bit"></div>
+<div id="pill">BITS</div>
+<div id="card"><b>A LITTLE SOMETHING</b><div style="opacity:.6;font-size:12px;margin-top:6px">@plethora</div></div>
+<div id="nav"></div>
+<div id="logo">{ }</div>
+<div id="log"></div>
+<script>window.__ALS_DEV = true;</script>
+<script src="../main.js"></script>
+<script type="module">
+const q = new URLSearchParams(location.search);
+const host = document.getElementById('bit');
+const logEl = document.getElementById('log');
+const log = (...a) => { (window.__log = window.__log || []).push(a.map(String).join(' ')); logEl.textContent = window.__log.slice(-8).join('\n'); };
+const cleanups = [];
+const store = {};
+const noChrome = q.has('nochrome');
+const safe = { top: 59, right: 0, bottom: 34, left: 0 };
+const logoRect = () => { const r = document.getElementById('logo').getBoundingClientRect(); return { x: r.left, y: r.top, width: r.width, height: r.height }; };
+// The logo is hidden in browse mode; its play-mode rect is fixed.
+const LOGO = () => ({ x: host.clientWidth / 2 - 32, y: host.clientHeight - 36 - 48, width: 64, height: 48 });
+const chromeHandlers = { mode: [], layout: [], action: [] };
+let mode = 'browse';
+function setMode(m, cause) {
+  if (m === mode) return;
+  mode = m;
+  document.body.classList.toggle('browse', m === 'browse');
+  log('mode', m, cause);
+  chromeHandlers.mode.forEach(h => h({ mode: m, cause }));
+}
+function emitAction(action) { log('action', action); chromeHandlers.action.forEach(h => h({ action, source: 'logo' })); }
+const ctx = {
+  get width() { return host.clientWidth; },
+  get height() { return host.clientHeight; },
+  dpr: Math.min(2, window.devicePixelRatio || 1),
+  nativeDpr: window.devicePixelRatio || 1,
+  safeArea: safe,
+  get contentSafeArea() { return { top: safe.top, right: 0, bottom: host.clientHeight - LOGO().y + 12, left: 0 }; },
+  get logoArea() { return q.has('nologo') ? null : LOGO(); },
+  capabilities: { audio: true, backgroundMusic: true, haptics: true, storage: true, camera: false, microphone: false, motion: false },
+  viewer: { username: q.get('user') ?? 'aditya' },
+  container: host,
+  createCanvas2D(o = {}) {
+    const c = document.createElement('canvas');
+    const z = { background: 1, content: 2, overlay: 3, modal: 4 }[o.layer] || 2;
+    c.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;touch-action:none;z-index:' + z + (o.input === 'passthrough' ? ';pointer-events:none' : '');
+    host.appendChild(c);
+    const dpr = Math.min(o.maxDpr || 1, window.devicePixelRatio || 1);
+    const fit = () => { c.width = Math.round(host.clientWidth * dpr); c.height = Math.round(host.clientHeight * dpr); const g = c.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); };
+    fit(); window.addEventListener('resize', fit);
+    return c;
+  },
+  createRoot() { const d = document.createElement('div'); d.style.cssText = 'position:absolute;inset:0;pointer-events:none'; host.appendChild(d); return d; },
+  listen(t, ev, fn, o) { t.addEventListener(ev, fn, o); cleanups.push(() => t.removeEventListener(ev, fn, o)); return () => t.removeEventListener(ev, fn, o); },
+  onResize(cb, o) { const f = () => cb({ width: ctx.width, height: ctx.height }); window.addEventListener('resize', f); if (o && o.immediate) f(); return () => window.removeEventListener('resize', f); },
+  timeout(fn, ms) { setTimeout(fn, ms); },
+  interval(fn, ms) { setInterval(fn, ms); },
+  onDestroy(fn) { cleanups.push(fn); },
+  onFrame(cb) { let last = performance.now(); const loop = t => { cb(t - last, t); last = t; requestAnimationFrame(loop); }; requestAnimationFrame(loop); },
+  markVisualReady(r) { window.__visualReady = r; },
+  async loadFont(family, name, version, opts = {}) {
+    const file = `./vendor/${name}_${version}_${opts.weight || '400'}.ttf`;
+    const f = new FontFace(family, `url(${file})`, { weight: opts.weight || '400', style: opts.style || 'normal' });
+    await f.load(); document.fonts.add(f); return f;
+  },
+  storage: { get: k => (k in store ? JSON.parse(store[k]) : null), set: (k, v) => { store[k] = JSON.stringify(v); } },
+  music: { unlock: async () => {}, play: (o) => { log('music.play', o.preset); return {}; }, setIntensity: () => {}, setScale: () => {}, setVolume: () => {}, sting: async () => {} },
+  platform: {
+    error(p) { window.__platformError = p; log('ERROR', JSON.stringify(p)); }, ready() { window.__ready = true; }, start() { log('start'); },
+    interact() {}, milestone(m) { log('milestone', m); }, fail() {}, complete(p) { log('complete', JSON.stringify(p)); }, haptic(k) { (window.__haptics = window.__haptics || []).push(k); },
+    setScore() {}, setProgress() {}, emit(n, p) { log('emit', n, JSON.stringify(p)); }
+  },
+  game: {
+    loop(o) { let last = performance.now(); const f = t => { o.update && o.update(Math.min(80, t - last)); o.render && o.render(); last = t; requestAnimationFrame(f); }; requestAnimationFrame(f); return {}; }
+  },
+  chrome: noChrome ? undefined : {
+    get mode() { return mode; },
+    layout: { logo: null, card: { x: 16, y: 0, width: 0, height: 0 } },
+    events: ['mode', 'layout', 'action'],
+    on(name, h, o) { chromeHandlers[name].push(h); if (o && o.immediate && name === 'mode') h({ mode, cause: 'initial' }); return () => {}; }
+  }
+};
+// Host behaviour: in browse mode a tap on the Bit enters play mode (and reaches the Bit).
+host.addEventListener('pointerdown', () => { if (mode === 'browse') setMode('play', 'bit_tap'); }, true);
+// The logo: tap = navigation (browse), swipe left = capture, swipe right = like.
+const logoEl = document.getElementById('logo');
+let down = null;
+logoEl.addEventListener('pointerdown', e => { down = { x: e.clientX }; logoEl.setPointerCapture(e.pointerId); e.preventDefault(); });
+logoEl.addEventListener('pointerup', e => {
+  if (!down) return; const dx = e.clientX - down.x; down = null;
+  if (dx < -40) emitAction('screenshot_comment'); else if (dx > 40) emitAction('like'); else setMode('browse', 'logo_tap');
+});
+window.__ctx = ctx;
+window.__host = { setMode, emitAction, get mode() { return mode; } };
+window.plethoraBit.init(ctx).catch(e => { console.error(e); window.__initError = String(e && e.stack || e); });
+</script>
+</body>
+</html>
