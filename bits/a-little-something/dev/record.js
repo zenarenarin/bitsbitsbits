@@ -35,13 +35,19 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const swipe = async (x, y, dx) => { await page.evaluate(([x, y]) => window.__touch.down(x, y), [x, y]); await page.mouse.move(x, y); await page.mouse.down(); for (let i = 1; i <= 12; i++) { await page.mouse.move(x + dx * i / 12, y); await page.evaluate(([x, y]) => window.__touch.move(x, y), [x + dx * i / 12, y]); await sleep(25); } await page.mouse.up(); await page.evaluate(() => window.__touch.up()); };
   const waitFor = async (fn, ms = 15000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (fn(await state())) return; await sleep(30); } };
   async function dropWhen(goal) {
+    // Like a person: aim for the wanted landing, settle for any landing on the island after a beat.
     const t0 = Date.now();
-    while (Date.now() - t0 < 8000) { const p = await page.evaluate(() => window.__als.pred()); const s = await state(); if (s.cur === 'swing' && p && goal(p, s)) break; await sleep(16); }
+    while (Date.now() - t0 < 6000) {
+      const p = await page.evaluate(() => window.__als.pred()); const s = await state();
+      const waited = Date.now() - t0;
+      if (s.cur === 'swing' && p && (goal(p, s) || (waited > 1800 && p.kind !== 'water'))) break;
+      await sleep(16);
+    }
     await tap(vw * 0.62, vh * 0.3);
   }
   // Let the opening breathe so the ghost-tap demonstration plays once.
   await sleep(3600);
-  const plan = ['center', 'land', 'stack', 'edge', 'water', 'stack', 'land'];
+  const plan = ['center', 'land', 'stack', 'edge', 'side', 'stack', 'land'];
   for (let i = 0; i < plan.length; i++) {
     await waitFor((s) => s.cur === 'swing' && (s.phase === 'play' || s.phase === 'intro'));
     await sleep(600 + (i === 0 ? 0 : 300));
@@ -50,7 +56,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     await dropWhen((p, s) => {
       if (want === 'water') return p.kind === 'water';
       if (want === 'stack') return p.kind === 'house';
-      if (want === 'edge') return p.kind === 'land' && (p.x < s.edgeL + 18 || p.x > s.edgeR - 18);
+      if (want === 'edge') return p.kind === 'extend';
+      if (want === 'side') return p.kind === 'land' && Math.abs(p.x - 200) > 30;
       if (want === 'center') return p.kind === 'land' && Math.abs(p.x - 200) < 8;
       return p.kind === 'land' && Math.abs(p.x - 200) < 45;
     });
