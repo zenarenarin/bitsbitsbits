@@ -1,0 +1,11 @@
+@font-face{font-family:'Anton';font-style:normal;font-weight:400;src:url(fonts/Anton-normal-400.woff2) format('woff2');}
+@font-face{font-family:'Archivo';font-style:normal;font-weight:100 900;font-stretch:62% 125%;src:url(fonts/Archivo-normal-100_900.woff2) format('woff2');}
+@font-face{font-family:'Bebas Neue';font-style:normal;font-weight:400;src:url(fonts/BebasNeue-normal-400.woff2) format('woff2');}
+@font-face{font-family:'Instrument Serif';font-style:italic;font-weight:400;src:url(fonts/InstrumentSerif-italic-400.woff2) format('woff2');}
+@font-face{font-family:'Instrument Serif';font-style:normal;font-weight:400;src:url(fonts/InstrumentSerif-normal-400.woff2) format('woff2');}
+@font-face{font-family:'Silkscreen';font-style:normal;font-weight:400;src:url(fonts/Silkscreen-normal-400.woff2) format('woff2');}
+@font-face{font-family:'Silkscreen';font-style:normal;font-weight:700;src:url(fonts/Silkscreen-normal-700.woff2) format('woff2');}
+@font-face{font-family:'Space Grotesk';font-style:normal;font-weight:300 700;src:url(fonts/SpaceGrotesk-normal-300_700.woff2) format('woff2');}
+@font-face{font-family:'Space Mono';font-style:italic;font-weight:400;src:url(fonts/SpaceMono-italic-400.woff2) format('woff2');}
+@font-face{font-family:'Space Mono';font-style:normal;font-weight:400;src:url(fonts/SpaceMono-normal-400.woff2) format('woff2');}
+@font-face{font-family:'Space Mono';font-style:normal;font-weight:700;src:url(fonts/SpaceMono-normal-700.woff2) format('woff2');}

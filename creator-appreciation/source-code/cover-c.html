@@ -1,0 +1,38 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+body{background:#060a17}
+.bg{position:absolute;inset:0;background:radial-gradient(ellipse 70% 55% at 50% 52%,#232a5c 0%,#161b3d 38%,#0a0e20 70%,#060a17 100%)}
+.cell{position:absolute;border-radius:46px;background:linear-gradient(180deg,#1d2236 0%,#141a2b 100%);box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.045)}
+.cell.on{background:linear-gradient(180deg,#3a3b47 0%,#2c2e3a 100%)}
+.kick{font-family:'Space Grotesk';font-weight:600;letter-spacing:-.025em}
+</style></head><body><div class="canvas" id="c"><div class="bg"></div></div>
+<script src="assets/data.js"></script><script src="lib.js"></script>
+<script>
+const c=document.getElementById('c');
+// sparse stars, as in the game's background
+let seed=23;const rnd=()=>((seed=(seed*16807)%2147483647)/2147483647);
+for(let i=0;i<34;i++){const s=document.createElement('i');const z=rnd()*2.6+1.2;const sy=rnd()*1350;if(sy<150||sy>1215)continue;s.style.cssText=`position:absolute;left:${rnd()*1080}px;top:${sy}px;width:${z}px;height:${z}px;border-radius:50%;background:#fff;opacity:${.25+rnd()*.45}`;c.appendChild(s)}
+const CW=318,G=26,X0=(1080-3*CW-2*G)/2,Y0=196;
+const cx=(k)=>X0+k*(CW+G), cy=(r)=>Y0+r*(CW+G);
+for(let r=0;r<3;r++)for(let k=0;k<3;k++){const d=document.createElement('div');d.className='cell'+((r===0&&k===0)||(r===2&&k===2)?' on':'');d.style.cssText+=`left:${cx(k)}px;top:${cy(r)}px;width:${CW}px;height:${CW}px`;c.appendChild(d)}
+// marks, placed as in the recorded frame (O2 top-left, X1 bottom-right)
+const M=200;
+qmark(c,{x:cx(0)+58,y:cy(0)+62,size:M,ch:'O',n:2,color:'#f070b4'});
+qmark(c,{x:cx(2)+70,y:cy(2)+52,size:M,ch:'X',n:1,color:'#1fcce8'});
+// the loop: two arcs between the marks' centres, amber, as the game draws it
+const ax=cx(0)+58+M*.33, ay=cy(0)+62+M*.36, bx=cx(2)+70+M*.33, by=cy(2)+52+M*.4;
+const svg=el('svg',{width:1080,height:1350,style:'position:absolute;left:0;top:0'});c.appendChild(svg);
+const f=el('filter',{id:'g',x:'-20%',y:'-20%',width:'140%',height:'140%'},el('defs',{},svg));el('feGaussianBlur',{stdDeviation:9},f);
+const mx=(ax+bx)/2,my=(ay+by)/2,dx=bx-ax,dy=by-ay,L=Math.hypot(dx,dy),nx=-dy/L,ny=dx/L,b=150;
+const p=s=>`M${ax},${ay} Q${mx+nx*b*s},${my+ny*b*s} ${bx},${by}`;
+[1,-1].forEach(s=>{el('path',{d:p(s),stroke:'#ecaf44',fill:'none','stroke-width':16,opacity:.45,filter:'url(#g)'},svg);el('path',{d:p(s),stroke:'#f2b84f',fill:'none','stroke-width':9,'stroke-linecap':'round'},svg)});
+// header
+const wm=wordmark(4.4,'#f3ead9');wm.style.cssText='position:absolute;left:40px;top:62px';c.appendChild(wm);
+c.insertAdjacentHTML('beforeend',`
+<div class="mono abs" style="right:40px;top:70px;font-size:24px;color:#f3ead9"><span style="color:#4e567a">/</span> played <span style="color:#4e567a">/</span> @furiouslad23</div>
+<div class="abs kick" style="left:${cx(1)+110}px;top:${cy(0)+46}px;font-size:72px;line-height:1;color:#f2b84f">A loop<br>closed.</div>
+<div class="abs drop" style="left:${cx(0)+40}px;top:${cy(2)+30}px;font-size:136px;line-height:.92;color:#f3ead9">Bhasker<br>Goel</div>
+<div class="abs mono" style="left:40px;top:${Y0+3*CW+2*G+44}px;font-size:22px;color:#8a91b0">quantum tic tac toe</div>
+<div class="abs grot" style="right:40px;top:${Y0+3*CW+2*G+36}px;font-size:30px;color:#f3ead9;font-weight:500">He made it. We played it. <span style="color:#f2b84f">→</span></div>
+`);
+</script></body></html>

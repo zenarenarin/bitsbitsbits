@@ -1,0 +1,31 @@
+{
+ "watersort": {
+  "green": "#17893e",
+  "red": "#e7332c",
+  "blue": "#2b69fd",
+  "yellow": "#fedf4c",
+  "purple": "#491898",
+  "cyan": "#3fc8f0",
+  "pink": "#fd8dc6",
+  "orange": "#fe8e1e",
+  "bg_top": "#212c47",
+  "bg_mid": "#121623",
+  "bg_bot": "#0d101b",
+  "tube_rim": "#89929a",
+  "empty_glass": "#181d27"
+ },
+ "qttt": {
+  "x_cyan": "#20b8d0",
+  "line_cyan": "#1fcce8",
+  "bg_top": "#060a17",
+  "bg_mid": "#191e43",
+  "cell": "#13192c",
+  "amber": "#b88937",
+  "o_dim": "#61375b"
+ },
+ "solochess": {
+  "light": "#b38b73",
+  "bg": "#1c2744",
+  "bg2": "#080c19"
+ }
+}

@@ -1,0 +1,48 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+body{background:#080c19}
+.bg{position:absolute;inset:0;background:linear-gradient(180deg,#1c2744 0%,#111a33 45%,#080c19 100%)}
+.chk{position:absolute;inset:0;opacity:.028;background-image:conic-gradient(#fff 25%,transparent 0 50%,#fff 0 75%,transparent 0);background-size:270px 270px}
+.sq{position:absolute}
+.quote{position:absolute;left:56px;top:168px;width:900px;font-family:'Space Grotesk';font-weight:600;font-size:108px;line-height:.98;letter-spacing:-.035em;color:#f3ead9}
+.quote em{font-style:normal;color:#69bc94}
+.path{position:absolute;left:56px;top:62px;font-size:25px;color:#f3ead9}
+.path span{color:#56607c}
+.score{position:absolute;left:56px;font-family:'Space Mono';font-size:21px;line-height:1.5;color:#8e97b3}
+.score b{color:#f3ead9;font-weight:400}
+.score .me{color:#f2b544}
+.name{position:absolute;left:56px;top:560px;font-family:'Space Grotesk';font-size:40px;line-height:1.25;color:#c9cfe0;width:560px;font-weight:400}
+.name b{color:#f3ead9;font-weight:600}
+.coord{position:absolute;font-family:'Space Grotesk';font-weight:600;font-size:26px}
+</style></head><body><div class="canvas" id="c">
+<div class="bg"></div><div class="chk"></div>
+</div>
+<script src="assets/data.js"></script><script src="lib.js"></script>
+<script>
+const c=document.getElementById('c');
+const S=300, BX=56, BY=860;           // board corner, bleeding off right and bottom
+const L='#f0d8b5', D='#b48862', HL='#f3d786', HD='#d3a73b';
+// files a..h left to right, rank 8 at the top: (0,0) = a8 (light)
+for(let r=0;r<3;r++)for(let f=0;f<4;f++){
+  const light=(r+f)%2===0; let col=light?L:D;
+  if(r===0&&f===2) col=HL;               // last move: from c8
+  if(r===0&&f===1) col=HD;               // to b8, where the king now stands alone
+  const d=document.createElement('div');d.className='sq';
+  d.style.cssText=`left:${BX+f*S}px;top:${BY+r*S}px;width:${S+.5}px;height:${S+.5}px;background:${col};${r===0&&f===0?'border-top-left-radius:14px':''}`;c.appendChild(d);
+}
+// coordinates, as the game's board preview prints them
+c.insertAdjacentHTML('beforeend',`<div class="coord" style="left:${BX+12}px;top:${BY+8}px;color:${D}">8</div><div class="coord" style="left:${BX+12}px;top:${BY+S+8}px;color:${L}">7</div>`);
+// the king: Burnett's piece (the set Solo Chess credits), scaled far past its square
+const K=640; piece(c,{x:BX+1.5*S-K/2,y:BY+S-34-K*.87,size:K,p:'wK',style:'filter:drop-shadow(0 26px 30px rgba(0,0,0,.35))'});
+const wm=wordmark(4.4,'#f3ead9');wm.style.cssText='position:absolute;left:56px;top:56px';c.appendChild(wm);
+c.insertAdjacentHTML('beforeend',`
+<div class="path mono" style="left:350px"><span>/</span> played <span>/</span> @furiouslad23</div>
+<div class="quote">The king<br>stands <em>alone.</em></div>
+<div class="name" style="top:418px;width:900px">Bhasker Goel made Solo Chess.<br><b>He's still beating us at it.</b></div>
+<div class="drop abs" style="left:${BX+34}px;top:${BY+S+16}px;font-size:126px;line-height:1;color:#f3ead9">#3</div>
+<div class="mono abs" style="left:${BX+38}px;top:${BY+S+150}px;font-size:19px;color:#f3ead9">him · all-time</div>
+<div class="drop abs" style="left:${BX+S+34}px;top:${BY+S+46}px;font-size:76px;line-height:1;color:#b48862">#6</div>
+<div class="mono abs" style="left:${BX+S+38}px;top:${BY+S+150}px;font-size:19px;color:#b48862">us</div>
+<div class="mono abs" style="left:${BX+2*S+38}px;top:${BY+S+150}px;font-size:19px;color:#f0d8b5"></div>
+`);
+</script></body></html>

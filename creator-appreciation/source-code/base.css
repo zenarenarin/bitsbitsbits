@@ -1,0 +1,14 @@
+@import url(fonts.css);
+:root{
+  --navy-0:#060a17; --navy-1:#0d101b; --navy-2:#121623; --navy-3:#1c2744; --ink:#0b0d14;
+  --cream:#f3ead9; --paper:#f0d8b5; --wood:#b48862;
+  --x:#1fcce8; --o:#f070b4; --amber:#ecaf44; --play:#f2b544;
+  --ws-red:#e7332c; --ws-blue:#2b69fd; --ws-yellow:#fedf4c; --ws-green:#17893e; --ws-purple:#491898; --ws-cyan:#3fc8f0; --ws-pink:#fd8dc6; --ws-orange:#fe8e1e;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1080px;height:1350px;overflow:hidden;background:#000}
+.canvas{position:relative;width:1080px;height:1350px;overflow:hidden}
+.mono{font-family:'Space Mono',monospace}
+.grot{font-family:'Space Grotesk',sans-serif}
+.drop{font-family:'Anton',sans-serif;text-transform:uppercase;letter-spacing:-.005em}
+.abs{position:absolute}

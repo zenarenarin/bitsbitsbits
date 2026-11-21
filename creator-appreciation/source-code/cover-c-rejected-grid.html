@@ -1,0 +1,40 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+body{background:#0b0f1c}
+.bg{position:absolute;inset:0;background:linear-gradient(180deg,#141a2e 0%,#0b0f1c 60%,#070a14 100%)}
+.grid{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.055) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.055) 1px,transparent 1px);background-size:135px 135px}
+.cell{position:absolute;border-radius:22px;background:#151a2e;box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)}
+.name{position:absolute;left:0;width:1080px;text-align:center;color:#f3ead9;white-space:nowrap}
+.line{position:absolute;font-family:'Space Grotesk';color:#c9cfe0}
+</style></head><body><div class="canvas" id="c">
+<div class="bg"></div><div class="grid"></div>
+</div>
+<script src="assets/data.js"></script><script src="lib.js"></script>
+<script>
+const c=document.getElementById('c'); const U=135;
+// rows 1–4, cols 0–3: Hue, a 4×4 window of board 4 solved (top-left corner, real tiles)
+const S=HUE['b4-solved'].tiles.slice(0,4).map(r=>r.slice(0,4));
+hueBoard(c,{x:0,y:U,tile:U,cols:4,rows:4,tiles:S,dots:false});
+// rows 1–4, cols 4–7: Water Sort, puzzle 5's opening tubes exactly as dealt (bottom→top)
+const tubes=[['yellow','blue','red','green'],['cyan','red','green','purple'],['red','cyan','pink','green'],['yellow','orange','cyan','orange']];
+tubes.forEach((t,i)=>tube(c,{x:4*U+i*U+22,y:U+34,w:U-44,h:4*U-68,segs:t,lw:3.5}));
+// rows 7–9, cols 0–2: Quantum Tic Tac Toe, the real winning board (X5 X7 X3)
+const QB=[[['O',2],['X',9],['O',4]],[['X',5],['X',7],['X',3]],[['O',8],['O',6],['X',1]]];
+QB.forEach((row,r)=>row.forEach(([ch,n],k)=>{const x=k*U+8,y=7*U+8;
+  const d=document.createElement('div');d.className='cell';d.style.cssText+=`left:${x}px;top:${y+r*U}px;width:${U-16}px;height:${U-16}px`;c.appendChild(d);
+  qmark(c,{x:x+20,y:y+r*U+22,size:74,ch,n,color:ch==='X'?'#1fcce8':'#f070b4',opacity:r===1?1:.38});}));
+const wl=document.createElement('div');wl.style.cssText=`position:absolute;left:${U*.38}px;top:${8*U+U*.5-4}px;width:${U*2.24}px;height:9px;border-radius:5px;background:#1fcce8;box-shadow:0 0 18px #1fcce8aa`;c.appendChild(wl);
+// rows 7–9, cols 3–7: Solo Chess board, the king alone on its highlighted square
+for(let r=0;r<3;r++)for(let f=0;f<5;f++){const light=(r+f)%2===0;let col=light?'#f0d8b5':'#b48862';
+  if(r===1&&f===2)col='#f3d786'; if(r===1&&f===1)col='#d3a73b';
+  const d=document.createElement('div');d.style.cssText=`position:absolute;left:${(3+f)*U}px;top:${(7+r)*U}px;width:${U+.5}px;height:${U+.5}px;background:${col}`;c.appendChild(d);}
+piece(c,{x:5*U+6,y:8*U+6,size:U-12,p:'wK'});
+// header row 0
+const wm=wordmark(4.4,'#f3ead9');wm.style.cssText='position:absolute;left:40px;top:45px';c.appendChild(wm);
+c.insertAdjacentHTML('beforeend',`
+<div class="mono abs" style="right:40px;top:52px;font-size:24px;color:#f3ead9"><span style="color:#56607c">/</span> played <span style="color:#56607c">/</span> @furiouslad23</div>
+<div class="name drop" style="top:${5*U-6}px;font-size:176px;line-height:1">Bhasker Goel</div>
+<div class="line" style="left:40px;top:${6*U+40}px;font-size:34px;font-weight:500;color:#f3ead9">We played his Bits.</div>
+<div class="line" style="right:40px;top:${6*U+40}px;font-size:34px;font-weight:400;color:#8e97b3">Here’s how it went →</div>
+`);
+</script></body></html>

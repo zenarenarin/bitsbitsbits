@@ -1,0 +1,37 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+body{background:#111113}
+.band{position:absolute;left:0;top:0;width:1080px;height:116px;background:#111113}
+.hdr{position:absolute;top:30px;font-family:'Space Grotesk';color:#8d8d93;font-size:17px;letter-spacing:.16em;text-transform:uppercase}
+.hdr b{display:block;color:#f4f1ea;font-size:34px;letter-spacing:0;font-weight:600;margin-top:2px;text-transform:none}
+.hdr b small{font-size:18px;color:#8d8d93;font-weight:500;margin-left:6px}
+.name{position:absolute;left:36px;color:#1a0d13;font-size:238px;line-height:.93}
+.handle{position:absolute;left:42px;font-size:31px;color:#1a0d13;letter-spacing:-.01em}
+.lift{position:absolute;box-shadow:0 30px 50px rgba(0,0,0,.45),0 0 0 4px rgba(255,255,255,.92)}
+</style></head><body><div class="canvas" id="c">
+<div class="band"></div>
+</div>
+<script src="assets/data.js"></script><script src="lib.js"></script>
+<script>
+const c=document.getElementById('c');
+const B=HUE['b4-start'], S=HUE['b4-solved'];
+const T=1080/7, Y0=116;
+// sorted region: flows from the top-left corner (as the rules say: corner to corner)
+const home=(r,cc)=> r<=2 || (r===3 && cc<=4) || (r===4 && cc<=1);
+let st=midSolve(B.tiles,S.tiles,home);
+// the one wrong tile left in the sorted corner sits at row 3 col 5. The tile that belongs there is lifted
+// out of the scramble (its slot goes black, as it does in the game) and is on its way home.
+const want=S.tiles[3][5].hex; let LR,LC; st.forEach((row,r)=>row.forEach((t,cc)=>{if(t.hex===want){LR=r;LC=cc}}));
+const lifted=st[LR][LC]; st[LR][LC]={hex:'#0a0a0b',fixed:false}; console.log('lifted from',LR,LC);
+hueBoard(c,{x:0,y:Y0,tile:T,cols:7,rows:8,tiles:st,dotColor:'rgba(15,15,18,.6)'});
+const lt=document.createElement('div');lt.className='lift';
+const ls=T*1.12; lt.style.cssText+=`left:${5*T+T*.2}px;top:${Y0+3*T+T*.4}px;width:${ls}px;height:${ls}px;background:${lifted.hex};transform:rotate(-4deg)`;c.appendChild(lt);
+// header: plethora wordmark + the game's own swap counter (our real result)
+const wm=wordmark(5.2,'#f4f1ea');wm.style.cssText='position:absolute;left:38px;top:34px';c.appendChild(wm);
+c.insertAdjacentHTML('beforeend',`
+<div class="mono" style="position:absolute;left:378px;top:44px;font-size:27px;color:#f4f1ea;letter-spacing:-.01em"><span style="color:#6d6d73">/</span> played <span style="color:#6d6d73">/</span> @furiouslad23</div>
+<div class="hdr" style="right:38px;text-align:right">hue · board 4<b>64 <small>swaps · min 40</small></b></div>
+<div class="name drop" style="top:${Y0+16}px">Bhasker<br>Goel</div>
+<div class="handle grot" style="top:${Y0+3*T+40}px;font-weight:500;font-size:34px;line-height:1.15">Plethora played<br>his Bits.</div>
+`);
+</script></body></html>
