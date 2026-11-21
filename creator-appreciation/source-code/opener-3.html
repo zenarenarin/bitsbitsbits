@@ -1,0 +1,32 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+body{background:#1c2744}
+.hud{position:absolute;left:0;right:0;top:0;height:300px;background:linear-gradient(180deg,#22305a 0%,#1a2645 100%)}
+.k{font-family:'Space Grotesk';font-size:17px;letter-spacing:.18em;color:#8e97b3;text-transform:uppercase}
+.v{font-family:'Space Grotesk';font-weight:600;color:#f3ead9;letter-spacing:-.02em}
+.sub{position:absolute;left:0;right:0;top:246px;text-align:center;font-family:'Space Grotesk';font-size:24px;color:#9aa3bf}
+.coord{position:absolute;font-family:'Space Grotesk';font-weight:600;font-size:20px}
+</style></head><body><div class="canvas" id="c"><div class="hud"></div></div>
+<script src="assets/data.js"></script><script src="lib.js"></script>
+<script>
+const c=document.getElementById('c');
+const S=270, F0='b', BY=300, L='#f0d8b5', D='#b48862';
+const OX=64; const sq=(file,rank)=>[OX+('abcdefgh'.indexOf(file)-'abcdefgh'.indexOf(F0))*S, BY+(7-rank)*S];
+for(const f of 'abcde')for(let r=7;r>=4;r--){const fi='abcdefgh'.indexOf(f);const light=(fi+r)%2===0;const [x,y]=sq(f,r);
+  const d=document.createElement('div');d.style.cssText=`position:absolute;left:${x}px;top:${y}px;width:${S+.5}px;height:${S+.5}px;background:${light?L:D}`;c.appendChild(d);
+  if(f==='a')c.insertAdjacentHTML('beforeend',`<div class="coord" style="left:16px;top:${y+10}px;color:${light?D:L}">${r}</div>`);}
+// The real level-3 position from the recording: Bc7, Rb6, Nc5, Kd5 (4 pieces left · the king goes last).
+// The king stays a king. The other three pieces are his other games.
+let [x,y]=sq('c',7); tube(c,{x:x+S/2-62,y:y+S-22-350,w:124,h:350,segs:['yellow','blue','red','green'],rim:'#7c838b',glass:'#2a3048',lw:4.5});
+[x,y]=sq('b',6); {const t=HUE['b4-solved'].tiles[0][0];const d=document.createElement('div');d.style.cssText=`position:absolute;left:${x+34}px;top:${y+34}px;width:${S-68}px;height:${S-68}px;background:${t.hex};box-shadow:0 10px 0 rgba(0,0,0,.14)`;d.innerHTML='<i style="position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px;border-radius:50%;background:rgba(15,15,18,.55)"></i>';c.appendChild(d)}
+[x,y]=sq('c',5); qmark(c,{x:x+22,y:y+8,size:250,ch:'O',n:2,color:'#f070b4'});
+[x,y]=sq('d',5); piece(c,{x:x-6,y:y-34,size:S+12,p:'wK'});
+// HUD, in the game's own layout, introducing the maker
+const wm=wordmark(3.6,'#f3ead9');wm.style.cssText='position:absolute;left:44px;top:40px';c.appendChild(wm);
+c.insertAdjacentHTML('beforeend',`
+<div class="mono abs" style="right:44px;top:44px;font-size:20px;color:#f3ead9"><span style="color:#56607c">/</span> played <span style="color:#56607c">/</span> @furiouslad23</div>
+<div class="abs" style="left:44px;top:112px"><div class="k">maker</div><div class="v" style="font-size:50px;margin-top:6px">Bhasker Goel</div></div>
+<div class="abs" style="right:44px;top:112px;text-align:right"><div class="k">bits on plethora</div><div class="v" style="font-size:50px;margin-top:6px">26</div></div>
+<div class="abs grot" style="right:44px;top:236px;font-size:24px;color:#9aa3bf">4 pieces left <span style="color:#56607c">·</span> the king goes last</div>
+`);
+</script></body></html>

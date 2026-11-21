@@ -61,3 +61,12 @@ function qmark(parent,{x,y,size,ch,n,color,opacity=1,glow=false}){
   parent.appendChild(d);return d;
 }
 function piece(parent,{x,y,size,p,style=''}){const i=document.createElement('img');i.src=`assets/pieces/${p}.svg`;i.style.cssText=`position:absolute;left:${x}px;top:${y}px;width:${size}px;height:${size}px;${style}`;parent.appendChild(i);return i}
+// HTML glass tube whose contents can be any game material. bands: bottom->top, each {h, html, bg}
+function glassTube(parent,{x,y,w,h,rim='#8b939b',glass='rgba(24,29,39,.9)',lw=5,bands=[],lift=0,tilt=0,highlight=true}){
+  const t=document.createElement('div');
+  t.style.cssText=`position:absolute;left:${x}px;top:${y-lift}px;width:${w}px;height:${h}px;border:${lw}px solid ${rim};border-radius:${w*.09}px ${w*.09}px ${w/2}px ${w/2}px;overflow:hidden;background:${glass};transform:rotate(${tilt}deg);transform-origin:50% 0`;
+  let acc=0; bands.forEach(b=>{const d=document.createElement('div');d.style.cssText=`position:absolute;left:0;right:0;bottom:${acc}px;height:${b.h+.5}px;background:${b.bg||'transparent'};display:flex;align-items:center;justify-content:center;overflow:hidden`;if(b.html)d.innerHTML=b.html;t.appendChild(d);acc+=b.h});
+  if(highlight){const s=document.createElement('i');s.style.cssText=`position:absolute;left:${w*.15}px;top:${w*.12}px;width:${w*.09}px;bottom:${w*.42}px;border-radius:${w}px;background:rgba(255,255,255,.2)`;t.appendChild(s)}
+  parent.appendChild(t);return t;
+}
+function qhtml(ch,n,size,color){return `<span style="font-family:'Space Grotesk';font-weight:700;font-size:${size}px;line-height:1;color:${color}">${ch}<span style="font-size:.42em;vertical-align:-.28em">${n}</span></span>`}
