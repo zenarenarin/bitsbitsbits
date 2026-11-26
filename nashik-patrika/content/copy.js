@@ -20,7 +20,8 @@ window.PATRIKA_COPY = {
     '॥ श्री गजानन प्रसन्न ॥',
     '॥ श्री सप्तशृंगी प्रसन्न ॥',
   ],
-  opening: 'स.न.वि.वि. आमचे येथे श्री कुलस्वामिनी कृपेकरून,',
+  // one sentence, set on two lines
+  opening: ['स.न.वि.वि.', 'आमचे येथे श्री कुलस्वामिनी कृपेकरून,'],
   groom: {
     name: 'चि. समृद्ध',
     parents: ['(सौ. गायत्री व श्री. राहुल एकनाथ वावीकर', 'यांचे चिरंजीव)'], // CONFIRM: वावीकर
@@ -28,22 +29,20 @@ window.PATRIKA_COPY = {
   conjunction: 'आणि',
   bride: {
     name: 'चि. सौ. कां. वदन्या', // CONFIRM: वदन्या
-    parents: ['(सौ. नीता व श्री निलेश वैद्य', 'यांची सुकन्या)'],
+    parents: ['(सौ. नीता व श्री निलेश वैद्य यांची सुकन्या)'],
   },
   closing: 'यांचा',
   occasion: '॥ शुभ विवाह ॥',
-  // one sentence; the middle line — date and muhurta — carries the weight
-  muhurta: [
-    { text: 'मिती पौष कृ. ८ शके १९४८ शुक्रवार' },
-    { text: 'दिनांक २९/१/२०२७ रोजी १२ वाजून १४ मिनिटे', em: true }, // CONFIRM: | written as /; no सकाळी/दुपारी in draft
-    { text: 'या शुभमुहूर्तावर करण्याचे योजिले आहे.' },
-  ],
-  request: [
-    'तरी आपण सहकुटुंब-सहपरिवार उपस्थित राहून',
-    'वधू-वरांस शुभाशिर्वाद द्यावेत ही विनंती.', // CONFIRM: शुभाशिर्वाद as written
+  // the invitation, one paragraph, broken exactly where the family's
+  // handwritten draft breaks its lines
+  invitation: [
+    'मिती पौष कृ. ८ शके १९४८ शुक्रवार दिनांक २९/१/२०२७', // CONFIRM: | written as /
+    'रोजी १२ वाजून १४ मिनिटे या शुभमुहूर्तावर करण्याचे',   // CONFIRM: no सकाळी/दुपारी in draft
+    'योजिले आहे. तरी आपण सहकुटुंब-सहपरिवार उपस्थित',
+    'राहून वधू-वरांस शुभाशिर्वाद द्यावेत ही विनंती.',     // CONFIRM: शुभाशिर्वाद as written
   ],
   signoff: {
-    heading: 'आपले विनीत',
+    heading: '* आपले विनीत *', // asterisks as in the draft
     names: null,
     // the shape of the blacked-out block in the draft: one pair, a two-line
     // centred note, three pairs — used only to size the reserved space

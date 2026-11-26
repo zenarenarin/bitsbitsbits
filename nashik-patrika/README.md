@@ -4,32 +4,21 @@ A single-page Marathi wedding patrika (9:16, 1080 × 1920) set in an original pa
 
 **Status:** the static composition is awaiting approval. River motion will be added only after that.
 
-## The composition
+## The composition (after the user's reference, recomposed for 9:16)
 
-- **The view:** seen from a raised ghat on our bank, frontally across a broad river. The light is a soft golden glow low behind the far bank, so the riverfront reads as layered, backlit planes with warm rims.
-- **The far bank, left to right:**
-  - a Naroshankar-type precinct: a high basalt river wall with a blind arcade, a corner bell-house with the bell hanging in a cusped arch, a gateway stair through the wall, and a basalt shikhara and domed mandapa behind;
-  - the old town packed up the slope with spires and domes;
-  - a round open pavilion on a platform in the river;
-  - a tall arcaded tower standing in the water, as the landmark.
-- **The river and the near bank:** the far ghat has tiny figures and boats. On our side, a married couple sits on the steps at the water, seen from behind.
-- **The type:**
-  - The ceremonial text sits on one centred axis in the sky.
-  - The senders and the venue sit in a traditional two-column footer on the paving, which fades into the paper.
+- **The setting:** a soft morning on the Godavari. We stand inside an old stone pavilion on the ghat: its pillar and the spring of its arch frame the left edge, and a flowering palash branch hangs over them.
+- **The couple:** below, on the steps, a married couple sits with their backs to us, looking at the river, a brass thali of marigolds and a lota beside them.
+- **Our bank (left):** the ghat recedes along the river past a round open pavilion, a basalt shikhara and a corner bell-house.
+- **Across the water (right):** a tall arcaded sandstone tower stands in the river, with the town and hills beyond.
+- **The type:** sits in the sky on one centred axis, with the venue in the low gap between the temples and the tower.
 
 ## Typography
 
-- **Typeface:** Tiro Devanagari Marathi, in one weight. It was chosen over Noto Serif Devanagari after testing the actual copy: both render every conjunct correctly, but Tiro has the letterpress character of Marathi print.
-- **Spacing:** a 14 px unit, with sections 3 units apart.
-- **Type sizes (px):**
-
-| Text | Size |
-|---|---|
-| invocation, footer | 24 |
-| family lines, invitation | 29 |
-| date and muhurta line | 34 |
-| ॥ शुभ विवाह ॥ | 46 |
-| names | 68 |
+- **Typeface:** Tiro Devanagari Marathi, in one weight. It was tested on the actual copy against Noto Serif Devanagari.
+- **Colour:** names, title and headings in deep kumkum maroon; the rest in warm near-black.
+- **Ornament:** two fine gold flourishes only: either side of ॥ शुभ विवाह ॥, and around the senders.
+- **Line breaks:** the invitation keeps the line breaks of the family's handwritten draft.
+- **Spacing:** a 14 px unit.
 
 ## Editing and rendering
 
@@ -54,5 +43,5 @@ These are readings of the handwritten draft. They are typeset exactly as listed 
 6. **श्री. राहुल** has a dot after श्री, but **श्री निलेश** does not. This is kept as in the draft.
 7. **राकाज् गुलाबनगरी.** The first word of the venue was hard to read.
 8. **हनुमानवाडी.** This could be one word or **हनुमान वाडी**.
-9. **The names under आपले विनीत** were blacked out in the draft. Their space is held with faint bars, and no text has been invented.
+9. **The names under * आपले विनीत *** were blacked out in the draft. Their space is held with faint bars, and no text has been invented.
 10. **Layout changes:** the parentheses around the parents' names are kept. The honorifics (चि., चि. सौ. कां.) are set smaller than the names, which is a typographic choice and leaves the words unchanged.

@@ -25,6 +25,26 @@
     return d;
   };
 
+  // fine gold flourishes: a hairline that thickens toward a small lozenge
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = (w, h, inner, cls) => {
+    const s = document.createElementNS(NS, 'svg');
+    s.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    s.setAttribute('width', w); s.setAttribute('height', h);
+    s.setAttribute('class', cls);
+    s.innerHTML = inner;
+    return s;
+  };
+  const flourish = (side) => svg(118, 20, `<g ${side === 'r' ? 'transform="translate(118,0) scale(-1,1)"' : ''} fill="none" stroke="currentColor">
+      <path d="M2 10 C 30 10, 60 10, 92 10" stroke-width="0.9"/>
+      <path d="M62 10 C 70 6, 78 6, 84 10 C 78 14, 70 14, 62 10 Z" stroke-width="0.8"/>
+      <path d="M100 10 l5 -5 l5 5 l-5 5 z" fill="currentColor" stroke="none"/>
+      <circle cx="94" cy="10" r="1.4" fill="currentColor" stroke="none"/></g>`, 'fl');
+  const rule = () => svg(300, 16, `<g fill="none" stroke="currentColor">
+      <path d="M10 8 H 136 M164 8 H 290" stroke-width="0.8"/>
+      <path d="M150 2 l6 6 l-6 6 l-6 -6 z" fill="currentColor" stroke="none"/>
+      <circle cx="138" cy="8" r="1.4" fill="currentColor" stroke="none"/><circle cx="162" cy="8" r="1.4" fill="currentColor" stroke="none"/></g>`, 'rule');
+
   window.buildPatrika = function (root) {
     const page = el('section', 'patrika');
     page.lang = 'mr';
@@ -33,7 +53,7 @@
     const inv = el('div', 'inv');
     C.invocations.forEach((s) => inv.append(el('span', '', s)));
     main.append(inv);
-    main.append(el('div', 'opening', C.opening));
+    main.append(lines('opening', [].concat(C.opening)));
     const couple = el('div', 'couple');
     for (const [p, cls] of [[C.groom, 'groom'], [null, 'and'], [C.bride, 'bride']]) {
       if (!p) { couple.append(el('div', 'and', C.conjunction)); continue; }
@@ -42,11 +62,12 @@
       couple.append(d);
     }
     main.append(couple);
-    const occ = el('div', 'occasion');
-    occ.append(el('div', 'closing', C.closing), el('div', 'title', C.occasion));
-    main.append(occ);
-    main.append(lines('muhurta', C.muhurta));
-    main.append(lines('request', C.request));
+    main.append(el('div', 'closing', C.closing));
+    const title = el('div', 'title');
+    title.append(flourish('l'), el('span', '', C.occasion), flourish('r'));
+    main.append(title);
+    main.append(lines('invitation', C.invitation));
+    main.append(rule());
 
     const foot = el('div', 'foot');
     const so = el('div', 'signoff');
@@ -69,9 +90,9 @@
     so.append(names);
     const ve = el('div', 'venue');
     ve.append(el('div', 'h', C.venue.heading), lines('addr', C.venue.lines));
-    foot.append(so, ve);
-
-    page.append(main, foot);
+    foot.append(so, rule(), ve);
+    main.append(foot);
+    page.append(main);
     root.append(page);
     return page;
   };
