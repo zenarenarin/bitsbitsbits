@@ -1,0 +1,146 @@
+/*
+ * Typography. One family — Tiro Devanagari Marathi (John Hudson & Fiona
+ * Ross, Tiro Typeworks) — chosen because it carries the Marathi letterforms
+ * (ळ, ल, श, the Marathi र-forms) natively rather than the Hindi defaults,
+ * and has the calm, slightly calligraphic modulation of good traditional
+ * Marathi print. Hierarchy is made with size, space and line structure
+ * only: one weight, no letter-spacing, no effects.
+ */
+@font-face {
+  font-family: 'Tiro Devanagari Marathi';
+  src: url('../fonts/tiro-devanagari-marathi-devanagari-400-normal.woff2') format('woff2');
+  unicode-range: U+0900-097F, U+1CD0-1CF9, U+200C-200D, U+20A8, U+20B9, U+25CC, U+A830-A839, U+A8E0-A8FF;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Tiro Devanagari Marathi';
+  src: url('../fonts/tiro-devanagari-marathi-latin-400-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  font-display: block;
+}
+
+:root {
+  --ink: #2a2320;
+  --ink-soft: #3d3430;
+  --accent: #8b3f22; /* a muted kumkum/terracotta — used twice per page at most */
+}
+
+html, body {
+  margin: 0;
+  background: #1d1c1b;
+  overflow: hidden;
+}
+#stage {
+  position: absolute;
+  left: 0; top: 0;
+  width: 1080px; height: 1920px;
+  transform-origin: 0 0;
+  overflow: hidden;
+  background: #f2ebdd;
+}
+#bg, #fg {
+  position: absolute; left: 0; top: 0;
+  width: 1080px; height: 1920px;
+}
+#type { position: absolute; inset: 0; }
+
+.page {
+  position: absolute;
+  left: 0; top: 0;
+  width: 1080px; height: 1920px;
+  box-sizing: border-box;
+  font-family: 'Tiro Devanagari Marathi', serif;
+  color: var(--ink);
+  font-kerning: normal;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'kern', 'liga';
+}
+
+/* ------------------------------------------------------------------ page 1
+   The couple: a single centred axis, offset left of frame centre to sit in
+   the open sky and away from the pier on the right. */
+.page1 {
+  padding-top: 176px;
+  text-align: center;
+}
+.page1 > * { width: 830px; margin-left: 82px; }
+.page1 .inv {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 27px;
+  line-height: 1.4;
+  color: var(--accent);
+}
+.page1 .inv .inv-c { font-size: 29px; }
+.page1 .opening {
+  margin-top: 64px;
+  font-size: 34px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+.page1 .couple { margin-top: 44px; }
+.page1 .name { line-height: 1.12; }
+.page1 .name .hon { font-size: 42px; color: var(--ink-soft); }
+.page1 .name .nm { font-size: 96px; }
+.page1 .parents {
+  margin-top: 6px;
+  font-size: 32px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+.page1 .and {
+  font-size: 32px;
+  line-height: 1;
+  margin: 38px 0 30px;
+  color: var(--ink-soft);
+}
+.page1 .closing {
+  margin-top: 40px;
+  font-size: 32px;
+  color: var(--ink-soft);
+}
+.page1 .occasion {
+  margin-top: 10px;
+  font-size: 64px;
+  line-height: 1.3;
+  color: var(--accent);
+}
+
+/* ------------------------------------------------------------------ page 2
+   The details: a left-aligned reading column in the sky, beside the
+   precinct wall. Date and muhurta carry the weight. */
+.page2 {
+  padding: 138px 0 0 92px;
+  text-align: left;
+}
+.page2 > * { width: 660px; }
+.page2 .muhurta div { font-size: 32px; line-height: 1.55; color: var(--ink-soft); }
+.page2 .muhurta .em { font-size: 50px; line-height: 1.32; color: var(--ink); }
+.page2 .request {
+  margin: 34px 0 0;
+  font-size: 32px;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+.page2 .h {
+  font-size: 31px;
+  line-height: 1.5;
+  color: var(--accent);
+}
+.page2 .signoff { margin-top: 44px; }
+.page2 .names { margin-top: 6px; font-size: 29px; line-height: 1.6; }
+.page2 .names .pair { display: grid; grid-template-columns: 1fr 1fr; column-gap: 24px; }
+.page2 .names .single { }
+.page2 .names .bar {
+  display: inline-block;
+  vertical-align: middle;
+  height: 0.38em;
+  width: 86%;
+  border-radius: 0.19em;
+  background: rgba(70, 52, 40, 0.13);
+}
+.page2 .names .bar.wide { width: 74%; }
+.page2 .venue { margin-top: 44px; }
+.page2 .venue .line { font-size: 32px; line-height: 1.5; color: var(--ink-soft); }

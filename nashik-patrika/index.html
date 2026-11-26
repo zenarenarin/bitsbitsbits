@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="mr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>शुभ विवाह — समृद्ध आणि वदन्या</title>
+<link rel="stylesheet" href="src/style.css">
+</head>
+<body>
+<div id="stage">
+  <canvas id="bg"></canvas>
+  <div id="type"></div>
+  <canvas id="fg"></canvas>
+</div>
+<!-- horizontal motion blur for the pier as it passes the eye -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <filter id="mb1" x="-5%" y="0" width="110%" height="100%"><feGaussianBlur stdDeviation="1 0"/></filter>
+    <filter id="mb2" x="-5%" y="0" width="110%" height="100%"><feGaussianBlur stdDeviation="2 0"/></filter>
+    <filter id="mb3" x="-5%" y="0" width="110%" height="100%"><feGaussianBlur stdDeviation="3 0"/></filter>
+    <filter id="mb4" x="-5%" y="0" width="110%" height="100%"><feGaussianBlur stdDeviation="4 0"/></filter>
+    <filter id="mb5" x="-5%" y="0" width="110%" height="100%"><feGaussianBlur stdDeviation="5 0"/></filter>
+    <filter id="mb6" x="-5%" y="0" width="110%" height="100%"><feGaussianBlur stdDeviation="6 0"/></filter>
+    <filter id="mb7" x="-5%" y="0" width="110%" height="100%"><feGaussianBlur stdDeviation="7 0"/></filter>
+    <filter id="mb8" x="-5%" y="0" width="110%" height="100%"><feGaussianBlur stdDeviation="8 0"/></filter>
+    <filter id="mb9" x="-5%" y="0" width="110%" height="100%"><feGaussianBlur stdDeviation="9 0"/></filter>
+    <filter id="mb10" x="-5%" y="0" width="110%" height="100%"><feGaussianBlur stdDeviation="10 0"/></filter>
+    <filter id="mb11" x="-5%" y="0" width="110%" height="100%"><feGaussianBlur stdDeviation="11 0"/></filter>
+    <filter id="mb12" x="-5%" y="0" width="110%" height="100%"><feGaussianBlur stdDeviation="12 0"/></filter>
+    <filter id="mb13" x="-5%" y="0" width="110%" height="100%"><feGaussianBlur stdDeviation="13 0"/></filter>
+    <filter id="mb14" x="-5%" y="0" width="110%" height="100%"><feGaussianBlur stdDeviation="14 0"/></filter>
+    <filter id="mb15" x="-5%" y="0" width="110%" height="100%"><feGaussianBlur stdDeviation="15 0"/></filter>
+    <filter id="mb16" x="-5%" y="0" width="110%" height="100%"><feGaussianBlur stdDeviation="16 0"/></filter>
+  </defs>
+</svg>
+<script src="content/copy.js"></script>
+<script src="src/timeline.js"></script>
+<script src="src/core.js"></script>
+<script src="src/architecture.js"></script>
+<script src="src/world.js"></script>
+<script src="src/text.js"></script>
+<script src="src/main.js"></script>
+</body>
+</html>
