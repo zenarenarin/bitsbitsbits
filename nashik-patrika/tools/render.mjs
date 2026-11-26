@@ -3,9 +3,7 @@
  * Render the patrika.
  *
  *   node tools/render.mjs video            → out/patrika.mp4 (1080×1920, 30 fps)
- *   node tools/render.mjs stills           → out/patrika-page1.png, -page2.png (2160×3840),
- *                                             out/patrika-static.png (both, stacked),
- *                                             out/patrika-static.pdf (two pages)
+ *   node tools/render.mjs still            → out/patrika-static.jpg + .pdf (2160×3840)
  *   node tools/render.mjs frame 11 22 34   → out/frame-11.png … (1080×1920, for checking)
  *
  * Needs Chromium via Playwright, and ffmpeg on PATH for video.
@@ -55,37 +53,30 @@ const [mode = 'frame', ...rest] = process.argv.slice(2);
 
 if (mode === 'frame') {
   const { srv, browser, page } = await open(1);
-  for (const t of rest.length ? rest : ['11', '34']) {
+  for (const t of rest.length ? rest : ['0']) {
     await page.evaluate((t) => window.patrika.renderAt(t), parseFloat(t));
     const f = path.join(OUT, `frame-${t}.png`);
     await shot(page, f);
     console.log(f);
   }
   await browser.close(); srv.close();
-} else if (mode === 'stills') {
+} else if (mode === 'still') {
+  // the static patrika at 2× (2160 × 3840): PNG master, JPEG for sending, PDF
   const { srv, browser, page } = await open(2);
-  const st = await page.evaluate(() => window.TIMELINE.stills);
-  const files = [];
-  for (const [name, t] of Object.entries(st)) {
-    await page.evaluate((t) => window.patrika.renderAt(t), t);
-    const f = path.join(OUT, `patrika-${name}.png`);
-    await shot(page, f);
-    files.push(f);
-    console.log(f);
-  }
+  const t = await page.evaluate(() => window.TIMELINE.still);
+  await page.evaluate((t) => window.patrika.renderAt(t), t);
+  const png = path.join(OUT, 'patrika-static.png');
+  await shot(page, png);
   await browser.close(); srv.close();
-  // stacked single image and a two-page PDF, via Python/Pillow
   execFileSync('python3', ['-c', `
 import sys
 from PIL import Image
-a, b = [Image.open(p).convert('RGB') for p in sys.argv[1:3]]
-gap = 0
-s = Image.new('RGB', (a.width, a.height + b.height + gap), (242, 235, 221))
-s.paste(a, (0, 0)); s.paste(b, (0, a.height + gap))
-s.save(sys.argv[3], optimize=True)
-a.save(sys.argv[4], save_all=True, append_images=[b], resolution=300)
-`, files[0], files[1], path.join(OUT, 'patrika-static.png'), path.join(OUT, 'patrika-static.pdf')], { stdio: 'inherit' });
-  console.log(path.join(OUT, 'patrika-static.png'));
+a = Image.open(sys.argv[1]).convert('RGB')
+a.save(sys.argv[2], quality=92, optimize=True)
+a.save(sys.argv[3], resolution=300)
+`, png, path.join(OUT, 'patrika-static.jpg'), path.join(OUT, 'patrika-static.pdf')], { stdio: 'inherit' });
+  fs.unlinkSync(png);
+  console.log(path.join(OUT, 'patrika-static.jpg'));
   console.log(path.join(OUT, 'patrika-static.pdf'));
 } else if (mode === 'video') {
   const { srv, browser, page } = await open(1);
@@ -108,6 +99,6 @@ a.save(sys.argv[4], save_all=True, append_images=[b], resolution=300)
   await browser.close(); srv.close();
   console.log(file);
 } else {
-  console.error('usage: render.mjs video | stills | frame <t…>');
+  console.error('usage: render.mjs video | still | frame <t…>');
   process.exit(1);
 }

@@ -1,50 +1,46 @@
 # शुभ विवाह — a Nashik patrika
 
-A 40-second 9:16 motion patrika (1080 × 1920) and its static version. Both are painted entirely in code: watercolour washes, pencil construction lines and ink, rendered in Chromium.
+A single-page Marathi wedding patrika (9:16, 1080 × 1920) set in an original painted view of the Godavari at Panchavati, Nashik. Everything is painted in code: watercolour washes, pencil construction lines and ink, rendered in Chromium.
 
-The idea: you are standing on the stone steps of a ghat on the Godavari, just inside the edge of a riverside pavilion, looking diagonally across the river at the far bank. That bank has old lime-plastered wadas with timber balconies and clay-tile roofs, a basalt temple with a curvilinear shikhara and a mandapa, a small domed chhatri halfway down the steps, a peepal tree, and the town rising behind. Halfway through, you walk about 1.3 m along the ghat. The pavilion's stone pier passes close in front of your eye, and the high basalt wall of a temple precinct comes into view on the right. Its corner bell-house is drawn from the Naroshankar vocabulary, with the bell hanging in a cusped arch.
+**Status:** the static composition is awaiting approval. River motion will be added only after that.
 
-## Deliverables (`out/`)
+## The composition
 
-| file | what |
+- **The view:** seen from a raised ghat on our bank, frontally across a broad river. The light is a soft golden glow low behind the far bank, so the riverfront reads as layered, backlit planes with warm rims.
+- **The far bank, left to right:**
+  - a Naroshankar-type precinct: a high basalt river wall with a blind arcade, a corner bell-house with the bell hanging in a cusped arch, a gateway stair through the wall, and a basalt shikhara and domed mandapa behind;
+  - the old town packed up the slope with spires and domes;
+  - a round open pavilion on a platform in the river;
+  - a tall arcaded tower standing in the water, as the landmark.
+- **The river and the near bank:** the far ghat has tiny figures and boats. On our side, a married couple sits on the steps at the water, seen from behind.
+- **The type:**
+  - The ceremonial text sits on one centred axis in the sky.
+  - The senders and the venue sit in a traditional two-column footer on the paving, which fades into the paper.
+
+## Typography
+
+- **Typeface:** Tiro Devanagari Marathi, in one weight. It was chosen over Noto Serif Devanagari after testing the actual copy: both render every conjunct correctly, but Tiro has the letterpress character of Marathi print.
+- **Spacing:** a 14 px unit, with sections 3 units apart.
+- **Type sizes (px):**
+
+| Text | Size |
 |---|---|
-| `patrika.mp4` | 1080 × 1920, 30 fps, 40 s, H.264, for WhatsApp and phones |
-| `patrika-page1.jpg`, `patrika-page2.jpg` | each view at 2160 × 3840 with all of its text |
-| `patrika-static.jpg` | both pages stacked in one image, for forwarding |
-| `patrika-static.pdf` | both pages as a two-page PDF |
+| invocation, footer | 24 |
+| family lines, invitation | 29 |
+| date and muhurta line | 34 |
+| ॥ शुभ विवाह ॥ | 46 |
+| names | 68 |
 
-## Timeline
+## Editing and rendering
 
-| time | what happens |
-|---|---|
-| 0 – 3.4 s | Morning haze lifts off the river. Page 1 is already fully readable. |
-| 3.4 – 15 s | Reading. Only slow ripples in the reflections and a few breathing glints move. |
-| 15 – 22 s | The walk. Its velocity follows a minimum-jerk curve (no overshoot). The pier crosses the eye, and the text swaps behind it. |
-| 22 – 40 s | Reading page 2. The light on stone and water warms very slightly over the whole piece. |
-
-## How the transition works
-
-The camera only ever translates sideways. For any flat surface, that sideways move changes its image by an exact affine shear or scale. So each painted surface (sky, hills, far bank, water, steps, precinct wall, pier) is a card at its true depth. Each frame re-projects the cards with one canvas transform each, and nothing is repainted, which keeps the motion physically correct.
-
-The text never moves, fades or scales. Page 1 stays visible wherever the pier has not yet passed. Page 2 shows wherever it has. The boundary between them is always behind the stone.
-
-## Editing
-
-- **Copy:** `content/copy.js` is the only file to change. Line arrays are one sentence split for hierarchy; join them with spaces to get the draft back. To fill in the names under आपले विनीत, replace `names: null` with the real rows (the format is in the comment).
-- **Typography:** `src/style.css`. The typeface is Tiro Devanagari Marathi (SIL OFL, `fonts/`), set in a single weight with no letter-spacing.
-- **Timing:** `src/timeline.js`.
-- **Scene:** `src/world.js` (composition, in metres), `src/architecture.js` (painters), `src/core.js` (camera and watercolour primitives).
-
-## Rendering
+- **Copy:** `content/copy.js` holds all the copy.
+- **Code:** `src/style.css` is the type system, `src/scene.js` the painting, `src/main.js` the compositor and river, `src/timeline.js` the timing.
 
 ```bash
-npm install            # font package only; Playwright + Chromium + ffmpeg must be present
-node tools/render.mjs video          # out/patrika.mp4  (~5 min)
-node tools/render.mjs stills         # out/patrika-page*.png, -static.png, -static.pdf (2×)
-node tools/render.mjs frame 11 34    # quick check frames
+node tools/render.mjs still     # out/patrika-static.jpg + .pdf at 2160 × 3840
+node tools/render.mjs frame 0   # quick 1080 × 1920 check
+node tools/render.mjs video     # out/patrika.mp4 (after approval of the static)
 ```
-
-Opening `index.html` through any local server plays the piece in real time.
 
 ## Copy to confirm
 
@@ -58,5 +54,5 @@ These are readings of the handwritten draft. They are typeset exactly as listed 
 6. **श्री. राहुल** has a dot after श्री, but **श्री निलेश** does not. This is kept as in the draft.
 7. **राकाज् गुलाबनगरी.** The first word of the venue was hard to read.
 8. **हनुमानवाडी.** This could be one word or **हनुमान वाडी**.
-9. **The names under आपले विनीत** were redacted in the draft. Their space is reserved with neutral bars until the real names are supplied.
+9. **The names under आपले विनीत** were blacked out in the draft. Their space is held with faint bars, and no text has been invented.
 10. **Layout changes:** the parentheses around the parents' names are kept. The honorifics (चि., चि. सौ. कां.) are set smaller than the names, which is a typographic choice and leaves the words unchanged.
