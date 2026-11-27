@@ -1,0 +1,69 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>KINTSUGI dev harness</title>
+<style>
+  html,body{margin:0;height:100%;background:#111;overflow:hidden}
+  :root{--plethora-content-safe-top:62px;--plethora-content-safe-bottom:108px;--plethora-content-safe-left:0px;--plethora-content-safe-right:0px}
+  #bit{position:absolute;inset:0;overflow:hidden;touch-action:none}
+  #bit > canvas{position:absolute;inset:0;width:100%;height:100%}
+  #bit > div{position:absolute;inset:0}
+</style>
+</head>
+<body>
+<div id="bit"></div>
+<script>window.__KG_DEV = true; window.__KG_PR = +(new URLSearchParams(location.search).get('pr') || 0) || null;</script>
+<script src="../main.js"></script>
+<script type="module">
+// A small stand-in for the Plethora runtime, covering only what KINTSUGI uses.
+const host = document.getElementById('bit');
+const cleanups = [];
+const store = {};
+const Z = { background: 0, content: 10, overlay: 20, modal: 30 };
+function place(el, o) { o = o || {}; el.style.zIndex = String((Z[o.layer] || 10) + (o.order || 0)); if (o.input === 'passthrough' || o.pointerEvents === 'none') el.style.pointerEvents = 'none'; }
+const qs = new URLSearchParams(location.search);
+const safe = { top: 62, right: 0, bottom: 34, left: 0 }, content = { top: 62, right: 0, bottom: 108, left: 0 };
+const ctx = {
+  get width() { return host.clientWidth; },
+  get height() { return host.clientHeight; },
+  dpr: Math.min(2, window.devicePixelRatio || 1),
+  nativeDpr: window.devicePixelRatio || 1,
+  safeArea: safe, contentSafeArea: content, logoArea: null,
+  capabilities: { audio: true, backgroundMusic: false, haptics: true, storage: true },
+  container: host,
+  createCanvas2D(o) { const c = document.createElement('canvas'); c.style.cssText = 'position:absolute;inset:0;width:100%;height:100%'; place(c, o); host.appendChild(c);
+    const fit = () => { const d = Math.min(2, devicePixelRatio || 1); c.width = host.clientWidth * d; c.height = host.clientHeight * d; const g = c.getContext('2d'); g.setTransform(d, 0, 0, d, 0, 0); };
+    fit(); addEventListener('resize', fit); return c; },
+  createCanvas(o) { const c = document.createElement('canvas'); c.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;touch-action:none'; place(c, o); host.appendChild(c); return c; },
+  createRoot(o) { const d = document.createElement('div'); d.className = (o && o.className) || ''; d.style.cssText = 'position:absolute;inset:0'; place(d, o); host.appendChild(d); return d; },
+  listen(t, ev, fn, o) { t.addEventListener(ev, fn, o); cleanups.push(() => t.removeEventListener(ev, fn, o)); return () => t.removeEventListener(ev, fn, o); },
+  onResize(cb, o) { const f = () => cb({ width: ctx.width, height: ctx.height, dpr: ctx.dpr, nativeDpr: ctx.nativeDpr, safeArea: ctx.safeArea }); window.addEventListener('resize', f); if (o && o.immediate) f(); return () => {}; },
+  timeout(fn, ms) { setTimeout(fn, ms); },
+  interval(fn, ms) { setInterval(fn, ms); },
+  onDestroy(fn) { cleanups.push(fn); },
+  onFrame(cb) { let last = performance.now(); const loop = t => { cb(t - last, t); last = t; requestAnimationFrame(loop); }; requestAnimationFrame(loop); },
+  markVisualReady(r) { window.__visualReady = r; },
+  async importModule(name, version) { return await import('./vendor/three.module.js'); },
+  async loadFont() { return null; },
+  storage: { get: k => (k in store ? JSON.parse(store[k]) : null), set: (k, v) => { store[k] = JSON.stringify(v); }, remove: k => { delete store[k]; } },
+  input: {
+    activate(el, fn) { el.addEventListener('click', fn); return () => {}; },
+    delegate(root, sel, ev, fn) { root.addEventListener(ev, e => { const t = e.target.closest(sel); if (t) fn({ event: e, target: e.target, delegateTarget: t }); }); return () => {}; }
+  },
+  fx: { transition() { const ov = document.createElement('div'); ov.style.cssText = 'position:absolute;inset:0;background:#070706;opacity:0;transition:opacity .3s;z-index:99;pointer-events:none'; host.appendChild(ov);
+    return { cover: () => new Promise(r => { requestAnimationFrame(() => { ov.style.opacity = 1; setTimeout(r, 320); }); }), reveal: () => new Promise(r => { ov.style.opacity = 0; setTimeout(() => { ov.remove(); r(); }, 320); }) }; } },
+  pulse: { complete(o) { window.__pulse = o; } },
+  platform: { error(p) { window.__platformError = p; console.error('platform.error', p); }, ready() { window.__ready = true; }, start(p) { window.__starts = (window.__starts || 0) + 1; }, interact() {}, milestone() {}, fail(p) {}, complete(p) { window.__complete = p; }, haptic() {}, setScore() {}, emit() {} },
+  game: {
+    loop(o) { let last = performance.now(), paused = false; const f = t => { if (!paused) { o.update && o.update(Math.min(100, t - last)); o.render && o.render(); } last = t; requestAnimationFrame(f); }; requestAnimationFrame(f); return { pause() { paused = true; }, resume() { paused = false; } }; },
+    score() { let v = 0; const h = { set: x => { v = x; return h; }, reset: () => { v = 0; return h; }, add: x => { v += x; return h; }, flush() {}, submit: async (ch, o) => { window.__submit = { ch, o, v }; return { submitted: true, value: v }; }, rank: async () => ({ viewerRank: { rank: 3, value: v }, totalRanked: 41 }), get value() { return v; } }; return h; },
+    progress: { load: async () => ({ status: 'empty', state: null, resumeEligible: false }), save: async (c, p) => { window.__progress = p; return {}; }, complete: async () => ({}) }
+  }
+};
+window.__ctx = ctx;
+window.plethoraBit.init(ctx).catch(e => { console.error(e); window.__initError = String(e && e.stack || e); });
+</script>
+</body>
+</html>
