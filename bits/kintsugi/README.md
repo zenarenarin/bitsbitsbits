@@ -11,7 +11,7 @@ A Plethora Bit (`plethora-bit@2`, three.js 0.164.1). A ceramic object breaks in 
 | Turn the object | Drag on empty space | Drag on empty space |
 | Lay gold | Drag along a crack, starting on the object | Same |
 
-A shard seats only when its position, its turn and the side of the object facing you are all right (the gap must face you: turn the object first). Close but wrong, it is refused with a small nudge. The gold allowance is the crack length times a level factor; gold laid off the crack spills (and fades), and resting your finger pools it.
+A shard seats only when its position, its turn and the side of the object facing you are all right (the gap must face you: turn the object first). Close but wrong, it is refused with a small nudge. A shard resting near its gap seats itself as soon as you rotate it, or turn the object, into line. The gold allowance is the crack length times a level factor; gold laid off the crack spills (and fades), and resting your finger pools it.
 
 ## Design
 
@@ -24,6 +24,7 @@ A shard seats only when its position, its turn and the side of the object facing
   - Placement: errors are measured on screen (position, as a fraction of object size), on the turntable (yaw) and in the screen plane (roll); a soft magnet engages close in. The held shard renders in a second pass over the object so it never clips into it.
   - Gold: one raycast per frame against a low-resolution proxy; the nearest seam sample comes from a 5 cm spatial hash. Samples between consecutive contacts on the same seam fill continuously, liquid runs three samples ahead, and small gaps on a nearly finished seam close by themselves.
   - Score: precision (placement 40 %, gold deviation 60 %), flow (strokes, stops, time off the crack), efficiency (crack length over gold used) and completion, combined into one number and a grade: Perfect, Excellent, Beautiful, Repaired.
+- **Performance**: the resolution starts at up to 1.75x and steps down to 1x when the median frame time over a second exceeds 21 ms. Only the floor receives shadows, and the shadow map re-renders when pieces change or, while the object turns, every third frame. Every material of a level is compiled during the fade, gold ribbons upload only the stretch that changed, the break springs run in 6 ms substeps, and surface evaluation allocates nothing.
 - **Platform**: `display: fullscreen`; UI inside `ctx.contentSafeArea`; `ctx.game.progress` channel `atelier` (unlocked level, best score and grade per object, saved at the end of each level) mirrored to `ctx.storage`; leaderboard record `repair` with an `object` dimension; `ctx.pulse.complete` on each result.
 
 ## Run locally

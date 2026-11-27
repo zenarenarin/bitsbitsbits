@@ -61,7 +61,7 @@ window.plethoraBit = {
     // ---------- UI
     let paused = false, loop = null, gameReady = false;
     const ui = makeUI(ctx, {
-      pause() { if (!gameReady || state === 'loading') return; paused = true; if (paint.active) { paint.active = false; audio.flowStop(); } if (held) { held.state = 'loose'; held = null; } mode = 'none'; audio.ui(); ui.pauseMenu(true, !audio.muted); if (loop) loop.pause(); },
+      pause() { if (!gameReady || state === 'loading') return; paused = true; resetGesture(); audio.ui(); ui.pauseMenu(true, !audio.muted); if (loop) loop.pause(); },
       resume() { if (!gameReady) return; paused = false; ui.pauseMenu(false); if (loop) loop.resume(); },
       restart() { paused = false; ui.pauseMenu(false); if (loop) loop.resume(); attemptStart(); goLevel(levelIndex); },
       collection() { ui.collection(true, collectionRows()); },
@@ -98,7 +98,8 @@ window.plethoraBit = {
       renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, stencil: false, powerPreference: 'high-performance' });
     } catch (e) { ctx.platform.error({ stage: 'renderer', message: String((e && e.message) || e) }); ui.note('3D is unavailable on this device.'); ctx.markVisualReady('error'); ctx.platform.ready(); return; }
     ctx.onDestroy(() => { try { renderer.dispose(); renderer.forceContextLoss(); } catch (e) {} });
-    let pixelRatio = DEV && window.__KG_PR ? window.__KG_PR : Math.min(2, ctx.dpr || 1);
+    const PR_CAP = Math.min(1.75, ctx.dpr || 1);
+    let pixelRatio = DEV && window.__KG_PR ? window.__KG_PR : PR_CAP;
     renderer.setPixelRatio(pixelRatio);
     renderer.setSize(ctx.width, ctx.height, false);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -165,7 +166,7 @@ window.plethoraBit = {
     let stats = null;
     let started = false, attempt = 0, hintT = 0, lastInteract = 0;
     let revealT = 0, finalQuality = 0, resultInfo = null;
-    let waitingTouch = false, loadedAt = 0;
+    let waitingTouch = false, loadedAt = 0, loadSerial = 0;
     const score = ctx.game.score({ initial: 0, min: 0 });
     let seamIndex = null;
 
@@ -239,6 +240,8 @@ window.plethoraBit = {
     }
     function loadLevel(i) {
       const tL0 = performance.now();
+      loadSerial++;
+      resetGesture();
       disposeLevel();
       levelIndex = i; lv = LEVELS[i]; def = OBJECTS[lv.obj];
       surf = makeSurface(def);
@@ -259,7 +262,7 @@ window.plethoraBit = {
         for (const gr of f.groups) geo.addGroup(gr.start, gr.count, gr.mat);
         geo.computeBoundingSphere();
         const mesh = new THREE.Mesh(geo, mats);
-        mesh.castShadow = true; mesh.receiveShadow = true;
+        mesh.castShadow = true; mesh.receiveShadow = false;
         mesh.position.set(f.centroid[0], f.centroid[1], f.centroid[2]);
         turn.add(mesh);
         levelObjs.push(mesh);
@@ -311,6 +314,8 @@ window.plethoraBit = {
       waitingTouch = !started;
       lastInteract = 0; hintT = 0; revealT = 0; resultInfo = null;
       audio.bed(0.1);
+      updateCamera(1);
+      try { renderer.compile(scene, camera); } catch (e) {}
       if (DEV) window.__kgLoadMs = (window.__kgLoadMs || []).concat([[i, Math.round(performance.now() - tL0)]]);
     }
 
@@ -435,7 +440,7 @@ window.plethoraBit = {
       gg.setIndex(gidx);
       gg.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, centerY, 0), Rb * 2);
       const gm = new THREE.Mesh(gg, goldMat);
-      gm.renderOrder = 3; gm.castShadow = false; gm.receiveShadow = true;
+      gm.renderOrder = 3; gm.castShadow = false; gm.receiveShadow = false;
       turn.add(gm); levelObjs.push(gm);
       // dark hairline
       const hpos = new Float32Array(n * 2 * 2 * 3), hidx = [];
@@ -457,7 +462,7 @@ window.plethoraBit = {
       return {
         a: s.a, b: s.b, n, len: s.length, step, po, no, bi, pool, seed, rim0: s.rim0, rim1: s.rim1,
         fill: new Float32Array(n).fill(-1), dev: new Float32Array(n), width: new Float32Array(n), filled: 0, done: false,
-        gold: gm, att, hair: hm, dirty: false, idx: si, lips
+        gold: gm, att, hair: hm, dirty: false, dmin: 1e9, dmax: -1, dlip: false, idx: si, lips
       };
     }
 
@@ -531,6 +536,22 @@ window.plethoraBit = {
         }
       }
       s.dirty = true;
+      if (m < s.dmin) s.dmin = m;
+      if (m > s.dmax) s.dmax = m;
+      if (s.lips.some(L => L.m === m)) s.dlip = true;
+    }
+    // upload only the stretch of ribbon that changed (both skins, and the lip)
+    function flushGold(s) {
+      const K = 5, a0 = s.dmin * K, cnt = (s.dmax - s.dmin + 1) * K, lipBase = s.n * K * 2, lipCnt = s.lips.length * 7 * K;
+      for (const [name, sz] of [['position', 3], ['normal', 3], ['aFill', 1]]) {
+        const at = s.att[name];
+        at.clearUpdateRanges();
+        at.addUpdateRange(a0 * sz, cnt * sz);
+        at.addUpdateRange((s.n * K + a0) * sz, cnt * sz);
+        if (s.dlip && lipCnt) at.addUpdateRange(lipBase * sz, lipCnt * sz);
+        at.needsUpdate = true;
+      }
+      s.dirty = false; s.dmin = 1e9; s.dmax = -1; s.dlip = false;
     }
     const W0 = 0.0165;
     function fillSample(s, m, devNorm, delay) {
@@ -658,33 +679,41 @@ window.plethoraBit = {
       trayLayout();
     }
 
+    const flightTarget = new THREE.Vector3(), scrTmp = [0, 0, 0];
     function stepFlight(s, dt) {
       s.flyT += dt;
       if (s.flyT < 0) return;
       const fwdDist = cam.tD - Rb * 0.25;
-      const target = fromScreen(s.tx, s.ty, fwdDist, tmpV.clone());
+      fromScreen(s.tx, s.ty, fwdDist, flightTarget);
       const k = 30 / Math.pow(s.mass, 0.35), c = 2 * Math.sqrt(k) * 0.78;
-      const x = s.mesh.position;
-      const ax = (target.x - x.x) * k - s.vel.x * c, ay = (target.y - x.y) * k - s.vel.y * c, az = (target.z - x.z) * k - s.vel.z * c;
-      const grav = s.flyT < 0.22 ? -4.5 : 0;
-      s.vel.x += ax * dt; s.vel.y += (ay + grav) * dt; s.vel.z += az * dt;
-      x.addScaledVector(s.vel, dt);
-      // rotation: spin decays into the display pose
-      displayQuat(s, s.tq);
-      tmpQ.copy(s.tq).multiply(tmpQ2.copy(s.mesh.quaternion).invert());
-      if (tmpQ.w < 0) { tmpQ.x = -tmpQ.x; tmpQ.y = -tmpQ.y; tmpQ.z = -tmpQ.z; tmpQ.w = -tmpQ.w; }
-      const ang = 2 * Math.acos(clamp(tmpQ.w, -1, 1)), sn = Math.sqrt(Math.max(1e-9, 1 - tmpQ.w * tmpQ.w));
       const kr = 26 / Math.pow(s.mass, 0.3), cr = 2 * Math.sqrt(kr) * 0.85;
-      s.w.x += (tmpQ.x / sn * ang * kr - s.w.x * cr) * dt; s.w.y += (tmpQ.y / sn * ang * kr - s.w.y * cr) * dt; s.w.z += (tmpQ.z / sn * ang * kr - s.w.z * cr) * dt;
-      const wl = s.w.length();
-      if (wl > 1e-6) { tmpQ.setFromAxisAngle(tmpV2.copy(s.w).divideScalar(wl), wl * dt); s.mesh.quaternion.premultiply(tmpQ).normalize(); }
-      s.mesh.scale.setScalar(lerp(1, s.tscale, smooth(s.flyT / 0.9)));
-      const dist = x.distanceTo(target);
-      if (!s.landed && s.flyT > 0.35 && s.vel.length() < 0.9) { s.landed = true; audio.land(clamp(s.mass * 1.5, 0, 1)); }
-      if (s.flyT > 0.6 && dist < 0.004 && s.vel.length() < 0.05 && wl < 0.08) {
-        s.state = 'loose'; s.sx = s.tx; s.sy = s.ty; s.scale = s.tscale; s.dist = fwdDist;
+      const x = s.mesh.position;
+      displayQuat(s, s.tq);
+      // small fixed substeps keep the springs stable at any frame rate
+      const steps = Math.max(1, Math.ceil(dt / 0.006)), h = dt / steps;
+      let wl = 0;
+      for (let i = 0; i < steps; i++) {
+        const grav = s.flyT < 0.22 ? -4.5 : 0;
+        s.vel.x += ((flightTarget.x - x.x) * k - s.vel.x * c) * h;
+        s.vel.y += ((flightTarget.y - x.y) * k - s.vel.y * c + grav) * h;
+        s.vel.z += ((flightTarget.z - x.z) * k - s.vel.z * c) * h;
+        x.addScaledVector(s.vel, h);
+        tmpQ.copy(s.tq).multiply(tmpQ2.copy(s.mesh.quaternion).invert());
+        if (tmpQ.w < 0) { tmpQ.x = -tmpQ.x; tmpQ.y = -tmpQ.y; tmpQ.z = -tmpQ.z; tmpQ.w = -tmpQ.w; }
+        const ang = 2 * Math.acos(clamp(tmpQ.w, -1, 1)), sn = Math.sqrt(Math.max(1e-9, 1 - tmpQ.w * tmpQ.w));
+        s.w.x += (tmpQ.x / sn * ang * kr - s.w.x * cr) * h; s.w.y += (tmpQ.y / sn * ang * kr - s.w.y * cr) * h; s.w.z += (tmpQ.z / sn * ang * kr - s.w.z * cr) * h;
+        wl = s.w.length();
+        if (wl > 1e-6) { tmpQ.setFromAxisAngle(tmpV2.copy(s.w).divideScalar(wl), wl * h); s.mesh.quaternion.premultiply(tmpQ).normalize(); }
       }
-      if (s.flyT > 2.4) { s.state = 'loose'; s.sx = s.tx; s.sy = s.ty; s.scale = s.tscale; s.dist = fwdDist; }
+      s.mesh.scale.setScalar(lerp(1, s.tscale, smooth(s.flyT / 0.9)));
+      const dist = x.distanceTo(flightTarget), sp = s.vel.length();
+      if (!s.landed && s.flyT > 0.35 && sp < 0.9) { s.landed = true; audio.land(clamp(s.mass * 1.5, 0, 1)); }
+      if ((s.flyT > 0.6 && dist < 0.004 && sp < 0.05 && wl < 0.08) || s.flyT > 2.4) {
+        // hand over from where the piece actually is, so nothing jumps
+        toScreen(x, scrTmp);
+        s.state = 'loose'; s.sx = scrTmp[0]; s.sy = scrTmp[1]; s.scale = s.mesh.scale.x;
+        s.dist = x.clone().sub(camera.position).dot(camFwd());
+      }
     }
 
     // ---------- assembly: held / loose shard placement
@@ -709,7 +738,7 @@ window.plethoraBit = {
           const pull = near * near * 0.55;
           gx = lerp(gx, e.tx, pull); gy = lerp(gy, e.ty, pull);
           s.roll -= e.roll * near * near * dt * 5;
-          yawVel -= e.yaw * near * near * dt * 30;
+          yaw -= e.yaw * near * near * (1 - Math.exp(-dt * 5)); yawVel = 0;
         }
         s.sx += (gx - s.sx) * (1 - Math.exp(-dt * 26)); s.sy += (gy - s.sy) * (1 - Math.exp(-dt * 26));
         // depth eases toward the target's depth as the piece approaches
@@ -721,7 +750,11 @@ window.plethoraBit = {
         s.tscale = 1;
         s.lift += (1 - s.lift) * (1 - Math.exp(-dt * 12));
       } else if (s.state === 'loose') {
-        s.present += (1 - s.present) * (1 - Math.exp(-dt * 6));
+        const e = errors(s);
+        const far = clamp01(e.dpx / (objPx() * 0.95));
+        s.present += (1 - smooth(1 - far) - s.present) * (1 - Math.exp(-dt * 6));
+        // rotated in place, or the object turned to meet it: it seats itself
+        if (state === 'assembly' && e.pos < lv.pos && snapOk(e) && Math.hypot(s.tx - s.sx, s.ty - s.sy) < 3) { s.misses = Math.max(0, s.misses - 1); if (trySnap(s)) { if (selected === s) selected = null; return; } }
         s.sx += (s.tx - s.sx) * k * 0.6; s.sy += (s.ty - s.sy) * k * 0.6;
         s.dist += (cam.D - Rb * 0.25 - s.dist) * k;
         s.lift += (0 - s.lift) * (1 - Math.exp(-dt * 8));
@@ -731,7 +764,8 @@ window.plethoraBit = {
       // gentle breath when hinted
       const bob = s.hint > 0 ? Math.sin(stateT * 3.2) * 5 * s.hint : 0;
       fromScreen(s.sx, s.sy - s.lift * 4 - bob, s.dist, s.mesh.position);
-      displayQuat(s, s.mesh.quaternion);
+      displayQuat(s, tmpQ);
+      s.mesh.quaternion.slerp(tmpQ, 1 - Math.exp(-dt * (s.state === 'held' ? 22 : 12)));
       s.mesh.scale.setScalar(s.scale);
       // soft shadow behind and below
       const sh = s.sh;
@@ -745,10 +779,10 @@ window.plethoraBit = {
       sh.material.opacity = 0.32 + s.lift * 0.22;
     }
 
+    const snapOk = e => e.pos < lv.pos && Math.abs(e.yaw) < deg(lv.yawTol) && Math.abs(e.roll) < deg(lv.rollTol);
     function trySnap(s) {
       const e = errors(s);
-      const ok = e.pos < lv.pos && Math.abs(e.yaw) < deg(lv.yawTol) && Math.abs(e.roll) < deg(lv.rollTol);
-      if (ok) {
+      if (snapOk(e)) {
         const q = 1 - clamp01(e.pos / lv.pos * 0.4 + Math.abs(e.yaw) / deg(lv.yawTol) * 0.3 + Math.abs(e.roll) / deg(lv.rollTol) * 0.3) * 0.5;
         s.quality = clamp01(q - s.misses * 0.04);
         stats.placeQ.push(s.quality);
@@ -764,7 +798,7 @@ window.plethoraBit = {
         s.misses++; stats.rejects++;
         audio.reject(); haptic('light');
         const dx = s.sx - e.tx, dy = s.sy - e.ty, l = Math.hypot(dx, dy) || 1;
-        s.tx = s.sx + dx / l * 22; s.ty = s.sy + dy / l * 22;
+        s.tx = s.sx + dx / l * 14; s.ty = s.sy + dy / l * 14;
       } else {
         audio.drop();
         s.tx = s.sx; s.ty = s.sy;
@@ -866,8 +900,10 @@ window.plethoraBit = {
       if (spills.length >= SPILLS) spills.shift();
       spills.push({ p: H.clone(), n, r: 0.006 * size + 0.003, t: 0 });
     }
+    const spM4 = new THREE.Matrix4(), spQ = new THREE.Quaternion(), spS = new THREE.Vector3();
     function updateSpills(dt) {
-      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3();
+      const m4 = spM4, q = spQ, sc = spS;
+      if (!spills.length && spillMesh.count === 0) return;
       let c = 0;
       for (let i = spills.length - 1; i >= 0; i--) { spills[i].t += dt; if (spills[i].t > 2.8) spills.splice(i, 1); }
       for (const s of spills) {
@@ -929,10 +965,10 @@ window.plethoraBit = {
       audio.final(finalQuality); haptic('success');
       audio.bed(0.55);
       frame('results');
-      revealYaw0 = yaw;
+      revealYaw0 = yaw; userTurned = false;
       try { ctx.platform.milestone('repaired', { level: levelIndex + 1 }); } catch (e) {}
     }
-    let revealYaw0 = 0;
+    let revealYaw0 = 0, userTurned = false;
     function showResults() {
       state = 'results'; stateT = 0;
       const r = resultInfo;
@@ -1016,13 +1052,22 @@ window.plethoraBit = {
         ctx.timeout(() => audio.bedStart(), 60);
       } else if (!audio.ready) audio.unlock();
     }
+    // a gesture whose end never arrived (system swipe, app switch) is closed here
+    function resetGesture() {
+      pointers.clear(); twist = null;
+      if (held) { if (held.state === 'held') held.state = 'loose'; held = null; }
+      if (paint.active) { paint.active = false; audio.flowStop(); }
+      mode = 'none'; modePtr = -1; turnLast = null;
+    }
     function onDown(e) {
       if (paused || transitioning) return;
       firstGesture();
       const [x, y] = cssXY(e);
+      if (e.isPrimary && pointers.size) resetGesture();
       try { canvas.setPointerCapture(e.pointerId); } catch (er) {}
       pointers.set(e.pointerId, { x, y, sx: x, sy: y, px: x, py: y, type: e.pointerType });
       lastInteract = stateT;
+      for (const o of shards) o.hint = 0;
       if (pointers.size === 2 && mode === 'shard' && held) {
         const ps = [...pointers.values()];
         twist = { a: Math.atan2(ps[1].y - ps[0].y, ps[1].x - ps[0].x) };
@@ -1055,7 +1100,7 @@ window.plethoraBit = {
       }
       if (state === 'gold') {
         if (rayObject(x, y)) {
-          mode = 'paint'; paint.active = true; paint.x = x; paint.y = y; paint.lastH = null; paint.lastS = -1; paint.lastM = -1; paint.still = 0; paint.stopped = false;
+          mode = 'paint'; yawTarget = null; yawVel = 0; paint.active = true; paint.x = x; paint.y = y; paint.lastH = null; paint.lastS = -1; paint.lastM = -1; paint.still = 0; paint.stopped = false;
           stats.strokes++;
           audio.flowStart();
           markSeen('gold');
@@ -1065,7 +1110,7 @@ window.plethoraBit = {
         mode = 'turn'; turnLast = { x, t: performance.now() }; yawTarget = null;
         return;
       }
-      if (state === 'results' || state === 'reveal') { mode = 'turn'; turnLast = { x, t: performance.now() }; yawTarget = null; }
+      if (state === 'results' || state === 'reveal') { userTurned = true; mode = 'turn'; turnLast = { x, t: performance.now() }; yawTarget = null; yawVel = 0; }
     }
     function onMove(e) {
       const p = pointers.get(e.pointerId);
@@ -1115,6 +1160,7 @@ window.plethoraBit = {
     ctx.listen(canvas, 'pointermove', onMove);
     ctx.listen(canvas, 'pointerup', onUp);
     ctx.listen(canvas, 'pointercancel', onUp);
+    ctx.listen(canvas, 'lostpointercapture', e => { if (pointers.has(e.pointerId)) onUp({ pointerId: e.pointerId, type: 'pointercancel' }); });
     ctx.listen(canvas, 'contextmenu', e => e.preventDefault());
     ctx.listen(canvas, 'wheel', e => {
       if (state !== 'assembly') return;
@@ -1128,11 +1174,14 @@ window.plethoraBit = {
 
     // ---------- the overlay: rotation ring and quiet cues
     let ringAlpha = 0;
+    let overlayDirty = true;
     function drawOverlay(dt) {
-      g2.clearRect(0, 0, ctx.width, ctx.height);
       const s = state === 'assembly' && rotationOn() ? (held || selected) : null;
       const target = s && s.state !== 'snapping' ? (held ? 0.35 : 1) : 0;
       ringAlpha += (target - ringAlpha) * (1 - Math.exp(-dt * 10));
+      if (overlayDirty) { g2.clearRect(0, 0, ctx.width, ctx.height); overlayDirty = false; }
+      if (ringAlpha <= 0.01) return;
+      overlayDirty = true;
       if (ringAlpha > 0.01 && (s || ringLast)) {
         const t = s || ringLast;
         if (s) ringLast = s;
@@ -1167,15 +1216,22 @@ window.plethoraBit = {
     }, { immediate: false, debounceMs: 60 });
 
     // ---------- main loop
-    let perfAcc = 0, perfN = 0;
+    const perfDt = []; let perfSkip = 0;
     function update(dtMs) {
       if (paused || !lv) return;
       const dt = Math.min(0.05, dtMs / 1000);
       stateT += dt;
       shared.uTime.value += dt;
       // adaptive resolution
-      perfAcc += dtMs; perfN++;
-      if (perfN >= 90) { const avg = perfAcc / perfN; perfAcc = 0; perfN = 0; if (avg > 26 && pixelRatio > 1.25) { pixelRatio = Math.max(1.25, pixelRatio - 0.25); renderer.setPixelRatio(pixelRatio); renderer.setSize(ctx.width, ctx.height, false); } }
+      if (perfSkip > 0) perfSkip--; else if (!DEV || !window.__KG_PR) {
+        perfDt.push(dtMs);
+        if (perfDt.length >= 60) {
+          perfDt.sort((a, b) => a - b);
+          const med = perfDt[30];
+          perfDt.length = 0;
+          if (med > 21 && pixelRatio > 1) { pixelRatio = Math.max(1, Math.round((pixelRatio - 0.25) * 4) / 4); renderer.setPixelRatio(pixelRatio); renderer.setSize(ctx.width, ctx.height, false); perfSkip = 20; }
+        }
+      }
       // turntable
       if (mode !== 'turn') {
         if (yawTarget !== null) { const d = wrapAngle(yawTarget - yaw); yaw += d * (1 - Math.exp(-dt * 7)); if (Math.abs(d) < 0.0005) yawTarget = null; yawVel = 0; }
@@ -1240,18 +1296,18 @@ window.plethoraBit = {
         revealT += dt;
         shared.uSettle.value = smooth(revealT / 1.2);
         const t = clamp01((revealT - 0.6) / 9.0);
-        yaw = revealYaw0 + easeInOutCubic(t) * TAU; yawVel = 0; yawTarget = null;
+        if (!userTurned) { yaw = revealYaw0 + easeInOutCubic(t) * TAU; yawVel = 0; yawTarget = null; }
         scene.environmentRotation.y = Math.sin(clamp01(revealT / 7) * Math.PI) * 0.9;
         backdrop.material.uniforms.uLight.value = 1 + smooth(revealT / 2) * 0.25;
         if (revealT > 3.4) showResults();
       }
       if (state === 'results') {
-        if (revealT < 9.6) { revealT += dt; const t = clamp01((revealT - 0.6) / 9.0); if (mode !== 'turn' && yawVel === 0) yaw = revealYaw0 + easeInOutCubic(t) * TAU; }
+        if (revealT < 9.6) { revealT += dt; const t = clamp01((revealT - 0.6) / 9.0); if (!userTurned) yaw = revealYaw0 + easeInOutCubic(t) * TAU; }
         scene.environmentRotation.y = Math.sin(clamp01(revealT / 7) * Math.PI) * 0.9;
       }
       updateSpills(dt);
       // upload changed gold
-      for (const s of seams) if (s.dirty) { s.dirty = false; s.att.position.needsUpdate = true; s.att.normal.needsUpdate = true; s.att.aFill.needsUpdate = true; }
+      for (const s of seams) if (s.dirty) flushGold(s);
       for (const s of shards) {
         const o = s.outline;
         o.mat.uniforms.uOpacity.value = o.opacity; o.mat.uniforms.uTime.value = shared.uTime.value; o.mat.uniforms.uPulse.value = o.pulse;
@@ -1301,15 +1357,20 @@ window.plethoraBit = {
       ui.gold(1, true);
     }
 
-    let shadowSig = '';
+    let shadowSig = '', shadowYaw = 0, shadowFrame = 0;
     function render() {
       renderer.clear();
       camera.layers.set(0);
       // shadows only re-render when something that casts them moved
-      const sig = turn.rotation.y.toFixed(5) + ':' + shards.reduce((a, x) => a + (x.state === 'placed' ? 1 : 0), 0) + ':' + levelIndex;
-      if (sig !== shadowSig) { shadowSig = sig; renderer.shadowMap.needsUpdate = true; }
+      // (immediately when pieces change, every third frame while the object turns)
+      let placedN = 0, loose = false;
+      for (const x of shards) { if (x.state === 'placed') placedN++; else loose = true; }
+      const sig = placedN + ':' + loadSerial;
+      shadowFrame++;
+      if (sig !== shadowSig) { shadowSig = sig; shadowYaw = turn.rotation.y; renderer.shadowMap.needsUpdate = true; }
+      else if (turn.rotation.y !== shadowYaw && (shadowFrame % 3 === 0 || Math.abs(turn.rotation.y - shadowYaw) < 0.002)) { shadowYaw = turn.rotation.y; renderer.shadowMap.needsUpdate = true; }
       renderer.render(scene, camera);
-      if (shards.some(s => s.state !== 'placed')) {
+      if (loose) {
         renderer.clearDepth();
         camera.layers.set(1);
         renderer.render(scene, camera);
@@ -1357,7 +1418,7 @@ window.plethoraBit = {
       let k = 0;
       for (const se of seams) { const lim = Math.floor(se.n * (frac == null ? 1 : frac)); for (let m = 0; m < lim; m++) { const used = fillSample(se, m, dev, 0.002 * (k++)); gold -= used; goldUsed += used * (1 + dev * 0.6); } if (se.filled >= se.n) completeSeam(se); }
     }
-    if (DEV) window.__kg = { autoAssemble, autoGold, seamPts, area: () => area(), get state() { return state; }, shards: () => shards, seams: () => seams, lv: () => lv, startBreak, goLevel, errors, toScreen: v => toScreen(v, [0, 0, 0]), targetWorld: s => targetWorld(s, new THREE.Vector3()), camera, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, gold: () => [gold, goldMax], score: () => resultInfo, stats: () => stats, rayObject, turn, THREE, seen, objPx };
+    if (DEV) window.__kg = { info: () => ({ calls: renderer.info.render.calls, tris: renderer.info.render.triangles, pr: pixelRatio, programs: renderer.info.programs.length }), autoAssemble, autoGold, seamPts, area: () => area(), get state() { return state; }, shards: () => shards, seams: () => seams, lv: () => lv, startBreak, goLevel, errors, toScreen: v => toScreen(v, [0, 0, 0]), targetWorld: s => targetWorld(s, new THREE.Vector3()), camera, get yaw() { return yaw; }, set yaw(v) { yaw = v; }, gold: () => [gold, goldMax], score: () => resultInfo, stats: () => stats, rayObject, turn, THREE, seen, objPx };
     await fontP;
   }
 };

@@ -69,6 +69,7 @@ const wrap = a => { a = (a + Math.PI) % (2 * Math.PI); if (a < 0) a += 2 * Math.
   await p.waitForFunction(() => __kg.state === 'gold', null, { timeout: 30000 });
   await p.waitForTimeout(1500);
   await p.screenshot({ path: path.join(out, 'b_gold_start.png') });
+  console.log('render', JSON.stringify(await p.evaluate(() => __kg.info())));
   // gold: trace each seam through its visible stretch, turning the object as needed
   const ns = await p.evaluate(() => __kg.seams().length);
   for (let pass = 0; pass < 3; pass++) {

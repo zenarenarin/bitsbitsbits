@@ -11,7 +11,7 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
   p.on('pageerror', e => console.log('PAGEERROR', e.message));
   await p.goto(`http://localhost:${srv.address().port}/dev/index.html?pr=${dsf}`);
   await p.waitForFunction(() => window.__ready || window.__initError, null, { timeout: 60000 });
-  if (level > 0) { await p.evaluate(l => __kg.goLevel(l), level); await p.waitForFunction(() => __kg.lv() && __kg.state === 'intro'); }
+  if (level > 0) { await p.evaluate(l => __kg.goLevel(l), level); await p.waitForFunction(l => __kg.lv() === null || (__kg.lv() && __kg.state === 'intro' && window.__kgLoadMs && window.__kgLoadMs.some(x => x[0] === l)), level); }
   await p.evaluate(() => __kg.autoAssemble());
   await p.waitForFunction(() => __kg.state === 'gold', null, { timeout: 60000 });
   await p.evaluate(() => { __kg.yaw = 0.35; });

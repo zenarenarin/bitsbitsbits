@@ -8,8 +8,8 @@
 function buildFracture(surf, lv) {
   const def = surf.def;
   const T = def.thick;
-  const nu = 144;
-  const nv = clamp(Math.round(surf.L / (TAU * surf.radius / 1.15 / nu) * 0.9), 40, 76);
+  const nu = 128;
+  const nv = clamp(Math.round(surf.L / (TAU * surf.radius / 1.15 / nu) * 0.9), 40, 64);
   for (let attempt = 0; attempt < 80; attempt++) {
     const res = tryFracture(surf, lv, nu, nv, lv.seed * 101 + attempt * 7);
     if (res) { res.attempt = attempt; return res; }

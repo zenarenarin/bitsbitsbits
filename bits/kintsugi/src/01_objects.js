@@ -94,11 +94,14 @@ function makeSurface(def) {
   R[0] = 0;
   function prof(v) {
     const x = clamp01(v) * N, i = Math.min(N - 1, Math.floor(x)), f = x - i;
-    return [lerp(R[i], R[i + 1], f), lerp(Y[i], Y[i + 1], f)];
+    return [R[i] + (R[i + 1] - R[i]) * f, Y[i] + (Y[i + 1] - Y[i]) * f];
   }
+  // allocation-free: this runs for every vertex of every shard
   function pos(u, v, out) {
-    const p = prof(v), r = p[0] * def.rad(u, v), a = u * TAU;
-    out[0] = r * Math.sin(a); out[1] = p[1] + def.lift(u, v) * smooth(v * 3); out[2] = r * Math.cos(a);
+    const x = (v < 0 ? 0 : v > 1 ? 1 : v) * N, i = x >= N ? N - 1 : Math.floor(x), f = x - i;
+    const pr = R[i] + (R[i + 1] - R[i]) * f, py = Y[i] + (Y[i + 1] - Y[i]) * f;
+    const r = pr * def.rad(u, v), a = u * TAU;
+    out[0] = r * Math.sin(a); out[1] = py + def.lift(u, v) * smooth(v * 3); out[2] = r * Math.cos(a);
     return out;
   }
   const A = [0, 0, 0], B = [0, 0, 0], C = [0, 0, 0], D = [0, 0, 0];
@@ -117,7 +120,7 @@ function makeSurface(def) {
     return out;
   }
   // circumference scale: object-length of one unit of u, relative to profile length
-  function cscale(v) { return (TAU * Math.max(0.02, prof(v)[0])) / L; }
+  function cscale(v) { const x = (v < 0 ? 0 : v > 1 ? 1 : v) * N, i = x >= N ? N - 1 : Math.floor(x); return (TAU * Math.max(0.02, R[i] + (R[i + 1] - R[i]) * (x - i))) / L; }
   // bounds
   let maxR = 0, maxY = 0;
   for (let i = 0; i <= N; i++) { maxR = Math.max(maxR, R[i]); maxY = Math.max(maxY, Y[i]); }

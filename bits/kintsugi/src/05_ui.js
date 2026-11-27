@@ -3,7 +3,7 @@
 function makeUI(ctx, handlers) {
   const root = ctx.createRoot({ className: 'kg-root', layer: 'overlay', order: 5, input: 'passthrough' });
   const css = `
-  .kg-root{font-family:'KG Inter',-apple-system,'Helvetica Neue',Arial,sans-serif;color:#ebe4d6;-webkit-font-smoothing:antialiased;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+  .kg-root{font-family:'KG Inter',Inter,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Roboto,Arial,sans-serif;color:#ebe4d6;-webkit-font-smoothing:antialiased;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
   .kg-safe{position:absolute;inset:0;padding:var(--plethora-content-safe-top,0px) var(--plethora-content-safe-right,0px) var(--plethora-content-safe-bottom,120px) var(--plethora-content-safe-left,0px);pointer-events:none}
   .kg-in{position:relative;width:100%;height:100%}
   .kg-top{position:absolute;left:20px;right:12px;top:14px;display:flex;align-items:flex-start;justify-content:space-between}
@@ -22,11 +22,11 @@ function makeUI(ctx, handlers) {
   .kg-title{position:absolute;left:0;right:0;bottom:22px;text-align:center;opacity:0;transition:opacity 1.1s ease;pointer-events:none}
   .kg-title.on{opacity:1}
   .kg-title .n{font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:rgba(235,228,214,.42);margin-bottom:8px}
-  .kg-title .t{font-family:'KG Cormorant',Georgia,serif;font-style:italic;font-weight:300;font-size:30px;letter-spacing:.01em;color:rgba(240,233,220,.9)}
+  .kg-title .t{font-family:'KG Cormorant','Cormorant Garamond','Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif;font-style:italic;font-weight:300;font-size:30px;letter-spacing:.01em;color:rgba(240,233,220,.9)}
   .kg-res{position:absolute;left:0;right:0;bottom:10px;display:flex;flex-direction:column;align-items:center;opacity:0;transform:translateY(8px);transition:opacity 1.2s ease,transform 1.4s cubic-bezier(.2,.7,.2,1);pointer-events:none}
   .kg-res.on{opacity:1;transform:none}
   .kg-res.on .kg-row{pointer-events:auto}
-  .kg-grade{font-family:'KG Cormorant',Georgia,serif;font-style:italic;font-weight:300;font-size:40px;line-height:1;color:#f2ead9}
+  .kg-grade{font-family:'KG Cormorant','Cormorant Garamond','Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif;font-style:italic;font-weight:300;font-size:40px;line-height:1;color:#f2ead9}
   .kg-score{margin-top:12px;font-size:11px;letter-spacing:.28em;color:rgba(235,228,214,.62);font-variant-numeric:tabular-nums}
   .kg-meta{margin-top:7px;font-size:10px;letter-spacing:.16em;color:rgba(235,228,214,.38);min-height:14px;font-variant-numeric:tabular-nums;text-transform:uppercase}
   .kg-row{display:flex;gap:12px;margin-top:22px}
@@ -36,12 +36,12 @@ function makeUI(ctx, handlers) {
   .kg-veil{position:absolute;inset:0;background:rgba(6,6,6,.72);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);opacity:0;transition:opacity .4s;pointer-events:none}
   .kg-veil.on{opacity:1;pointer-events:auto}
   .kg-menu{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;gap:4px}
-  .kg-mi{height:48px;min-width:200px;font-family:'KG Cormorant',Georgia,serif;font-style:italic;font-weight:300;font-size:24px;color:rgba(240,233,220,.88)}
+  .kg-mi{height:48px;min-width:200px;font-family:'KG Cormorant','Cormorant Garamond','Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif;font-style:italic;font-weight:300;font-size:24px;color:rgba(240,233,220,.88)}
   .kg-mi.small{font-family:'KG Inter',sans-serif;font-style:normal;font-size:10px;letter-spacing:.26em;text-transform:uppercase;color:rgba(235,228,214,.5);height:44px}
   .kg-col{display:flex;flex-direction:column;gap:2px;width:min(320px,82%)}
   .kg-ci{display:flex;align-items:baseline;justify-content:space-between;height:46px;border-bottom:1px solid rgba(235,228,214,.08);padding:0 4px;text-align:left}
   .kg-ci .a{font-size:10px;letter-spacing:.2em;color:rgba(235,228,214,.4);width:30px;font-variant-numeric:tabular-nums}
-  .kg-ci .b{flex:1;font-family:'KG Cormorant',Georgia,serif;font-style:italic;font-size:21px;font-weight:300;color:rgba(240,233,220,.9)}
+  .kg-ci .b{flex:1;font-family:'KG Cormorant','Cormorant Garamond','Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif;font-style:italic;font-size:21px;font-weight:300;color:rgba(240,233,220,.9)}
   .kg-ci .c{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:rgba(214,170,92,.85)}
   .kg-ci[disabled]{opacity:.28;pointer-events:none}
   .kg-note{position:absolute;left:0;right:0;top:50%;text-align:center;font-size:11px;letter-spacing:.2em;color:rgba(235,228,214,.5);text-transform:uppercase}
