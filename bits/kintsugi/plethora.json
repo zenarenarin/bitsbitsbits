@@ -4,14 +4,33 @@
   "entry": "main.js",
   "title": "KINTSUGI",
   "description": "Mend broken ceramics with gold. Fit each shard back by its shape and turn, then trace every crack with a limited measure of liquid gold. Eight objects, each harder to repair.",
-  "tags": ["puzzle", "3d", "craft", "relaxing", "art"],
-  "permissions": ["audio", "haptics", "storage"],
-  "dependencies": ["three@0.164.1", "cormorant-garamond@1.0.0", "inter@1.0.0"],
+  "tags": [
+    "puzzle",
+    "3d",
+    "craft",
+    "relaxing",
+    "art"
+  ],
+  "permissions": [
+    "audio",
+    "haptics",
+    "storage"
+  ],
+  "dependencies": [
+    "three@0.164.1"
+  ],
   "display": "fullscreen",
-  "onboarding": { "kind": "immersive", "version": 1 },
+  "onboarding": {
+    "kind": "immersive",
+    "version": 1
+  },
   "game": {
     "progress": {
-      "atelier": { "label": "Collection", "stateSchemaVersion": 1, "ttlDays": 365 }
+      "atelier": {
+        "label": "Collection",
+        "stateSchemaVersion": 1,
+        "ttlDays": 365
+      }
     }
   },
   "memory": {
@@ -21,10 +40,27 @@
         "valueType": "number",
         "order": "desc",
         "format": "integer",
-        "periods": ["weekly", "all_time"],
-        "scopes": ["global", "following"],
+        "periods": [
+          "weekly",
+          "all_time"
+        ],
+        "scopes": [
+          "global",
+          "following"
+        ],
         "dedupe": "best_per_user",
-        "dimensions": { "object": ["cup", "bowl", "plate", "vase", "holder", "fluted", "moonjar", "folded"] }
+        "dimensions": {
+          "object": [
+            "cup",
+            "bowl",
+            "plate",
+            "vase",
+            "holder",
+            "fluted",
+            "moonjar",
+            "folded"
+          ]
+        }
       }
     }
   }
