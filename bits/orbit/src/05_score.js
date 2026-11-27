@@ -1,16 +1,14 @@
 // ScoreManager and the collection: streak, bests, discovered themes, studies
 // progress and the leaderboard records. Independent of rendering and puzzle logic.
 
-// v2: the intersection puzzle. Results from the first (alignment) prototype are
-// not comparable, so they are left behind rather than merged.
-const PROFILE_KEY = 'orbit.profile.v2';
+const PROFILE_KEY = 'orbit.profile.v1';
 
 function emptyProfile() {
-  return { v: 2, rev: 0, muted: false, seenIntro: false, streak: { count: 0, best: 0, last: 0 }, daily: {}, levels: { reached: 1, best: {} }, coll: [] };
+  return { v: 1, rev: 0, muted: false, seenIntro: false, streak: { count: 0, best: 0, last: 0 }, daily: {}, levels: { reached: 1, best: {} }, coll: [] };
 }
 
 function validProfile(p) {
-  return p && p.v === 2 && typeof p.rev === 'number' && p.streak && typeof p.streak.count === 'number' &&
+  return p && p.v === 1 && typeof p.rev === 'number' && p.streak && typeof p.streak.count === 'number' &&
     p.daily && typeof p.daily === 'object' && p.levels && typeof p.levels.reached === 'number' && Array.isArray(p.coll);
 }
 
@@ -116,7 +114,7 @@ function createScoreManager(ctx) {
   M.hasTheme = function (key) { return M.profile.coll.indexOf(key) >= 0; };
 
   // Record a finished daily. Returns what changed, for the completion screen.
-  M.completeDaily = function (day, moves, timeMs, hints, themeKey, stars) {
+  M.completeDaily = function (day, moves, timeMs, hints, themeKey) {
     const p = M.profile;
     const prevBest = M.bestDailyTime();
     const first = !p.daily[day];
@@ -125,16 +123,16 @@ function createScoreManager(ctx) {
       if (s.last === day - 1) s.count += 1; else if (s.last !== day) s.count = 1;
       s.last = day;
       s.best = Math.max(s.best, s.count);
-      p.daily[day] = [moves, timeMs, hints, stars || 0];
+      p.daily[day] = [moves, timeMs, hints];
     }
     const newTheme = M.addTheme(themeKey);
     M.save(true);
     return { first, streak: p.streak.count, bestStreak: p.streak.best, prevBest, isBest: first && (prevBest === null || timeMs < prevBest), newTheme };
   };
-  M.completeLevel = function (level, moves, timeMs, themeKey, stars) {
+  M.completeLevel = function (level, moves, timeMs, themeKey) {
     const p = M.profile;
     const prev = p.levels.best[level];
-    if (!prev || timeMs < prev[1]) p.levels.best[level] = [moves, timeMs, 0, stars || 0];
+    if (!prev || timeMs < prev[1]) p.levels.best[level] = [moves, timeMs];
     p.levels.reached = Math.max(p.levels.reached, level + 1);
     const newTheme = M.addTheme(themeKey);
     M.save(true);
