@@ -20,5 +20,6 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
     await p.waitForTimeout(600);
     await p.screenshot({ path: path.join(out, `as${i + 1}.png`) });
   }
+  console.log('load ms', JSON.stringify(await p.evaluate(() => window.__kgLoadMs)));
   await b.close(); srv.close();
 })();

@@ -238,6 +238,7 @@ window.plethoraBit = {
       spills.length = 0; spillMesh.count = 0;
     }
     function loadLevel(i) {
+      const tL0 = performance.now();
       disposeLevel();
       levelIndex = i; lv = LEVELS[i]; def = OBJECTS[lv.obj];
       surf = makeSurface(def);
@@ -267,8 +268,11 @@ window.plethoraBit = {
         scene.add(sh); levelObjs.push(sh);
         const outline = makeOutline(f);
         const mass = Math.sqrt(f.area);
+        // mean outward normal of the glazed face, for presenting the shard
+        const nrm = new THREE.Vector3();
+        { const P = [0, 0, 0], N = [0, 0, 0]; const bd = f.boundary; for (let k = 0; k < bd.length; k += Math.max(1, bd.length >> 5)) { surf.normal(bd[k][0].u, bd[k][0].v, N); nrm.x += N[0]; nrm.y += N[1]; nrm.z += N[2]; } if (f.seedUV) { surf.normal(f.seedUV.u, f.seedUV.v, N); nrm.x += N[0] * 4; nrm.y += N[1] * 4; nrm.z += N[2] * 4; } nrm.normalize(); }
         shards.push({
-          f, mesh, sh, outline, mass, anchor: f.anchor, state: 'placed', phi: f.phi,
+          f, mesh, sh, outline, mass, nrm, present: 0, anchor: f.anchor, state: 'placed', phi: f.phi,
           roll: 0, sx: 0, sy: 0, tx: 0, ty: 0, dist: 0, scale: 1, tscale: 1, lift: 0,
           vel: new THREE.Vector3(), w: new THREE.Vector3(), tq: new THREE.Quaternion(), quality: 1, misses: 0, hint: 0, flyT: 0, landed: false
         });
@@ -307,6 +311,7 @@ window.plethoraBit = {
       waitingTouch = !started;
       lastInteract = 0; hintT = 0; revealT = 0; resultInfo = null;
       audio.bed(0.1);
+      if (DEV) window.__kgLoadMs = (window.__kgLoadMs || []).concat([[i, Math.round(performance.now() - tL0)]]);
     }
 
     function makeOutline(f) {
@@ -584,7 +589,22 @@ window.plethoraBit = {
       for (const p of placed) { p.s.tx = p.x; p.s.ty = p.y; p.s.tscale = tscale; p.s.restScale = tscale; }
     }
     function rollQuat(roll, out) { return out.setFromAxisAngle(camFwd(), roll); }
-    function displayQuat(s, out) { rollQuat(s.roll, out); tmpQ2.setFromAxisAngle(Y, -s.phi); return out.multiply(tmpQ2); }
+    const qFace = new THREE.Quaternion(), vN = new THREE.Vector3(), vC = new THREE.Vector3(), qI = new THREE.Quaternion();
+    // resting shards turn their glazed face toward the viewer; near their place
+    // (present -> 0) they take their true orientation
+    function displayQuat(s, out) {
+      tmpQ2.setFromAxisAngle(Y, -s.phi);
+      if (s.present > 0.001 && s.nrm) {
+        vN.copy(s.nrm).applyQuaternion(tmpQ2);
+        vC.copy(camFwd()).negate();
+        if (vN.dot(vC) < 0) vN.negate();
+        qFace.setFromUnitVectors(vN, vC);
+        qI.identity().slerp(qFace, s.present * 0.72);
+        tmpQ2.premultiply(qI);
+      }
+      rollQuat(s.roll, out);
+      return out.multiply(tmpQ2);
+    }
     function targetWorld(s, out) { return turn.localToWorld(out.set(s.f.centroid[0], s.f.centroid[1], s.f.centroid[2])); }
     const scr = [0, 0, 0], scr2 = [0, 0, 0];
 
@@ -627,7 +647,7 @@ window.plethoraBit = {
       for (const s of shards) {
         if (s.anchor) continue;
         looseShard(s);
-        s.state = 'flying'; s.flyT = -0.18 - rr() * 0.12; s.landed = false;
+        s.state = 'flying'; s.flyT = -0.18 - rr() * 0.12; s.landed = false; s.present = 1;
         s.scale = 1;
         const out = new THREE.Vector3(s.f.centroid[0], 0, s.f.centroid[2]).normalize();
         out.applyAxisAngle(Y, yaw);
@@ -695,11 +715,13 @@ window.plethoraBit = {
         // depth eases toward the target's depth as the piece approaches
         const tdist = e.tw.clone().sub(camera.position).dot(camFwd());
         const close = 1 - clamp01(e.dpx / (objPx() * 0.7));
+        s.present += (1 - smooth(1 - clamp01(e.dpx / (objPx() * 0.95))) - s.present) * (1 - Math.exp(-dt * 10));
         const want = lerp(cam.D - Rb * 0.25, Math.min(cam.D - Rb * 0.25, tdist) - 0.02, close * (yawOk ? 1 : 0.2));
         s.dist += (want - s.dist) * k;
         s.tscale = 1;
         s.lift += (1 - s.lift) * (1 - Math.exp(-dt * 12));
       } else if (s.state === 'loose') {
+        s.present += (1 - s.present) * (1 - Math.exp(-dt * 6));
         s.sx += (s.tx - s.sx) * k * 0.6; s.sy += (s.ty - s.sy) * k * 0.6;
         s.dist += (cam.D - Rb * 0.25 - s.dist) * k;
         s.lift += (0 - s.lift) * (1 - Math.exp(-dt * 8));
@@ -888,8 +910,8 @@ window.plethoraBit = {
       const precision = placement * 0.4 + goldPrec * 0.6;
       const completion = seams.reduce((a, s) => a + s.filled, 0) / Math.max(1, stats.samples);
       const offRatio = stats.offTravel / Math.max(1e-3, stats.travel);
-      const extra = Math.max(0, stats.strokes - Math.ceil(seams.length * 0.6));
-      const flow = clamp01(1 - extra * 0.045 - stats.stops * 0.04 - offRatio * 0.6);
+      const extra = Math.max(0, stats.strokes - Math.ceil(seams.length * 1.2));
+      const flow = clamp01(1 - extra * 0.03 - stats.stops * 0.04 - offRatio * 0.8);
       const efficiency = clamp01((fr.totalSeam * completion) / Math.max(1e-3, goldUsed) / 0.86);
       const total = Math.round(1000 * (0.35 * precision + 0.2 * flow + 0.2 * efficiency + 0.25 * completion) * (0.6 + 0.4 * completion));
       const grade = total >= 900 ? 'Perfect' : total >= 780 ? 'Excellent' : total >= 600 ? 'Beautiful' : 'Repaired';
